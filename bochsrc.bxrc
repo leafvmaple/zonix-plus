@@ -1,0 +1,74 @@
+###############################################################
+# bochsrc.txt file for DLX Linux disk image.
+###############################################################
+
+# how much memory the emulated machine will have
+megs: 32
+
+# gdbstub: enabled=1, port=1234, text_base=0, data_base=0, bss_base=0
+
+# filename of ROM images
+romimage: file=$BXSHARE/BIOS-bochs-latest
+# romimage: file=$BXSHARE/bios.bin
+vgaromimage: file=$BXSHARE/VGABIOS-lgpl-latest.bin
+
+# what disk images will be used 
+floppya: type=none
+floppyb: type=none
+
+# hard disk - Primary IDE channel (hda: 64M FAT32, hdb: 16MB FAT16)
+# heads: bpb32->num_heads
+# spt: bpb32->sectors_per_track
+# cylinders: (bpb32->total_sectors_32 + bpb32->reserved_sectors) / heads / spt
+
+ata0: enabled=1, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14
+ata0-master: type=disk, path="bin/zonix.img", mode=flat, cylinders=512, heads=8, spt=32
+ata0-slave: type=disk, path="bin/fat16_test.img", mode=flat
+
+# Secondary IDE channel (hdc: 4MB, hdd: 4MB)
+# ata1: enabled=1, ioaddr1=0x170, ioaddr2=0x370, irq=15
+# ata1-master: type=disk, path="bin/disk3.img", mode=flat, cylinders=8, heads=16, spt=63
+# ata1-slave: type=disk, path="bin/disk4.img", mode=flat, cylinders=8, heads=16, spt=63
+
+# choose the boot disk.
+boot: c
+
+# default config interface is textconfig.
+#config_interface: textconfig
+#config_interface: wx
+
+display_library: x
+# other choices: win32 sdl wx carbon amigaos beos macintosh nogui rfb term svga
+
+# Add serial port to file for debugging
+com1: enabled=1, mode=file, dev=serial.out
+
+# where do we send log messages?
+log: bochsout.txt
+logprefix: %t [%i] %e
+debug: action=report
+info: action=report
+error: action=report
+
+# Enable port e9 hack for debug output
+port_e9_hack: enabled=1
+
+# disable the mouse, since DLX is text only
+mouse: enabled=0
+
+# set up IPS value and clock sync
+# Increased IPS for better performance, removed sync to avoid slowdown
+cpu: ips=50000000
+clock: sync=none
+
+# enable key mapping, using US layout as default.
+#
+# NOTE: In Bochs 1.4, keyboard mapping is only 100% implemented on X windows.
+# However, the key mapping tables are used in the paste function, so 
+# in the DLX Linux example I'm enabling keyboard_mapping so that paste 
+# will work.  Cut&Paste is currently implemented on win32 and X windows only.
+
+#keyboard: keymap=$BXSHARE/keymaps/x11-pc-us.map
+#keyboard: keymap=$BXSHARE/keymaps/x11-pc-fr.map
+#keyboard: keymap=$BXSHARE/keymaps/x11-pc-de.map
+#keyboard: keymap=$BXSHARE/keymaps/x11-pc-es.map
