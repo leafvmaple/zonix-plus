@@ -76,10 +76,10 @@ typedef struct {
     uint16_t create_time;           /* 0x0E: Creation time */
     uint16_t create_date;           /* 0x10: Creation date */
     uint16_t last_access_date;      /* 0x12: Last access date */
-    uint16_t first_cluster_hi;      /* 0x14: High word of first cluster (FAT32) */
+    uint16_t first_cluster_high;    /* 0x14: High word of first cluster (FAT32) */
     uint16_t write_time;            /* 0x16: Last write time */
     uint16_t write_date;            /* 0x18: Last write date */
-    uint16_t first_cluster_lo;      /* 0x1A: Low word of first cluster */
+    uint16_t first_cluster_low;     /* 0x1A: Low word of first cluster */
     uint32_t file_size;             /* 0x1C: File size in bytes */
 } __attribute__((packed)) fat_dir_entry_t;
 

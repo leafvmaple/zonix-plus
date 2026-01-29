@@ -2,6 +2,10 @@
 
 #include <base/types.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // IDE/ATA disk constants
 #define SECTOR_SIZE         512         // Bytes per sector
 #define IDE0_BASE           0x1F0       // Primary IDE controller base
@@ -87,3 +91,7 @@ void hd_test_interrupt(void);
 
 // IDE interrupt handler (called by trap handler with IRQ_IDE1 or IRQ_IDE2)
 void hd_intr(int irq);
+
+#ifdef __cplusplus
+}
+#endif

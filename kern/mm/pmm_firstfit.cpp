@@ -17,7 +17,7 @@
 
 // Constants for page management
 #define PMM_SUCCESS       0
-#define PMM_INVALID_PTR   NULL
+#define PMM_INVALID_PTR   nullptr
 #define PAGE_INIT_VALUE   0
 #define TEST_ALLOC_PAGES  5
 
@@ -37,9 +37,9 @@ static void init() {
  * @param base Pointer to the first page descriptor
  * @param n Number of pages to initialize
  */
-static void init_memmap(PageDesc *base, size_t n) {
+static void init_memmap(Page *base, size_t n) {
     // Clear all page descriptors in the range
-    for (PageDesc* p = base; p != base + n; p++) {
+    for (Page* p = base; p != base + n; p++) {
         p->ref = PAGE_INIT_VALUE;
         p->flags = PAGE_INIT_VALUE;
         p->property = PAGE_INIT_VALUE;
@@ -57,9 +57,9 @@ static void init_memmap(PageDesc *base, size_t n) {
 /**
  * @brief Allocate n contiguous pages using first-fit algorithm
  * @param n Number of pages to allocate
- * @return Pointer to the first page descriptor, NULL if allocation failed
+ * @return Pointer to the first page descriptor, nullptr if allocation failed
  */
-static PageDesc* alloc(size_t n) {
+static Page* alloc(size_t n) {
     // Check if we have enough free pages
     if (n > _free.nr_free) {
         return PMM_INVALID_PTR;
@@ -67,10 +67,10 @@ static PageDesc* alloc(size_t n) {
     
     // Search for a suitable free block (first-fit)
     list_entry_t *le = &_free.free_list;
-    PageDesc *page = PMM_INVALID_PTR;
+    Page *page = PMM_INVALID_PTR;
     
     while ((le = list_next(le)) != &_free.free_list) {
-        PageDesc *p = le2page(le, page_link);
+        Page *p = le2page(le, page_link);
         if (p->property >= n) {
             page = p;
             break;
@@ -80,7 +80,7 @@ static PageDesc* alloc(size_t n) {
     if (page) {
         // Split the block if it's larger than requested
         if (page->property > n) {
-            PageDesc *remaining = page + n;
+            Page *remaining = page + n;
             remaining->property = page->property - n;
             SET_PAGE_RESERVED(remaining);
             list_add(le, &(remaining->page_link));
@@ -100,9 +100,9 @@ static PageDesc* alloc(size_t n) {
  * @param base Pointer to the first page descriptor to free
  * @param n Number of pages to free
  */
-static void free(PageDesc *base, size_t n) {
+static void free(Page *base, size_t n) {
     // Clear flags for all pages being freed
-    PageDesc* p = base;
+    Page* p = base;
     for (; p != base + n; p++) {
         p->flags = PAGE_INIT_VALUE;
     }
@@ -158,7 +158,7 @@ static void check() {
     
     // Count total free pages
     while ((le = list_next(le)) != &_free.free_list) {
-        PageDesc *p = le2page(le, page_link);
+        Page *p = le2page(le, page_link);
         assert(PAGE_RESERVED(p));
         total_free += p->property;
     }
@@ -167,7 +167,7 @@ static void check() {
     assert(total_free == _free.nr_free);
 
     // Test allocation
-    PageDesc* p0 = alloc(TEST_ALLOC_PAGES);
+    Page* p0 = alloc(TEST_ALLOC_PAGES);
     assert(p0 != PMM_INVALID_PTR);
     assert(!PAGE_RESERVED(p0));
 }

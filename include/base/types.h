@@ -21,5 +21,9 @@ typedef uint32_t size_t;
     ((type *)((char *)(ptr) - offset_of(type, member)))
 
 #ifndef NULL
+#ifdef __cplusplus
+#define NULL nullptr
+#else
 #define NULL ((void *)0)
+#endif
 #endif

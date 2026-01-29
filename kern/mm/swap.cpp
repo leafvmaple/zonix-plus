@@ -8,8 +8,8 @@
 #include "../drivers/blk.h"
 
 // External function declarations
-extern PageDesc *alloc_pages(size_t n);
-extern void pages_free(PageDesc *base, size_t n);
+extern Page *alloc_pages(size_t n);
+extern void pages_free(Page *base, size_t n);
 
 // Global swap manager (can be changed to select different algorithms)
 swap_manager* swap_mgr;
@@ -18,7 +18,7 @@ swap_manager* swap_mgr;
 static unsigned int max_swap_offset;
 
 // Swap device
-static block_device_t *swap_device = NULL;
+static block_device_t* swap_device = nullptr;
 
 // Swap space configuration
 #define SWAP_START_SECTOR   1000        // Start sector for swap space
@@ -58,17 +58,17 @@ int swap_init_mm(mm_struct *mm) {
  * @param addr: virtual address that caused page fault
  * @param page_ptr: output pointer to the allocated page
  */
-int swap_in(mm_struct *mm, uintptr_t addr, PageDesc **page_ptr) {
+int swap_in(mm_struct *mm, uintptr_t addr, Page **page_ptr) {
     // Allocate a physical page
-    PageDesc *page = alloc_pages(1);
-    if (page == NULL) {
+    Page *page = alloc_pages(1);
+    if (page == nullptr) {
         cprintf("swap_in: failed to allocate page\n");
         return -1;
     }
     
     // Get the page table entry
     pte_t *ptep = get_pte(mm->pgdir, addr, 0);
-    if (ptep == NULL) {
+    if (ptep == nullptr) {
         cprintf("swap_in: no page table entry\n");
         pages_free(page, 1);
         return -1;
@@ -102,7 +102,7 @@ int swap_in(mm_struct *mm, uintptr_t addr, PageDesc **page_ptr) {
  * Helper function to find virtual address for a page
  * Searches the page table to find the virtual address mapped to this page
  */
-uintptr_t find_vaddr_for_page(mm_struct *mm, PageDesc *page) {
+uintptr_t find_vaddr_for_page(mm_struct *mm, Page *page) {
     uintptr_t pa = page2pa(page);
     
     // Search through page directory
@@ -136,14 +136,14 @@ int swap_out(mm_struct *mm, int n, int in_tick) {
     
     for (i = 0; i < n; i++) {
         // Use swap manager to select a victim page
-        PageDesc *victim = NULL;
+        Page *victim = nullptr;
         if (swap_mgr->swap_out_victim(mm, &victim, in_tick) != 0) {
             cprintf("swap_out: no victim page found\n");
             break;
         }
         
-        if (victim == NULL) {
-            cprintf("swap_out: victim is NULL\n");
+        if (victim == nullptr) {
+            cprintf("swap_out: victim is nullptr\n");
             break;
         }
         
@@ -158,7 +158,7 @@ int swap_out(mm_struct *mm, int n, int in_tick) {
         
         // Get the page table entry
         pte_t *ptep = get_pte(mm->pgdir, victim_addr, 0);
-        if (ptep == NULL) {
+        if (ptep == nullptr) {
             cprintf("swap_out: cannot get PTE for vaddr 0x%x\n", victim_addr);
             continue;
         }
@@ -212,7 +212,7 @@ int swapfs_init(void) {
  * @param entry: swap entry (page offset in swap space)
  * @param page: page descriptor to read into
  */
-int swapfs_read(uintptr_t entry, PageDesc *page) {
+int swapfs_read(uintptr_t entry, Page *page) {
     // Calculate disk sector number
     // +--------------------------------+--------+---+
     // |    Swap Offset (24 bits)       | Reserved| P |
@@ -239,7 +239,7 @@ int swapfs_read(uintptr_t entry, PageDesc *page) {
  * @param entry: swap entry (page offset in swap space)
  * @param page: page descriptor to write from
  */
-int swapfs_write(uintptr_t entry, PageDesc *page) {
+int swapfs_write(uintptr_t entry, Page *page) {
     // Calculate disk sector number
     uint32_t offset = (entry >> 8) & 0xFFFFFF;  // Extract offset from swap entry
     uint32_t sector = SWAP_START_SECTOR + (offset * SECTORS_PER_PAGE);

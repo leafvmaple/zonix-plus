@@ -1,36 +1,20 @@
-extern "C" {
-    #include "blk.h"
-    #include "hd.h"
-    #include "stdio.h"
-}
+#include "blk.h"
+#include "hd.h"
+#include "stdio.h"
 
 // Block device registry
-static block_device_t *block_devices[MAX_BLK_DEV];
-static int num_devices = 0;
+static block_device_t *block_devices[MAX_BLK_DEV]{};
+static block_device_t disk_devs[MAX_BLK_DEV]{};
+static int num_devices{};
 
-// Static storage for block devices (support up to 4 IDE devices)
-static block_device_t disk_devs[MAX_BLK_DEV];
+static int disk_read_wrapper(block_device_t* dev, uint32_t blockno, void* buf, size_t nblocks);
+static int disk_write_wrapper(block_device_t* dev, uint32_t blockno, const void* buf, size_t nblocks);
 
-// Forward declarations for disk operations
-static int disk_read_wrapper(block_device_t *dev, uint32_t blockno, void *buf, size_t nblocks);
-static int disk_write_wrapper(block_device_t *dev, uint32_t blockno, const void *buf, size_t nblocks);
-
-/**
- * Initialize block device layer
- */
 void blk_init(void) {
     cprintf("blk_init: initializing block device layer...\n");
-    
-    // Clear device registry
-    for (int i = 0; i < MAX_BLK_DEV; i++) {
-        block_devices[i] = nullptr;
-    }
-    num_devices = 0;
-    
-    // Initialize all hard disks
+
     hd_init();
-    
-    // Register all detected IDE devices
+
     int num_hd = hd_get_device_count();
     for (int i = 0; i < num_hd && i < MAX_BLK_DEV; i++) {
         ide_device_t *ide_dev = hd_get_device(i);
@@ -51,10 +35,7 @@ void blk_init(void) {
     }
 }
 
-/**
- * Register a block device
- */
-int blk_register(block_device_t *dev) {
+int blk_register(block_device_t* dev) {
     if (num_devices >= MAX_BLK_DEV) {
         cprintf("blk_register: too many devices\n");
         return -1;
@@ -64,10 +45,14 @@ int blk_register(block_device_t *dev) {
     return 0;
 }
 
+int blk_get_device_count(void) {
+    return num_devices;
+}
+
 /**
  * Get a block device by type
  */
-block_device_t *blk_get_device(int type) {
+block_device_t* blk_get_device(int type) {
     for (int i = 0; i < num_devices; i++) {
         if (block_devices[i] && block_devices[i]->type == type) {
             return block_devices[i];
@@ -79,7 +64,7 @@ block_device_t *blk_get_device(int type) {
 /**
  * Get a block device by name
  */
-block_device_t *blk_get_device_by_name(const char *name) {
+block_device_t* blk_get_device_by_name(const char *name) {
     if (!name) {
         return nullptr;
     }
@@ -101,17 +86,7 @@ block_device_t *blk_get_device_by_name(const char *name) {
     return nullptr;
 }
 
-/**
- * Get device count
- */
-int blk_get_device_count(void) {
-    return num_devices;
-}
-
-/**
- * Get device by index
- */
-block_device_t *blk_get_device_by_index(int index) {
+block_device_t* blk_get_device_by_index(int index) {
     if (index < 0 || index >= num_devices) {
         return nullptr;
     }
@@ -121,7 +96,7 @@ block_device_t *blk_get_device_by_index(int index) {
 /**
  * Read blocks from a device
  */
-int blk_read(block_device_t *dev, uint32_t blockno, void *buf, size_t nblocks) {
+int blk_read(block_device_t* dev, uint32_t blockno, void* buf, size_t nblocks) {
     if (dev == nullptr || dev->read == nullptr) {
         return -1;
     }
@@ -132,7 +107,7 @@ int blk_read(block_device_t *dev, uint32_t blockno, void *buf, size_t nblocks) {
 /**
  * Write blocks to a device
  */
-int blk_write(block_device_t *dev, uint32_t blockno, const void *buf, size_t nblocks) {
+int blk_write(block_device_t* dev, uint32_t blockno, const void *buf, size_t nblocks) {
     if (dev == nullptr || dev->write == nullptr) {
         return -1;
     }

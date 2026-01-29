@@ -1,6 +1,10 @@
 #pragma once
 #include <base/types.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
     uint32_t reg_edi;
     uint32_t reg_esi;
@@ -32,3 +36,6 @@ typedef struct {
 void trap(trap_frame *tf);
 void trapret(void);  // Assembly function to return from trap
 
+#ifdef __cplusplus
+}
+#endif

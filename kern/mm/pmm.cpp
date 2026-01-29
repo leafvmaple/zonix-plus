@@ -30,24 +30,24 @@ long user_stack [ PG_SIZE >> 2 ] ;
 
 long* STACK_START = &user_stack [PG_SIZE >> 2];
 
-const pmm_manager* pmm_mgr = NULL;
-PageDesc *pages = NULL;
+const pmm_manager* pmm_mgr = nullptr;
+Page *pages = nullptr;
 uint32_t npage = 0;
 
-uintptr_t page2pa(PageDesc *page) {
+uintptr_t page2pa(Page *page) {
     return (page - pages) << PG_SHIFT;
 }
 
-void* page2kva(PageDesc *page) {
+void* page2kva(Page *page) {
     return (void *)(KERNEL_BASE + page2pa(page));
 }
 
-PageDesc* pa2page(uintptr_t pa) {
+Page* pa2page(uintptr_t pa) {
 	return pages + PAG_NUM(pa);
 }
 
 // Convert kernel virtual address to page descriptor
-PageDesc* kva2page(void *kva) {
+Page* kva2page(void *kva) {
     return pa2page(P_ADDR((uintptr_t)kva));
 }
 
@@ -57,15 +57,15 @@ static void pmm_mgr_init() {
 	cprintf("pmm: manager = %s\n", pmm_mgr->name);
 }
 
-PageDesc *alloc_pages(size_t n) {
+Page *alloc_pages(size_t n) {
 	intr_save();
-	PageDesc *page = pmm_mgr->alloc(n);
+	Page *page = pmm_mgr->alloc(n);
 	intr_restore();
 
 	return page;
 }
 
-void pages_free(PageDesc* base, size_t n) {
+void pages_free(Page* base, size_t n) {
 	intr_save();
 	pmm_mgr->free(base, n);
 	intr_restore();
@@ -74,9 +74,9 @@ void pages_free(PageDesc* base, size_t n) {
 pte_t* get_pte(pde_t* pgdir, uintptr_t la, int create) {
     pde_t* pdep = pgdir + PDX(la);
     if (!(*pdep & PTE_P)) {
-        PageDesc* page;
-        if (!create || (page = alloc_pages(1)) == NULL) {
-            return NULL;
+        Page* page;
+        if (!create || (page = alloc_pages(1)) == nullptr) {
+            return nullptr;
         }
         page->ref = PAGE_REF_INIT;
 
@@ -101,7 +101,7 @@ static void page_init() {
 	extern uint8_t KERNEL_END[];
 
 	npage = PAG_NUM(max_pa);
-	pages = (PageDesc*)ROUND_UP((void *)KERNEL_END, PG_SIZE);
+	pages = (Page*)ROUND_UP((void *)KERNEL_END, PG_SIZE);
 	
 	// Initially mark all pages as reserved
 	for (uint32_t i = 0; i < npage; i++) {
@@ -121,7 +121,7 @@ static void page_init() {
 				addr = ROUND_UP(addr, PG_SIZE);
 				limit = ROUND_DOWN(limit, PG_SIZE);
 
-				PageDesc *base = pa2page(addr);
+				Page *base = pa2page(addr);
 				size_t n = PAG_NUM(limit - addr);
 				
     			cprintf("Valid Memory: [0x%08x, 0x%08x]\n", (uint32_t)addr, (uint32_t)limit);
@@ -137,8 +137,8 @@ void tlb_invl(pde_t *pgdir, uintptr_t la) {
     }
 }
 
-PageDesc *pgdir_alloc_page(pde_t *pgdir, uintptr_t la, uint32_t perm) {
-	PageDesc *page = alloc_pages(SINGLE_PAGE);
+Page *pgdir_alloc_page(pde_t *pgdir, uintptr_t la, uint32_t perm) {
+	Page *page = alloc_pages(SINGLE_PAGE);
 	if (page) {
 		page_insert(pgdir, page, la, perm);
 	}
@@ -146,7 +146,7 @@ PageDesc *pgdir_alloc_page(pde_t *pgdir, uintptr_t la, uint32_t perm) {
 	return page;
 }
 
-int page_insert(pde_t *pgdir, PageDesc *page, uintptr_t la, uint32_t perm) {
+int page_insert(pde_t *pgdir, Page *page, uintptr_t la, uint32_t perm) {
 	pte_t *ptep = get_pte(pgdir, la, CREATE_PTE_IF_NOT_EXIST);
 	if (!ptep) {
 		return INSERT_FAILURE;
@@ -162,8 +162,8 @@ int page_insert(pde_t *pgdir, PageDesc *page, uintptr_t la, uint32_t perm) {
 // For now, always allocate full pages (4KB)
 // TODO: Implement proper slab allocator
 void* kmalloc(size_t size) {
-    PageDesc* page = alloc_page();
-    return page ? page2kva(page) : NULL;
+    Page* page = alloc_page();
+    return page ? page2kva(page) : nullptr;
 }
 
 void kfree(void* ptr) {

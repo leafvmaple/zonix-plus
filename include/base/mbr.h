@@ -34,7 +34,7 @@
 typedef struct {
     uint8_t  boot_flag;        /* 0x80 = bootable, 0x00 = not bootable */
     uint8_t  start_chs[3];     /* Starting CHS address */
-    uint8_t  partition_type;   /* Partition type */
+    uint8_t  type;   /* Partition type */
     uint8_t  end_chs[3];       /* Ending CHS address */
     uint32_t start_lba;        /* Starting LBA address */
     uint32_t size;             /* Size in sectors */

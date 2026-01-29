@@ -26,7 +26,7 @@ int swap_fifo_init_mm(mm_struct *mm) {
  * @param page: page descriptor
  * @param swap_in: 1 if swapping in, 0 if newly mapped
  */
-int swap_fifo_map_swappable(mm_struct *mm, uintptr_t addr, PageDesc *page, int swap_in) {
+int swap_fifo_map_swappable(mm_struct *mm, uintptr_t addr, Page *page, int swap_in) {
     list_entry_t *head = (list_entry_t*) mm->swap_list;
     list_entry_t *entry = &(page->page_link);
     
@@ -42,14 +42,14 @@ int swap_fifo_map_swappable(mm_struct *mm, uintptr_t addr, PageDesc *page, int s
  * @param page_ptr: output pointer to victim page
  * @param in_tick: not used in FIFO
  */
-int swap_fifo_swap_out_victim(mm_struct *mm, PageDesc **page_ptr, int in_tick) {
+int swap_fifo_swap_out_victim(mm_struct *mm, Page **page_ptr, int in_tick) {
     list_entry_t *head = (list_entry_t*) mm->swap_list;
     
     // Select the first page (oldest) in the FIFO queue
     list_entry_t *victim = list_next(head);
     
     if (victim == head) {
-        *page_ptr = NULL;
+        *page_ptr = nullptr;
         return -1;  // No page available
     }
     

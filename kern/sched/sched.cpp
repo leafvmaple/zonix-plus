@@ -17,10 +17,10 @@ extern pde_t* boot_pgdir;
 extern mm_struct init_mm;  // Global kernel mm_struct
 
 // Global process management variables
-static list_entry_t proc_list;              // All processes list
-static task_struct *idle_proc = NULL; // Idle process (PID 0)
-static task_struct *init_proc = NULL; // Init process (PID 1)
-task_struct *current = NULL;          // Current running process
+static list_entry_t proc_list{};              // All processes list
+static task_struct *idle_proc{}; // Idle process (PID 0)
+static task_struct *init_proc{}; // Init process (PID 1)
+task_struct *current{};          // Current running process
 
 static int nr_process = 0;            // Number of processes
 
@@ -45,32 +45,32 @@ struct task_struct *get_current(void) {
 // Get process CR3 (page directory physical address)
 uintptr_t proc_get_cr3(task_struct *proc) {
     // All processes (including kernel threads) should have mm
-    assert(proc->mm != NULL && proc->mm->pgdir != NULL);
+    assert(proc->mm != nullptr && proc->mm->pgdir != nullptr);
     return P_ADDR((uintptr_t)proc->mm->pgdir);
 }
 
 // Allocate a new process structure
 static task_struct *alloc_proc(void) {
-    task_struct *proc = kmalloc(sizeof(task_struct));
+    task_struct *proc = (task_struct *)kmalloc(sizeof(task_struct));
     if (proc) {
         proc->state = TASK_UNINIT;
         proc->pid = -1;
         proc->kstack = 0;
-        proc->parent = NULL;
-        proc->mm = NULL;
+        proc->parent = nullptr;
+        proc->mm = nullptr;
         memset(&(proc->context), 0, sizeof(struct context));
-        proc->tf = NULL;
+        proc->tf = nullptr;
         proc->flags = 0;
         memset(proc->name, 0, sizeof(proc->name));
         proc->wait_state = 0;
-        proc->cptr = proc->optr = proc->yptr = NULL;
+        proc->cptr = proc->optr = proc->yptr = nullptr;
     }
     return proc;
 }
 
 // Set up kernel stack for process
 static int setup_kstack(task_struct *proc) {
-    PageDesc *page = alloc_page();
+    Page *page = alloc_page();
     if (page) {
         proc->kstack = (uintptr_t)page2kva(page);
         return 0;
@@ -99,7 +99,7 @@ static int copy_mm(uint32_t clone_flags, task_struct *proc) {
 }
 
 // Forward declaration
-extern void forkret(void);
+extern "C" void forkret(void);
 extern void trapret(void);
 
 // Copy process thread state
@@ -135,7 +135,7 @@ static void unhash_proc(task_struct *proc) {
 // Find process by PID using hash table
 static task_struct *find_proc(int pid) {
     if (pid <= 0) {
-        return NULL;
+        return nullptr;
     }
     list_entry_t *list = hash_list + pid_hashfn(pid), *le = list;
     while ((le = list_next(le)) != list) {
@@ -144,15 +144,15 @@ static task_struct *find_proc(int pid) {
             return proc;
         }
     }
-    return NULL;
+    return nullptr;
 }
 
 // Set process relationships (parent-child)
 static void set_links(task_struct *proc) {
     list_add(&proc_list, &(proc->list_link));
-    proc->yptr = NULL;
+    proc->yptr = nullptr;
     
-    if ((proc->optr = proc->parent->cptr) != NULL) {
+    if ((proc->optr = proc->parent->cptr) != nullptr) {
         proc->optr->yptr = proc;
     }
     
@@ -163,11 +163,11 @@ static void set_links(task_struct *proc) {
 static void remove_links(task_struct *proc) {
     list_del(&(proc->list_link));
     
-    if (proc->optr != NULL) {
+    if (proc->optr != nullptr) {
         proc->optr->yptr = proc->yptr;
     }
     
-    if (proc->yptr != NULL) {
+    if (proc->yptr != nullptr) {
         proc->yptr->optr = proc->optr;
     } else {
         proc->parent->cptr = proc->optr;
@@ -215,7 +215,7 @@ void schedule(void) {
 }
 
 // Context switch wrapper (will be implemented in assembly)
-extern void switch_to(struct context *from, struct context *to);
+extern "C" void switch_to(struct context *from, struct context *to);
 
 // Switch to a process
 void proc_run(task_struct *proc) {
@@ -285,13 +285,13 @@ int do_exit(int error_code) {
     }
     
     // Give children to init process if it exists
-    if (init_proc != NULL) {
-        while (current->cptr != NULL) {
+    if (init_proc != nullptr) {
+        while (current->cptr != nullptr) {
             task_struct *proc = current->cptr;
             current->cptr = proc->optr;
             
-            proc->yptr = NULL;
-            if ((proc->optr = init_proc->cptr) != NULL) {
+            proc->yptr = nullptr;
+            if ((proc->optr = init_proc->cptr) != nullptr) {
                 init_proc->cptr->yptr = proc;
             }
             proc->parent = init_proc;

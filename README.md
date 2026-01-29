@@ -16,7 +16,7 @@ A minimal x86 operating system with process scheduling, memory management, inter
 ## Environment
 
 ```bash
-sudo apt install make gcc nasm bochs-x
+sudo apt install make gcc nasm bochs-x dosfstools
 ```
 
 ## Build

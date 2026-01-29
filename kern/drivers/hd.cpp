@@ -230,7 +230,7 @@ int hd_read_device(int dev_id, uint32_t secno, void *dst, size_t nsecs) {
 
         // Clean up state
         dev->op = 0;
-        dev->waiting = NULL;
+        dev->waiting = nullptr;
 
         // Check for errors
         if (dev->err) {
@@ -320,7 +320,7 @@ int hd_write_device(int dev_id, uint32_t secno, const void *src, size_t nsecs) {
         
         // Clean up state
         dev->op = 0;
-        dev->waiting = NULL;
+        dev->waiting = nullptr;
 
         // Check for errors
         if (dev->err) {
@@ -421,7 +421,7 @@ void hd_intr(int irq) {
  */
 ide_device_t *hd_get_device(int dev_id) {
     if (!ide_devices[dev_id].present) {
-        return NULL;
+        return nullptr;
     }
     
     return &ide_devices[dev_id];

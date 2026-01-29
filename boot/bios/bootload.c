@@ -182,7 +182,7 @@ static uint32_t fat_find_file(const char* filename, uint8_t* dir_buffer, uint32_
         // Compare name (8 bytes) and ext (3 bytes) together as 11 bytes
         if (memcmp(&entry[i].name, filename, 11) == 0) {
             // For FAT32, combine hi and lo parts of cluster number
-            return ((uint32_t)entry[i].first_cluster_hi << 16) | entry[i].first_cluster_lo;
+            return ((uint32_t)entry[i].first_cluster_high << 16) | entry[i].first_cluster_low;
         }
     }
     return 0;  // Not found

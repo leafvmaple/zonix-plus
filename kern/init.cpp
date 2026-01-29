@@ -15,7 +15,7 @@
 
 static inline _syscall0(int, pause)
 
-__attribute__((noreturn)) int kern_init(struct boot_info *boot_info) {
+extern "C" __attribute__((noreturn)) int kern_init(struct boot_info *boot_info) {
     if (!boot_info || boot_info->magic != BOOT_INFO_MAGIC) {
         goto halt;
     }

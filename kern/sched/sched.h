@@ -65,8 +65,8 @@ int do_exit(int error_code);
 int do_wait(int pid, int *code_store);
 
 // Get current running process
-extern task_struct *current;
-task_struct *get_current(void);
+extern task_struct* current;
+task_struct* get_current(void);
 
 #define set_current(proc) do { current = (proc); } while (0)
 

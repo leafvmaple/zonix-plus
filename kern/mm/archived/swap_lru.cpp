@@ -26,13 +26,13 @@ int swap_lru_init_mm(mm_struct *mm) {
  * @param page: page descriptor
  * @param swap_in: 1 if swapping in (recently used), 0 if newly mapped
  */
-int swap_lru_map_swappable(mm_struct *mm, uintptr_t addr, PageDesc *page, int swap_in) {
+int swap_lru_map_swappable(mm_struct *mm, uintptr_t addr, Page *page, int swap_in) {
     list_entry_t *head = (list_entry_t*) mm->swap_list;
     list_entry_t *entry = &(page->page_link);
     
     // For LRU, when a page is accessed, move it to the back (most recent)
     // If it's already in the list, remove it first
-    if (entry->prev != NULL && entry->next != NULL) {
+    if (entry->prev != nullptr && entry->next != nullptr) {
         list_del(entry);
     }
     
@@ -48,14 +48,14 @@ int swap_lru_map_swappable(mm_struct *mm, uintptr_t addr, PageDesc *page, int sw
  * @param page_ptr: output pointer to victim page
  * @param in_tick: not used in LRU
  */
-int swap_lru_swap_out_victim(mm_struct *mm, PageDesc **page_ptr, int in_tick) {
+int swap_lru_swap_out_victim(mm_struct *mm, Page **page_ptr, int in_tick) {
     list_entry_t *head = (list_entry_t*) mm->swap_list;
     
     // Select the first page (least recently used)
     list_entry_t *victim = list_next(head);
     
     if (victim == head) {
-        *page_ptr = NULL;
+        *page_ptr = nullptr;
         return -1;  // No page available
     }
     

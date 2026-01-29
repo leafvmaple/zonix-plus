@@ -30,3 +30,12 @@
     uint32_t __n = (uint32_t)(n);                           \
     (typeof(a))(ROUND_DOWN((uint32_t)(a) + __n - 1, __n));  \
 })
+
+template <typename T>
+inline T min(T a, T b) {
+    return (a < b) ? a : b;
+}
+template <typename T>
+inline T max(T a, T b) {
+    return (a > b) ? a : b;
+}

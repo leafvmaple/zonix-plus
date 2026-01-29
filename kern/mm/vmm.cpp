@@ -64,7 +64,7 @@ void print_pgdir() {
 
 int vmm_pg_fault(mm_struct *mm, uint32_t error_code, uintptr_t addr) {
     uint32_t perm = PTE_U;
-    PageDesc *page = NULL;
+    Page *page = nullptr;
 
     addr = ROUND_DOWN(addr, PG_SIZE);
 
@@ -80,7 +80,7 @@ int vmm_pg_fault(mm_struct *mm, uint32_t error_code, uintptr_t addr) {
 
 static void mm_init(mm_struct *mm) {
     list_init(&mm->mmap_list);
-    mm->pgdir = NULL;
+    mm->pgdir = nullptr;
     mm->map_count = 0;
 }
 

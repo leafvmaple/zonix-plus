@@ -79,7 +79,7 @@ static void cmd_hdparm(int argc, char **argv) {
     for (int dev_id = 0; dev_id < 4; dev_id++) {
         ide_device_t *dev = hd_get_device(dev_id);
         
-        if (dev == NULL) {
+        if (dev == nullptr) {
             continue;
         }
         
@@ -143,14 +143,14 @@ static void cmd_ps(int argc, char **argv) {
 
 // Global FAT file system info
 // System disk (boot disk, always mounted)
-static fat_info_t g_system_fat;
-static const char *g_system_device = NULL;
-static int g_system_mounted = 0;
+static FatInfo g_system_fat{};
+static const char *g_system_device{};
+static int g_system_mounted{};
 
 // /mnt mounted disk (optional)
-static fat_info_t g_mnt_fat;
-static const char *g_mnt_device = NULL;
-static int g_mnt_mounted = 0;
+static FatInfo g_mnt_fat{};
+static const char *g_mnt_device{};
+static int g_mnt_mounted{};
 
 // Auto-mount system disk (hda) on first access
 static int ensure_system_mounted(void) {
@@ -159,13 +159,13 @@ static int ensure_system_mounted(void) {
     }
     
     // Try to mount hda (system disk)
-    block_device_t *dev = blk_get_device_by_name("hda");
+    block_device_t* dev = blk_get_device_by_name("hda");
     if (!dev) {
         cprintf("Error: System disk (hda) not found\n");
         return -1;
     }
     
-    if (fat_mount(dev, &g_system_fat) == 0) {
+    if (g_system_fat.mount(dev) == 0) {
         g_system_device = dev->name;
         g_system_mounted = 1;
         return 0;
@@ -207,7 +207,7 @@ static void cmd_mount(int argc, char **argv) {
     
     cprintf("Mounting %s at /mnt...\n", dev->name);
     
-    if (fat_mount(dev, &g_mnt_fat) == 0) {
+    if (g_mnt_fat.mount(dev) == 0) {
         g_mnt_device = dev->name;
         g_mnt_mounted = 1;
         cprintf("Successfully mounted %s at /mnt\n", dev->name);
@@ -226,8 +226,8 @@ static void cmd_umount(int argc, char **argv) {
     }
     
     cprintf("Unmounting %s from /mnt...\n", g_mnt_device);
-    fat_unmount(&g_mnt_fat);
-    g_mnt_device = NULL;
+    g_mnt_fat.unmount();
+    g_mnt_device = nullptr;
     g_mnt_mounted = 0;
     cprintf("Successfully unmounted /mnt\n");
 }
@@ -243,27 +243,15 @@ static void cmd_info(int argc, char **argv) {
     cprintf("System Disk Information:\n");
     cprintf("  Device: %s\n", g_system_device);
     cprintf("  Mount Point: /\n");
-    cprintf("  Type: FAT%d\n", g_system_fat.fat_type);
-    cprintf("  Bytes/Sector: %d\n", g_system_fat.bytes_per_sector);
-    cprintf("  Sectors/Cluster: %d\n", g_system_fat.sectors_per_cluster);
-    cprintf("  Bytes/Cluster: %d\n", g_system_fat.bytes_per_cluster);
-    cprintf("  Total Sectors: %d\n", g_system_fat.total_sectors);
-    cprintf("  Total Size: %d MB\n", 
-            (g_system_fat.total_sectors * g_system_fat.bytes_per_sector) / (1024 * 1024));
-    cprintf("  FAT Start: sector %d\n", g_system_fat.fat_start);
-    cprintf("  FAT Size: %d sectors\n", g_system_fat.fat_size);
-    cprintf("  Root Start: sector %d\n", g_system_fat.root_start);
-    cprintf("  Root Entries: %d\n", g_system_fat.root_entries);
-    cprintf("  Data Start: sector %d\n", g_system_fat.data_start);
-    cprintf("  Cluster Count: %d\n", g_system_fat.cluster_count);
+    g_system_fat.print_info();
     
     if (g_mnt_mounted) {
         cprintf("\n/mnt Information:\n");
         cprintf("  Device: %s\n", g_mnt_device);
         cprintf("  Mount Point: /mnt\n");
-        cprintf("  Type: FAT%d\n", g_mnt_fat.fat_type);
+        cprintf("  Type: FAT%d\n", g_mnt_fat.m_fat_type);
         cprintf("  Total Size: %d MB\n", 
-                (g_mnt_fat.total_sectors * g_mnt_fat.bytes_per_sector) / (1024 * 1024));
+                (g_mnt_fat.m_total_sectors * g_mnt_fat.m_bytes_per_sector) / (1024 * 1024));
     }
 }
 
@@ -271,7 +259,7 @@ static int ls_callback(fat_dir_entry_t *entry, void *arg) {
     (void)arg;
     
     char filename[13];
-    fat_get_filename(entry, filename, sizeof(filename));
+    FatInfo::get_filename(entry, filename, sizeof(filename));
     
     // Get file attributes
     char attr_str[6] = "-----";
@@ -296,7 +284,7 @@ static void cmd_ls(int argc, char **argv) {
         use_mnt = 1;
     }
     
-    fat_info_t *fat_info;
+    FatInfo *fat_info;
     const char *path;
     
     if (use_mnt) {
@@ -320,7 +308,7 @@ static void cmd_ls(int argc, char **argv) {
     cprintf("ATTR     SIZE     NAME\n");
     cprintf("-------- -------- ------------\n");
     
-    int count = fat_read_root_dir(fat_info, ls_callback, NULL);
+    int count = fat_info->read_root_dir(ls_callback, nullptr);
     
     if (count < 0) {
         cprintf("Failed to read directory\n");
@@ -345,7 +333,7 @@ static void cmd_cat(int argc, char **argv) {
         use_mnt = 1;
     }
     
-    fat_info_t *fat_info;
+    FatInfo *fat_info;
     
     if (use_mnt) {
         if (!g_mnt_mounted) {
@@ -364,7 +352,7 @@ static void cmd_cat(int argc, char **argv) {
     fat_dir_entry_t entry;
     
     // Find file
-    if (fat_find_file(fat_info, filename, &entry) != 0) {
+    if (fat_info->find_file(filename, &entry) != 0) {
         cprintf("File not found: %s\n", filename);
         return;
     }
@@ -400,7 +388,7 @@ static void cmd_cat(int argc, char **argv) {
             chunk_size = sizeof(file_buf);
         }
         
-        int read = fat_read_file(fat_info, &entry, file_buf, offset, chunk_size);
+        int read = fat_info->read_file(&entry, file_buf, offset, chunk_size);
         if (read <= 0) {
             cprintf("\nError reading file at offset %d\n", offset);
             break;
@@ -453,7 +441,6 @@ int command_count = sizeof(commands) / sizeof(shell_cmd_t);
 static int parse_args(const char *cmd, char **argv) {
     static char arg_buf[CMD_BUF_SIZE];
     int argc = 0;
-    int buf_pos = 0;
     
     // Copy to buffer for manipulation
     int i = 0;

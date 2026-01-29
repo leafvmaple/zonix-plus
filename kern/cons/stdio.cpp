@@ -8,7 +8,7 @@
 #define FMT_TRANSFER 1
 
 // Helper to get number of digits
-static int get_num_digits(uint64_t num, int base) {
+static int get_num_digits(uint64_t num, uint32_t base) {
     int digits = 0;
     if (num == 0) return 1;
     while (num > 0) {
@@ -20,7 +20,7 @@ static int get_num_digits(uint64_t num, int base) {
     return digits;
 }
 
-void print_digit(uint64_t num, int base, int width, char padc) {
+void print_digit(uint64_t num, uint32_t base, int width, char padc) {
     uint32_t mod = 0;
     if (num >= base) {
         mod = do_div(num, base);
@@ -48,7 +48,7 @@ void print_digit_no_pad(uint64_t num, int base) {
     cons_putc(mod < 10 ? '0' + mod : 'A' + mod - 10);
 }
 
-void print_num(va_list* args, int base, int lflag, int width, char padc, int left_align) {
+void print_num(va_list* args, uint32_t base, int lflag, int width, char padc, int left_align) {
     uint64_t num = lflag ? va_arg(*args, uint64_t) : va_arg(*args, uint32_t);
     
     if (left_align) {

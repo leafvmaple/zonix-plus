@@ -28,7 +28,7 @@ int swap_clock_init_mm(mm_struct *mm) {
  * @param page: page descriptor
  * @param swap_in: 1 if swapping in, 0 if newly mapped
  */
-int swap_clock_map_swappable(mm_struct *mm, uintptr_t addr, PageDesc *page, int swap_in) {
+int swap_clock_map_swappable(mm_struct *mm, uintptr_t addr, Page *page, int swap_in) {
     list_entry_t *head = (list_entry_t*) mm->swap_list;
     list_entry_t *entry = &(page->page_link);
     
@@ -44,10 +44,10 @@ int swap_clock_map_swappable(mm_struct *mm, uintptr_t addr, PageDesc *page, int 
  * @param page_ptr: output pointer to victim page
  * @param in_tick: not used in Clock
  */
-int swap_clock_swap_out_victim(mm_struct *mm, PageDesc **page_ptr, int in_tick) {
+int swap_clock_swap_out_victim(mm_struct *mm, Page **page_ptr, int in_tick) {
     list_entry_t *head = (list_entry_t*) mm->swap_list;
     
-    if (clock_ptr == NULL || clock_ptr == head) {
+    if (clock_ptr == nullptr || clock_ptr == head) {
         clock_ptr = list_next(head);
     }
     
@@ -56,12 +56,12 @@ int swap_clock_swap_out_victim(mm_struct *mm, PageDesc **page_ptr, int in_tick) 
         if (clock_ptr == head) {
             clock_ptr = list_next(clock_ptr);
             if (clock_ptr == head) {
-                *page_ptr = NULL;
+                *page_ptr = nullptr;
                 return -1;  // No page available
             }
         }
         
-        PageDesc *page = le2page(clock_ptr, page_link);
+        Page *page = le2page(clock_ptr, page_link);
         
         // Check the accessed bit (PTE_A)
         // For now, we'll use a simplified version without checking PTE

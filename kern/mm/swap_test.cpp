@@ -47,7 +47,7 @@ void test_fifo_basic() {
 
     swap_mgr_fifo.init_mm(init_mm);
     
-    PageDesc pages[5];
+    Page pages[5];
     
     // Add pages in order
     for (int i = 0; i < 5; i++) {
@@ -56,7 +56,7 @@ void test_fifo_basic() {
     
     // Verify FIFO order: should select page 0, then 1, then 2...
     for (int i = 0; i < 5; i++) {
-        PageDesc *victim = NULL;
+        Page *victim = nullptr;
         int ret = swap_mgr_fifo.swap_out_victim(init_mm, &victim, 0);
         
         // Simple message without snprintf for now
@@ -69,7 +69,7 @@ void test_fifo_basic() {
     }
     
     // Test empty list
-    PageDesc *victim = NULL;
+    Page *victim = nullptr;
     int ret = swap_mgr_fifo.swap_out_victim(init_mm, &victim, 0);
     TEST_ASSERT(ret != 0, "Empty list returns error");
     
@@ -81,7 +81,7 @@ void test_fifo_interleaved() {
     
     swap_mgr_fifo.init_mm(init_mm);
     
-    PageDesc pages[10];
+    Page pages[10];
     
     // Add 3 pages
     for (int i = 0; i < 3; i++) {
@@ -89,7 +89,7 @@ void test_fifo_interleaved() {
     }
     
     // Remove 1
-    PageDesc *victim;
+    Page *victim;
     swap_mgr_fifo.swap_out_victim(init_mm, &victim, 0);
     TEST_ASSERT(victim == &pages[0], "First victim is page 0");
     
@@ -118,7 +118,7 @@ void test_lru_basic() {
     mm_struct mm;
     swap_mgr_lru.init_mm(init_mm);
     
-    PageDesc pages[3];
+    Page pages[3];
     
     // Add pages 0, 1, 2
     swap_mgr_lru.map_swappable(init_mm, 0x1000, &pages[0], 0);
@@ -126,7 +126,7 @@ void test_lru_basic() {
     swap_mgr_lru.map_swappable(init_mm, 0x3000, &pages[2], 0);
     
     // Victim should be page 0 (least recently used)
-    PageDesc *victim;
+    Page *victim;
     swap_mgr_lru.swap_out_victim(init_mm, &victim, 0);
     TEST_ASSERT(victim == &pages[0], "LRU victim is page 0");
     
@@ -139,7 +139,7 @@ void test_lru_access_pattern() {
     mm_struct mm;
     swap_mgr_lru.init_mm(init_mm);
     
-    PageDesc pages[3];
+    Page pages[3];
     
     // Add pages 0, 1, 2
     swap_mgr_lru.map_swappable(init_mm, 0x1000, &pages[0], 0);
@@ -150,7 +150,7 @@ void test_lru_access_pattern() {
     swap_mgr_lru.map_swappable(init_mm, 0x1000, &pages[0], 1);
     
     // Now LRU should be page 1
-    PageDesc *victim;
+    Page *victim;
     swap_mgr_lru.swap_out_victim(init_mm, &victim, 0);
     TEST_ASSERT(victim == &pages[1], "After access, LRU is page 1");
     
@@ -177,7 +177,7 @@ void test_clock_basic() {
     mm_struct mm;
     swap_mgr_clock.init_mm(init_mm);
     
-    PageDesc pages[4];
+    Page pages[4];
     
     // Add pages
     for (int i = 0; i < 4; i++) {
@@ -185,9 +185,9 @@ void test_clock_basic() {
     }
     
     // Should select pages in order (simplified clock without accessed bit)
-    PageDesc *victim;
+    Page *victim;
     int ret = swap_mgr_clock.swap_out_victim(init_mm, &victim, 0);
-    TEST_ASSERT(ret == 0 && victim != NULL, "Clock selects a victim");
+    TEST_ASSERT(ret == 0 && victim != nullptr, "Clock selects a victim");
     
     TEST_END();
 }
@@ -206,7 +206,7 @@ void test_swap_init() {
     mm_struct mm;
     int ret = swap_init_mm(init_mm);
     TEST_ASSERT(ret == 0, "swap_init_mm succeeds");
-    TEST_ASSERT(mm.swap_list != NULL, "Swap list created");
+    TEST_ASSERT(mm.swap_list != nullptr, "Swap list created");
     
     TEST_END();
 }
@@ -225,15 +225,15 @@ void test_swap_in_basic() {
     if (ptep) {
         *ptep = 0x100;  // Fake swap entry (present bit = 0, offset = 1)
         
-        PageDesc *page = NULL;
+        Page *page = nullptr;
         int ret = swap_in(init_mm, addr, &page);
         
         TEST_ASSERT(ret == 0, "swap_in returns success");
-        TEST_ASSERT(page != NULL, "Page allocated");
+        TEST_ASSERT(page != nullptr, "Page allocated");
         
         // Check that PTE was updated
         pte_t *new_ptep = get_pte(mm.pgdir, addr, 0);
-        TEST_ASSERT(new_ptep != NULL && (*new_ptep & PTE_P), "PTE updated with present bit");
+        TEST_ASSERT(new_ptep != nullptr && (*new_ptep & PTE_P), "PTE updated with present bit");
         
         if (page) {
             pages_free(page, 1);
@@ -253,7 +253,7 @@ void test_swap_out_basic() {
     swap_init_mm(init_mm);
     
     // Allocate and map some pages
-    PageDesc *pages_arr[3];
+    Page *pages_arr[3];
     uintptr_t addrs[3];
     
     for (int i = 0; i < 3; i++) {
@@ -305,7 +305,7 @@ void test_algorithm_comparison() {
 
         algorithms[i]->init_mm(init_mm);
         
-        PageDesc pages[20];
+        Page pages[20];
         
         // Add 20 pages
         for (int j = 0; j < 20; j++) {
@@ -315,7 +315,7 @@ void test_algorithm_comparison() {
         // Remove 10 pages
         int removed = 0;
         for (int j = 0; j < 10; j++) {
-            PageDesc *victim;
+            Page *victim;
             if (algorithms[i]->swap_out_victim(init_mm, &victim, 0) == 0) {
                 removed++;
             }
@@ -407,8 +407,8 @@ void test_swap_disk_io() {
     uintptr_t test_addr = 0x300000;
     
     // 1. Allocate a page and fill it with test pattern
-    PageDesc *page = alloc_pages(1);
-    TEST_ASSERT(page != NULL, "Page allocation successful");
+    Page *page = alloc_pages(1);
+    TEST_ASSERT(page != nullptr, "Page allocation successful");
     
     if (!page) {
         TEST_END();
@@ -433,16 +433,16 @@ void test_swap_disk_io() {
     
     // Verify PTE was updated
     pte_t *ptep = get_pte(mm.pgdir, test_addr, 0);
-    TEST_ASSERT(ptep != NULL && !(*ptep & PTE_P), "PTE marked as not present");
+    TEST_ASSERT(ptep != nullptr && !(*ptep & PTE_P), "PTE marked as not present");
     
     uintptr_t swap_entry = *ptep;
     cprintf("  Page swapped to entry 0x%x\n", swap_entry);
     
     // 4. Swap in the page
-    PageDesc *new_page = NULL;
+    Page *new_page = nullptr;
     int ret = swap_in(init_mm, test_addr, &new_page);
     TEST_ASSERT(ret == 0, "Page swapped in");
-    TEST_ASSERT(new_page != NULL, "New page allocated");
+    TEST_ASSERT(new_page != nullptr, "New page allocated");
     
     // 5. Verify data integrity
     if (new_page) {
@@ -483,7 +483,7 @@ void test_swap_multiple_pages() {
     
     #define NUM_TEST_PAGES 5
     uintptr_t base_addr = 0x400000;
-    PageDesc *pages_arr[NUM_TEST_PAGES];
+    Page *pages_arr[NUM_TEST_PAGES];
     
     // 1. Allocate and fill multiple pages with unique patterns
     for (int i = 0; i < NUM_TEST_PAGES; i++) {
@@ -517,7 +517,7 @@ void test_swap_multiple_pages() {
         
         if (ptep && !(*ptep & PTE_P)) {
             // This page was swapped out, swap it back in
-            PageDesc *page = NULL;
+            Page *page = nullptr;
             int ret = swap_in(init_mm, addr, &page);
             
             if (ret == 0 && page) {
