@@ -2,6 +2,17 @@
 
 #include "pmm.h"
 
-// First-Fit memory allocation algorithm
-// Searches linearly for the first block that fits the requested size
-extern const pmm_manager firstfit_pmm_mgr;
+class FirstFitPMMManager : public PMMManager {
+public:
+    FirstFitPMMManager();
+
+    void init() override;
+    void init_memmap(Page* base, size_t n) override;
+    Page* alloc(size_t n) override;
+    void free(Page* base, size_t n) override;
+    size_t nr_free_pages() override;
+    void check() override;
+
+private:
+    FreeArea m_free{};
+};

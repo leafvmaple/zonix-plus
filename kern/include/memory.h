@@ -31,3 +31,8 @@ static inline int memcmp(const void *s1, const void *s2, size_t n) {
     }
     return 0;
 }
+
+inline void* operator new(__SIZE_TYPE__ size, void* ptr) noexcept {
+    (void)size;
+    return ptr;
+}

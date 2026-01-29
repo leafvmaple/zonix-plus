@@ -29,12 +29,36 @@ struct pmm_manager {
     void (*check)();
 };
 
+class PMMManager {
+public:
+    const char* m_name{};
+
+    virtual void init() = 0;
+    virtual void init_memmap(Page* base, size_t n) = 0;
+    virtual Page* alloc(size_t n) = 0;
+    virtual void free(Page* base, size_t n) = 0;
+    virtual size_t nr_free_pages() = 0;
+    virtual void check() = 0;
+    
+    PMMManager() = default;
+};
+
 #define le2page(le, member) to_struct((le), Page, member)
 
 struct free_area_t {
     list_entry_t free_list{};
     unsigned int nr_free{};
 };
+
+class FreeArea {
+public:
+    list_entry_t free_list{};
+    unsigned int nr_free{};
+
+    FreeArea() {
+        list_init(&free_list);
+    }
+}
 
 #define SET_BIT(page, bit) ((page)->flags |= (1 << (bit)))
 #define CLEAR_BIT(page, bit) ((page)->flags &= ~(1 << (bit)))

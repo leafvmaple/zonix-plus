@@ -14,6 +14,14 @@
 
 #include "pmm_firstfit.h"
 
+union PMMStorage {
+	alignas(16) char raw[sizeof(FirstFitPMMManager)];
+	FirstFitPMMManager mgr;
+
+	constexpr PMMStorage() noexcept : raw{} {}
+    ~PMMStorage() {}
+} pmm;
+
 // Page number calculation (address to page index)
 #define PAG_NUM(addr) ((addr) >> PG_SHIFT)
 
@@ -30,7 +38,6 @@ long user_stack [ PG_SIZE >> 2 ] ;
 
 long* STACK_START = &user_stack [PG_SIZE >> 2];
 
-const pmm_manager* pmm_mgr = nullptr;
 Page *pages = nullptr;
 uint32_t npage = 0;
 
@@ -52,14 +59,14 @@ Page* kva2page(void *kva) {
 }
 
 static void pmm_mgr_init() {
-    pmm_mgr = &firstfit_pmm_mgr;
-    pmm_mgr->init();
-	cprintf("pmm: manager = %s\n", pmm_mgr->name);
+	new (&pmm.mgr) FirstFitPMMManager();
+    pmm.mgr.init();
+	cprintf("pmm: manager = %s\n", pmm.mgr.m_name);
 }
 
 Page *alloc_pages(size_t n) {
 	intr_save();
-	Page *page = pmm_mgr->alloc(n);
+	Page *page = pmm.mgr.alloc(n);
 	intr_restore();
 
 	return page;
@@ -67,7 +74,7 @@ Page *alloc_pages(size_t n) {
 
 void pages_free(Page* base, size_t n) {
 	intr_save();
-	pmm_mgr->free(base, n);
+	pmm.mgr.free(base, n);
 	intr_restore();
 }
 
@@ -125,7 +132,7 @@ static void page_init() {
 				size_t n = PAG_NUM(limit - addr);
 				
     			cprintf("Valid Memory: [0x%08x, 0x%08x]\n", (uint32_t)addr, (uint32_t)limit);
-				pmm_mgr->init_memmap(pa2page(addr), PAG_NUM(limit - addr));
+				pmm.mgr.init_memmap(pa2page(addr), PAG_NUM(limit - addr));
 			}
 		}
 	}
