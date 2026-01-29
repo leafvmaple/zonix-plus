@@ -112,7 +112,7 @@ static void page_init() {
 	
 	// Initially mark all pages as reserved
 	for (uint32_t i = 0; i < npage; i++) {
-		SET_PAGE_RESERVED(pages + i);
+		pages[i].set_reserved();
 	}
 	
 	uintptr_t valid_mem = P_ADDR(pages + npage);

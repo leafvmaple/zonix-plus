@@ -95,9 +95,9 @@ void FatInfo::unmount() {
     // Flush FAT buffer if dirty
     if (m_buffer_dirty && m_buffer_sector != (uint32_t)-1) {
         for (uint32_t i = 0; i < m_num_fats; i++) {
-            uint32_t fat_sector = m_fat_start + (i * m_fat_size) + (m_buffer_sector - m_fat_start);
-            if (blk_write(m_dev, m_partition_start + fat_sector, m_buffer, 1) != 0) {
-                cprintf("fat_unmount: failed to write FAT sector %d\n", fat_sector);
+            uint32_t fatSector = m_fat_start + (i * m_fat_size) + (m_buffer_sector - m_fat_start);
+            if (blk_write(m_dev, m_partition_start + fatSector, m_buffer, 1) != 0) {
+                cprintf("fat_unmount: failed to write FAT sector %d\n", fatSector);
             }
         }
         m_buffer_dirty = false;
@@ -142,19 +142,19 @@ uint32_t FatInfo::read_entry(uint32_t cluster) {
     if (m_fat_type != FAT_TYPE_FAT32) {
         return 0;
     }
-    uint32_t fat_offset = cluster << 2;
-    uint32_t fat_sector = m_fat_start + (fat_offset / m_bytes_per_sector);
-    uint32_t ent_offset = fat_offset % m_bytes_per_sector;
+    uint32_t fatOffset = cluster << 2;
+    uint32_t fatSector = m_fat_start + (fatOffset / m_bytes_per_sector);
+    uint32_t entOffset = fatOffset % m_bytes_per_sector;
     
     // Load FAT sector if not cached
-    if (fat_sector != m_buffer_sector) {
-        if (blk_read(m_dev, m_partition_start + fat_sector, m_buffer, 1) != 0) {
+    if (fatSector != m_buffer_sector) {
+        if (blk_read(m_dev, m_partition_start + fatSector, m_buffer, 1) != 0) {
             return 0;
         }
-        m_buffer_sector = fat_sector;
+        m_buffer_sector = fatSector;
     }
     
-    uint32_t value = *(uint32_t *)&m_buffer[ent_offset];
+    uint32_t value = *(uint32_t *)&m_buffer[entOffset];
     return value & FAT32_CLUSTER_MASK;  // Mask out top 4 bits
 }
 
@@ -218,19 +218,19 @@ int FatInfo::read_root_dir(int (*callback)(fat_dir_entry_t* entry, void *arg), v
         return -1;
     }
     
-    uint8_t sector_buf[512];
+    uint8_t sectorBuf[512];
     for (uint32_t cluster = m_root_cluster;
         cluster >= 2 && cluster < FAT32_EOC_MIN; cluster = read_entry(cluster)) {
 
         uint32_t sector = cluster_to_sector(cluster);
         
         for (uint32_t i = 0; i < m_sectors_per_cluster; i++) {
-            if (blk_read(m_dev, m_partition_start + sector + i, sector_buf, 1) != 0) {
+            if (blk_read(m_dev, m_partition_start + sector + i, sectorBuf, 1) != 0) {
                 cprintf("fat_read_root_dir: failed to read sector %d\n", sector + i);
                 return -1;
             }
 
-            fat_dir_entry_t* entries = (fat_dir_entry_t*)sector_buf;
+            fat_dir_entry_t* entries = (fat_dir_entry_t*)sectorBuf;
             for (uint32_t j = 0; j < m_bytes_per_sector / 32; j++) {
                 fat_dir_entry_t& entry = entries[j];
 
@@ -287,18 +287,18 @@ int FatInfo::find_file(const char* filename, fat_dir_entry_t *result) {
         }
     }
 
-    uint8_t sector_buf[512];
+    uint8_t sectorBuf[512];
     for (uint32_t cluster = m_root_cluster;
         cluster >= 2 && cluster < FAT32_EOC_MIN; cluster = read_entry(cluster)) {
 
         uint32_t sector = cluster_to_sector(cluster);
         
         for (uint32_t s = 0; s < m_sectors_per_cluster; s++, sector++) {
-            if (blk_read(m_dev, m_partition_start + sector, sector_buf, 1) != 0) {
+            if (blk_read(m_dev, m_partition_start + sector, sectorBuf, 1) != 0) {
                 return -1;
             }
             
-            fat_dir_entry_t* entries = (fat_dir_entry_t*)sector_buf;
+            fat_dir_entry_t* entries = (fat_dir_entry_t*)sectorBuf;
             for (uint32_t j = 0; j < m_bytes_per_sector / 32; j++) {
                 fat_dir_entry_t& entry = entries[j];
                 
@@ -348,51 +348,51 @@ int FatInfo::read_file(fat_dir_entry_t* entry, uint8_t* buf, uint32_t offset, ui
         return -1;
     }
     
-    uint8_t cluster_buf[4096];  // Max cluster size we support
-    if (m_bytes_per_cluster > sizeof(cluster_buf)) {
+    uint8_t clusterBuf[4096];  // Max cluster size we support
+    if (m_bytes_per_cluster > sizeof(clusterBuf)) {
         cprintf("fat_read_file: cluster too large\n");
         return -1;
     }
     
-    uint32_t bytes_read = 0;
-    uint32_t skip_bytes = offset;
+    uint32_t bytesRead = 0;
+    uint32_t skipBytes = offset;
 
-    while (cluster >= 2 && cluster < FAT32_EOC_MIN && bytes_read < size) {
+    while (cluster >= 2 && cluster < FAT32_EOC_MIN && bytesRead < size) {
 
         uint32_t sector = cluster_to_sector(cluster);
-        if (blk_read(m_dev, m_partition_start + sector, cluster_buf, m_sectors_per_cluster) != 0) {
+        if (blk_read(m_dev, m_partition_start + sector, clusterBuf, m_sectors_per_cluster) != 0) {
             cprintf("fat_read_file: failed to read cluster %d\n", cluster);
             return -1;
         }
         
         // Calculate how much to copy from this cluster
-        uint32_t cluster_offset = 0;
-        uint32_t cluster_bytes = m_bytes_per_cluster;
+        uint32_t clusterOffset = 0;
+        uint32_t clusterBytes = m_bytes_per_cluster;
         
         // Skip bytes if needed
-        if (skip_bytes > 0) {
-            if (skip_bytes >= cluster_bytes) {
-                skip_bytes -= cluster_bytes;
+        if (skipBytes > 0) {
+            if (skipBytes >= clusterBytes) {
+                skipBytes -= clusterBytes;
                 cluster = read_entry(cluster);
                 continue;
             }
-            cluster_offset = skip_bytes;
-            cluster_bytes -= skip_bytes;
-            skip_bytes = 0;
+            clusterOffset = skipBytes;
+            clusterBytes -= skipBytes;
+            skipBytes = 0;
         }
         
         // Copy data
-        uint32_t to_copy = cluster_bytes;
-        if (to_copy > size - bytes_read) {
-            to_copy = size - bytes_read;
+        uint32_t toCopy = clusterBytes;
+        if (toCopy > size - bytesRead) {
+            toCopy = size - bytesRead;
         }
         
-        memcpy(buf + bytes_read, cluster_buf + cluster_offset, to_copy);
-        bytes_read += to_copy;
+        memcpy(buf + bytesRead, clusterBuf + clusterOffset, toCopy);
+        bytesRead += toCopy;
         
         // Get next cluster
         cluster = read_entry(cluster);
     }
     
-    return bytes_read;
+    return bytesRead;
 }

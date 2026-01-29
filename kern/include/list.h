@@ -1,8 +1,15 @@
 #pragma once
 
+#include <base/types.h>
+
 struct list_entry_t {
     list_entry_t* prev{};
     list_entry_t* next{};
+
+    template<typename T>
+    constexpr T* entry_of() {
+        return (T*)((uintptr_t)this - (uintptr_t)T::link_offset());
+    }
 };
 
 static inline __attribute__((always_inline)) void __list_add(list_entry_t *elm, list_entry_t *prev, list_entry_t *next) {

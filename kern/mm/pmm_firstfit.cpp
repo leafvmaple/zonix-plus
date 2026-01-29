@@ -1,6 +1,8 @@
 #include "pmm_firstfit.h"
 #include "../debug/assert.h"
 
+#include "memory.h"
+
 // First-Fit Physical Memory Manager
 // 
 // Algorithm: First-Fit
@@ -30,13 +32,11 @@ void FirstFitPMMManager::init() {
 
 void FirstFitPMMManager::init_memmap(Page *base, size_t n) {
     for (Page* p = base; p != base + n; p++) {
-        p->ref = PAGE_INIT_VALUE;
-        p->flags = PAGE_INIT_VALUE;
-        p->property = PAGE_INIT_VALUE;
+        new (p) Page();
     }
 
     base->property = n;
-    SET_PAGE_RESERVED(base);
+    base->set_reserved();
     
     // Add to free list
     m_free.nr_free += n;
@@ -45,14 +45,14 @@ void FirstFitPMMManager::init_memmap(Page *base, size_t n) {
 
 Page* FirstFitPMMManager::alloc(size_t n) {
     if (n > m_free.nr_free) {
-        return PMM_INVALID_PTR;
+        return nullptr;
     }
 
+    Page *page{};
+
     list_entry_t *le = &m_free.free_list;
-    Page *page = PMM_INVALID_PTR;
-    
     while ((le = list_next(le)) != &m_free.free_list) {
-        Page *p = le2page(le, page_link);
+        Page *p = le->entry_of<Page>();
         if (p->property >= n) {
             page = p;
             break;
@@ -63,12 +63,12 @@ Page* FirstFitPMMManager::alloc(size_t n) {
         if (page->property > n) {
             Page *remaining = page + n;
             remaining->property = page->property - n;
-            SET_PAGE_RESERVED(remaining);
+            remaining->set_reserved();
             list_add(le, &(remaining->page_link));
         }
         list_del(le);
         m_free.nr_free -= n;
-        CLEAR_PAGE_RESERVED(page);
+        page->clear_reserved();
     }
     
     return page;
@@ -81,23 +81,23 @@ void FirstFitPMMManager::free(Page *base, size_t n) {
     }
 
     base->property = n;
-    SET_PAGE_RESERVED(base);
+    base->set_reserved();
 
     list_entry_t *le = &m_free.free_list;
     list_entry_t *prev = le;
     
     while ((le = list_next(le)) != &m_free.free_list) {
-        p = le2page(le, page_link);
+        p = le->entry_of<Page>();
 
         if (base + base->property == p) {
             base->property += p->property;
-            CLEAR_PAGE_RESERVED(p);
+            p->clear_reserved();
             list_del(le);
         } 
 
         else if (p + p->property == base) {
             p->property += base->property;
-            CLEAR_PAGE_RESERVED(base);
+            base->clear_reserved();
             base = p;
             list_del(le);
         } 
@@ -115,13 +115,13 @@ size_t FirstFitPMMManager::nr_free_pages() {
 }
 
 void FirstFitPMMManager::check() {
-    list_entry_t *le = &m_free.free_list;
-    size_t total_free = PAGE_INIT_VALUE;
+    size_t total_free{};
     
     // Count total free pages
+    list_entry_t *le = &m_free.free_list;
     while ((le = list_next(le)) != &m_free.free_list) {
-        Page *p = le2page(le, page_link);
-        assert(PAGE_RESERVED(p));
+        Page* p = le->entry_of<Page>();
+        assert(p->is_reserved());
         total_free += p->property;
     }
     
@@ -131,5 +131,5 @@ void FirstFitPMMManager::check() {
     // Test allocation
     Page* p0 = alloc(TEST_ALLOC_PAGES);
     assert(p0 != PMM_INVALID_PTR);
-    assert(!PAGE_RESERVED(p0));
+    assert(!p0->is_reserved());
 }
