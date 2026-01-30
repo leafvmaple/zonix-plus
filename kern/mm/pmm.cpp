@@ -14,23 +14,24 @@
 
 #include "pmm_firstfit.h"
 
-union PMMStorage {
+static union PMMStorage {
 	alignas(16) char raw[sizeof(FirstFitPMMManager)];
-	FirstFitPMMManager mgr;
 
 	constexpr PMMStorage() noexcept : raw{} {}
     ~PMMStorage() {}
-} pmm;
+} _storge;
 
-// Page number calculation (address to page index)
-#define PAG_NUM(addr) ((addr) >> PG_SHIFT)
+PMMManager* g_pmm{};
 
 // Page management constants
-#define PAGE_REF_INIT           1
-#define SINGLE_PAGE             1
-#define CREATE_PTE_IF_NOT_EXIST 1
-#define INSERT_FAILURE          0
-#define INSERT_SUCCESS          1
+namespace {
+
+constexpr int PAGE_REF_INIT  = 1;
+constexpr size_t SINGLE_PAGE = 1;
+constexpr int INSERT_FAILURE = 0;
+constexpr int INSERT_SUCCESS = 1;
+
+} // namespace
 
 uintptr_t boot_cr3;
 
@@ -38,35 +39,39 @@ long user_stack [ PG_SIZE >> 2 ] ;
 
 long* STACK_START = &user_stack [PG_SIZE >> 2];
 
-Page *pages = nullptr;
-uint32_t npage = 0;
+Page* g_pages{};
+uint32_t g_num_pages{};
 
-uintptr_t page2pa(Page *page) {
-    return (page - pages) << PG_SHIFT;
+inline size_t page_num(uintptr_t addr) {
+	return addr >> PG_SHIFT;
 }
 
-void* page2kva(Page *page) {
-    return (void *)(KERNEL_BASE + page2pa(page));
+uintptr_t page2pa(Page* page) {
+    return static_cast<uintptr_t>((page - g_pages) << PG_SHIFT);
 }
 
-Page* pa2page(uintptr_t pa) {
-	return pages + PAG_NUM(pa);
+void* page2kva(Page* page) {
+    return reinterpret_cast<void*>(KERNEL_BASE + page2pa(page));
+}
+
+Page *pa2page(uintptr_t pa) {
+	return g_pages + page_num(pa);
 }
 
 // Convert kernel virtual address to page descriptor
-Page* kva2page(void *kva) {
+Page *kva2page(void *kva) {
     return pa2page(P_ADDR((uintptr_t)kva));
 }
 
 static void pmm_mgr_init() {
-	new (&pmm.mgr) FirstFitPMMManager();
-    pmm.mgr.init();
-	cprintf("pmm: manager = %s\n", pmm.mgr.m_name);
+	g_pmm = new (&_storge) FirstFitPMMManager();
+    g_pmm->init();
+	cprintf("pmm: manager = %s\n", g_pmm->m_name);
 }
 
-Page *alloc_pages(size_t n) {
+Page* alloc_pages(size_t n) {
 	intr_save();
-	Page *page = pmm.mgr.alloc(n);
+	Page *page = g_pmm->alloc(n);
 	intr_restore();
 
 	return page;
@@ -74,14 +79,14 @@ Page *alloc_pages(size_t n) {
 
 void pages_free(Page* base, size_t n) {
 	intr_save();
-	pmm.mgr.free(base, n);
+	g_pmm->free(base, n);
 	intr_restore();
 }
 
-pte_t* get_pte(pde_t* pgdir, uintptr_t la, int create) {
+pte_t* get_pte(pde_t* pgdir, uintptr_t la, bool create) {
     pde_t* pdep = pgdir + PDX(la);
     if (!(*pdep & PTE_P)) {
-        Page* page;
+        Page* page{};
         if (!create || (page = alloc_pages(1)) == nullptr) {
             return nullptr;
         }
@@ -95,47 +100,39 @@ pte_t* get_pte(pde_t* pgdir, uintptr_t la, int create) {
 }
 
 static void page_init() {
-	uint64_t max_pa = 0, addr, size;
-
-	int index = 0;
-	uint32_t type;
-	while (e820map_get_items(index++, &addr, &size, &type)) {
+	uint64_t max_pa{};
+	traverse_e820_map([&max_pa](uint64_t addr, uint64_t size, uint32_t type) {
 		if (type == E820_RAM && max_pa < addr + size) {
 			max_pa = addr + size;
 		}
-	}
+	});
 
 	extern uint8_t KERNEL_END[];
 
-	npage = PAG_NUM(max_pa);
-	pages = (Page*)ROUND_UP((void *)KERNEL_END, PG_SIZE);
+	g_num_pages = page_num(max_pa);
+	g_pages = (Page *)round_up((void*)KERNEL_END, PG_SIZE);
 	
-	// Initially mark all pages as reserved
-	for (uint32_t i = 0; i < npage; i++) {
-		pages[i].set_reserved();
+	// Initially mark all g_pages as reserved
+	for (uint32_t i = 0; i < g_num_pages; i++) {
+		g_pages[i].set_reserved();
 	}
 	
-	uintptr_t valid_mem = P_ADDR(pages + npage);
-
-	index = 0;
-	while (e820map_get_items(index++, &addr, &size, &type)) {
+	uintptr_t valid_mem = P_ADDR(g_pages + g_num_pages);
+	traverse_e820_map([valid_mem](uint64_t addr, uint64_t size, uint32_t type) {
 		if (type == E820_RAM) {
 			uint64_t limit = addr + size;
 			if (addr < valid_mem)
 				addr = valid_mem;
 
 			if (addr < limit) {
-				addr = ROUND_UP(addr, PG_SIZE);
-				limit = ROUND_DOWN(limit, PG_SIZE);
-
-				Page *base = pa2page(addr);
-				size_t n = PAG_NUM(limit - addr);
+				addr = round_up(addr, PG_SIZE);
+				limit = round_down(limit, PG_SIZE);
 				
     			cprintf("Valid Memory: [0x%08x, 0x%08x]\n", (uint32_t)addr, (uint32_t)limit);
-				pmm.mgr.init_memmap(pa2page(addr), PAG_NUM(limit - addr));
+				g_pmm->init_memmap(pa2page(addr), page_num(limit - addr));
 			}
 		}
-	}
+	});
 }
 
 void tlb_invl(pde_t *pgdir, uintptr_t la) {
@@ -154,7 +151,7 @@ Page *pgdir_alloc_page(pde_t *pgdir, uintptr_t la, uint32_t perm) {
 }
 
 int page_insert(pde_t *pgdir, Page *page, uintptr_t la, uint32_t perm) {
-	pte_t *ptep = get_pte(pgdir, la, CREATE_PTE_IF_NOT_EXIST);
+	pte_t *ptep = get_pte(pgdir, la, true);
 	if (!ptep) {
 		return INSERT_FAILURE;
 	}
@@ -166,7 +163,7 @@ int page_insert(pde_t *pgdir, Page *page, uintptr_t la, uint32_t perm) {
 }
 
 // Simple kmalloc/kfree using page allocator
-// For now, always allocate full pages (4KB)
+// For now, always allocate full g_pages (4KB)
 // TODO: Implement proper slab allocator
 void* kmalloc(size_t size) {
     Page* page = alloc_page();

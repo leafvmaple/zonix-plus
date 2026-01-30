@@ -5,35 +5,44 @@
 extern "C" {
 #endif
 
-typedef struct {
-    uint32_t reg_edi;
-    uint32_t reg_esi;
-    uint32_t reg_ebp;
-    uint32_t unused; /* Useless */
-    uint32_t reg_ebx;
-    uint32_t reg_edx;
-    uint32_t reg_ecx;
-    uint32_t reg_eax;
-} trap_regs;
+struct TrapRegisters {
+    uint32_t m_edi{};
+    uint32_t m_esi{};
+    uint32_t m_ebp{};
+    uint32_t _unused{}; /* Useless */
+    uint32_t m_ebx{};
+    uint32_t m_edx{};
+    uint32_t m_ecx{};
+    uint32_t m_eax{};
 
-typedef struct {
-    trap_regs tf_regs;
+#ifdef __cplusplus
+    void print() const;
+#endif
+};
 
-    uint32_t tf_trapno;
-    uint32_t tf_err;
-    uintptr_t tf_eip;
-    uint16_t tf_cs;
-    uint16_t tf_padding1;
-    uint32_t tf_eflags;
+struct TrapFrame {
+    TrapRegisters m_regs{};
+
+    uint32_t m_trapno{};
+    uint32_t m_err{};
+    uintptr_t m_eip{};
+    uint16_t m_cs{};
+    uint16_t _padding1{};
+    uint32_t m_eflags{};
     
     // Only present when crossing privilege levels
-    uintptr_t tf_esp;
-    uint16_t tf_ss;
-    uint16_t tf_padding2;
-} trap_frame;
+    uintptr_t m_esp{};
+    uint16_t m_ss{};
+    uint16_t _padding2{};
+
+#ifdef __cplusplus
+    void print() const;
+    void print_pgfault() const;
+#endif
+};
 
 // Trap handling functions
-void trap(trap_frame *tf);
+void trap(TrapFrame *tf);
 void trapret(void);  // Assembly function to return from trap
 
 #ifdef __cplusplus

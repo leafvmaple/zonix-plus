@@ -6,7 +6,7 @@
 #include <base/mbr.h>
 #include <base/bpb.h>
 
-int FatInfo::mount(block_device_t* dev) {
+int FatInfo::mount(BlockDevice* dev) {
     if (!dev) {
         return -1;
     }

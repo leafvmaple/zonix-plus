@@ -6,14 +6,14 @@
 // FIFO Page Replacement Algorithm
 // Pages are arranged in a queue - first in, first out
 
-list_entry_t pra_list_head;
+ListNode pra_list_head;
 
 int swap_fifo_init() {
     return 0;
 }
 
 int swap_fifo_init_mm(mm_struct *mm) {
-    list_init(&pra_list_head);
+    pra_list_head.init();
     mm->swap_list = &pra_list_head;
 
     return 0;
@@ -27,11 +27,8 @@ int swap_fifo_init_mm(mm_struct *mm) {
  * @param swap_in: 1 if swapping in, 0 if newly mapped
  */
 int swap_fifo_map_swappable(mm_struct *mm, uintptr_t addr, Page *page, int swap_in) {
-    list_entry_t *head = (list_entry_t*) mm->swap_list;
-    list_entry_t *entry = &(page->page_link);
-    
-    // Add page to the end of FIFO queue
-    list_add_before(head, entry);
+    ListNode *head = (ListNode*) mm->swap_list;
+    head->add_before(page->node());
     
     return 0;
 }
@@ -43,10 +40,10 @@ int swap_fifo_map_swappable(mm_struct *mm, uintptr_t addr, Page *page, int swap_
  * @param in_tick: not used in FIFO
  */
 int swap_fifo_swap_out_victim(mm_struct *mm, Page **page_ptr, int in_tick) {
-    list_entry_t *head = (list_entry_t*) mm->swap_list;
+    ListNode *head = (ListNode*) mm->swap_list;
     
     // Select the first page (oldest) in the FIFO queue
-    list_entry_t *victim = list_next(head);
+    ListNode *victim = head->get_next();
     
     if (victim == head) {
         *page_ptr = nullptr;
@@ -54,9 +51,9 @@ int swap_fifo_swap_out_victim(mm_struct *mm, Page **page_ptr, int in_tick) {
     }
     
     // Remove from list
-    list_del(victim);
+    victim->del();
     
-    *page_ptr = le2page(victim, page_link);
+    *page_ptr = le2page(victim, m_node);
     return 0;
 }
 

@@ -37,10 +37,9 @@ void FirstFitPMMManager::init_memmap(Page *base, size_t n) {
 
     base->property = n;
     base->set_reserved();
-    
-    // Add to free list
+
     m_free.nr_free += n;
-    list_add_before(&m_free.free_list, &(base->page_link));
+    m_free.free_list.add_before(base->node());
 }
 
 Page* FirstFitPMMManager::alloc(size_t n) {
@@ -48,11 +47,11 @@ Page* FirstFitPMMManager::alloc(size_t n) {
         return nullptr;
     }
 
-    Page *page{};
+    Page* page{};
 
-    list_entry_t *le = &m_free.free_list;
-    while ((le = list_next(le)) != &m_free.free_list) {
-        Page *p = le->entry_of<Page>();
+    ListNode *validNode = &m_free.free_list;
+    while ((validNode = validNode->get_next()) != &m_free.free_list) {
+        Page *p = validNode->container<Page>();
         if (p->property >= n) {
             page = p;
             break;
@@ -61,12 +60,12 @@ Page* FirstFitPMMManager::alloc(size_t n) {
     
     if (page) {
         if (page->property > n) {
-            Page *remaining = page + n;
+            Page* remaining = page + n;
             remaining->property = page->property - n;
             remaining->set_reserved();
-            list_add(le, &(remaining->page_link));
+            validNode->add_after(remaining->node());
         }
-        list_del(le);
+        validNode->del();
         m_free.nr_free -= n;
         page->clear_reserved();
     }
@@ -75,31 +74,30 @@ Page* FirstFitPMMManager::alloc(size_t n) {
 }
 
 void FirstFitPMMManager::free(Page *base, size_t n) {
-    Page* p = base;
-    for (; p != base + n; p++) {
+    for (Page* p = base; p != base + n; p++) {
         p->flags = PAGE_INIT_VALUE;
     }
 
     base->property = n;
     base->set_reserved();
 
-    list_entry_t *le = &m_free.free_list;
-    list_entry_t *prev = le;
+    ListNode* le = &m_free.free_list;
+    ListNode* prev = le;
     
-    while ((le = list_next(le)) != &m_free.free_list) {
-        p = le->entry_of<Page>();
+    while ((le = le->get_next()) != &m_free.free_list) {
+        Page* p = le->container<Page>();
 
         if (base + base->property == p) {
             base->property += p->property;
             p->clear_reserved();
-            list_del(le);
+            le->del();
         } 
 
         else if (p + p->property == base) {
             p->property += base->property;
             base->clear_reserved();
             base = p;
-            list_del(le);
+            le->del();
         } 
         else {
             prev = le;
@@ -107,7 +105,7 @@ void FirstFitPMMManager::free(Page *base, size_t n) {
     }
 
     m_free.nr_free += n;
-    list_add(prev, &(base->page_link));
+    prev->add_after(base->node());
 }
 
 size_t FirstFitPMMManager::nr_free_pages() {
@@ -118,9 +116,9 @@ void FirstFitPMMManager::check() {
     size_t total_free{};
     
     // Count total free pages
-    list_entry_t *le = &m_free.free_list;
-    while ((le = list_next(le)) != &m_free.free_list) {
-        Page* p = le->entry_of<Page>();
+    ListNode *le = &m_free.free_list;
+    while ((le = le->get_next()) != &m_free.free_list) {
+        Page* p = le->container<Page>();
         assert(p->is_reserved());
         total_free += p->property;
     }

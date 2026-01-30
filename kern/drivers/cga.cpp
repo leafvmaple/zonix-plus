@@ -6,21 +6,25 @@
 
 #include "cons_defs.h"
 
+namespace {
+
 // CGA hardware registers
-#define CGA_IDX_REG      0x3D4
-#define CGA_DATA_REG     0x3D5
+constexpr uint16_t CGA_IDX_REG  = 0x3D4;
+constexpr uint16_t CGA_DATA_REG = 0x3D5;
 
 // CRTC cursor position registers
-#define CRTC_CURSOR_HIGH 0x0E
-#define CRTC_CURSOR_LOW  0x0F
+constexpr uint8_t CRTC_CURSOR_HIGH = 0x0E;
+constexpr uint8_t CRTC_CURSOR_LOW  = 0x0F;
 
 // CGA memory buffer address
-#define CGA_BUF          0xB8000
+constexpr uintptr_t CGA_BUF = 0xB8000;
 
 // Character with default attribute (white on black)
-#define CRT_ERASE_CHAR   0x0720
+constexpr uint16_t CRT_ERASE_CHAR = 0x0720;
 
-uint16_t *crt_buf = (uint16_t *)(CGA_BUF + KERNEL_BASE);
+} // namespace
+
+uint16_t* crt_buf = reinterpret_cast<uint16_t*>(CGA_BUF + KERNEL_BASE);
 static uint16_t crt_pos = 0;
 
 static void cur_update() {

@@ -2,26 +2,26 @@
 
 #include <base/types.h>
 
-static inline void* memset(void *s, char c, size_t n) {
-    char* p = (char*)s;
+static inline void* memset(void* s, char c, size_t n) {
+    auto* p = static_cast<char*>(s);
     while (n-- > 0) {
         *p++ = c;
     }
     return s;
 }
 
-static inline void* memcpy(void *dst, const void *src, size_t n) {
-    char *d = (char*)dst;
-    const char *s = (const char*)src;
+static inline void* memcpy(void* dst, const void* src, size_t n) {
+    auto* d = static_cast<char*>(dst);
+    const auto* s = static_cast<const char*>(src);
     while (n-- > 0) {
         *d++ = *s++;
     }
     return dst;
 }
 
-static inline int memcmp(const void *s1, const void *s2, size_t n) {
-    const unsigned char *p1 = (const unsigned char *)s1;
-    const unsigned char *p2 = (const unsigned char *)s2;
+static inline int memcmp(const void* s1, const void* s2, size_t n) {
+    const auto* p1 = static_cast<const unsigned char*>(s1);
+    const auto* p2 = static_cast<const unsigned char*>(s2);
     while (n--) {
         if (*p1 != *p2) {
             return *p1 - *p2;

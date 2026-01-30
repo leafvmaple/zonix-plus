@@ -8,21 +8,25 @@
 #include "../drivers/blk.h"
 
 // External function declarations
-extern Page *alloc_pages(size_t n);
-extern void pages_free(Page *base, size_t n);
+extern Page* alloc_pages(size_t n);
+extern void pages_free(Page* base, size_t n);
 
 // Global swap manager (can be changed to select different algorithms)
-swap_manager* swap_mgr;
+SwapManager* swap_mgr;
 
 // Maximum swap offset (swap entries)
 static unsigned int max_swap_offset;
 
 // Swap device
-static block_device_t* swap_device = nullptr;
+static BlockDevice* swap_device = nullptr;
 
 // Swap space configuration
-#define SWAP_START_SECTOR   1000        // Start sector for swap space
-#define SECTORS_PER_PAGE    (PG_SIZE / 512)  // Sectors needed for one page
+namespace {
+
+constexpr uint32_t SWAP_START_SECTOR = 1000;  // Start sector for swap space
+constexpr size_t SECTORS_PER_PAGE = PG_SIZE / 512;  // Sectors needed for one page
+
+} // namespace
 
 int swap_init() {
     swap_mgr = &swap_mgr_fifo;  // Use FIFO swap manager for now

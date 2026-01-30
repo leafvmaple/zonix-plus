@@ -212,7 +212,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added control register (IDE_CTRL) support with interrupt enable/disable
   - Added IDE_DSC (Drive Seek Complete) status bit definition
 - **IDE Device Management**: Enhanced multi-device support
-  - Control register tracking per device (`ctrl` field in `ide_device_t`)
+  - Control register tracking per device (`ctrl` field in `IdeDevice`)
   - Interrupt state fields: `irq_done`, `err`, `buffer`, `op`, `waiting`
   - Proper interrupt enable/disable during device detection
 - **Shell Commands**: Added disk testing utilities

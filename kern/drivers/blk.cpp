@@ -3,12 +3,12 @@
 #include "stdio.h"
 
 // Block device registry
-static block_device_t *block_devices[MAX_BLK_DEV]{};
-static block_device_t disk_devs[MAX_BLK_DEV]{};
+static BlockDevice *block_devices[MAX_BLK_DEV]{};
+static BlockDevice disk_devs[MAX_BLK_DEV]{};
 static int num_devices{};
 
-static int disk_read_wrapper(block_device_t* dev, uint32_t blockno, void* buf, size_t nblocks);
-static int disk_write_wrapper(block_device_t* dev, uint32_t blockno, const void* buf, size_t nblocks);
+static int disk_read_wrapper(BlockDevice* dev, uint32_t blockno, void* buf, size_t nblocks);
+static int disk_write_wrapper(BlockDevice* dev, uint32_t blockno, const void* buf, size_t nblocks);
 
 void blk_init(void) {
     cprintf("blk_init: initializing block device layer...\n");
@@ -17,14 +17,14 @@ void blk_init(void) {
 
     int num_hd = hd_get_device_count();
     for (int i = 0; i < num_hd && i < MAX_BLK_DEV; i++) {
-        ide_device_t *ide_dev = hd_get_device(i);
+        IdeDevice *ide_dev = hd_get_device(i);
         if (ide_dev && ide_dev->present) {
             disk_devs[i].type = BLK_TYPE_DISK;
             disk_devs[i].name = ide_dev->name;
             disk_devs[i].size = ide_dev->info.size;
             disk_devs[i].read = disk_read_wrapper;
             disk_devs[i].write = disk_write_wrapper;
-            disk_devs[i].private_data = (void *)(long)i;  // Store device ID
+            disk_devs[i].private_data = reinterpret_cast<void*>(static_cast<intptr_t>(i));  // Store device ID
             
             blk_register(&disk_devs[i]);
         }
@@ -35,7 +35,7 @@ void blk_init(void) {
     }
 }
 
-int blk_register(block_device_t* dev) {
+int blk_register(BlockDevice* dev) {
     if (num_devices >= MAX_BLK_DEV) {
         cprintf("blk_register: too many devices\n");
         return -1;
@@ -52,7 +52,7 @@ int blk_get_device_count(void) {
 /**
  * Get a block device by type
  */
-block_device_t* blk_get_device(int type) {
+BlockDevice* blk_get_device(int type) {
     for (int i = 0; i < num_devices; i++) {
         if (block_devices[i] && block_devices[i]->type == type) {
             return block_devices[i];
@@ -64,7 +64,7 @@ block_device_t* blk_get_device(int type) {
 /**
  * Get a block device by name
  */
-block_device_t* blk_get_device_by_name(const char *name) {
+BlockDevice* blk_get_device_by_name(const char *name) {
     if (!name) {
         return nullptr;
     }
@@ -86,7 +86,7 @@ block_device_t* blk_get_device_by_name(const char *name) {
     return nullptr;
 }
 
-block_device_t* blk_get_device_by_index(int index) {
+BlockDevice* blk_get_device_by_index(int index) {
     if (index < 0 || index >= num_devices) {
         return nullptr;
     }
@@ -96,7 +96,7 @@ block_device_t* blk_get_device_by_index(int index) {
 /**
  * Read blocks from a device
  */
-int blk_read(block_device_t* dev, uint32_t blockno, void* buf, size_t nblocks) {
+int blk_read(BlockDevice* dev, uint32_t blockno, void* buf, size_t nblocks) {
     if (dev == nullptr || dev->read == nullptr) {
         return -1;
     }
@@ -107,7 +107,7 @@ int blk_read(block_device_t* dev, uint32_t blockno, void* buf, size_t nblocks) {
 /**
  * Write blocks to a device
  */
-int blk_write(block_device_t* dev, uint32_t blockno, const void *buf, size_t nblocks) {
+int blk_write(BlockDevice* dev, uint32_t blockno, const void *buf, size_t nblocks) {
     if (dev == nullptr || dev->write == nullptr) {
         return -1;
     }
@@ -161,12 +161,12 @@ void blk_list_devices(void) {
 /**
  * Wrapper functions for disk operations
  */
-static int disk_read_wrapper(block_device_t *dev, uint32_t blockno, void *buf, size_t nblocks) {
-    int dev_id = (int)(long)dev->private_data;
+static int disk_read_wrapper(BlockDevice* dev, uint32_t blockno, void* buf, size_t nblocks) {
+    auto dev_id = static_cast<int>(reinterpret_cast<intptr_t>(dev->private_data));
     return hd_read_device(dev_id, blockno, buf, nblocks);
 }
 
-static int disk_write_wrapper(block_device_t *dev, uint32_t blockno, const void *buf, size_t nblocks) {
-    int dev_id = (int)(long)dev->private_data;
+static int disk_write_wrapper(BlockDevice* dev, uint32_t blockno, const void* buf, size_t nblocks) {
+    auto dev_id = static_cast<int>(reinterpret_cast<intptr_t>(dev->private_data));
     return hd_write_device(dev_id, blockno, buf, nblocks);
 }

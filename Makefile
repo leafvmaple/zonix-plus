@@ -225,6 +225,11 @@ BOBJS = $(call toobj,$(bootfiles))
 
 $(call make_dir)
 
+# FAT32 test disk image (ata0-slave)
+bin/fat32_test.img:
+	@echo "Creating FAT32 test disk image..."
+	@bash tools/create_fat32_image.sh
+
 # FAT32 disk image with proper filesystem
 bin/zonix.img: bin/mbr bin/vbr bin/bootloader bin/kernel | $$(dir $$@)
 	@echo "Creating FAT32 disk image..."
@@ -255,7 +260,10 @@ bin/zonix.img: bin/mbr bin/vbr bin/bootloader bin/kernel | $$(dir $$@)
 	@dd if=bin/bootloader.bin of=$@ bs=1 seek=1024 conv=notrunc 2>/dev/null
 	@echo "FAT32 image created: $@"
 
-TARGETS: bin/mbr bin/vbr bin/bootloader bin/kernel bin/zonix.img $(DISK_IMAGES)
+TARGETS: bin/mbr bin/vbr bin/bootloader bin/kernel bin/zonix.img
+
+# Additional disk images for testing
+DISK_IMAGES := bin/fat32_test.img
 
 # Legacy FAT16 targets (optional, build with 'make fat16')
 FAT32_TARGETS: bin/zonix.img bin/fat32_test.img

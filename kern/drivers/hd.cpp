@@ -9,7 +9,7 @@
 #include "../drivers/intr.h"
 
 // Global IDE devices
-static ide_device_t ide_devices[MAX_IDE_DEVICES];
+static IdeDevice ide_devices[MAX_IDE_DEVICES];
 static int num_devices = 0;
 
 // Device initialization configurations
@@ -70,13 +70,11 @@ static int hd_wait_data_on_base(uint16_t base) {
     return -1;
 }
 
-
-
 /**
  * Detect a single IDE device
  */
 static int hd_detect_device(int dev_id) {
-    ide_device_t *dev = &ide_devices[dev_id];
+    IdeDevice *dev = &ide_devices[dev_id];
     uint16_t base = ide_configs[dev_id].base;
     uint16_t ctrl = ide_configs[dev_id].ctrl;
     uint8_t drive_sel = ide_configs[dev_id].drive ? IDE_DEV_SLAVE : IDE_DEV_MASTER;
@@ -172,7 +170,7 @@ void hd_init(void) {
  * @return: 0 on success, -1 on failure
  */
 int hd_read_device(int dev_id, uint32_t secno, void *dst, size_t nsecs) {
-    ide_device_t *dev = &ide_devices[dev_id];
+    IdeDevice *dev = &ide_devices[dev_id];
     if (!dev->present) {
         cprintf("hd_read: device %d not present\n", dev_id);
         return -1;
@@ -251,7 +249,7 @@ int hd_read_device(int dev_id, uint32_t secno, void *dst, size_t nsecs) {
  * @return: 0 on success, -1 on failure
  */
 int hd_write_device(int dev_id, uint32_t secno, const void *src, size_t nsecs) {
-    ide_device_t *dev = &ide_devices[dev_id];
+    IdeDevice *dev = &ide_devices[dev_id];
     if (!dev->present) {
         cprintf("hd_write: device %d not present\n", dev_id);
         return -1;
@@ -341,7 +339,7 @@ void hd_intr(int irq) {
 
     // Iterate through all devices on this channel
     for (int i = 0; i < MAX_IDE_DEVICES; i++) {
-        ide_device_t *dev = &ide_devices[i];
+        IdeDevice *dev = &ide_devices[i];
         
         // Skip devices not present or not on this channel
         if (!dev->present || dev->channel != channel) {
@@ -419,7 +417,7 @@ void hd_intr(int irq) {
 /**
  * Get device by ID
  */
-ide_device_t *hd_get_device(int dev_id) {
+IdeDevice *hd_get_device(int dev_id) {
     if (!ide_devices[dev_id].present) {
         return nullptr;
     }
@@ -445,7 +443,7 @@ void hd_test_interrupt(void) {
         return;
     }
     
-    ide_device_t *dev = &ide_devices[0];
+    IdeDevice *dev = &ide_devices[0];
     cprintf("Testing device: %s\n", dev->name);
     cprintf("  base=0x%x, ctrl=0x%x, irq=%d\n", dev->base, dev->ctrl, dev->irq);
     
@@ -490,7 +488,7 @@ void hd_test(void) {
     
     // Test each device
     for (int dev_id = 0; dev_id < MAX_IDE_DEVICES; dev_id++) {
-        ide_device_t *dev = &ide_devices[dev_id];
+        IdeDevice *dev = &ide_devices[dev_id];
         
         if (!dev->present) {
             continue;

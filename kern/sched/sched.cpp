@@ -17,7 +17,7 @@ extern pde_t* boot_pgdir;
 extern mm_struct init_mm;  // Global kernel mm_struct
 
 // Global process management variables
-static list_entry_t proc_list{};              // All processes list
+static ListNode proc_list{};              // All processes list
 static task_struct *idle_proc{}; // Idle process (PID 0)
 static task_struct *init_proc{}; // Init process (PID 1)
 task_struct *current{};          // Current running process
@@ -29,7 +29,7 @@ static int nr_process = 0;            // Number of processes
 #define HASH_LIST_SIZE (1 << HASH_SHIFT)
 #define pid_hashfn(x) (hash32(x, HASH_SHIFT))
 
-static list_entry_t hash_list[HASH_LIST_SIZE];
+static ListNode hash_list[HASH_LIST_SIZE];
 
 // Simple hash function
 static inline uint32_t hash32(uint32_t val, unsigned int bits) {
@@ -38,7 +38,7 @@ static inline uint32_t hash32(uint32_t val, unsigned int bits) {
 }
 
 // Get current process
-struct task_struct *get_current(void) {
+task_struct *get_current(void) {
     return current;
 }
 
@@ -103,13 +103,13 @@ extern "C" void forkret(void);
 extern void trapret(void);
 
 // Copy process thread state
-static void copy_thread(task_struct *proc, uintptr_t esp, trap_frame *tf) {
-    proc->tf = (trap_frame *)(proc->kstack + KSTACK_SIZE) - 1;
+static void copy_thread(task_struct *proc, uintptr_t esp, TrapFrame *tf) {
+    proc->tf = (TrapFrame *)(proc->kstack + KSTACK_SIZE) - 1;
     
     *proc->tf = *tf;
-    proc->tf->tf_regs.reg_eax = 0;  // Return value for child
-    proc->tf->tf_esp = esp;
-    proc->tf->tf_eflags |= 0x200;   // Enable interrupts
+    proc->tf->m_regs.m_eax = 0;  // Return value for child
+    proc->tf->m_esp = esp;
+    proc->tf->m_eflags |= 0x200;   // Enable interrupts
     
     // Set up context for context switch
     proc->context.eip = (uintptr_t)forkret;
@@ -125,11 +125,11 @@ static int get_pid(void) {
 
 // Add process to hash list and proc_list
 static void hash_proc(task_struct *proc) {
-    list_add(hash_list + pid_hashfn(proc->pid), &(proc->hash_link));
+    (hash_list + pid_hashfn(proc->pid))->add(proc->hash_link);
 }
 
 static void unhash_proc(task_struct *proc) {
-    list_del(&(proc->hash_link));
+    proc->hash_link.del();
 }
 
 // Find process by PID using hash table
@@ -137,8 +137,8 @@ static task_struct *find_proc(int pid) {
     if (pid <= 0) {
         return nullptr;
     }
-    list_entry_t *list = hash_list + pid_hashfn(pid), *le = list;
-    while ((le = list_next(le)) != list) {
+    ListNode *list = hash_list + pid_hashfn(pid), *le = list;
+    while ((le = le->get_next()) != list) {
         task_struct *proc = le2proc(le, hash_link);
         if (proc->pid == pid) {
             return proc;
@@ -149,7 +149,7 @@ static task_struct *find_proc(int pid) {
 
 // Set process relationships (parent-child)
 static void set_links(task_struct *proc) {
-    list_add(&proc_list, &(proc->list_link));
+    proc_list.add(proc->list_link);
     proc->yptr = nullptr;
     
     if ((proc->optr = proc->parent->cptr) != nullptr) {
@@ -161,7 +161,7 @@ static void set_links(task_struct *proc) {
 }
 
 static void remove_links(task_struct *proc) {
-    list_del(&(proc->list_link));
+    proc->list_link.del();
     
     if (proc->optr != nullptr) {
         proc->optr->yptr = proc->yptr;
@@ -198,8 +198,8 @@ void schedule(void) {
     
     // Find next runnable process
     task_struct *next = idle_proc;
-    list_entry_t *le = &proc_list;
-    while ((le = list_next(le)) != &proc_list) {
+    ListNode *le = &proc_list;
+    while ((le = le->get_next()) != &proc_list) {
         task_struct *proc = le2proc(le, list_link);
         if (proc->state == TASK_RUNNABLE) {
             next = proc;
@@ -244,7 +244,7 @@ void proc_run(task_struct *proc) {
 }
 
 // Do fork system call
-int do_fork(uint32_t clone_flags, uintptr_t stack, trap_frame *tf) {
+int do_fork(uint32_t clone_flags, uintptr_t stack, TrapFrame *tf) {
     // Allocate process structure
     task_struct *proc = alloc_proc();
     proc->parent = current;
@@ -331,7 +331,7 @@ static void idle_init(void) {
     
     // Add to hash and list
     hash_proc(idle_proc);
-    list_add(&proc_list, &(idle_proc->list_link));
+    proc_list.add(idle_proc->list_link);
 }
 
 // Init process main function (kernel thread entry point)
@@ -354,14 +354,14 @@ static int init_proc_init(void) {
     
     // Create a fake trap frame for fork
     // Since we're creating a kernel thread, we need minimal setup
-    trap_frame tf;
-    memset(&tf, 0, sizeof(trap_frame));
+    TrapFrame tf;
+    memset(&tf, 0, sizeof(TrapFrame));
     
     // Set up for kernel thread execution
-    tf.tf_cs = KERNEL_CS;
-    tf.tf_eflags = FL_IF;  // Enable interrupts
-    tf.tf_eip = (uintptr_t)init_main;
-    tf.tf_esp = 0;  // Will be set up by copy_thread
+    tf.m_cs = KERNEL_CS;
+    tf.m_eflags = FL_IF;  // Enable interrupts
+    tf.m_eip = (uintptr_t)init_main;
+    tf.m_esp = 0;  // Will be set up by copy_thread
     
     // Fork to create init process
     // current is idle at this point
@@ -374,7 +374,7 @@ static int init_proc_init(void) {
 }
 
 // Get process state string
-static const char *state_str(enum proc_state state) {
+static const char *state_str(ProcessState state) {
     switch (state) {
         case TASK_UNINIT:    return "U";  // Uninitialized
         case TASK_SLEEPING:  return "S";  // Sleeping
@@ -391,8 +391,8 @@ void print_all_procs(void) {
     cprintf("PID  STAT  PPID  KSTACK    MM        NAME\n");
     cprintf("---  ----  ----  --------  --------  ----------------\n");
     
-    list_entry_t *le = &proc_list;
-    while ((le = list_prev(le)) != &proc_list) {
+    ListNode *le = &proc_list;
+    while ((le = le->get_prev()) != &proc_list) {
         task_struct *proc = le2proc(le, list_link);
         
         // Mark current process
@@ -415,9 +415,9 @@ void print_all_procs(void) {
 // Initialize process management
 void sched_init(void) {
     // Initialize process list and hash table
-    list_init(&proc_list);
+    proc_list.init();
     for (int i = 0; i < HASH_LIST_SIZE; i++) {
-        list_init(hash_list + i);
+        (hash_list + i)->init();
     }
     
     idle_init();

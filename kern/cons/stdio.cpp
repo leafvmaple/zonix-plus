@@ -4,8 +4,12 @@
 #include <base/types.h>
 #include "math.h"
 
-#define FMT_NONE 0
-#define FMT_TRANSFER 1
+namespace {
+
+constexpr int FMT_NONE = 0;
+constexpr int FMT_TRANSFER = 1;
+
+} // namespace
 
 // Helper to get number of digits
 static int get_num_digits(uint64_t num, uint32_t base) {

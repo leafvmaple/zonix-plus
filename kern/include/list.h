@@ -2,51 +2,54 @@
 
 #include <base/types.h>
 
-struct list_entry_t {
-    list_entry_t* prev{};
-    list_entry_t* next{};
+// Intrusive Data Structure
+
+struct ListNode {
+    ListNode* m_prev{};
+    ListNode* m_next{};
+
+    inline void init() {
+        m_prev = m_next = this;
+    }
+
+    inline ListNode* get_next() const {
+        return m_next;
+    }
+
+    inline ListNode* get_prev() const {
+        return m_prev;
+    }
+
+    inline void add_before(ListNode& elm) {
+        elm.m_prev = m_prev;
+        elm.m_next = this;
+        m_prev->m_next = &elm;
+        m_prev = &elm;
+    }
+
+    inline void add_after(ListNode& elm) {
+        elm.m_prev = this;
+        elm.m_next = m_next;
+        m_next->m_prev = &elm;
+        m_next = &elm;
+    }
+
+    inline void add(ListNode& elm) {
+        add_after(elm);
+    }
+
+    inline void del() {
+        m_prev->m_next = m_next;
+        m_next->m_prev = m_prev;
+    }
 
     template<typename T>
-    constexpr T* entry_of() {
-        return (T*)((uintptr_t)this - (uintptr_t)T::link_offset());
+    inline T* container() const {
+        return reinterpret_cast<T*>(reinterpret_cast<uintptr_t>(this) - T::node_offset());
+    }
+
+    template<typename T>
+    inline void add_before(T* obj) {
+        add_before(obj->node());
     }
 };
-
-static inline __attribute__((always_inline)) void __list_add(list_entry_t *elm, list_entry_t *prev, list_entry_t *next) {
-    prev->next = next->prev = elm;
-    elm->next = next;
-    elm->prev = prev;
-}
-
-static inline __attribute__((always_inline)) void __list_del(list_entry_t* prev, list_entry_t* next) {
-    prev->next = next;
-    next->prev = prev;
-}
-
-static inline void list_init(list_entry_t* l) {
-    l->prev = l->next = l;
-}
-
-static inline  __attribute__((always_inline)) list_entry_t* list_next(list_entry_t* l){
-    return l->next;
-}
-
-static inline  __attribute__((always_inline)) list_entry_t* list_prev(list_entry_t* l){
-    return l->prev;
-}
-
-static inline __attribute__((always_inline)) void list_add_before(list_entry_t* l, list_entry_t* elm) {
-    __list_add(elm, l->prev, l);
-}
-
-static inline __attribute__((always_inline)) void list_add_after(list_entry_t* l, list_entry_t* elm) {
-    __list_add(elm, l, l->next);
-}
-
-static inline __attribute__((always_inline)) void list_del(list_entry_t* l) {
-    __list_del(l->prev, l->next);
-}
-
-static inline __attribute__((always_inline)) void list_add(list_entry_t* l, list_entry_t* elm) {
-    list_add_after(l, elm);
-}

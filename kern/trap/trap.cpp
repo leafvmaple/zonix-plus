@@ -15,33 +15,37 @@
 #include "../mm/vmm.h"
 #include "../sched/sched.h"
 
-#define TICK_NUM 100
+namespace {
 
-static const char *trap_name(int trapno) {
-    static const char *const excnames[] = {
-        "Divide error",
-        "Debug",
-        "Non-Maskable Interrupt",
-        "Breakpoint",
-        "Overflow",
-        "BOUND Range Exceeded",
-        "Invalid Opcode",
-        "Device Not Available",
-        "Double Fault",
-        "Coprocessor Segment Overrun",
-        "Invalid TSS",
-        "Segment Not Present",
-        "Stack Fault",
-        "General Protection",
-        "Page Fault",
-        "(unknown trap)",
-        "x87 FPU Floating-Point Error",
-        "Alignment Check",
-        "Machine-Check",
-        "SIMD Floating-Point Exception"
-    };
+constexpr int TICK_NUM = 100;
 
-    if (trapno < sizeof(excnames) / sizeof(const char *const)) {
+const char* const excnames[] = {
+    "Divide error",
+    "Debug",
+    "Non-Maskable Interrupt",
+    "Breakpoint",
+    "Overflow",
+    "BOUND Range Exceeded",
+    "Invalid Opcode",
+    "Device Not Available",
+    "Double Fault",
+    "Coprocessor Segment Overrun",
+    "Invalid TSS",
+    "Segment Not Present",
+    "Stack Fault",
+    "General Protection",
+    "Page Fault",
+    "(unknown trap)",
+    "x87 FPU Floating-Point Error",
+    "Alignment Check",
+    "Machine-Check",
+    "SIMD Floating-Point Exception"
+};
+
+constexpr size_t NUM_EXCEPTIONS = sizeof(excnames) / sizeof(excnames[0]);
+
+const char* trap_name(int trapno) {
+    if (static_cast<size_t>(trapno) < NUM_EXCEPTIONS) {
         return excnames[trapno];
     }
     if (trapno >= IRQ_OFFSET && trapno < IRQ_OFFSET + 16) {
@@ -50,41 +54,42 @@ static const char *trap_name(int trapno) {
     return "(unknown trap)";
 }
 
-void print_regs(trap_regs *regs) {
-    cprintf("  edi  0x%08x\n", regs->reg_edi);
-    cprintf("  esi  0x%08x\n", regs->reg_esi);
-    cprintf("  ebp  0x%08x\n", regs->reg_ebp);
-    // cprintf("  oesp 0x%08x\n", regs->unused);
-    cprintf("  ebx  0x%08x\n", regs->reg_ebx);
-    cprintf("  edx  0x%08x\n", regs->reg_edx);
-    cprintf("  ecx  0x%08x\n", regs->reg_ecx);
-    cprintf("  eax  0x%08x\n", regs->reg_eax);
+} // namespace
+
+void TrapRegisters::print() const {
+    cprintf("  edi  0x%08x\n", m_edi);
+    cprintf("  esi  0x%08x\n", m_esi);
+    cprintf("  ebp  0x%08x\n", m_ebp);
+    cprintf("  ebx  0x%08x\n", m_ebx);
+    cprintf("  edx  0x%08x\n", m_edx);
+    cprintf("  ecx  0x%08x\n", m_ecx);
+    cprintf("  eax  0x%08x\n", m_eax);
 }
 
 
-void print_trapframe(trap_frame *tf) {
-    cprintf("trapframe at %p\n", tf);
-    print_regs(&tf->tf_regs);
-    cprintf("  trap 0x%08x %s\n", tf->tf_trapno, trap_name(tf->tf_trapno));
-    cprintf("  err  0x%08x\n", tf->tf_err);
-    cprintf("  eip  0x%08x\n", tf->tf_eip);
+void TrapFrame::print() const {
+    cprintf("trapframe at %p\n", this);
+    m_regs.print();
+    cprintf("  trap 0x%08x %s\n", m_trapno, trap_name(m_trapno));
+    cprintf("  err  0x%08x\n", m_err);
+    cprintf("  eip  0x%08x\n", m_eip);
 }
 
-void print_pgfault(trap_frame *tf) {
+void TrapFrame::print_pgfault() const {
     cprintf("Page Fault at 0x%08x: %c/%c [%s].\n", rcr2(),
-            (tf->tf_err & 4) ? 'U' : 'K',
-            (tf->tf_err & 2) ? 'W' : 'R',
-            (tf->tf_err & 1) ? "Protection Fault" : "No Page Found");
+            (m_err & 4) ? 'U' : 'K',
+            (m_err & 2) ? 'W' : 'R',
+            (m_err & 1) ? "Protection Fault" : "No Page Found");
 }
 
-static void irq_timer(trap_frame *tf) {
+static void irq_timer(TrapFrame *tf) {
     ticks++;
     if ((int)ticks % TICK_NUM == 0) {
         // cprintf("%d ticks\n", TICK_NUM);
     }
 }
 
-static void irq_kbd(trap_frame *tf) {
+static void irq_kbd(TrapFrame *tf) {
     extern void shell_handle_char(char c);
     char c = kdb_getc();
     if (c > 0) {
@@ -92,17 +97,17 @@ static void irq_kbd(trap_frame *tf) {
     }
 }
 
-static int pg_fault(trap_frame *tf) {
-    print_trapframe(tf);
-    print_pgfault(tf);
+static int pg_fault(TrapFrame *tf) {
+    tf->print();
+    tf->print_pgfault();
 
-    vmm_pg_fault(current->mm, tf->tf_err, rcr2());
+    vmm_pg_fault(current->mm, tf->m_err, rcr2());
 
     return 0;
 }
 
-void trap(trap_frame *tf) {
-    switch(tf->tf_trapno) {
+void trap(TrapFrame *tf) {
+    switch(tf->m_trapno) {
         case T_PGFLT:
             pg_fault(tf);
             break;
@@ -125,7 +130,7 @@ void trap(trap_frame *tf) {
     }
     
     // Send EOI for hardware interrupts (IRQ 0-15)
-    if (tf->tf_trapno >= IRQ_OFFSET && tf->tf_trapno < IRQ_OFFSET + 16) {
-        pic_send_eoi(tf->tf_trapno - IRQ_OFFSET);
+    if (tf->m_trapno >= IRQ_OFFSET && tf->m_trapno < IRQ_OFFSET + 16) {
+        pic_send_eoi(tf->m_trapno - IRQ_OFFSET);
     }
 }

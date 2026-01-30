@@ -13,27 +13,33 @@
 #include "cons_defs.h"
 
 // Command buffer configuration
-#define CMD_BUF_SIZE 128
-#define MAX_ARGS 16
+namespace {
 
-static char cmd_buffer[CMD_BUF_SIZE];
-static int cmd_pos = 0;
+constexpr size_t CMD_BUF_SIZE = 128;
+constexpr int MAX_ARGS = 16;
 
-typedef struct {
-    const char *name;
-    const char *desc;
-    void (*func)(int argc, char **argv);
-} shell_cmd_t;
+char cmd_buffer[CMD_BUF_SIZE];
+int cmd_pos = 0;
+
+} // namespace
+
+struct ShellCommand {
+    const char* name;
+    const char* desc;
+    void (*func)(int argc, char** argv);
+};
+
+using shell_cmd_t = ShellCommand;
 
 // Forward declarations
-static int strncmp(const char *s1, const char *s2, size_t n);
-static int strcmp(const char *s1, const char *s2);
-static int parse_args(const char *cmd, char **argv);
+static int strncmp(const char* s1, const char* s2, size_t n);
+static int strcmp(const char* s1, const char* s2);
+static int parse_args(const char* cmd, char** argv);
 
 // Command implementations
-static void cmd_help(int argc, char **argv) {
+static void cmd_help(int argc, char** argv) {
     (void)argc; (void)argv;
-    extern shell_cmd_t commands[];
+    extern ShellCommand commands[];
     extern int command_count;
     
     cprintf("Available commands:\n");
@@ -77,7 +83,7 @@ static void cmd_hdparm(int argc, char **argv) {
     cprintf("IDE Disk Information (%d device(s) found):\n\n", num_devices);
     
     for (int dev_id = 0; dev_id < 4; dev_id++) {
-        ide_device_t *dev = hd_get_device(dev_id);
+        IdeDevice *dev = hd_get_device(dev_id);
         
         if (dev == nullptr) {
             continue;
@@ -159,7 +165,7 @@ static int ensure_system_mounted(void) {
     }
     
     // Try to mount hda (system disk)
-    block_device_t* dev = blk_get_device_by_name("hda");
+    BlockDevice* dev = blk_get_device_by_name("hda");
     if (!dev) {
         cprintf("Error: System disk (hda) not found\n");
         return -1;
@@ -198,7 +204,7 @@ static void cmd_mount(int argc, char **argv) {
         return;
     }
     
-    block_device_t *dev = blk_get_device_by_name(dev_name);
+    BlockDevice *dev = blk_get_device_by_name(dev_name);
     if (!dev) {
         cprintf("Device not found: %s\n", dev_name);
         cprintf("Use 'lsblk' to see available devices\n");
