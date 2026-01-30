@@ -25,11 +25,20 @@ struct BlockDevice {
     int type{};                           // Device type
     uint32_t size{};                      // Size in blocks
     const char* name{};                   // Device name
-    void* private_data{};                 // Private data (e.g., device ID)
     
-    // Operations
-    int (*read)(BlockDevice* dev, uint32_t blockno, void* buf, size_t nblocks);
-    int (*write)(BlockDevice* dev, uint32_t blockno, const void* buf, size_t nblocks);
+    // Virtual operations (for C++ subclasses)
+    virtual int read(uint32_t blockNumber, void* buf, size_t blockCount) = 0;
+    virtual int write(uint32_t blockNumber, const void* buf, size_t blockCount) = 0;
+
+    BlockDevice* get_device(const char* name);
+    BlockDevice* get_device(int index);
+    int get_device_count();
+    
+    void register_device();
+
+private:
+    static BlockDevice* s_devices[MAX_BLK_DEV];
+    static int s_device_count;
 };
 
 // Block device management functions

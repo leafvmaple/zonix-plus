@@ -2,6 +2,8 @@
 
 #include <base/types.h>
 
+#include "blk.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -101,22 +103,31 @@ using disk_info_t = DiskInfo;
 struct TaskStruct;  // Forward declaration
 
 // IDE device structure
-struct IdeDevice {
-    uint8_t channel;                    // 0 = primary, 1 = secondary
-    uint8_t drive;                      // 0 = master, 1 = slave
-    uint16_t base;                      // Base I/O port
-    uint16_t ctrl;                      // Control register port
-    uint8_t irq;                        // IRQ number
-    DiskInfo info;                      // Disk information
-    int present;                        // Device is present
-    char name[ide::NAME_LEN];           // Device name (hda, hdb, hdc, hdd)
+struct IdeDevice : public BlockDevice {
+    uint8_t m_channel{};                   // 0 = primary, 1 = secondary
+    uint8_t m_drive{};                     // 0 = master, 1 = slave
+    uint16_t m_base{};                     // Base I/O port
+    uint16_t m_ctrl{};                     // Control register port
+    uint8_t m_irq{};                       // IRQ number
+    DiskInfo m_info{};                     // Disk information
+    int m_present{};                       // Device is present
+    char m_name[ide::NAME_LEN]{};          // Device name (hda, hdb, hdc, hdd)
     
     // Fields used for interrupt-driven I/O
-    volatile int irq_done;              // Set to 1 by ISR when operation completes
-    volatile int err;                   // Error flag set by ISR
-    void* buffer;                       // Pointer to buffer for current transfer (one sector)
-    int op;                             // Operation type: 0=none, 1=read, 2=write
-    TaskStruct* waiting;                // Sleeping task waiting for completion
+    volatile int m_irq_done{};              // Set to 1 by ISR when operation completes
+    volatile int m_err{};                   // Error flag set by ISR
+    void* m_buffer{};                       // Pointer to buffer for current transfer (one sector)
+    int m_op{};                             // Operation type: 0=none, 1=read, 2=write
+    TaskStruct* m_waiting{};                  // Sleeping task waiting for completion
+
+    IdeDevice() {
+        type = BLK_TYPE_DISK;
+    }
+
+    void detect(int deviceID);
+
+    int read(uint32_t blockNumber, void* buf, size_t blockCount) override;
+    int write(uint32_t blockNumber, const void* buf, size_t blockCount) override;
 };
 
 // Function declarations - Multi-device API

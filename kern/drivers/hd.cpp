@@ -1,5 +1,6 @@
 #include "hd.h"
 #include "stdio.h"
+#include "string.h"
 
 #include <arch/x86/io.h>
 #include <arch/x86/cpu.h>
@@ -9,8 +10,12 @@
 #include "../drivers/intr.h"
 
 // Global IDE devices
-static IdeDevice ide_devices[MAX_IDE_DEVICES];
-static int num_devices = 0;
+static IdeDevice ide_devices[MAX_IDE_DEVICES]{};
+static int num_devices{};
+
+// Forward declarations
+static int hd_wait_ready_on_base(uint16_t base);
+static int hd_wait_data_on_base(uint16_t base);
 
 // Device initialization configurations
 static const struct {
@@ -26,6 +31,191 @@ static const struct {
     {1, 0, IDE1_BASE, IDE1_CTRL, IRQ_IDE2, "hdc"},  // Secondary Master
     {1, 1, IDE1_BASE, IDE1_CTRL, IRQ_IDE2, "hdd"},  // Secondary Slave
 };
+
+void IdeDevice::detect(int deviceID) {
+    auto& config = ide_configs[deviceID];
+    m_channel = config.channel;
+    m_drive = config.drive;
+    m_base = config.base;
+    m_ctrl = config.ctrl;
+    m_irq = config.irq;
+
+    uint8_t driveSel = m_drive ? IDE_DEV_SLAVE : IDE_DEV_MASTER;
+    outb(m_base + IDE_DEVICE, 0xA0 | (driveSel << 4));
+    io_wait();
+
+    outb(m_base + IDE_COMMAND, IDE_CMD_IDENTIFY);
+    io_wait();
+
+    // Check if device is present
+    uint8_t status = inb(m_base + IDE_STATUS);
+    if (status == 0) {
+        return; // No device
+    }
+
+    // Wait for BSY to clear
+    if (hd_wait_ready_on_base(m_base) != 0) {
+        return; // Device not ready
+    }
+
+    // Read IDENTIFY data
+    uint16_t identify_data[256];
+    insw(m_base + IDE_DATA, identify_data, 256);
+
+    // Parse disk info
+    m_info.cylinders = identify_data[1];
+    m_info.heads = identify_data[3];
+    m_info.sectors = identify_data[6];
+    m_info.size = static_cast<uint32_t>(identify_data[60]) | (static_cast<uint32_t>(identify_data[61]) << 16);
+    m_info.valid = 1;
+    m_present = 1;
+
+    strncpy(m_name, ide_configs[deviceID].name, sizeof(m_name));
+}
+
+int IdeDevice::read(uint32_t blockNumber, void* buf, size_t blockCount) {
+    if (!m_present) {
+        cprintf("IdeDevice::read: device %s not present\n", m_name);
+        return -1;
+    }
+    
+    if (blockNumber + blockCount > m_info.size) {
+        cprintf("IdeDevice::read: out of range (block %d + %d > %d)\n", 
+                blockNumber, blockCount, m_info.size);
+        return -1;
+    }
+    
+    uint8_t driveSel = m_drive ? IDE_DEV_SLAVE : IDE_DEV_MASTER;
+    
+    // Read blocks one by one (interrupt-driven)
+    for (size_t i = 0; i < blockCount; i++) {
+        uint32_t lba = blockNumber + i;
+
+        // Wait for device ready
+        if (hd_wait_ready_on_base(m_base) != 0) {
+            cprintf("IdeDevice::read: device %s not ready\n", m_name);
+            return -1;
+        }
+
+        // Disable interrupts before issuing command, prepare transfer descriptor
+        intr_save();
+        
+        // Prepare transfer parameters
+        m_irq_done = 0;
+        m_err = 0;
+        m_buffer = reinterpret_cast<uint8_t*>(buf) + i * SECTOR_SIZE;
+        m_op = 1; // Read operation
+        m_waiting = current;
+
+        // Set sector count and LBA address
+        outb(m_base + IDE_SECTOR_COUNT, 1);
+        outb(m_base + IDE_LBA_LOW, lba & 0xFF);
+        outb(m_base + IDE_LBA_MID, (lba >> 8) & 0xFF);
+        outb(m_base + IDE_LBA_HIGH, (lba >> 16) & 0xFF);
+        outb(m_base + IDE_DEVICE, driveSel | ((lba >> 24) & 0x0F));
+
+        // Send read command (will trigger interrupt)
+        outb(m_base + IDE_COMMAND, IDE_CMD_READ);
+
+        while (!m_irq_done) {
+            current->state = TASK_SLEEPING;
+            intr_restore();
+            schedule();
+            intr_save();
+        }
+
+        intr_restore();
+
+        // Clean up state
+        m_op = 0;
+        m_waiting = nullptr;
+
+        // Check for errors
+        if (m_err) {
+            cprintf("IdeDevice::read: error reading block %d from %s\n", lba, m_name);
+            return -1;
+        }
+    }
+    
+    return 0;
+}
+
+int IdeDevice::write(uint32_t blockNumber, const void* buf, size_t blockCount) {
+    if (!m_present) {
+        cprintf("IdeDevice::write: device %s not present\n", m_name);
+        return -1;
+    }
+    
+    if (blockNumber + blockCount > m_info.size) {
+        cprintf("IdeDevice::write: out of range (block %d + %d > %d)\n", 
+                blockNumber, blockCount, m_info.size);
+        return -1;
+    }
+    
+    uint8_t drive_sel = m_drive ? IDE_DEV_SLAVE : IDE_DEV_MASTER;
+    
+    // Write blocks one by one (interrupt-driven)
+    for (size_t i = 0; i < blockCount; i++) {
+        uint32_t lba = blockNumber + i;
+
+        // Wait for device ready
+        if (hd_wait_ready_on_base(m_base) != 0) {
+            cprintf("IdeDevice::write: device %s not ready\n", m_name);
+            return -1;
+        }
+
+        // Disable interrupts before issuing command, prepare transfer descriptor
+        intr_save();
+        
+        // Prepare transfer parameters
+        m_irq_done = 0;
+        m_err = 0;
+        m_buffer = const_cast<void*>(static_cast<const void*>(
+            reinterpret_cast<const uint8_t*>(buf) + i * SECTOR_SIZE));
+        m_op = 2; // Write operation
+        m_waiting = current;
+
+        // Set sector count and LBA address
+        outb(m_base + IDE_SECTOR_COUNT, 1);
+        outb(m_base + IDE_LBA_LOW, lba & 0xFF);
+        outb(m_base + IDE_LBA_MID, (lba >> 8) & 0xFF);
+        outb(m_base + IDE_LBA_HIGH, (lba >> 16) & 0xFF);
+        outb(m_base + IDE_DEVICE, drive_sel | ((lba >> 24) & 0x0F));
+
+        // Send write command
+        outb(m_base + IDE_COMMAND, IDE_CMD_WRITE);
+
+        // Wait for device ready to receive data
+        if (hd_wait_ready_on_base(m_base) != 0) {
+            intr_restore();
+            return -1;
+        }
+
+        // Write the data
+        outsw(m_base + IDE_DATA, m_buffer, SECTOR_SIZE / 2);
+
+        while (!m_irq_done) {
+            current->state = TASK_SLEEPING;
+            intr_restore();
+            schedule();
+            intr_save();
+        }
+
+        intr_restore();
+        
+        // Clean up state
+        m_op = 0;
+        m_waiting = nullptr;
+
+        // Check for errors
+        if (m_err) {
+            cprintf("IdeDevice::write: error writing block %d to %s\n", lba, m_name);
+            return -1;
+        }
+    }
+    
+    return 0;
+}
 
 /**
  * Wait for disk to be ready (on specific base port)
@@ -109,28 +299,28 @@ static int hd_detect_device(int dev_id) {
     insw(base + IDE_DATA, buf, 256);
     
     // Fill device structure
-    dev->channel = ide_configs[dev_id].channel;
-    dev->drive = ide_configs[dev_id].drive;
-    dev->base = base;
-    dev->ctrl = ide_configs[dev_id].ctrl;
-    dev->irq = ide_configs[dev_id].irq;
-    dev->info.cylinders = buf[1];
-    dev->info.heads = buf[3];
-    dev->info.sectors = buf[6];
-    dev->info.size = *((uint32_t *)&buf[60]);
+    dev->m_channel = ide_configs[dev_id].channel;
+    dev->m_drive = ide_configs[dev_id].drive;
+    dev->m_base = base;
+    dev->m_ctrl = ide_configs[dev_id].ctrl;
+    dev->m_irq = ide_configs[dev_id].irq;
+    dev->m_info.cylinders = buf[1];
+    dev->m_info.heads = buf[3];
+    dev->m_info.sectors = buf[6];
+    dev->m_info.size = *((uint32_t *)&buf[60]);
     
-    if (dev->info.size == 0) {
-        dev->info.size = dev->info.cylinders * dev->info.heads * dev->info.sectors;
+    if (dev->m_info.size == 0) {
+        dev->m_info.size = dev->m_info.cylinders * dev->m_info.heads * dev->m_info.sectors;
     }
     
-    dev->info.valid = 1;
-    dev->present = 1;
+    dev->m_info.valid = 1;
+    dev->m_present = 1;
     
     // Copy device name
     for (int i = 0; i < IDE_NAME_LEN; i++) {
-        dev->name[i] = ide_configs[dev_id].name[i];
+        dev->m_name[i] = ide_configs[dev_id].name[i];
     }
-    dev->name[IDE_NAME_LEN - 1] = '\0';
+    dev->m_name[IDE_NAME_LEN - 1] = '\0';
     
     // Re-enable interrupts for this device
     outb(ctrl, 0x00);
@@ -142,20 +332,10 @@ void hd_init(void) {
     // Enable IDE interrupts for both channels at PIC level
     pic_enable(IRQ_IDE1);
     pic_enable(IRQ_IDE2);
-    
-    // Clear device array
-    for (int i = 0; i < MAX_IDE_DEVICES; i++) {
-        ide_devices[i].present = 0;
-        ide_devices[i].info.valid = 0;
-    }
-    
-    num_devices = 0;
-    
+
     // Try to detect all 4 possible devices
     for (int i = 0; i < MAX_IDE_DEVICES; i++) {
-        if (hd_detect_device(i) == 0) {
-            num_devices++;
-        }
+        ide_devices[i].detect(i);
     }
     
     cprintf("hd_init: found %d device(s)\n", num_devices);
@@ -171,19 +351,19 @@ void hd_init(void) {
  */
 int hd_read_device(int dev_id, uint32_t secno, void *dst, size_t nsecs) {
     IdeDevice *dev = &ide_devices[dev_id];
-    if (!dev->present) {
+    if (!dev->m_present) {
         cprintf("hd_read: device %d not present\n", dev_id);
         return -1;
     }
     
-    if (secno + nsecs > dev->info.size) {
+    if (secno + nsecs > dev->m_info.size) {
         cprintf("hd_read: out of range (sector %d + %d > %d)\n", 
-                secno, nsecs, dev->info.size);
+                secno, nsecs, dev->m_info.size);
         return -1;
     }
     
-    uint16_t base = dev->base;
-    uint8_t drive_sel = dev->drive ? IDE_DEV_SLAVE : IDE_DEV_MASTER;
+    uint16_t base = dev->m_base;
+    uint8_t drive_sel = dev->m_drive ? IDE_DEV_SLAVE : IDE_DEV_MASTER;
     
     // Read sectors one by one (interrupt-driven)
     for (size_t i = 0; i < nsecs; i++) {
@@ -191,7 +371,7 @@ int hd_read_device(int dev_id, uint32_t secno, void *dst, size_t nsecs) {
 
         // Wait for device ready
         if (hd_wait_ready_on_base(base) != 0) {
-            cprintf("hd_read: device %s not ready\n", dev->name);
+            cprintf("hd_read: device %s not ready\n", dev->m_name);
             return -1;
         }
 
@@ -199,11 +379,11 @@ int hd_read_device(int dev_id, uint32_t secno, void *dst, size_t nsecs) {
         intr_save();
         
         // Prepare transfer parameters
-        dev->irq_done = 0;
-        dev->err = 0;
-        dev->buffer = (void *)((uint8_t *)dst + i * SECTOR_SIZE);
-        dev->op = 1; // Read operation
-        dev->waiting = current;
+        dev->m_irq_done = 0;
+        dev->m_err = 0;
+        dev->m_buffer = (void *)((uint8_t *)dst + i * SECTOR_SIZE);
+        dev->m_op = 1; // Read operation
+        dev->m_waiting = current;
 
         // Set sector count and LBA address
         outb(base + IDE_SECTOR_COUNT, 1);
@@ -217,7 +397,7 @@ int hd_read_device(int dev_id, uint32_t secno, void *dst, size_t nsecs) {
         
         // cprintf("hd_read: command sent, waiting for interrupt on %s (lba=%d)\n", dev->name, lba);
 
-        while (!dev->irq_done) {
+        while (!dev->m_irq_done) {
             current->state = TASK_SLEEPING;
             intr_restore();
             schedule();
@@ -227,12 +407,12 @@ int hd_read_device(int dev_id, uint32_t secno, void *dst, size_t nsecs) {
         intr_restore();
 
         // Clean up state
-        dev->op = 0;
-        dev->waiting = nullptr;
+        dev->m_op = 0;
+        dev->m_waiting = nullptr;
 
         // Check for errors
-        if (dev->err) {
-            cprintf("hd_read: error reading sector %d from %s\n", lba, dev->name);
+        if (dev->m_err) {
+            cprintf("hd_read: error reading sector %d from %s\n", lba, dev->m_name);
             return -1;
         }
     }
@@ -250,19 +430,19 @@ int hd_read_device(int dev_id, uint32_t secno, void *dst, size_t nsecs) {
  */
 int hd_write_device(int dev_id, uint32_t secno, const void *src, size_t nsecs) {
     IdeDevice *dev = &ide_devices[dev_id];
-    if (!dev->present) {
+    if (!dev->m_present) {
         cprintf("hd_write: device %d not present\n", dev_id);
         return -1;
     }
     
-    if (secno + nsecs > dev->info.size) {
+    if (secno + nsecs > dev->m_info.size) {
         cprintf("hd_write: out of range (sector %d + %d > %d)\n", 
-                secno, nsecs, dev->info.size);
+                secno, nsecs, dev->m_info.size);
         return -1;
     }
     
-    uint16_t base = dev->base;
-    uint8_t drive_sel = dev->drive ? IDE_DEV_SLAVE : IDE_DEV_MASTER;
+    uint16_t base = dev->m_base;
+    uint8_t drive_sel = dev->m_drive ? IDE_DEV_SLAVE : IDE_DEV_MASTER;
     
     // Write sectors one by one (interrupt-driven)
     for (size_t i = 0; i < nsecs; i++) {
@@ -270,7 +450,7 @@ int hd_write_device(int dev_id, uint32_t secno, const void *src, size_t nsecs) {
 
         // Wait for device ready
         if (hd_wait_ready_on_base(base) != 0) {
-            cprintf("hd_write: device %s not ready\n", dev->name);
+            cprintf("hd_write: device %s not ready\n", dev->m_name);
             return -1;
         }
 
@@ -278,11 +458,11 @@ int hd_write_device(int dev_id, uint32_t secno, const void *src, size_t nsecs) {
         intr_save();
         
         // Prepare transfer parameters
-        dev->irq_done = 0;
-        dev->err = 0;
-        dev->buffer = (void *)((const uint8_t *)src + i * SECTOR_SIZE);
-        dev->op = 2; // Write operation
-        dev->waiting = current;
+        dev->m_irq_done = 0;
+        dev->m_err = 0;
+        dev->m_buffer = (void *)((const uint8_t *)src + i * SECTOR_SIZE);
+        dev->m_op = 2; // Write operation
+        dev->m_waiting = current;
 
         // Set sector count and LBA address
         outb(base + IDE_SECTOR_COUNT, 1);
@@ -302,12 +482,12 @@ int hd_write_device(int dev_id, uint32_t secno, const void *src, size_t nsecs) {
         }
 
         // Write the data
-        outsw(base + IDE_DATA, (const void *)dev->buffer, SECTOR_SIZE / 2);
+        outsw(base + IDE_DATA, (const void *)dev->m_buffer, SECTOR_SIZE / 2);
         // dev->irq_done = 0;
 
         // TODO END
 
-        while (!dev->irq_done) {
+        while (!dev->m_irq_done) {
             current->state = TASK_SLEEPING;
             intr_restore();
             schedule();
@@ -317,12 +497,12 @@ int hd_write_device(int dev_id, uint32_t secno, const void *src, size_t nsecs) {
         intr_restore();
         
         // Clean up state
-        dev->op = 0;
-        dev->waiting = nullptr;
+        dev->m_op = 0;
+        dev->m_waiting = nullptr;
 
         // Check for errors
-        if (dev->err) {
-            cprintf("hd_write: error writing sector %d to %s\n", lba, dev->name);
+        if (dev->m_err) {
+            cprintf("hd_write: error writing sector %d to %s\n", lba, dev->m_name);
             return -1;
         }
     }
@@ -342,71 +522,71 @@ void hd_intr(int irq) {
         IdeDevice *dev = &ide_devices[i];
         
         // Skip devices not present or not on this channel
-        if (!dev->present || dev->channel != channel) {
+        if (!dev->m_present || dev->m_channel != channel) {
             continue;
         }
 
         // Read status register (clears interrupt)
-        uint8_t status = inb(dev->base + IDE_STATUS);
+        uint8_t status = inb(dev->m_base + IDE_STATUS);
 
         // cprintf("hd_intr: handling interrupt operator %d with status 0x%x for device %s on channel %d\n", dev->op, status, dev->name, channel);
         
         // If no operation is in progress, ignore interrupt
-        if (dev->op == 0) {
+        if (dev->m_op == 0) {
             continue;
         }
 
         // Error handling
         if (status & IDE_ERR) {
-            uint8_t err = inb(dev->base + IDE_ERROR);
+            uint8_t err = inb(dev->m_base + IDE_ERROR);
             cprintf("hd_intr: disk error on %s (status=0x%02x, error=0x%02x)\n", 
-                    dev->name, status, err);
-            dev->err = -1;
-            dev->irq_done = 1;
-            if (dev->waiting) {
-                wakeup_proc(dev->waiting);
+                    dev->m_name, status, err);
+            dev->m_err = -1;
+            dev->m_irq_done = 1;
+            if (dev->m_waiting) {
+                wakeup_proc(dev->m_waiting);
             }
             continue;
         }
 
         // Read operation: read data when DRQ is set
-        if (dev->op == 1) {
+        if (dev->m_op == 1) {
             if (!(status & IDE_DRQ)) {
                 continue;
             }
             
             // Read one sector of data
-            if (dev->buffer) {
-                insw(dev->base + IDE_DATA, dev->buffer, SECTOR_SIZE / 2);
+            if (dev->m_buffer) {
+                insw(dev->m_base + IDE_DATA, dev->m_buffer, SECTOR_SIZE / 2);
             }
             
             // Mark complete and wake waiting process
-            dev->irq_done = 1;
-            if (dev->waiting) {
-                wakeup_proc(dev->waiting);
+            dev->m_irq_done = 1;
+            if (dev->m_waiting) {
+                wakeup_proc(dev->m_waiting);
             }
             continue;
         }
 
         // Write operation: handle DRQ and completion signals
-        if (dev->op == 2) {
+        if (dev->m_op == 2) {
             // If DRQ is set, device is ready to receive data
             if (status & IDE_DRQ) {
-                if (dev->buffer) {
-                    outsw(dev->base + IDE_DATA, dev->buffer, SECTOR_SIZE / 2);
+                if (dev->m_buffer) {
+                    outsw(dev->m_base + IDE_DATA, dev->m_buffer, SECTOR_SIZE / 2);
                 }
                 // For simplicity, mark as done after writing data
                 // Some devices may send another IRQ when truly complete
-                dev->irq_done = 1;
-                if (dev->waiting) {
-                    wakeup_proc(dev->waiting);
+                dev->m_irq_done = 1;
+                if (dev->m_waiting) {
+                    wakeup_proc(dev->m_waiting);
                 }
             } 
             // If both BSY and DRQ are clear, write operation is complete
             else if ((status & (IDE_BSY | IDE_DRQ)) == 0) {
-                dev->irq_done = 1;
-                if (dev->waiting) {
-                    wakeup_proc(dev->waiting);
+                dev->m_irq_done = 1;
+                if (dev->m_waiting) {
+                    wakeup_proc(dev->m_waiting);
                 }
             }
             continue;
@@ -418,7 +598,7 @@ void hd_intr(int irq) {
  * Get device by ID
  */
 IdeDevice *hd_get_device(int dev_id) {
-    if (!ide_devices[dev_id].present) {
+    if (!ide_devices[dev_id].m_present) {
         return nullptr;
     }
     
@@ -444,16 +624,16 @@ void hd_test_interrupt(void) {
     }
     
     IdeDevice *dev = &ide_devices[0];
-    cprintf("Testing device: %s\n", dev->name);
-    cprintf("  base=0x%x, ctrl=0x%x, irq=%d\n", dev->base, dev->ctrl, dev->irq);
+    cprintf("Testing device: %s\n", dev->m_name);
+    cprintf("  base=0x%x, ctrl=0x%x, irq=%d\n", dev->m_base, dev->m_ctrl, dev->m_irq);
     
     // Check interrupt enable status
-    uint8_t ctrl = inb(dev->ctrl);
+    uint8_t ctrl = inb(dev->m_ctrl);
     cprintf("  Control register: 0x%02x (interrupts %s)\n", 
             ctrl, (ctrl & IDE_CTRL_nIEN) ? "DISABLED" : "ENABLED");
     
     // Check PIC mask
-    cprintf("  Checking if IRQ %d is enabled in PIC...\n", dev->irq);
+    cprintf("  Checking if IRQ %d is enabled in PIC...\n", dev->m_irq);
     
     // Try a simple read with interrupt
     static uint8_t buf[SECTOR_SIZE];
@@ -490,12 +670,12 @@ void hd_test(void) {
     for (int dev_id = 0; dev_id < MAX_IDE_DEVICES; dev_id++) {
         IdeDevice *dev = &ide_devices[dev_id];
         
-        if (!dev->present) {
+        if (!dev->m_present) {
             continue;
         }
         
-        cprintf("--- Testing %s (dev_id=%d) ---\n", dev->name, dev_id);
-        cprintf("  Size: %d sectors (%d MB)\n", dev->info.size, dev->info.size / 2048);
+        cprintf("--- Testing %s (dev_id=%d) ---\n", dev->m_name, dev_id);
+        cprintf("  Size: %d sectors (%d MB)\n", dev->m_info.size, dev->m_info.size / 2048);
         
         // Fill write buffer with test pattern (unique per device)
         for (int i = 0; i < SECTOR_SIZE; i++) {
@@ -537,7 +717,7 @@ void hd_test(void) {
             cprintf("    OK\n");
         }
         
-        cprintf("  %s test %s\n\n", dev->name, errors == 0 ? "PASSED" : "FAILED");
+        cprintf("  %s test %s\n\n", dev->m_name, errors == 0 ? "PASSED" : "FAILED");
     }
     
     cprintf("=== Multi-Disk Test Complete ===\n\n");

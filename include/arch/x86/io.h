@@ -16,6 +16,8 @@ static inline void outsw(uint32_t port, const void *addr, int cnt) __attribute__
 
 static inline void outb_p(uint16_t port, uint8_t data) __attribute__((always_inline));
 
+static inline void io_wait(void) __attribute__((always_inline));
+
 static inline uint32_t read_eflags(void) __attribute__((always_inline));
 static inline void write_eflags(uint32_t eflags) __attribute__((always_inline));
 
@@ -92,6 +94,11 @@ static inline void outb_p(uint16_t port, uint8_t data) {
 		"jmp 1f;"
 		"1:jmp 1f;"
 		"1:" :: "a"(data), "d"(port));
+}
+
+// Short delay using port 0x80 (POST diagnostic port)
+static inline void io_wait(void) {
+    inb(0x80);
 }
 
 static inline uint32_t read_eflags(void) {

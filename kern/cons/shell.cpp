@@ -89,15 +89,15 @@ static void cmd_hdparm(int argc, char **argv) {
             continue;
         }
         
-        cprintf("Device: %s (dev_id=%d)\n", dev->name, dev_id);
+        cprintf("Device: %s (dev_id=%d)\n", dev->m_name, dev_id);
         cprintf("  Channel: %s, Drive: %s\n",
-               dev->channel == 0 ? "Primary" : "Secondary",
-               dev->drive == 0 ? "Master" : "Slave");
-        cprintf("  Base I/O: 0x%x, IRQ: %d\n", dev->base, dev->irq);
+               dev->m_channel == 0 ? "Primary" : "Secondary",
+               dev->m_drive == 0 ? "Master" : "Slave");
+        cprintf("  Base I/O: 0x%x, IRQ: %d\n", dev->m_base, dev->m_irq);
         cprintf("  Size: %d sectors (%d MB)\n", 
-               dev->info.size, dev->info.size / 2048);
+               dev->m_info.size, dev->m_info.size / 2048);
         cprintf("  CHS: %d cylinders, %d heads, %d sectors/track\n", 
-               dev->info.cylinders, dev->info.heads, dev->info.sectors);
+               dev->m_info.cylinders, dev->m_info.heads, dev->m_info.sectors);
         cprintf("\n");
     }
 }
