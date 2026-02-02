@@ -190,7 +190,7 @@ void proc_run(task_struct *proc);
 
 // Simple round-robin scheduler
 void schedule(void) {
-    intr_save();
+    InterruptsGuard guard;
     
     if (current->state == TASK_RUNNING) {
         current->state = TASK_RUNNABLE; 
@@ -210,8 +210,6 @@ void schedule(void) {
     if (next != current) {
         proc_run(next);
     }
-
-    intr_restore();
 }
 
 // Context switch wrapper (will be implemented in assembly)
@@ -220,7 +218,7 @@ extern "C" void switch_to(struct context *from, struct context *to);
 // Switch to a process
 void proc_run(task_struct *proc) {
     if (proc != current) {
-        intr_save();
+        InterruptsGuard guard;
         
         task_struct *prev = current, *next = proc;
         
@@ -238,8 +236,6 @@ void proc_run(task_struct *proc) {
         // Switch context - after this, we're in the new process
         // When switch_to returns, we are already in 'next' process
         switch_to(&(prev->context), &(next->context));
-        
-        intr_restore();
     }
 }
 
@@ -253,14 +249,12 @@ int do_fork(uint32_t clone_flags, uintptr_t stack, TrapFrame *tf) {
     copy_mm(clone_flags, proc);
     copy_thread(proc, stack, tf);
 
-    intr_save();
-
-    // Allocate PID
-    proc->pid = get_pid();
-    hash_proc(proc);
-    set_links(proc);
-
-    intr_restore();
+    {
+        InterruptsGuard guard;
+        proc->pid = get_pid();
+        hash_proc(proc);
+        set_links(proc);
+    }
     
     // Wake up the process
     wakeup_proc(proc);
@@ -272,41 +266,38 @@ int do_fork(uint32_t clone_flags, uintptr_t stack, TrapFrame *tf) {
 int do_exit(int error_code) {
     current->state = TASK_ZOMBIE;
     current->exit_code = error_code;
-    
+
     // Free mm if not shared
     // (Will implement later)
-    
-    int intr_flag;
-    intr_save();
-
-    // Wake up parent if waiting
-    if (current->parent && current->parent->wait_state) {
-        wakeup_proc(current->parent);
-    }
-    
-    // Give children to init process if it exists
-    if (init_proc != nullptr) {
-        while (current->cptr != nullptr) {
-            task_struct *proc = current->cptr;
-            current->cptr = proc->optr;
-            
-            proc->yptr = nullptr;
-            if ((proc->optr = init_proc->cptr) != nullptr) {
-                init_proc->cptr->yptr = proc;
-            }
-            proc->parent = init_proc;
-            init_proc->cptr = proc;
-            
-            if (proc->state == TASK_ZOMBIE) {
-                if (init_proc->wait_state) {
-                    wakeup_proc(init_proc);
+    {
+        InterruptsGuard guard;
+        // Wake up parent if waiting
+        if (current->parent && current->parent->wait_state) {
+            wakeup_proc(current->parent);
+        }
+        
+        // Give children to init process if it exists
+        if (init_proc != nullptr) {
+            while (current->cptr != nullptr) {
+                task_struct *proc = current->cptr;
+                current->cptr = proc->optr;
+                
+                proc->yptr = nullptr;
+                if ((proc->optr = init_proc->cptr) != nullptr) {
+                    init_proc->cptr->yptr = proc;
+                }
+                proc->parent = init_proc;
+                init_proc->cptr = proc;
+                
+                if (proc->state == TASK_ZOMBIE) {
+                    if (init_proc->wait_state) {
+                        wakeup_proc(init_proc);
+                    }
                 }
             }
         }
     }
 
-    intr_restore();
-    
     schedule();
     panic("do_exit will not return!");
     return 0;  // Never reached

@@ -231,6 +231,7 @@ bin/fat32_test.img:
 	@bash tools/create_fat32_image.sh
 
 # FAT32 disk image with proper filesystem
+# Uses mtools to avoid sudo mount (install with: sudo apt install mtools)
 bin/zonix.img: bin/mbr bin/vbr bin/bootloader bin/kernel | $$(dir $$@)
 	@echo "Creating FAT32 disk image..."
 	@# Create 64MB disk image (FAT32 requires at least 33MB)
@@ -241,12 +242,11 @@ bin/zonix.img: bin/mbr bin/vbr bin/bootloader bin/kernel | $$(dir $$@)
 	@echo -e "label: dos\nstart=1, size=131071, type=0c, bootable" | sfdisk $@ 2>/dev/null
 	@# Format partition as FAT32
 	mkfs.fat -F 32 -n "ZONIX" -S 512 -s 8 -R 32 -f 2 --offset 1 $@ 2>/dev/null
-	@# Mount and copy kernel
-	@mkdir -p mnt_tmp
-	@sudo mount -o loop,offset=512 $@ mnt_tmp || (echo "Mount failed"; exit 1)
-	@sudo cp bin/kernel mnt_tmp/KERNEL.SYS || (sudo umount mnt_tmp; echo "Copy failed"; exit 1)
-	@sudo umount mnt_tmp
-	@rmdir mnt_tmp
+	@# Copy kernel using mtools (no sudo required)
+	@# Configure mtools to access the partition at offset 512 (sector 1)
+	@echo "drive z: file=\"$@\" offset=512" > /tmp/mtoolsrc_zonix
+	MTOOLSRC=/tmp/mtoolsrc_zonix mcopy -i $@@@512 bin/kernel ::KERNEL.SYS
+	@rm -f /tmp/mtoolsrc_zonix
 	@# Install custom VBR boot code (preserve BPB)
 	@# For FAT32, BPB is 90 bytes (0x00-0x59)
 	@dd if=$@ of=temp_bpb.bin bs=1 skip=512 count=90 2>/dev/null

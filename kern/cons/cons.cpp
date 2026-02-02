@@ -14,16 +14,16 @@
 extern uint8_t KERNEL_START[];
 
 void cons_init() {
-    cga_init();
-    kbd_init();
+    cga::init();
+    kbd::init();
     cprintf("Zonix OS is Loading in [0x%x]...\n", KERNEL_START);
 }
 
 char cons_getc(void) {
-    return kdb_getc();
+    return kbd::getc();
 }
 
 void cons_putc(int c) {
-    cga_putc(c);
+    cga::putc(c);
     outb(0xe9, c);  // Also output to Bochs debug port for logging
 }

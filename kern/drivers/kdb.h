@@ -2,5 +2,9 @@
 
 #include <base/types.h>
 
-void kbd_init(void);
-int kdb_getc(void);
+namespace kbd {
+
+void init(void);
+int getc(void);
+
+} // namespace kbd

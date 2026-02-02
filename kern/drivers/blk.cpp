@@ -1,172 +1,93 @@
 #include "blk.h"
 #include "hd.h"
 #include "stdio.h"
+#include "string.h"
 
-// Block device registry
-static BlockDevice *block_devices[MAX_BLK_DEV]{};
-static BlockDevice disk_devs[MAX_BLK_DEV]{};
-static int num_devices{};
+// Static member definitions
+BlockDevice* BlockDevice::s_devices[MAX_BLK_DEV] = {};
+int BlockDevice::s_device_count = 0;
 
-static int disk_read_wrapper(BlockDevice* dev, uint32_t blockno, void* buf, size_t nblocks);
-static int disk_write_wrapper(BlockDevice* dev, uint32_t blockno, const void* buf, size_t nblocks);
-
-void blk_init(void) {
+void BlockDevice::init() {
     cprintf("blk_init: initializing block device layer...\n");
 
-    hd_init();
-
-    int num_hd = hd_get_device_count();
-    for (int i = 0; i < num_hd && i < MAX_BLK_DEV; i++) {
-        IdeDevice *ide_dev = hd_get_device(i);
-        if (ide_dev && ide_dev->present) {
-            disk_devs[i].type = BLK_TYPE_DISK;
-            disk_devs[i].name = ide_dev->name;
-            disk_devs[i].size = ide_dev->info.size;
-            disk_devs[i].read = disk_read_wrapper;
-            disk_devs[i].write = disk_write_wrapper;
-            disk_devs[i].private_data = reinterpret_cast<void*>(static_cast<intptr_t>(i));  // Store device ID
-            
-            blk_register(&disk_devs[i]);
+    IdeDevice::init();
+    
+    int hdCount = IdeDevice::get_device_count();
+    for (int i = 0; i < hdCount; i++) {
+        IdeDevice *ideDevice = IdeDevice::get_device(i);
+        if (ideDevice) {
+            ideDevice->m_size = ideDevice->m_info.size;
+            ideDevice->register_device();
         }
     }
     
-    if (num_hd == 0) {
+    if (hdCount == 0) {
         cprintf("blk_init: no disk devices found\n");
     }
 }
 
-int blk_register(BlockDevice* dev) {
-    if (num_devices >= MAX_BLK_DEV) {
-        cprintf("blk_register: too many devices\n");
-        return -1;
+void BlockDevice::register_device() {
+    if (s_device_count >= MAX_BLK_DEV) {
+        cprintf("BlockDevice::register_device: too many devices\n");
+        return;
     }
     
-    block_devices[num_devices++] = dev;
-    return 0;
+    s_devices[s_device_count++] = this;
 }
 
-int blk_get_device_count(void) {
-    return num_devices;
-}
-
-/**
- * Get a block device by type
- */
-BlockDevice* blk_get_device(int type) {
-    for (int i = 0; i < num_devices; i++) {
-        if (block_devices[i] && block_devices[i]->type == type) {
-            return block_devices[i];
-        }
-    }
-    return nullptr;
-}
-
-/**
- * Get a block device by name
- */
-BlockDevice* blk_get_device_by_name(const char *name) {
-    if (!name) {
+BlockDevice* BlockDevice::get_device(const char* deviceName) {
+    if (!deviceName) {
         return nullptr;
     }
     
-    for (int i = 0; i < num_devices; i++) {
-        if (block_devices[i] && block_devices[i]->name) {
-            // Simple string comparison
-            const char *p1 = block_devices[i]->name;
-            const char *p2 = name;
-            while (*p1 && *p2 && *p1 == *p2) {
-                p1++;
-                p2++;
-            }
-            if (*p1 == *p2) {  // Both reached end
-                return block_devices[i];
+    for (int i = 0; i < s_device_count; i++) {
+        if (s_devices[i]) {
+            if (strcmp(s_devices[i]->m_name, deviceName) == 0) {
+                return s_devices[i];
             }
         }
     }
     return nullptr;
 }
 
-BlockDevice* blk_get_device_by_index(int index) {
-    if (index < 0 || index >= num_devices) {
+BlockDevice* BlockDevice::get_device(int index) {
+    if (index < 0 || index >= s_device_count) {
         return nullptr;
     }
-    return block_devices[index];
+    return s_devices[index];
 }
 
-/**
- * Read blocks from a device
- */
-int blk_read(BlockDevice* dev, uint32_t blockno, void* buf, size_t nblocks) {
-    if (dev == nullptr || dev->read == nullptr) {
-        return -1;
-    }
-    
-    return dev->read(dev, blockno, buf, nblocks);
+int BlockDevice::get_device_count() {
+    return s_device_count;
 }
 
-/**
- * Write blocks to a device
- */
-int blk_write(BlockDevice* dev, uint32_t blockno, const void *buf, size_t nblocks) {
-    if (dev == nullptr || dev->write == nullptr) {
-        return -1;
-    }
-    
-    return dev->write(dev, blockno, buf, nblocks);
-}
-
-/**
- * List all registered block devices (Linux lsblk style)
- */
-void blk_list_devices(void) {
-    // Print header
+void BlockDevice::print_info() {
     cprintf("NAME   MAJ:MIN RM  SIZE RO TYPE MOUNTPOINTS\n");
     
-    for (int i = 0; i < num_devices; i++) {
-        if (block_devices[i]) {
-            const char *type_str = "disk";
-            const char *mount_str = "";
+    for (int i = 0; i < s_device_count; i++) {
+        if (s_devices[i]) {
+            const char *typeString = "disk";
+            const char *mountString = "";
             
-            if (block_devices[i]->type == BLK_TYPE_SWAP) {
-                type_str = "disk";
-                mount_str = "[SWAP]";
+            if (s_devices[i]->m_type == BLK_TYPE_SWAP) {
+                mountString = "[SWAP]";
             }
             
-            // Calculate size in bytes
-            uint32_t size_bytes = block_devices[i]->size * BLK_SIZE;
-            
-            // Calculate size with one decimal place
-            // size_mb = size_bytes / (1024 * 1024)
-            // decimal = (size_bytes % (1024 * 1024)) * 10 / (1024 * 1024)
-            uint32_t size_mb = size_bytes / (1024 * 1024);
-            uint32_t remainder = size_bytes % (1024 * 1024);
+            uint32_t sizeBytes = s_devices[i]->m_size * BLK_SIZE;
+            uint32_t sizeMB = sizeBytes / (1024 * 1024);
+            uint32_t remainder = sizeBytes % (1024 * 1024);
             uint32_t decimal = (remainder * 10) / (1024 * 1024);
             
-            // Format: NAME   MAJ:MIN RM   SIZE RO TYPE MOUNTPOINTS
-            // Now cprintf supports left-align with '-' flag
             cprintf("%-6s %3d:%-3d %-2d %2d.%dM %-2d %-4s %s\n",
-                   block_devices[i]->name,  // NAME (left-aligned, 6 chars)
-                   8,                        // MAJ (SCSI disk major number)
-                   i * 16,                   // MIN (minor number)
-                   0,                        // RM (removable: 0=no, 1=yes)
-                   size_mb,                  // SIZE integer part
-                   decimal,                  // SIZE decimal part (one digit)
-                   0,                        // RO (read-only: 0=no, 1=yes)
-                   type_str,                 // TYPE (left-aligned, 4 chars)
-                   mount_str);               // MOUNTPOINTS
+                   s_devices[i]->m_name,
+                   8,
+                   i * 16,
+                   0,
+                   sizeMB,
+                   decimal,
+                   0,
+                   typeString,
+                   mountString);
         }
     }
-}
-
-/**
- * Wrapper functions for disk operations
- */
-static int disk_read_wrapper(BlockDevice* dev, uint32_t blockno, void* buf, size_t nblocks) {
-    auto dev_id = static_cast<int>(reinterpret_cast<intptr_t>(dev->private_data));
-    return hd_read_device(dev_id, blockno, buf, nblocks);
-}
-
-static int disk_write_wrapper(BlockDevice* dev, uint32_t blockno, const void* buf, size_t nblocks) {
-    auto dev_id = static_cast<int>(reinterpret_cast<intptr_t>(dev->private_data));
-    return hd_write_device(dev_id, blockno, buf, nblocks);
 }

@@ -14,6 +14,10 @@ struct tm {
 	int tm_isdst;
 };
 
+namespace pit {
+
 extern volatile int64_t ticks;
 
-void pit_init(void);
+void init(void);
+
+} // namespace pit

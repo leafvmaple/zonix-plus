@@ -2,8 +2,12 @@
 
 #include <base/types.h>
 
-void pic_setmask(uint16_t mask);
-void pic_enable(unsigned int irq);
-void pic_send_eoi(unsigned int irq);
+namespace pic {
 
-void pic_init(void);
+void init();
+
+void setmask(uint16_t mask);
+void enable(unsigned int irq);
+void send_eoi(unsigned int irq);
+
+} // namespace pic

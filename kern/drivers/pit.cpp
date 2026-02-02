@@ -5,8 +5,6 @@
 #include <arch/x86/drivers/i8254.h>
 #include <arch/x86/drivers/i8259.h>
 
-volatile int64_t ticks = 0;
-
 namespace {
 
 constexpr uint32_t TIMER_FREQ = 1193180;
@@ -26,7 +24,11 @@ constexpr uint8_t bcd_to_bin(uint8_t val) {
 
 } // namespace
 
-void pit_init() {
+namespace pit {
+
+volatile int64_t ticks = 0;
+
+void init() {
     struct tm time;
 
     do {
@@ -50,5 +52,7 @@ void pit_init() {
     outb(PIT_TIMER0_REG, timer_div(100) % 256);
     outb(PIT_TIMER0_REG, timer_div(100) / 256);
 
-    pic_enable(IRQ_TIMER);
+    pic::enable(IRQ_TIMER);
 }
+
+} // namespace pit

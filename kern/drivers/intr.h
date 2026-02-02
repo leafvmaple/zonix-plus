@@ -3,41 +3,34 @@
 #include <arch/x86/io.h>
 #include <arch/x86/cpu.h>
 
-void intr_enable();
-void intr_disable();
+namespace intr {
 
-namespace detail {
+void enable();
+void disable();
 
-inline int intr_save_impl() {
+inline int save_impl() {
     if (read_eflags() & FL_IF) {
-        intr_disable();
+        disable();
         return 1;
     }
     return 0;
 }
 
-inline void intr_restore_impl(int flag) {
+inline void restore_impl(int flag) {
     if (flag) {
-        intr_enable();
+        enable();
     }
 }
 
-} // namespace detail
+} // namespace intr
 
 // RAII class for scoped interrupt disable
-class ScopedInterruptDisable {
+class InterruptsGuard {
     int m_flag;
 public:
-    ScopedInterruptDisable() : m_flag(detail::intr_save_impl()) {}
-    ~ScopedInterruptDisable() { detail::intr_restore_impl(m_flag); }
+    InterruptsGuard() : m_flag(intr::save_impl()) {}
+    ~InterruptsGuard() { intr::restore_impl(m_flag); }
     
-    ScopedInterruptDisable(const ScopedInterruptDisable&) = delete;
-    ScopedInterruptDisable& operator=(const ScopedInterruptDisable&) = delete;
+    InterruptsGuard(const InterruptsGuard&) = delete;
+    InterruptsGuard& operator=(const InterruptsGuard&) = delete;
 };
-
-// Legacy compatibility macros
-#define intr_save()   \
-    uint32_t __intr_flag = detail::intr_save_impl();
-
-#define intr_restore() \
-    detail::intr_restore_impl(__intr_flag);

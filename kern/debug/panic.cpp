@@ -21,7 +21,7 @@ void __panic(const char *file, int line, const char *fmt, ...) {
     va_end(ap);
 
 panic_dead:
-    intr_disable();
+    intr::disable();
     while (1) {
         ;
     }

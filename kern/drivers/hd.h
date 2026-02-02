@@ -2,6 +2,8 @@
 
 #include <base/types.h>
 
+#include "blk.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -96,42 +98,45 @@ struct DiskInfo {
     int valid;                          // Device is valid
 };
 
-using disk_info_t = DiskInfo;
-
 struct TaskStruct;  // Forward declaration
 
 // IDE device structure
-struct IdeDevice {
-    uint8_t channel;                    // 0 = primary, 1 = secondary
-    uint8_t drive;                      // 0 = master, 1 = slave
-    uint16_t base;                      // Base I/O port
-    uint16_t ctrl;                      // Control register port
-    uint8_t irq;                        // IRQ number
-    DiskInfo info;                      // Disk information
-    int present;                        // Device is present
-    char name[ide::NAME_LEN];           // Device name (hda, hdb, hdc, hdd)
+struct IdeDevice : public BlockDevice {
+    uint8_t m_channel{};                   // 0 = primary, 1 = secondary
+    uint8_t m_drive{};                     // 0 = master, 1 = slave
+    uint16_t m_base{};                     // Base I/O port
+    uint16_t m_ctrl{};                     // Control register port
+    uint8_t m_irq{};                       // IRQ number
+    DiskInfo m_info{};                     // Disk information
+    int m_present{};                       // Device is present
     
     // Fields used for interrupt-driven I/O
-    volatile int irq_done;              // Set to 1 by ISR when operation completes
-    volatile int err;                   // Error flag set by ISR
-    void* buffer;                       // Pointer to buffer for current transfer (one sector)
-    int op;                             // Operation type: 0=none, 1=read, 2=write
-    TaskStruct* waiting;                // Sleeping task waiting for completion
+    volatile int m_irq_done{};              // Set to 1 by ISR when operation completes
+    volatile int m_err{};                   // Error flag set by ISR
+    uint8_t* m_buffer{};                       // Pointer to buffer for current transfer (one sector)
+    int m_op{};                             // Operation type: 0=none, 1=read, 2=write
+    TaskStruct* m_waiting{};                  // Sleeping task waiting for completion
+
+    void detect(int deviceID);
+    void interupt();
+
+    int read(uint32_t blockNumber, void* buf, size_t blockCount) override;
+    int write(uint32_t blockNumber, const void* buf, size_t blockCount) override;
+
+    // Static methods
+    static void init();
+    static IdeDevice* get_device(int deviceID);
+    static int get_device_count();
+    static void interrupt_handler(int irq);
+
+    // Test
+    static void test();
+    static void test_interrupt();
+
+private:
+    static IdeDevice s_ide_devices[MAX_IDE_DEVICES];
+    static int s_ide_devices_count;
 };
-
-// Function declarations - Multi-device API
-void hd_init();
-int hd_read_device(int dev_id, uint32_t secno, void* dst, size_t nsecs);
-int hd_write_device(int dev_id, uint32_t secno, const void* src, size_t nsecs);
-IdeDevice* hd_get_device(int dev_id);
-int hd_get_device_count();
-
-// Test functions
-void hd_test();
-void hd_test_interrupt();
-
-// IDE interrupt handler (called by trap handler with IRQ_IDE1 or IRQ_IDE2)
-void hd_intr(int irq);
 
 #ifdef __cplusplus
 }

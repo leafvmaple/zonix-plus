@@ -25,9 +25,9 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info *boot_info) 
     cons_init();
 
     // drivers
-    pic_init();
-    blk_init();     // Initialize block device layer (includes hd_init)
-    pit_init();
+    pic::init();
+    BlockDevice::init();
+    pit::init();
 
     // arch
     idt_init();
@@ -38,7 +38,7 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info *boot_info) 
 
     sched_init();
 
-    intr_enable();
+    intr::enable();
 
     // Start interactive shell
     shell_init();

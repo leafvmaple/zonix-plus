@@ -68,36 +68,35 @@ static void cmd_swap_test(int argc, char **argv) {
 
 static void cmd_lsblk(int argc, char **argv) {
     (void)argc; (void)argv;
-    blk_list_devices();
+    BlockDevice::print_info();
 }
 
 static void cmd_hdparm(int argc, char **argv) {
     (void)argc; (void)argv;
-    int num_devices = hd_get_device_count();
+    int devicesCount = IdeDevice::get_device_count();
     
-    if (num_devices == 0) {
+    if (devicesCount == 0) {
         cprintf("No disk devices found\n");
         return;
     }
     
-    cprintf("IDE Disk Information (%d device(s) found):\n\n", num_devices);
+    cprintf("IDE Disk Information (%d device(s) found):\n\n", devicesCount);
     
-    for (int dev_id = 0; dev_id < 4; dev_id++) {
-        IdeDevice *dev = hd_get_device(dev_id);
+    for (int deviceID = 0; deviceID < 4; deviceID++) {
+        IdeDevice *dev = IdeDevice::get_device(deviceID);
         
         if (dev == nullptr) {
             continue;
         }
         
-        cprintf("Device: %s (dev_id=%d)\n", dev->name, dev_id);
-        cprintf("  Channel: %s, Drive: %s\n",
-               dev->channel == 0 ? "Primary" : "Secondary",
-               dev->drive == 0 ? "Master" : "Slave");
-        cprintf("  Base I/O: 0x%x, IRQ: %d\n", dev->base, dev->irq);
+        cprintf("Device: %s (dev_id=%d)\n", dev->m_name, deviceID);
+        cprintf("  Channel: %s, Drive: %s\n", dev->m_channel == 0 ? "Primary" : "Secondary",
+               dev->m_drive == 0 ? "Master" : "Slave");
+        cprintf("  Base I/O: 0x%x, IRQ: %d\n", dev->m_base, dev->m_irq);
         cprintf("  Size: %d sectors (%d MB)\n", 
-               dev->info.size, dev->info.size / 2048);
+               dev->m_info.size, dev->m_info.size / 2048);
         cprintf("  CHS: %d cylinders, %d heads, %d sectors/track\n", 
-               dev->info.cylinders, dev->info.heads, dev->info.sectors);
+               dev->m_info.cylinders, dev->m_info.heads, dev->m_info.sectors);
         cprintf("\n");
     }
 }
@@ -105,13 +104,13 @@ static void cmd_hdparm(int argc, char **argv) {
 static void cmd_disktest(int argc, char **argv) {
     (void)argc; (void)argv;
     cprintf("Running disk test...\n");
-    hd_test();
+    IdeDevice::test();
 }
 
 static void cmd_intrtest(int argc, char **argv) {
     (void)argc; (void)argv;
     cprintf("Running interrupt test...\n");
-    hd_test_interrupt();
+    IdeDevice::test_interrupt();
 }
 
 static void cmd_dd(int argc, char **argv) {
@@ -165,14 +164,14 @@ static int ensure_system_mounted(void) {
     }
     
     // Try to mount hda (system disk)
-    BlockDevice* dev = blk_get_device_by_name("hda");
+    BlockDevice* dev = BlockDevice::get_device("hda");
     if (!dev) {
         cprintf("Error: System disk (hda) not found\n");
         return -1;
     }
     
     if (g_system_fat.mount(dev) == 0) {
-        g_system_device = dev->name;
+        g_system_device = dev->m_name;
         g_system_mounted = 1;
         return 0;
     } else {
@@ -204,19 +203,19 @@ static void cmd_mount(int argc, char **argv) {
         return;
     }
     
-    BlockDevice *dev = blk_get_device_by_name(dev_name);
+    BlockDevice *dev = BlockDevice::get_device(dev_name);
     if (!dev) {
         cprintf("Device not found: %s\n", dev_name);
         cprintf("Use 'lsblk' to see available devices\n");
         return;
     }
     
-    cprintf("Mounting %s at /mnt...\n", dev->name);
+    cprintf("Mounting %s at /mnt...\n", dev->m_name);
     
     if (g_mnt_fat.mount(dev) == 0) {
-        g_mnt_device = dev->name;
+        g_mnt_device = dev->m_name;
         g_mnt_mounted = 1;
-        cprintf("Successfully mounted %s at /mnt\n", dev->name);
+        cprintf("Successfully mounted %s at /mnt\n", dev->m_name);
     } else {
         cprintf("Failed to mount FAT file system\n");
         cprintf("Make sure the device contains a valid FAT12/FAT16/FAT32 file system\n");

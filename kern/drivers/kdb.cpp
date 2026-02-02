@@ -44,12 +44,14 @@ static void init_normal_map(void) {
     normal_map[0xD3] = KEY_DEL;
 }
 
-void kbd_init(void) {
+namespace kbd {
+
+void init(void) {
     init_normal_map();
-    pic_enable(IRQ_KBD);
+    pic::enable(IRQ_KBD);
 }
 
-int kdb_getc(void) {
+int getc(void) {
     init_normal_map();
     if ((inb(KBD_STATUS_REG) & KBD_OBF_FULL) == 0)
         return -1;
@@ -62,3 +64,5 @@ int kdb_getc(void) {
     
     return normal_map[data];
 }
+
+} // namespace kbd

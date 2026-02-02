@@ -24,6 +24,8 @@ constexpr uint16_t CRT_ERASE_CHAR = 0x0720;
 
 } // namespace
 
+namespace cga {
+
 uint16_t* crt_buf = reinterpret_cast<uint16_t*>(CGA_BUF + KERNEL_BASE);
 static uint16_t crt_pos = 0;
 
@@ -34,14 +36,14 @@ static void cur_update() {
     outb(CGA_DATA_REG, crt_pos);
 }
 
-void cga_init() {
+void init() {
     outb(CGA_IDX_REG, CRTC_CURSOR_HIGH);
     crt_pos = inb(CGA_DATA_REG) << 8;
     outb(CGA_IDX_REG, CRTC_CURSOR_LOW);
     crt_pos |= inb(CGA_DATA_REG);
 }
 
-void cga_putc(int c) {
+void putc(int c) {
     c |= 0x0700;
 
     switch (c & 0xFF) {
@@ -54,7 +56,7 @@ void cga_putc(int c) {
     case '\n':
         crt_pos += CRT_COLS;
         if (crt_pos / CRT_COLS >= CRT_ROWS)
-            cga_scrup();
+            scrup();
     case '\r':
         crt_pos -= (crt_pos % CRT_COLS);
         break;
@@ -66,7 +68,7 @@ void cga_putc(int c) {
     cur_update();
 }
 
-void cga_scrup() {
+void scrup() {
     uint16_t *source = crt_buf + CRT_COLS;
     int count = (CRT_ROWS - 1) * CRT_COLS;
 
@@ -81,3 +83,5 @@ void cga_scrup() {
 
     crt_pos -= CRT_COLS;
 }
+
+} // namespace cga

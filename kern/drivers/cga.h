@@ -1,6 +1,9 @@
 #pragma once
 
-void cga_init();
-void cga_putc(int c);
+namespace cga {
 
-void cga_scrup();
+void init();
+void putc(int c);
+void scrup();
+
+} // namespace cga

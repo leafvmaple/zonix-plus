@@ -70,17 +70,15 @@ static void pmm_mgr_init() {
 }
 
 Page* alloc_pages(size_t n) {
-	intr_save();
+	InterruptsGuard guard;
 	Page *page = g_pmm->alloc(n);
-	intr_restore();
 
 	return page;
 }
 
 void pages_free(Page* base, size_t n) {
-	intr_save();
+	InterruptsGuard guard;
 	g_pmm->free(base, n);
-	intr_restore();
 }
 
 pte_t* get_pte(pde_t* pgdir, uintptr_t la, bool create) {

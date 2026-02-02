@@ -83,15 +83,15 @@ void TrapFrame::print_pgfault() const {
 }
 
 static void irq_timer(TrapFrame *tf) {
-    ticks++;
-    if ((int)ticks % TICK_NUM == 0) {
+    pit::ticks++;
+    if ((int)pit::ticks % TICK_NUM == 0) {
         // cprintf("%d ticks\n", TICK_NUM);
     }
 }
 
 static void irq_kbd(TrapFrame *tf) {
     extern void shell_handle_char(char c);
-    char c = kdb_getc();
+    char c = kbd::getc();
     if (c > 0) {
         shell_handle_char(c);
     }
@@ -118,10 +118,10 @@ void trap(TrapFrame *tf) {
             irq_kbd(tf);
             break;
         case IRQ_OFFSET + IRQ_IDE1:
-            hd_intr(IRQ_IDE1);
+            IdeDevice::interrupt_handler(IRQ_IDE1);
             break;
         case IRQ_OFFSET + IRQ_IDE2:
-            hd_intr(IRQ_IDE2);
+            IdeDevice::interrupt_handler(IRQ_IDE2);
             break;
         case T_SYSCALL:
             break;
@@ -131,6 +131,6 @@ void trap(TrapFrame *tf) {
     
     // Send EOI for hardware interrupts (IRQ 0-15)
     if (tf->m_trapno >= IRQ_OFFSET && tf->m_trapno < IRQ_OFFSET + 16) {
-        pic_send_eoi(tf->m_trapno - IRQ_OFFSET);
+        pic::send_eoi(tf->m_trapno - IRQ_OFFSET);
     }
 }

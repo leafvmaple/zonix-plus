@@ -2,12 +2,16 @@
 
 #include <arch/x86/io.h>
 
-/* intr_enable - enable irq interrupt */
-void intr_enable(void) {
+namespace intr {
+
+/* intr enable - enable irq interrupt */
+void enable() {
     sti();
 }
 
-/* intr_disable - disable irq interrupt */
-void intr_disable(void) {
+/* intr disable - disable irq interrupt */
+void disable() {
     cli();
 }
+
+} // namespace intr

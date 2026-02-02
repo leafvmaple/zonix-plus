@@ -37,7 +37,7 @@ int swap_init() {
     
     // Calculate maximum swap offset based on available disk space
     // Reserve space for swap (use sectors after SWAP_START_SECTOR)
-    uint32_t available_sectors = swap_device->size - SWAP_START_SECTOR;
+    uint32_t available_sectors = swap_device->m_size - SWAP_START_SECTOR;
     max_swap_offset = available_sectors / SECTORS_PER_PAGE;
     
     cprintf("swap: manager = %s, available space = %d pages (%d MB)\n", 
@@ -203,9 +203,9 @@ int swap_out(mm_struct *mm, int n, int in_tick) {
  */
 int swapfs_init(void) {
     // Get disk device
-    swap_device = blk_get_device(BLK_TYPE_DISK);
+    swap_device = BlockDevice::get_device("hda");
     
-    cprintf("swapfs init: using device '%s' for swap\n", swap_device->name);
+    cprintf("swapfs init: using device '%s' for swap\n", swap_device->m_name);
     cprintf("swapfs init: swap starts at sector %d\n", SWAP_START_SECTOR);
     
     return 0;
@@ -229,7 +229,7 @@ int swapfs_read(uintptr_t entry, Page *page) {
     void *kva = page2kva(page);
     
     // Read from disk
-    if (blk_read(swap_device, sector, kva, SECTORS_PER_PAGE) != 0) {
+    if (swap_device->read(sector, kva, SECTORS_PER_PAGE) != 0) {
         cprintf("swapfs_read: disk read failed (sector=%d)\n", sector);
         return -1;
     }
@@ -252,7 +252,7 @@ int swapfs_write(uintptr_t entry, Page *page) {
     void *kva = page2kva(page);
     
     // Write to disk
-    if (blk_write(swap_device, sector, kva, SECTORS_PER_PAGE) != 0) {
+    if (swap_device->write(sector, kva, SECTORS_PER_PAGE) != 0) {
         cprintf("swapfs_write: disk write failed (sector=%d)\n", sector);
         return -1;
     }
