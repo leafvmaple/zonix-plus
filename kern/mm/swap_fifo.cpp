@@ -12,7 +12,7 @@ int swap_fifo_init() {
     return 0;
 }
 
-int swap_fifo_init_mm(mm_struct *mm) {
+int swap_fifo_init_mm(MemoryDesc *mm) {
     pra_list_head.init();
     mm->swap_list = &pra_list_head;
 
@@ -26,7 +26,7 @@ int swap_fifo_init_mm(mm_struct *mm) {
  * @param page: page descriptor
  * @param swap_in: 1 if swapping in, 0 if newly mapped
  */
-int swap_fifo_map_swappable(mm_struct *mm, uintptr_t addr, Page *page, int swap_in) {
+int swap_fifo_map_swappable(MemoryDesc *mm, uintptr_t addr, Page *page, int swap_in) {
     ListNode *head = (ListNode*) mm->swap_list;
     head->add_before(page->node());
     
@@ -39,7 +39,7 @@ int swap_fifo_map_swappable(mm_struct *mm, uintptr_t addr, Page *page, int swap_
  * @param page_ptr: output pointer to victim page
  * @param in_tick: not used in FIFO
  */
-int swap_fifo_swap_out_victim(mm_struct *mm, Page **page_ptr, int in_tick) {
+int swap_fifo_swap_out_victim(MemoryDesc *mm, Page **page_ptr, int in_tick) {
     ListNode *head = (ListNode*) mm->swap_list;
     
     // Select the first page (oldest) in the FIFO queue
@@ -51,7 +51,7 @@ int swap_fifo_swap_out_victim(mm_struct *mm, Page **page_ptr, int in_tick) {
     }
     
     // Remove from list
-    victim->del();
+    victim->unlink();
     
     *page_ptr = le2page(victim, m_node);
     return 0;

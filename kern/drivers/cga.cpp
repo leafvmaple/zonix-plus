@@ -6,7 +6,7 @@
 
 #include "cons_defs.h"
 
-namespace {
+namespace cga {
 
 // CGA hardware registers
 constexpr uint16_t CGA_IDX_REG  = 0x3D4;
@@ -21,10 +21,6 @@ constexpr uintptr_t CGA_BUF = 0xB8000;
 
 // Character with default attribute (white on black)
 constexpr uint16_t CRT_ERASE_CHAR = 0x0720;
-
-} // namespace
-
-namespace cga {
 
 uint16_t* crt_buf = reinterpret_cast<uint16_t*>(CGA_BUF + KERNEL_BASE);
 static uint16_t crt_pos = 0;

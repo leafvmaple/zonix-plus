@@ -38,9 +38,13 @@ struct ListNode {
         add_after(elm);
     }
 
-    inline void del() {
+    inline void unlink() {
         m_prev->m_next = m_next;
         m_next->m_prev = m_prev;
+    }
+
+    [[nodiscard]] inline bool empty() const {
+        return m_next == this;
     }
 
     template<typename T>

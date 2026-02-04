@@ -68,12 +68,12 @@ static void cmd_swap_test(int argc, char **argv) {
 
 static void cmd_lsblk(int argc, char **argv) {
     (void)argc; (void)argv;
-    BlockDevice::print_info();
+    BlockManager::print_info();
 }
 
 static void cmd_hdparm(int argc, char **argv) {
     (void)argc; (void)argv;
-    int devicesCount = IdeDevice::get_device_count();
+    int devicesCount = IdeManager::get_device_count();
     
     if (devicesCount == 0) {
         cprintf("No disk devices found\n");
@@ -83,16 +83,16 @@ static void cmd_hdparm(int argc, char **argv) {
     cprintf("IDE Disk Information (%d device(s) found):\n\n", devicesCount);
     
     for (int deviceID = 0; deviceID < 4; deviceID++) {
-        IdeDevice *dev = IdeDevice::get_device(deviceID);
+        IdeDevice *dev = IdeManager::get_device(deviceID);
         
         if (dev == nullptr) {
             continue;
         }
         
         cprintf("Device: %s (dev_id=%d)\n", dev->m_name, deviceID);
-        cprintf("  Channel: %s, Drive: %s\n", dev->m_channel == 0 ? "Primary" : "Secondary",
-               dev->m_drive == 0 ? "Master" : "Slave");
-        cprintf("  Base I/O: 0x%x, IRQ: %d\n", dev->m_base, dev->m_irq);
+        cprintf("  Channel: %s, Drive: %s\n", dev->m_config->channel == 0 ? "Primary" : "Secondary",
+               dev->m_config->drive == 0 ? "Master" : "Slave");
+        cprintf("  Base I/O: 0x%x, IRQ: %d\n", dev->m_config->base, dev->m_config->irq);
         cprintf("  Size: %d sectors (%d MB)\n", 
                dev->m_info.size, dev->m_info.size / 2048);
         cprintf("  CHS: %d cylinders, %d heads, %d sectors/track\n", 
@@ -104,13 +104,13 @@ static void cmd_hdparm(int argc, char **argv) {
 static void cmd_disktest(int argc, char **argv) {
     (void)argc; (void)argv;
     cprintf("Running disk test...\n");
-    IdeDevice::test();
+    IdeManager::test();
 }
 
 static void cmd_intrtest(int argc, char **argv) {
     (void)argc; (void)argv;
     cprintf("Running interrupt test...\n");
-    IdeDevice::test_interrupt();
+    IdeManager::test_interrupt();
 }
 
 static void cmd_dd(int argc, char **argv) {
@@ -143,7 +143,12 @@ static void cmd_uname(int argc, char **argv) {
 
 static void cmd_ps(int argc, char **argv) {
     (void)argc; (void)argv;
-    print_all_procs();
+    TaskManager::print();
+}
+
+static void cmd_schedtest(int argc, char **argv) {
+    (void)argc; (void)argv;
+    sched::test();
 }
 
 // Global FAT file system info
@@ -163,8 +168,8 @@ static int ensure_system_mounted(void) {
         return 0;  // Already mounted
     }
     
-    // Try to mount hda (system disk)
-    BlockDevice* dev = BlockDevice::get_device("hda");
+    // Try to mount first disk (system disk)
+    BlockDevice* dev = BlockManager::get_device(blk::DeviceType::Disk);
     if (!dev) {
         cprintf("Error: System disk (hda) not found\n");
         return -1;
@@ -203,7 +208,7 @@ static void cmd_mount(int argc, char **argv) {
         return;
     }
     
-    BlockDevice *dev = BlockDevice::get_device(dev_name);
+    BlockDevice *dev = BlockManager::get_device(dev_name);
     if (!dev) {
         cprintf("Device not found: %s\n", dev_name);
         cprintf("Use 'lsblk' to see available devices\n");
@@ -432,6 +437,7 @@ shell_cmd_t commands[] = {
     {"dd",         "Disk dump/copy (info only)", cmd_dd},
     {"uname",      "Print system information (-a for all)", cmd_uname},
     {"ps",         "List all processes", cmd_ps},
+    {"schedtest",  "Run scheduler unit tests", cmd_schedtest},
     {"mount",      "Mount device to /mnt (usage: mount <device>)", cmd_mount},
     {"umount",     "Unmount /mnt", cmd_umount},
     {"info",       "Show file system information", cmd_info},

@@ -12,7 +12,7 @@ int swap_lru_init() {
     return 0;
 }
 
-int swap_lru_init_mm(mm_struct *mm) {
+int swap_lru_init_mm(MemoryDesc *mm) {
     list_init(&pra_list_head);
     mm->swap_list = &pra_list_head;
     
@@ -26,7 +26,7 @@ int swap_lru_init_mm(mm_struct *mm) {
  * @param page: page descriptor
  * @param swap_in: 1 if swapping in (recently used), 0 if newly mapped
  */
-int swap_lru_map_swappable(mm_struct *mm, uintptr_t addr, Page *page, int swap_in) {
+int swap_lru_map_swappable(MemoryDesc *mm, uintptr_t addr, Page *page, int swap_in) {
     list_entry_t *head = (list_entry_t*) mm->swap_list;
     list_entry_t *entry = &(page->page_link);
     
@@ -48,7 +48,7 @@ int swap_lru_map_swappable(mm_struct *mm, uintptr_t addr, Page *page, int swap_i
  * @param page_ptr: output pointer to victim page
  * @param in_tick: not used in LRU
  */
-int swap_lru_swap_out_victim(mm_struct *mm, Page **page_ptr, int in_tick) {
+int swap_lru_swap_out_victim(MemoryDesc *mm, Page **page_ptr, int in_tick) {
     list_entry_t *head = (list_entry_t*) mm->swap_list;
     
     // Select the first page (least recently used)
@@ -70,7 +70,7 @@ int swap_lru_swap_out_victim(mm_struct *mm, Page **page_ptr, int in_tick) {
  * Update LRU on page access
  * Call this when a page is accessed to move it to back of list
  */
-int swap_lru_tick_event(mm_struct *mm) {
+int swap_lru_tick_event(MemoryDesc *mm) {
     // In a real implementation, this would be called on page access
     // and would update the LRU list accordingly
     return 0;

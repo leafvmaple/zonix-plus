@@ -101,7 +101,8 @@ static int pg_fault(TrapFrame *tf) {
     tf->print();
     tf->print_pgfault();
 
-    vmm_pg_fault(current->mm, tf->m_err, rcr2());
+    TaskStruct* current = TaskManager::get_current();
+    vmm_pg_fault(current->m_memory, tf->m_err, rcr2());
 
     return 0;
 }
@@ -118,10 +119,10 @@ void trap(TrapFrame *tf) {
             irq_kbd(tf);
             break;
         case IRQ_OFFSET + IRQ_IDE1:
-            IdeDevice::interrupt_handler(IRQ_IDE1);
+            IdeManager::interrupt_handler(0);  // Primary channel
             break;
         case IRQ_OFFSET + IRQ_IDE2:
-            IdeDevice::interrupt_handler(IRQ_IDE2);
+            IdeManager::interrupt_handler(1);  // Secondary channel
             break;
         case T_SYSCALL:
             break;

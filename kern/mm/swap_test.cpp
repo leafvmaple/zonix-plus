@@ -11,7 +11,7 @@
 // External declarations
 extern swap_manager *swap_mgr;
 extern pde_t *boot_pgdir;
-extern mm_struct* init_mm;
+extern MemoryDesc* init_mm;
 
 // Test statistics
 static int tests_passed = 0;
@@ -115,7 +115,7 @@ void test_fifo_interleaved() {
 void test_lru_basic() {
     TEST_START("LRU Basic Operation");
     
-    mm_struct mm;
+    MemoryDesc mm;
     swap_mgr_lru.init_mm(init_mm);
     
     Page pages[3];
@@ -136,7 +136,7 @@ void test_lru_basic() {
 void test_lru_access_pattern() {
     TEST_START("LRU Access Pattern");
     
-    mm_struct mm;
+    MemoryDesc mm;
     swap_mgr_lru.init_mm(init_mm);
     
     Page pages[3];
@@ -174,7 +174,7 @@ void test_lru_access_pattern() {
 void test_clock_basic() {
     TEST_START("Clock Basic Operation");
     
-    mm_struct mm;
+    MemoryDesc mm;
     swap_mgr_clock.init_mm(init_mm);
     
     Page pages[4];
@@ -203,7 +203,7 @@ void test_swap_init() {
     // swap_init should already be called, just verify
     TEST_ASSERT(1, "Swap system initialized");
     
-    mm_struct mm;
+    MemoryDesc mm;
     int ret = swap_init_mm(init_mm);
     TEST_ASSERT(ret == 0, "swap_init_mm succeeds");
     TEST_ASSERT(mm.swap_list != nullptr, "Swap list created");
@@ -214,7 +214,7 @@ void test_swap_init() {
 void test_swap_in_basic() {
     TEST_START("Swap In Basic");
     
-    mm_struct mm;
+    MemoryDesc mm;
     mm.pgdir = boot_pgdir;
     swap_init_mm(init_mm);
     
@@ -248,7 +248,7 @@ void test_swap_in_basic() {
 void test_swap_out_basic() {
     TEST_START("Swap Out Basic");
     
-    mm_struct mm;
+    MemoryDesc mm;
     mm.pgdir = boot_pgdir;
     swap_init_mm(init_mm);
     
@@ -399,7 +399,7 @@ void run_swap_tests() {
 void test_swap_disk_io() {
     TEST_START("Swap Disk I/O and Data Integrity");
     
-    mm_struct mm;
+    MemoryDesc mm;
     mm.pgdir = boot_pgdir;
     swap_init_mm(init_mm);
     
@@ -477,7 +477,7 @@ void test_swap_disk_io() {
 void test_swap_multiple_pages() {
     TEST_START("Swap Multiple Pages");
     
-    mm_struct mm;
+    MemoryDesc mm;
     mm.pgdir = boot_pgdir;
     swap_init_mm(init_mm);
     

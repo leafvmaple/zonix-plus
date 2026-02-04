@@ -4,20 +4,20 @@
 #include "string.h"
 
 // Static member definitions
-BlockDevice* BlockDevice::s_devices[MAX_BLK_DEV] = {};
-int BlockDevice::s_device_count = 0;
+BlockDevice* BlockManager::s_devices[BlockManager::MAX_DEV] = {};
+int BlockManager::s_device_count = 0;
 
-void BlockDevice::init() {
+void BlockManager::init() {
     cprintf("blk_init: initializing block device layer...\n");
 
-    IdeDevice::init();
+    IdeManager::init();
     
-    int hdCount = IdeDevice::get_device_count();
+    int hdCount = IdeManager::get_device_count();
     for (int i = 0; i < hdCount; i++) {
-        IdeDevice *ideDevice = IdeDevice::get_device(i);
+        IdeDevice *ideDevice = IdeManager::get_device(i);
         if (ideDevice) {
             ideDevice->m_size = ideDevice->m_info.size;
-            ideDevice->register_device();
+            BlockManager::register_device(ideDevice);
         }
     }
     
@@ -26,16 +26,16 @@ void BlockDevice::init() {
     }
 }
 
-void BlockDevice::register_device() {
-    if (s_device_count >= MAX_BLK_DEV) {
-        cprintf("BlockDevice::register_device: too many devices\n");
+void BlockManager::register_device(BlockDevice* device) {
+    if (s_device_count >= MAX_DEV) {
+        cprintf("BlockManager::register_device: too many devices\n");
         return;
     }
     
-    s_devices[s_device_count++] = this;
+    s_devices[s_device_count++] = device;
 }
 
-BlockDevice* BlockDevice::get_device(const char* deviceName) {
+BlockDevice* BlockManager::get_device(const char* deviceName) {
     if (!deviceName) {
         return nullptr;
     }
@@ -50,18 +50,27 @@ BlockDevice* BlockDevice::get_device(const char* deviceName) {
     return nullptr;
 }
 
-BlockDevice* BlockDevice::get_device(int index) {
+BlockDevice* BlockManager::get_device(int index) {
     if (index < 0 || index >= s_device_count) {
         return nullptr;
     }
     return s_devices[index];
 }
 
-int BlockDevice::get_device_count() {
+BlockDevice* BlockManager::get_device(blk::DeviceType type) {
+    for (int i = 0; i < s_device_count; i++) {
+        if (s_devices[i] && s_devices[i]->m_type == type) {
+            return s_devices[i];
+        }
+    }
+    return nullptr;
+}
+
+int BlockManager::get_device_count() {
     return s_device_count;
 }
 
-void BlockDevice::print_info() {
+void BlockManager::print_info() {
     cprintf("NAME   MAJ:MIN RM  SIZE RO TYPE MOUNTPOINTS\n");
     
     for (int i = 0; i < s_device_count; i++) {
@@ -69,11 +78,11 @@ void BlockDevice::print_info() {
             const char *typeString = "disk";
             const char *mountString = "";
             
-            if (s_devices[i]->m_type == BLK_TYPE_SWAP) {
+            if (s_devices[i]->m_type == blk::DeviceType::Swap) {
                 mountString = "[SWAP]";
             }
             
-            uint32_t sizeBytes = s_devices[i]->m_size * BLK_SIZE;
+            uint32_t sizeBytes = s_devices[i]->m_size * BlockDevice::SIZE;
             uint32_t sizeMB = sizeBytes / (1024 * 1024);
             uint32_t remainder = sizeBytes % (1024 * 1024);
             uint32_t decimal = (remainder * 10) / (1024 * 1024);
@@ -89,5 +98,11 @@ void BlockDevice::print_info() {
                    typeString,
                    mountString);
         }
+    }
+}
+
+namespace blk {
+    void init() {
+        BlockManager::init();
     }
 }

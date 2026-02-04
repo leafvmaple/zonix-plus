@@ -17,7 +17,7 @@ pde_t* boot_pgdir = &__boot_pgdir;
 pte_t *const vpt = (pte_t *)VPT;
 pde_t *const vpd = (pde_t *)PG_ADDR(PDX(VPT), PDX(VPT), 0);
 
-mm_struct init_mm;
+MemoryDesc init_mm;
 
 extern pde_t* boot_pgdir;
 
@@ -62,7 +62,7 @@ void print_pgdir() {
     cprintf("--------------------- END ---------------------\n");
 }
 
-int vmm_pg_fault(mm_struct *mm, uint32_t error_code, uintptr_t addr) {
+int vmm_pg_fault(MemoryDesc *mm, uint32_t error_code, uintptr_t addr) {
     uint32_t perm = PTE_U;
     Page *page = nullptr;
 
@@ -78,7 +78,7 @@ int vmm_pg_fault(mm_struct *mm, uint32_t error_code, uintptr_t addr) {
     return 0;
 }
 
-static void mm_init(mm_struct *mm) {
+static void mm_init(MemoryDesc *mm) {
     mm->mmap_list.init();
     mm->pgdir = nullptr;
     mm->map_count = 0;

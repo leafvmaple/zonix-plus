@@ -65,7 +65,7 @@ Page* FirstFitPMMManager::alloc(size_t n) {
             remaining->set_reserved();
             validNode->add_after(remaining->node());
         }
-        validNode->del();
+        validNode->unlink();
         m_free.nr_free -= n;
         page->clear_reserved();
     }
@@ -90,14 +90,14 @@ void FirstFitPMMManager::free(Page *base, size_t n) {
         if (base + base->property == p) {
             base->property += p->property;
             p->clear_reserved();
-            le->del();
+            le->unlink();
         } 
 
         else if (p + p->property == base) {
             p->property += base->property;
             base->clear_reserved();
             base = p;
-            le->del();
+            le->unlink();
         } 
         else {
             prev = le;

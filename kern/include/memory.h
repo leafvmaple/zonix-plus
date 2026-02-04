@@ -36,3 +36,35 @@ inline void* operator new(__SIZE_TYPE__ size, void* ptr) noexcept {
     (void)size;
     return ptr;
 }
+
+// Forward declarations for kernel memory allocation
+void* kmalloc(size_t size);
+void kfree(void* ptr);
+
+// Global operator new - uses page-aligned kmalloc
+// Memory is always page-aligned (4KB) since kmalloc uses page allocator
+inline void* operator new(__SIZE_TYPE__ size) noexcept {
+    return kmalloc(size);
+}
+
+inline void* operator new[](__SIZE_TYPE__ size) noexcept {
+    return kmalloc(size);
+}
+
+// Global operator delete - uses kfree
+inline void operator delete(void* ptr) noexcept {
+    kfree(ptr);
+}
+
+inline void operator delete[](void* ptr) noexcept {
+    kfree(ptr);
+}
+
+// Sized delete variants (C++14)
+inline void operator delete(void* ptr, __SIZE_TYPE__) noexcept {
+    kfree(ptr);
+}
+
+inline void operator delete[](void* ptr, __SIZE_TYPE__) noexcept {
+    kfree(ptr);
+}

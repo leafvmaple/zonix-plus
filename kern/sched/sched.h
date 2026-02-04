@@ -7,17 +7,6 @@
 #include "../trap/trap.h"
 #include "../mm/vmm.h"
 
-namespace sched {
-
-inline constexpr int FIRST_TSS_ENTRY = 4;
-inline constexpr size_t KSTACK_SIZE  = 4096;  // 4KB kernel stack
-
-} // namespace sched
-
-// Legacy compatibility
-#define FIRST_TSS_ENTRY sched::FIRST_TSS_ENTRY
-#define KSTACK_SIZE     sched::KSTACK_SIZE
-
 // Process states - modeling Linux's approach
 enum class ProcessState : int {
     Uninit   = 0,     // uninitialized
@@ -27,68 +16,127 @@ enum class ProcessState : int {
     Zombie   = 4,     // almost dead (waiting to be cleaned up)
 };
 
-// Legacy compatibility
-using proc_state = ProcessState;
-constexpr auto TASK_UNINIT   = ProcessState::Uninit;
-constexpr auto TASK_SLEEPING = ProcessState::Sleeping;
-constexpr auto TASK_RUNNABLE = ProcessState::Runnable;
-constexpr auto TASK_RUNNING  = ProcessState::Running;
-constexpr auto TASK_ZOMBIE   = ProcessState::Zombie;
-
 // Context for process switching
-struct context {
-    uint32_t eip;
-    uint32_t esp;
-    uint32_t ebx;
-    uint32_t ecx;
-    uint32_t edx;
-    uint32_t esi;
-    uint32_t edi;
-    uint32_t ebp;
+struct Context {
+    uint32_t eip{};
+    uint32_t esp{};
+    uint32_t ebx{};
+    uint32_t ecx{};
+    uint32_t edx{};
+    uint32_t esi{};
+    uint32_t edi{};
+    uint32_t ebp{};
 };
 
 // Process control block - modeling Linux's task_struct
-struct TaskStruct {
-    volatile ProcessState state;       // Process state
-    int pid;                           // Process ID
-    uintptr_t kstack;                  // Kernel stack bottom
-    TaskStruct* parent;                // Parent process
-    mm_struct* mm;                     // Memory management
-    struct context context;            // Process context for switching
-    TrapFrame* tf;                    // Trap frame for current interrupt
-    uint32_t flags;                    // Process flags
-    char name[32];                     // Process name
-    ListNode list_link;                // Link in process list
-    ListNode hash_link;                // Link in hash list
-    int exit_code;                     // Exit code (for zombie processes)
-    uint32_t wait_state;               // Waiting state
-    TaskStruct* cptr;                  // child pointer
-    TaskStruct* yptr;                  // younger sibling
-    TaskStruct* optr;                  // older sibling
+struct TaskStruct {    
+    static constexpr size_t KSTACK_SIZE  = 4096;  // 4KB kernel stack
+
+    char name[32]{};                     // Process name
+    int m_pid{};                         // Process ID
+
+    volatile ProcessState m_state{};     // Process state
+    uintptr_t m_kernel_stack{};          // Kernel stack bottom
+    MemoryDesc* m_memory{};              // Memory management
+    Context m_context{};                 // Process context for switching
+    TrapFrame* m_trap_frame{};           // Trap frame for current interrupt
+    uint32_t m_flags{};                  // Process flags
+
+    ListNode m_list_node{};              // Link in process list
+    ListNode m_hash_node{};              // Link in hash list
+    ListNode m_child_node{};             // Link in parent's child list
+    int m_exit_code{};                   // Exit code (for zombie processes)
+    uint32_t m_wait_state{};             // Waiting state
+
+    TaskStruct* m_parent{};              // Parent process
+    ListNode m_child_list{};             // Head of child process list
+    
+    void run();
+    void wakeup();
+
+    uintptr_t get_cr3();
+    void copy_mm(uint32_t clone_flags);
+    void copy_thread(uintptr_t esp, TrapFrame *tf);
+    int setup_kernel_stack();
+    
+    ListNode* node() {
+        return &m_list_node;
+    }
+
+    static TaskStruct* from_list_link(ListNode* node) {
+        return reinterpret_cast<TaskStruct*>(
+            reinterpret_cast<char*>(node) - offset_of(&TaskStruct::m_list_node));
+    }
+
+    static TaskStruct* from_hash_link(ListNode* node) {
+        return reinterpret_cast<TaskStruct*>(
+            reinterpret_cast<char*>(node) - offset_of(&TaskStruct::m_hash_node));
+    }
+
+    static TaskStruct* from_child_link(ListNode* node) {
+        return reinterpret_cast<TaskStruct*>(
+            reinterpret_cast<char*>(node) - offset_of(&TaskStruct::m_child_node));
+    }
+
+    void set_links();
+    void remove_links();
+    void destroy();
+
+    friend class TaskManager;
 };
 
-using task_struct = TaskStruct;
+class TaskManager {
+public:
+    static constexpr int HASH_SHIFT = 10;
+    static constexpr size_t HASH_LIST_SIZE = 1 << HASH_SHIFT;
 
-// Macros for process management
-#define le2proc(le, member) \
-    TO_STRUCT(le, TaskStruct, member)
+    static ListNode s_proc_list;                 // All processes list (init in cpp)
+    static ListNode s_hash_list[HASH_LIST_SIZE]; // Hash table (init in cpp)
 
-// Global functions
-void sched_init();
-void schedule();
-void wakeup_proc(TaskStruct* proc);
-int do_fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* tf);
-int do_exit(int error_code);
-int do_wait(int pid, int* code_store);
+    inline static TaskStruct* s_idle_proc{};     // Idle process (PID 0)
+    inline static TaskStruct* s_init_proc{};     // Init process (PID 1)
+    inline static int nr_process{};              // Number of processes
 
-// Get current running process
-extern TaskStruct* current;
-TaskStruct* get_current();
+    static void init();
 
-inline void set_current(TaskStruct* proc) { current = proc; }
+    static inline ListNode& get_hash_node(int pid) {
+        return s_hash_list[pid_hash(pid)];
+    }
 
-// Get process CR3 (page directory physical address)
-uintptr_t proc_get_cr3(TaskStruct* proc);
+    static inline TaskStruct* get_current() {
+        return s_current;
+    }
 
-// Print all processes information (for ps command)
-void print_all_procs();
+    static inline void set_current(TaskStruct* proc) {
+        s_current = proc;
+    }
+
+    static void add_process(TaskStruct* proc);
+    static void remove_process(TaskStruct* proc);
+
+    static TaskStruct* find_proc(int pid);
+
+    static void print();
+
+    // Scheduling and process lifecycle
+    static void schedule();
+    static int fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* tf);
+    static int exit(int error_code);
+    static int wait(int pid, int* code_store);
+
+private:
+    inline static TaskStruct* s_current{};
+
+    static uint32_t pid_hash(int x);
+
+    // Initialization helpers
+    static void init_idle();
+    static void init_init_proc();
+};
+
+namespace sched {
+
+void init();
+void test();
+
+} // namespace sched

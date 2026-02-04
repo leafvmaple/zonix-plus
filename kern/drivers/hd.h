@@ -4,10 +4,6 @@
 
 #include "blk.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 // IDE/ATA disk constants
 namespace ide {
 
@@ -89,45 +85,66 @@ inline constexpr size_t NAME_LEN = 8;           // Device name length
 #define IDE_DEV_SLAVE       ide::DEV_SLAVE
 #define IDE_NAME_LEN        ide::NAME_LEN
 
-// Disk info structure
-struct DiskInfo {
-    uint32_t size;                      // Size in sectors
-    uint16_t cylinders;                 // Number of cylinders
-    uint16_t heads;                     // Number of heads
-    uint16_t sectors;                   // Sectors per track
-    int valid;                          // Device is valid
+struct TaskStruct;
+
+struct IdeConfig {
+    uint8_t channel;
+    uint8_t drive;
+    uint16_t base;
+    uint16_t ctrl;
+    uint8_t irq;
+    const char *name;
 };
 
-struct TaskStruct;  // Forward declaration
+struct DiskInfo {
+    uint32_t size{};                      // Size in sectors
+    uint16_t cylinders{};                 // Number of cylinders
+    uint16_t heads{};                     // Number of heads
+    uint16_t sectors{};                   // Sectors per track
+    int valid{};                          // Device is valid
+};
+
+struct IdeRequest {
+    enum class Op : int { None = 0, Read = 1, Write = 2 };
+    
+    volatile int done{};                   // Set to 1 by ISR when operation completes
+    volatile int err{};                    // Error flag set by ISR
+    uint8_t* buffer{};                     // Pointer to buffer for current transfer
+    Op op{Op::None};                       // Operation type
+    TaskStruct* waiting{};                 // Sleeping task waiting for completion
+    
+    void reset() {
+        done = 0;
+        err = 0;
+        buffer = nullptr;
+        op = Op::None;
+        waiting = nullptr;
+    }
+};
 
 // IDE device structure
 struct IdeDevice : public BlockDevice {
-    uint8_t m_channel{};                   // 0 = primary, 1 = secondary
-    uint8_t m_drive{};                     // 0 = master, 1 = slave
-    uint16_t m_base{};                     // Base I/O port
-    uint16_t m_ctrl{};                     // Control register port
-    uint8_t m_irq{};                       // IRQ number
-    DiskInfo m_info{};                     // Disk information
     int m_present{};                       // Device is present
-    
-    // Fields used for interrupt-driven I/O
-    volatile int m_irq_done{};              // Set to 1 by ISR when operation completes
-    volatile int m_err{};                   // Error flag set by ISR
-    uint8_t* m_buffer{};                       // Pointer to buffer for current transfer (one sector)
-    int m_op{};                             // Operation type: 0=none, 1=read, 2=write
-    TaskStruct* m_waiting{};                  // Sleeping task waiting for completion
+    const IdeConfig* m_config{};           // Pointer to device configuration
+    DiskInfo m_info{};                     // Disk information
+    IdeRequest m_request{};                // Current I/O request state
 
-    void detect(int deviceID);
+    void detect(const IdeConfig* config);
     void interupt();
 
     int read(uint32_t blockNumber, void* buf, size_t blockCount) override;
     int write(uint32_t blockNumber, const void* buf, size_t blockCount) override;
+};
 
-    // Static methods
+// IDE device manager class
+class IdeManager {
+public:
     static void init();
+
     static IdeDevice* get_device(int deviceID);
     static int get_device_count();
-    static void interrupt_handler(int irq);
+
+    static void interrupt_handler(int channel);
 
     // Test
     static void test();
@@ -136,8 +153,6 @@ struct IdeDevice : public BlockDevice {
 private:
     static IdeDevice s_ide_devices[MAX_IDE_DEVICES];
     static int s_ide_devices_count;
-};
 
-#ifdef __cplusplus
-}
-#endif
+    static IdeConfig s_ide_configs[MAX_IDE_DEVICES];
+};

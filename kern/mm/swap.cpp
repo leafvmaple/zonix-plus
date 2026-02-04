@@ -49,7 +49,7 @@ int swap_init() {
 /**
  * Initialize swap for a memory management struct
  */
-int swap_init_mm(mm_struct *mm) {
+int swap_init_mm(MemoryDesc *mm) {
     if (swap_mgr->init_mm) {
         return swap_mgr->init_mm(mm);
     }
@@ -62,7 +62,7 @@ int swap_init_mm(mm_struct *mm) {
  * @param addr: virtual address that caused page fault
  * @param page_ptr: output pointer to the allocated page
  */
-int swap_in(mm_struct *mm, uintptr_t addr, Page **page_ptr) {
+int swap_in(MemoryDesc *mm, uintptr_t addr, Page **page_ptr) {
     // Allocate a physical page
     Page *page = alloc_pages(1);
     if (page == nullptr) {
@@ -106,7 +106,7 @@ int swap_in(mm_struct *mm, uintptr_t addr, Page **page_ptr) {
  * Helper function to find virtual address for a page
  * Searches the page table to find the virtual address mapped to this page
  */
-uintptr_t find_vaddr_for_page(mm_struct *mm, Page *page) {
+uintptr_t find_vaddr_for_page(MemoryDesc *mm, Page *page) {
     uintptr_t pa = page2pa(page);
     
     // Search through page directory
@@ -134,7 +134,7 @@ uintptr_t find_vaddr_for_page(mm_struct *mm, Page *page) {
  * @param n: number of pages to swap out
  * @param in_tick: whether called from timer interrupt
  */
-int swap_out(mm_struct *mm, int n, int in_tick) {
+int swap_out(MemoryDesc *mm, int n, int in_tick) {
     int i;
     static uint32_t swap_offset = 1;  // Global swap offset counter
     
@@ -202,8 +202,12 @@ int swap_out(mm_struct *mm, int n, int in_tick) {
  * Initialize swap filesystem
  */
 int swapfs_init(void) {
-    // Get disk device
-    swap_device = BlockDevice::get_device("hda");
+    // Get disk device (use first disk for swap space)
+    swap_device = BlockManager::get_device(blk::DeviceType::Disk);
+    if (swap_device == nullptr) {
+        cprintf("swapfs init: no disk device found for swap\n");
+        return -1;
+    }
     
     cprintf("swapfs init: using device '%s' for swap\n", swap_device->m_name);
     cprintf("swapfs init: swap starts at sector %d\n", SWAP_START_SECTOR);

@@ -26,7 +26,7 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info *boot_info) 
 
     // drivers
     pic::init();
-    BlockDevice::init();
+    blk::init();
     pit::init();
 
     // arch
@@ -36,7 +36,7 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info *boot_info) 
     vmm_init();
     swap_init();
 
-    sched_init();
+    sched::init();
 
     intr::enable();
 
@@ -46,7 +46,7 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info *boot_info) 
     // Idle loop: continuously schedule processes
     // Init process will print the first prompt when it starts
     while (1) {
-        schedule();  // Let scheduler pick init or other processes
+        TaskManager::schedule();  // Let scheduler pick init or other processes
     }
 halt:
     while (1) __asm__ volatile("hlt");
