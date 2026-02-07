@@ -7,11 +7,13 @@
 static inline uint8_t inb(uint16_t port) __attribute__((always_inline));
 static inline uint8_t inb_p(uint16_t port) __attribute__((always_inline));
 static inline uint16_t inw(uint16_t port) __attribute__((always_inline));
+static inline uint32_t inl(uint16_t port) __attribute__((always_inline));
 static inline void insl(uint32_t port, void *addr, int cnt) __attribute__((always_inline));
 static inline void insw(uint32_t port, void *addr, int cnt) __attribute__((always_inline));
 
 static inline void outb(uint16_t port, uint8_t data) __attribute__((always_inline));
 static inline void outw(uint16_t port, uint16_t data) __attribute__((always_inline));
+static inline void outl(uint16_t port, uint32_t data) __attribute__((always_inline));
 static inline void outsw(uint32_t port, const void *addr, int cnt) __attribute__((always_inline));
 
 static inline void outb_p(uint16_t port, uint8_t data) __attribute__((always_inline));
@@ -51,6 +53,12 @@ static inline uint16_t inw(uint16_t port) {
     return data;
 }
 
+static inline uint32_t inl(uint16_t port) {
+    uint32_t data;
+    asm volatile ("inl %1, %0" : "=a" (data) : "d" (port));
+    return data;
+}
+
 // Read [cnt] dwords to address [addr] from port [port]
 static inline void insl(uint32_t port, void *addr, int cnt) {
     asm volatile (
@@ -77,6 +85,10 @@ static inline void outb(uint16_t port, uint8_t data) {
 
 static inline void outw(uint16_t port, uint16_t data) {
     asm volatile("outw %0, %1" ::"a"(data), "d"(port) : "memory");
+}
+
+static inline void outl(uint16_t port, uint32_t data) {
+    asm volatile("outl %0, %1" ::"a"(data), "d"(port) : "memory");
 }
 
 // Write [cnt] words from address [addr] to port [port]

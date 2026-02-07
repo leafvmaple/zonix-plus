@@ -3,8 +3,8 @@
 #include "stdio.h"
 #include "../mm/vmm.h"
 #include "../mm/swap_test.h"
-#include "../drivers/hd.h"
-#include "../drivers/blk.h"
+#include "../drivers/ide.h"
+#include "../block/blk.h"
 #include "../sched/sched.h"
 #include "../fs/fat.h"
 

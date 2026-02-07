@@ -19,7 +19,11 @@ vgaromimage: file=$BXSHARE/VGABIOS-lgpl-latest.bin
 floppya: type=none
 floppyb: type=none
 
-# hard disk
+# AHCI controller (requires Bochs 2.6.0+)
+# ahci: enabled=1, port_count=1
+# ahci0-0: type=disk, path="bin/zonix.img", mode=flat
+
+# IDE controller - Primary disk
 ata0: enabled=1, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14
 ata0-master: type=disk, path="bin/zonix.img", mode=flat, cylinders=8, heads=16, spt=63
 

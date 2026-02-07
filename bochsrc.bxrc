@@ -16,16 +16,17 @@ vgaromimage: file=$BXSHARE/VGABIOS-lgpl-latest.bin
 floppya: type=none
 floppyb: type=none
 
-# hard disk - Primary IDE channel (hda: 64M FAT32, hdb: 16MB FAT16)
-# heads: bpb32->num_heads
-# spt: bpb32->sectors_per_track
-# cylinders: (bpb32->total_sectors_32 + bpb32->reserved_sectors) / heads / spt
+# AHCI controller - Primary disk (requires Bochs 2.6.0+)
+# Note: Uncomment when using Bochs with AHCI support
+# ahci: enabled=1, port_count=1
+# ahci0-0: type=disk, path="bin/zonix.img", mode=flat
 
+# IDE controller - Primary disk (hda: 64M FAT32, hdb: 16MB FAT16)
 ata0: enabled=1, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14
 ata0-master: type=disk, path="bin/zonix.img", mode=flat, cylinders=512, heads=8, spt=32
 ata0-slave: type=disk, path="bin/fat32_test.img", mode=flat
 
-# Secondary IDE channel (hdc: 4MB, hdd: 4MB)
+# Secondary IDE channel (disabled)
 # ata1: enabled=1, ioaddr1=0x170, ioaddr2=0x370, irq=15
 # ata1-master: type=disk, path="bin/disk3.img", mode=flat, cylinders=8, heads=16, spt=63
 # ata1-slave: type=disk, path="bin/disk4.img", mode=flat, cylinders=8, heads=16, spt=63

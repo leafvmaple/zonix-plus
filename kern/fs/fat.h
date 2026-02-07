@@ -2,7 +2,7 @@
 
 #include <base/types.h>
 #include <base/bpb.h>
-#include "../drivers/blk.h"
+#include "../block/blk.h"
 
 // FAT types and constants
 namespace fat {

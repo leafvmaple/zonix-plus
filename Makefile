@@ -15,7 +15,7 @@ LDFLAGS := -m elf_i386 -nostdlib
 
 DASM = ndisasm
 
-QEMU := qemu-system-i386
+QEMU := qemu-system-x86_64
 
 OBJDUMP := objdump
 OBJCOPY := objcopy
@@ -113,6 +113,7 @@ KSRCDIR :=	kern          \
             kern/cons     \
             kern/trap     \
             kern/drivers  \
+            kern/block    \
             kern/sched    \
             kern/mm       \
             kern/fs
@@ -121,21 +122,12 @@ KSRCDIR :=	kern          \
 CFLAGS	+= $(addprefix -I,$(INCLUDE))
 CXXFLAGS	+= $(addprefix -I,$(INCLUDE))
 
-# Update build date before compilation
-.PHONY: update-version
-update-version:
-	@bash tools/update_version.sh
-
 $(call add_packet_files_cc,$(call listf_cc,init),initial)
 $(call add_packet_files_cxx,$(call listf_cxx,init),initial)
 $(call add_packet_files_cc,$(call listf_cc,$(KSRCDIR)),kernel)
 $(call add_packet_files_cxx,$(call listf_cxx,$(KSRCDIR)),kernel)
 
 kernel = $(call totarget,kernel)
-
-# Ensure version is updated before compiling initial and kernel objects
-$(call read_packet,initial): update-version
-$(call read_packet,kernel): update-version
 
 KOBJS := $(sort $(call read_packet,initial) $(call read_packet,kernel))
 
@@ -201,21 +193,37 @@ $(bootloader): boot/bios/bootload.c tools/bootload.ld | $$(dir $$@)
 # UEFI Bootloader build (PE32+ format for x86_64 UEFI)
 UEFI_CC := gcc
 UEFI_LD := ld
+UEFI_OBJDUMP := objdump
 UEFI_OBJCOPY := objcopy
-UEFI_CFLAGS := -I include -ffreestanding -fno-stack-protector -fno-stack-check \
-               -fshort-wchar -mno-red-zone -maccumulate-outgoing-args \
-               -DUEFI_MODE -fPIC -m64 -O2 -Wall
+UEFI_CFLAGS := -I include -I /usr/include/efi \
+               -I /usr/include/efi/x86_64 \
+               -ffreestanding -fno-stack-protector -fno-stack-check \
+               -fshort-wchar -mno-red-zone -maccumulate-outgoing-args -fcf-protection=none \
+               -Og -g -mabi=ms -mno-sse -mno-sse2 -mno-mmx -mgeneral-regs-only \
+               -DUEFI_MODE -DGNU_EFI_USE_MS_ABI -m64 -Wall -O0 -g -fno-omit-frame-pointer
+
+UEFI_LDS := /usr/lib/elf_x86_64_efi.lds
 
 bootx64 = $(call totarget,BOOTX64.EFI)
-$(bootx64): boot/uefi/bootload.c tools/uefi.ld | $$(dir $$@)
-	@echo "Building UEFI bootloader..."
+$(bootx64): boot/uefi/bootload.c | $$(dir $$@)
 	@mkdir -p obj/boot/uefi
 	$(UEFI_CC) $(UEFI_CFLAGS) -c boot/uefi/bootload.c -o obj/boot/uefi/bootload_uefi.o
-	$(UEFI_LD) -shared -Bsymbolic -nostdlib -znocombreloc \
-		-T tools/uefi.ld obj/boot/uefi/bootload_uefi.o -o obj/boot/bootx64.so
-	$(UEFI_OBJCOPY) -j .text -j .sdata -j .data -j .dynamic -j .dynsym \
-		-j .rel -j .rela -j .reloc --target=efi-app-x86_64 \
+	$(UEFI_OBJDUMP) -d -S obj/boot/uefi/bootload_uefi.o > obj/boot/uefi/bootload_uefi.asm
+	$(UEFI_CC) -shared -nostdlib \
+		-Wl,-Bsymbolic \
+		-Wl,-T,$(UEFI_LDS) \
+		-Wl,--no-undefined \
+		/usr/lib/crt0-efi-x86_64.o \
+		obj/boot/uefi/bootload_uefi.o \
+		/usr/lib/libefi.a \
+		/usr/lib/libgnuefi.a \
+		-o obj/boot/bootx64.so
+	$(UEFI_OBJDUMP) -d -S obj/boot/bootx64.so > obj/boot/bootx64_so.asm
+	$(UEFI_OBJCOPY) -j .text -j .sdata -j .data -j .dynamic \
+		-j .dynsym -j .rel -j .rela -j .reloc \
+		--target=efi-app-x86_64 --subsystem=10 \
 		obj/boot/bootx64.so $@
+	$(UEFI_OBJDUMP) -d -S $@ > bin/BOOTX64_efi.asm
 	@echo "UEFI bootloader created: $@"
 
 
@@ -260,6 +268,12 @@ bin/zonix.img: bin/mbr bin/vbr bin/bootloader bin/kernel | $$(dir $$@)
 	@dd if=bin/bootloader.bin of=$@ bs=1 seek=1024 conv=notrunc 2>/dev/null
 	@echo "FAT32 image created: $@"
 
+# UEFI disk image with GPT partition
+bin/zonix-uefi.img: bin/BOOTX64.EFI bin/kernel | $$(dir $$@)
+	@echo "Creating UEFI disk image..."
+	@bash tools/create_uefi_image.sh
+	@echo "UEFI disk image created: $@"
+
 TARGETS: bin/mbr bin/vbr bin/bootloader bin/kernel bin/zonix.img
 
 # Additional disk images for testing
@@ -283,22 +297,38 @@ fat32: bin/zonix.img
 uefi: $(UEFI_TARGETS)
 
 qemu: bin/zonix.img
-	$(QEMU) -S -no-reboot -monitor stdio -drive file=$<,format=raw
+#	$(QEMU) -S -no-reboot -monitor stdio -drive file=$<,format=raw
+	$(QEMU) -monitor stdio -readconfig qemu.cfg -S -no-reboot
+
+qemu-ahci: bin/zonix.img
+	$(QEMU) -monitor stdio -readconfig qemu-ahci.cfg -S -no-reboot
 
 qemu-fat32: bin/zonix.img
 	$(QEMU) -S -no-reboot -monitor stdio -drive file=$<,format=raw
 
 qemu-uefi: bin/zonix-uefi.img
-	@# Download OVMF if not exists
-	@if [ ! -f /usr/share/ovmf/OVMF.fd ] && [ ! -f /usr/share/qemu/OVMF.fd ]; then \
-		echo "OVMF firmware not found. Install with: sudo apt install ovmf"; \
-		exit 1; \
-	fi
-	@OVMF_PATH=$$(if [ -f /usr/share/ovmf/OVMF.fd ]; then echo /usr/share/ovmf/OVMF.fd; else echo /usr/share/qemu/OVMF.fd; fi); \
-	$(QEMU) -bios $$OVMF_PATH -drive file=$<,format=raw -m 256M -monitor stdio
+	$(QEMU) -bios /usr/share/ovmf/OVMF.fd -readconfig qemu-uefi.cfg
+#	$(QEMU) -bios /usr/share/ovmf/OVMF.fd \
+#	-drive file=bin/zonix-uefi.img,format=raw \
+#	-m 256M -serial null -monitor stdio
+
+debug-qemu-uefi: bin/zonix-uefi.img
+	$(QEMU) -bios /usr/share/ovmf/OVMF.fd -readconfig qemu-uefi.cfg -S -s &
+	sleep 2
+	$(TERMINAL) -e "gdb -q -x tools/gdbinit"
 
 debug-qemu: bin/zonix.img
-	$(QEMU) -S -s -parallel stdio  -drive file=$<,format=raw -serial null &
+	$(QEMU) -readconfig qemu-debug.cfg -S -s &
+	sleep 2
+	$(TERMINAL) -e "gdb -q -x tools/gdbinit"
+
+debug-qemu-ahci: bin/zonix.img
+	$(QEMU) -S -s -parallel stdio \
+		-device ahci,id=ahci0 \
+		-drive if=none,id=sata0,file=$<,format=raw \
+		-device ide-hd,bus=ahci0.0,drive=sata0 \
+		-drive if=ide,index=1,file=bin/fat32_test.img,format=raw \
+		-serial null &
 	sleep 2
 	$(TERMINAL) -e "gdb -q -x tools/gdbinit"
 

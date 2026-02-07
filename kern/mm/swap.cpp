@@ -5,7 +5,7 @@
 #include "pmm.h"
 
 #include <arch/x86/mmu.h>
-#include "../drivers/blk.h"
+#include "../block/blk.h"
 
 // External function declarations
 extern Page* alloc_pages(size_t n);

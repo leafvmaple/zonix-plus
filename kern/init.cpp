@@ -1,7 +1,6 @@
+#include "block/blk.h"
 #include "drivers/pic.h"
 #include "drivers/pit.h"
-#include "drivers/hd.h"
-#include "drivers/blk.h"
 #include "drivers/intr.h"
 #include "arch/x86/idt.h"
 #include "cons/cons.h"
@@ -26,7 +25,6 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info *boot_info) 
 
     // drivers
     pic::init();
-    blk::init();
     pit::init();
 
     // arch
@@ -34,6 +32,11 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info *boot_info) 
 
     pmm_init();
     vmm_init();
+
+    // Block device initialization (requires VMM for MMIO access)
+    blk::init();
+    
+    // Swap initialization (requires block devices)
     swap_init();
 
     sched::init();

@@ -85,7 +85,7 @@ static void mm_init(MemoryDesc *mm) {
 }
 
 // fill all entries in page directory
-static void pgdir_init(pde_t* pgdir, uintptr_t la, size_t size, uintptr_t pa, uint32_t perm) {
+void pgdir_init(pde_t* pgdir, uintptr_t la, size_t size, uintptr_t pa, uint32_t perm) {
 	size_t n = round_up(size, PG_SIZE) / PG_SIZE;
     la = round_down(la, PG_SIZE);
     pa = round_down(pa, PG_SIZE);
@@ -100,6 +100,10 @@ void vmm_init() {
 	cprintf("Page Director: [0x%x]\n", boot_pgdir);
     
 	pgdir_init(boot_pgdir, KERNEL_BASE, KERNEL_MEM_SIZE, 0, PTE_W);
+
+    // Map MMIO region for devices (AHCI, etc.)
+    // Physical 0xFEBF0000-0xFEBFFFFF -> Virtual 0xFEBF0000 (identity mapping for MMIO)
+    pgdir_init(boot_pgdir, 0xFEBF0000, 0x10000, 0xFEBF0000, PTE_W | PTE_PCD | PTE_PWT);
 
     mm_init(&init_mm);
     init_mm.pgdir = boot_pgdir;

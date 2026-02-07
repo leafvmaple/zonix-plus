@@ -10,7 +10,7 @@
 #include "../drivers/kdb.h"
 #include "../drivers/pit.h"
 #include "../drivers/pic.h"
-#include "../drivers/hd.h"
+#include "../drivers/ide.h"
 #include "../cons/cons.h"
 #include "../mm/vmm.h"
 #include "../sched/sched.h"

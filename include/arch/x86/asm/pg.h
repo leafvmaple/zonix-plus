@@ -3,6 +3,8 @@
 #define PTE_P 0x001      // Present
 #define PTE_W 0x002      // Writeable
 #define PTE_U 0x004      // User
+#define PTE_PWT 0x008    // Write-Through (disable write-back cache for this page)
+#define PTE_PCD 0x010    // Cache Disable (disable caching for this page, important for MMIO)
 
 #define PTE_USER (PTE_U | PTE_W | PTE_P)
 

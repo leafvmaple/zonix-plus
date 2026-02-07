@@ -1,7 +1,13 @@
 #include "blk.h"
-#include "hd.h"
+
 #include "stdio.h"
 #include "string.h"
+
+#include <arch/x86/drivers/i8259.h>
+
+#include "../drivers/pic.h"
+#include "../drivers/ide.h"
+#include "../drivers/ahci.h"
 
 // Static member definitions
 BlockDevice* BlockManager::s_devices[BlockManager::MAX_DEV] = {};
@@ -10,6 +16,10 @@ int BlockManager::s_device_count = 0;
 void BlockManager::init() {
     cprintf("blk_init: initializing block device layer...\n");
 
+    pic::enable(IRQ_IDE1);
+    pic::enable(IRQ_IDE2);
+
+    // Initialize IDE devices
     IdeManager::init();
     
     int hdCount = IdeManager::get_device_count();
@@ -22,7 +32,23 @@ void BlockManager::init() {
     }
     
     if (hdCount == 0) {
-        cprintf("blk_init: no disk devices found\n");
+        cprintf("blk_init: no IDE disk devices found\n");
+    }
+    
+    // Initialize AHCI devices
+    AhciManager::init();
+    
+    int ahciCount = AhciManager::get_device_count();
+    for (int i = 0; i < ahciCount; i++) {
+        AhciDevice *ahciDevice = AhciManager::get_device(i);
+        if (ahciDevice) {
+            ahciDevice->m_size = ahciDevice->m_info.size;
+            BlockManager::register_device(ahciDevice);
+        }
+    }
+    
+    if (ahciCount == 0) {
+        cprintf("blk_init: no AHCI disk devices found\n");
     }
 }
 

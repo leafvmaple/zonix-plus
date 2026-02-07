@@ -1,4 +1,4 @@
-#include "hd.h"
+#include "ide.h"
 #include "stdio.h"
 
 #include <arch/x86/io.h>
@@ -17,8 +17,8 @@ void IdeManager::test(void) {
     }
     
     // Allocate test buffers
-    static uint8_t writeBuff[SECTOR_SIZE]{};
-    static uint8_t readBuff[SECTOR_SIZE]{};
+    static uint8_t writeBuff[ide::SECTOR_SIZE]{};
+    static uint8_t readBuff[ide::SECTOR_SIZE]{};
     
     // Test each device
     for (int i = 0; i < IdeManager::get_device_count(); i++) {
@@ -32,7 +32,7 @@ void IdeManager::test(void) {
         cprintf("  Size: %d sectors (%d MB)\n", dev->m_info.size, dev->m_info.size / 2048);
         
         // Fill write buffer with test pattern (unique per device)
-        for (size_t j = 0; j < SECTOR_SIZE; j++) {
+        for (size_t j = 0; j < ide::SECTOR_SIZE; j++) {
             writeBuff[j] = (uint8_t)((j + j * 17) & 0xFF);
         }
         
@@ -54,7 +54,7 @@ void IdeManager::test(void) {
         
         cprintf("  Test 3: Verify data...\n");
         int errors = 0;
-        for (size_t j = 0; j < SECTOR_SIZE; j++) {
+        for (size_t j = 0; j < ide::SECTOR_SIZE; j++) {
             if (readBuff[j] != writeBuff[j]) {
                 if (errors < 5) {
                     cprintf("    Mismatch at offset %d: expected 0x%02x, got 0x%02x\n", j, writeBuff[j], readBuff[j]);
@@ -98,14 +98,14 @@ void IdeManager::test_interrupt(void) {
     // Check interrupt enable status
     uint8_t ctrl = inb(dev->m_config->ctrl);
     cprintf("  Control register: 0x%02x (interrupts %s)\n", 
-            ctrl, (ctrl & IDE_CTRL_nIEN) ? "DISABLED" : "ENABLED");
+            ctrl, (ctrl & ide::CTRL_nIEN) ? "DISABLED" : "ENABLED");
     
     // Check PIC mask
     cprintf("  Checking if IRQ %d is enabled in PIC...\n", dev->m_config->irq);
     
     // Try a simple read with interrupt
     cprintf("  Attempting interrupt-driven read of sector 0...\n");
-    static uint8_t buf[SECTOR_SIZE]{};
+    static uint8_t buf[ide::SECTOR_SIZE]{};
     int result = dev->read(0, buf, 1);
     if (result == 0) {
         cprintf("  SUCCESS: Read completed\n");

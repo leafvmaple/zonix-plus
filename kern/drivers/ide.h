@@ -2,7 +2,7 @@
 
 #include <base/types.h>
 
-#include "blk.h"
+#include "../block/blk.h"
 
 // IDE/ATA disk constants
 namespace ide {
@@ -52,48 +52,15 @@ inline constexpr size_t NAME_LEN = 8;           // Device name length
 
 } // namespace ide
 
-// Legacy compatibility
-#define SECTOR_SIZE         ide::SECTOR_SIZE
-#define IDE0_BASE           ide::IDE0_BASE
-#define IDE1_BASE           ide::IDE1_BASE
-#define IDE0_CTRL           ide::IDE0_CTRL
-#define IDE1_CTRL           ide::IDE1_CTRL
-#define MAX_IDE_DEVICES     ide::MAX_DEVICES
-#define IDE_DATA            ide::REG_DATA
-#define IDE_ERROR           ide::REG_ERROR
-#define IDE_FEATURES        ide::REG_FEATURES
-#define IDE_SECTOR_COUNT    ide::REG_SECTOR_COUNT
-#define IDE_LBA_LOW         ide::REG_LBA_LOW
-#define IDE_LBA_MID         ide::REG_LBA_MID
-#define IDE_LBA_HIGH        ide::REG_LBA_HIGH
-#define IDE_DEVICE          ide::REG_DEVICE
-#define IDE_STATUS          ide::REG_STATUS
-#define IDE_COMMAND         ide::REG_COMMAND
-#define IDE_CTRL_nIEN       ide::CTRL_nIEN
-#define IDE_CTRL_SRST       ide::CTRL_SRST
-#define IDE_CTRL_HOB        ide::CTRL_HOB
-#define IDE_BSY             ide::STATUS_BSY
-#define IDE_DRDY            ide::STATUS_DRDY
-#define IDE_DF              ide::STATUS_DF
-#define IDE_DSC             ide::STATUS_DSC
-#define IDE_DRQ             ide::STATUS_DRQ
-#define IDE_ERR             ide::STATUS_ERR
-#define IDE_CMD_READ        ide::CMD_READ
-#define IDE_CMD_WRITE       ide::CMD_WRITE
-#define IDE_CMD_IDENTIFY    ide::CMD_IDENTIFY
-#define IDE_DEV_MASTER      ide::DEV_MASTER
-#define IDE_DEV_SLAVE       ide::DEV_SLAVE
-#define IDE_NAME_LEN        ide::NAME_LEN
-
 struct TaskStruct;
 
 struct IdeConfig {
-    uint8_t channel;
-    uint8_t drive;
-    uint16_t base;
-    uint16_t ctrl;
-    uint8_t irq;
-    const char *name;
+    uint8_t channel{};
+    uint8_t drive{};
+    uint16_t base{};
+    uint16_t ctrl{};
+    uint8_t irq{};
+    const char *name{};
 };
 
 struct DiskInfo {
@@ -151,8 +118,8 @@ public:
     static void test_interrupt();
 
 private:
-    static IdeDevice s_ide_devices[MAX_IDE_DEVICES];
+    static IdeDevice s_ide_devices[ide::MAX_DEVICES];
     static int s_ide_devices_count;
 
-    static IdeConfig s_ide_configs[MAX_IDE_DEVICES];
+    static IdeConfig s_ide_configs[ide::MAX_DEVICES];
 };
