@@ -15,11 +15,11 @@
 #define STS_TG   0x5  // Task Gate / Coum Transmitions
 #define STS_IG16 0x6  // 16-bit Interrupt Gate
 #define STS_TG16 0x7  // 16-bit Trap Gate
-#define STS_T32A 0x9  // Available 32-bit TSS
-#define STS_T32B 0xB  // Busy 32-bit TSS
+#define STS_T32A 0x9  // Available 32/64-bit TSS
+#define STS_T32B 0xB  // Busy 32/64-bit TSS
 #define STS_CG32 0xC  // 32-bit Call Gate
-#define STS_IG32 0xE  // 32-bit Interrupt Gate
-#define STS_TG32 0xF  // 32-bit Trap Gate
+#define STS_IG32 0xE  // 32/64-bit Interrupt Gate
+#define STS_TG32 0xF  // 32/64-bit Trap Gate
 
 #define DPL_KERNEL 0
 #define DPL_USER   3
@@ -48,6 +48,17 @@
     .word 0, 0;                                                 \
     .byte 0, 0, 0, 0
 
+/* 64-bit code segment: L=1, D=0, P=1, DPL=0, S=1, Type=Execute/Read */
+#define GEN_SEG_CODE64                                          \
+    .word 0xFFFF, 0x0000;                                       \
+    .byte 0x00, 0x9A, 0xAF, 0x00
+
+/* 64-bit data segment: P=1, DPL=0, S=1, Type=Read/Write */
+#define GEN_SEG_DATA64                                          \
+    .word 0xFFFF, 0x0000;                                       \
+    .byte 0x00, 0x92, 0xCF, 0x00
+
+/* Legacy 32-bit segment descriptor (for transitional code) */
 #define GEN_SEG_DESC(type,base,lim)                             \
     .word (((lim) >> 12) & 0xffff), ((base) & 0xffff);          \
     .byte (((base) >> 16) & 0xff), (0x90 | (type)), (0xC0 | (((lim) >> 28) & 0xf)), (((base) >> 24) & 0xff)
@@ -55,7 +66,8 @@
 
 // Memory Layout
 
-#define KERNEL_BASE 0xC0000000
+// Memory Layout (x86_64 higher-half kernel at -2GB)
+#define KERNEL_BASE 0xFFFFFFFF80000000
 #define KERNEL_HEADER 0x10000
 #define KERNEL_MEM_SIZE 0x38000000
 
@@ -66,13 +78,6 @@
 #define E820_RESERVED 2
 #define E820_ACPI 3
 #define E820_NVS 4
-
-#define VPT 0xFAC00000
-
-// Logical Memory Layout
-/*
-      KERNEL_BASE ---------> +---------------------------------+ 0xC0000000
-*/
 
 
 // Physical Memory Management

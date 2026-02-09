@@ -35,9 +35,9 @@ constexpr int INSERT_SUCCESS = 1;
 
 uintptr_t boot_cr3;
 
-long user_stack [ PG_SIZE >> 2 ] ;
+long user_stack [ PG_SIZE * 2 ] ;
 
-long* STACK_START = &user_stack [PG_SIZE >> 2];
+long* STACK_START = &user_stack [PG_SIZE * 2];
 
 Page* g_pages{};
 uint32_t g_num_pages{};
@@ -81,20 +81,49 @@ void pages_free(Page* base, size_t n) {
 	g_pmm->free(base, n);
 }
 
-pte_t* get_pte(pde_t* pgdir, uintptr_t la, bool create) {
-    pde_t* pdep = pgdir + PDX(la);
-    if (!(*pdep & PTE_P)) {
-        Page* page{};
-        if (!create || (page = alloc_pages(1)) == nullptr) {
-            return nullptr;
-        }
-        page->ref = PAGE_REF_INIT;
+pte_t* get_pte(pde_t* pml4, uintptr_t la, bool create) {
+    // Walk 4-level page table: PML4 -> PDPT -> PD -> PT
 
+    // Level 4: PML4
+    pde_t* pml4e = pml4 + PML4X(la);
+    if (!(*pml4e & PTE_P)) {
+        Page* page{};
+        if (!create || (page = alloc_pages(1)) == nullptr)
+            return nullptr;
+        page->ref = PAGE_REF_INIT;
         pde_t pa = page2pa(page);
         memset(K_ADDR(pa), 0, PG_SIZE);
-        *pdep = pa | PTE_USER;
+        *pml4e = pa | PTE_USER;
     }
-    return (pte_t*)K_ADDR(PDE_ADDR(*pdep)) + PTX(la);
+
+    // Level 3: PDPT
+    pde_t* pdpt = (pde_t*)K_ADDR(PTE_ADDR(*pml4e));
+    pde_t* pdpte = pdpt + PDPTX(la);
+    if (!(*pdpte & PTE_P)) {
+        Page* page{};
+        if (!create || (page = alloc_pages(1)) == nullptr)
+            return nullptr;
+        page->ref = PAGE_REF_INIT;
+        pde_t pa = page2pa(page);
+        memset(K_ADDR(pa), 0, PG_SIZE);
+        *pdpte = pa | PTE_USER;
+    }
+
+    // Level 2: PD
+    pde_t* pd = (pde_t*)K_ADDR(PTE_ADDR(*pdpte));
+    pde_t* pde = pd + PDX(la);
+    if (!(*pde & PTE_P)) {
+        Page* page{};
+        if (!create || (page = alloc_pages(1)) == nullptr)
+            return nullptr;
+        page->ref = PAGE_REF_INIT;
+        pde_t pa = page2pa(page);
+        memset(K_ADDR(pa), 0, PG_SIZE);
+        *pde = pa | PTE_USER;
+    }
+
+    // Level 1: PT
+    return (pte_t*)K_ADDR(PTE_ADDR(*pde)) + PTX(la);
 }
 
 static void page_init() {
@@ -126,7 +155,7 @@ static void page_init() {
 				addr = round_up(addr, PG_SIZE);
 				limit = round_down(limit, PG_SIZE);
 				
-    			cprintf("Valid Memory: [0x%08x, 0x%08x]\n", (uint32_t)addr, (uint32_t)limit);
+    			cprintf("Valid Memory: [0x%016lx, 0x%016lx]\n", (uint64_t)addr, (uint64_t)limit);
 				g_pmm->init_memmap(pa2page(addr), page_num(limit - addr));
 			}
 		}

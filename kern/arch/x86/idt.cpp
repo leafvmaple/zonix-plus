@@ -6,7 +6,7 @@
 #include "unistd.h"
 
 extern gate_desc __idt[];
-extern uintptr_t __vectors[];
+extern "C" uintptr_t __vectors[];
 
 void idt_init() {
     for (int i = 0; i < 256; i++)

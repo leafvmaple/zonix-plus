@@ -105,13 +105,19 @@ void TaskStruct::copy_thread(uintptr_t esp, TrapFrame *trapFrame) {
     m_trap_frame = (TrapFrame*)(m_kernel_stack + KSTACK_SIZE) - 1;
     
     *m_trap_frame = *trapFrame;
-    m_trap_frame->m_regs.m_eax = 0;  // Return value for child
-    m_trap_frame->m_esp = esp;
-    m_trap_frame->m_eflags |= 0x200;   // Enable interrupts
+    m_trap_frame->m_regs.m_rax = 0;  // Return value for child
+    if (esp != 0) {
+        m_trap_frame->m_rsp = esp;
+    } else {
+        // Kernel thread: use the kernel stack (just below the trap frame)
+        m_trap_frame->m_rsp = (uintptr_t)m_trap_frame;
+    }
+    m_trap_frame->m_rflags |= 0x200;   // Enable interrupts
+    m_trap_frame->m_ss = KERNEL_DS;    // Always set SS for iretq
     
     // Set up context for context switch
-    m_context.eip = (uintptr_t)forkret;
-    m_context.esp = (uintptr_t)(m_trap_frame);
+    m_context.rip = (uintptr_t)forkret;
+    m_context.rsp = (uintptr_t)(m_trap_frame);
 }
 
 int TaskStruct::setup_kernel_stack() {
@@ -195,13 +201,13 @@ void TaskManager::print() {
     while ((le = le->get_prev()) != &s_proc_list) {
         TaskStruct *proc = TaskStruct::from_list_link(le);
 
-        cprintf("%c%-3d %-4s  %-4d  %08x  %08x  %s\n",
+        cprintf("%c%-3d %-4s  %-4d  %016lx  %016lx  %s\n",
                (proc == s_current) ? '*' : ' ',
                proc->m_pid,
                state_str(proc->m_state),
                (proc->m_parent ? proc->m_parent->m_pid : -1),
                proc->m_kernel_stack,
-               proc->m_memory,
+               (uintptr_t)proc->m_memory,
                proc->name);
     }
     
@@ -369,9 +375,9 @@ void TaskManager::init_init_proc() {
     TrapFrame trapFrame {};
 
     trapFrame.m_cs = KERNEL_CS;
-    trapFrame.m_eflags = FL_IF;  // Enable interrupts
-    trapFrame.m_eip = (uintptr_t)init_main;
-    trapFrame.m_esp = 0;  // Will be set up by copy_thread
+    trapFrame.m_rflags = FL_IF;  // Enable interrupts
+    trapFrame.m_rip = (uintptr_t)init_main;
+    trapFrame.m_rsp = 0;  // Will be set up by copy_thread
 
     int ret = fork(0, 0, &trapFrame);
     s_init_proc = find_proc(ret);

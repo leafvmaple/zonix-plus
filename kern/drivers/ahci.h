@@ -124,9 +124,9 @@ struct AhciDevice : public BlockDevice {
     const AhciPortConfig* m_config{};     // Pointer to port configuration
     AhciDeviceInfo m_info{};              // Device information
     AhciRequest m_request{};              // Current I/O request state
-    uint32_t m_port_base{};               // MMIO base address for this port
+    uintptr_t m_port_base{};               // MMIO base address for this port
 
-    void detect(const AhciPortConfig* config, uint32_t mmio_base);
+    void detect(const AhciPortConfig* config, uintptr_t mmio_base);
     void interrupt();
 
     int read(uint32_t blockNumber, void* buf, size_t blockCount) override;

@@ -16,7 +16,7 @@ struct e820map {
 
 template<typename F>
 void traverse_e820_map(F&& callback) {
-    e820map *map = reinterpret_cast<e820map*>(E820_MEM_BASE + KERNEL_BASE);
+    e820map *map = reinterpret_cast<e820map*>((uintptr_t)E820_MEM_BASE + KERNEL_BASE);
     for (int i = 0; i < map->nr_map; i++) {
         callback(map->map[i].addr, map->map[i].size, map->map[i].type);
     }

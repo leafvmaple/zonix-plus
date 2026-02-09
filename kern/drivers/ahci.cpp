@@ -42,15 +42,15 @@ static uint32_t pci_find_ahci_bar() {
     return abar;
 }
 
-static inline uint32_t mmio_read32(uint32_t base, uint32_t offset) {
+static inline uint32_t mmio_read32(uintptr_t base, uint32_t offset) {
     return *(volatile uint32_t*)(base + offset);
 }
 
-static inline void mmio_write32(uint32_t base, uint32_t offset, uint32_t value) {
+static inline void mmio_write32(uintptr_t base, uint32_t offset, uint32_t value) {
     *(volatile uint32_t*)(base + offset) = value;
 }
 
-static int ahci_wait_port_ready(uint32_t portBase, int timeout_ms) {
+static int ahci_wait_port_ready(uintptr_t portBase, int timeout_ms) {
     int timeout = timeout_ms * 1000;  // Convert to iterations
     
     while (timeout-- > 0) {
@@ -78,7 +78,7 @@ static int ahci_enable_port(uint32_t portBase) {
     return 0;
 }
 
-void AhciDevice::detect(const AhciPortConfig* config, uint32_t mmioBase) {
+void AhciDevice::detect(const AhciPortConfig* config, uintptr_t mmioBase) {
     m_config = config;
     m_port_base = mmioBase + 0x100 + (config->port_num * 0x80);  // AHCI port offset
     
@@ -125,16 +125,16 @@ void AhciManager::init(void) {
     
     cprintf("AHCI: Initializing AHCI controller...\n");
 
-    uint32_t s_ahci_base = pci_find_ahci_bar();
+    uint32_t phys_base = pci_find_ahci_bar();
     
-    if (s_ahci_base == 0) {
+    if (phys_base == 0) {
         cprintf("AHCI: No AHCI controller found on PCI bus\n");
         return;
     }
     
-    // Map AHCI MMIO region (typically 8KB, use 64KB to be safe)
-    // Identity map: virtual address = physical address for simplicity
-    pgdir_init(boot_pgdir, s_ahci_base, 0x10000, s_ahci_base, PTE_W | PTE_PCD | PTE_PWT);
+    // Map AHCI MMIO region into kernel virtual address space
+    uintptr_t s_ahci_base = KERNEL_BASE + (uintptr_t)phys_base;
+    pgdir_init(boot_pgdir, s_ahci_base, 0x10000, phys_base, PTE_W | PTE_PCD | PTE_PWT);
     
     // Check if AHCI controller is present by reading version register
     uint32_t version = mmio_read32(s_ahci_base, ahci::AHCI_VS);
@@ -162,7 +162,7 @@ void AhciManager::init(void) {
         }
 
         auto& config = s_ahci_port_configs[i];
-        uint32_t portBase = s_ahci_base + 0x100 + (i * 0x80);
+        uintptr_t portBase = s_ahci_base + 0x100 + (i * 0x80);
 
         // Check if device is present
         uint32_t ssts = mmio_read32(portBase, ahci::PORT_SATA_STS);

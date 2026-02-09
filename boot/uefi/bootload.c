@@ -1,15 +1,14 @@
 // UEFI Bootloader for Zonix
 // EFI application that loads zonix kernel and passes control
 
-#include <base/elf.h>
-#include <base/types.h>
+#include <efi.h>
+#include <efilib.h>
 #include <kernel/bootinfo.h>
-#include <uefi/uefi.h>
+#include <base/elf.h>
 
 // Global UEFI state
-static EFI_SYSTEM_TABLE *gST = NULL;
-static EFI_BOOT_SERVICES *gBS = NULL;
-static EFI_HANDLE gImageHandle = NULL;
+EFI_SYSTEM_TABLE* ST = NULL;
+EFI_BOOT_SERVICES* BS = NULL;
 
 // Utility functions
 static void* memcpy(void* dst, const void* src, size_t n) {
@@ -26,9 +25,23 @@ static void* memset(void* dst, int c, size_t n) {
 }
 
 static void print(const CHAR16 *str) {
-    if (gST && gST->ConOut) {
-        gST->ConOut->OutputString(gST->ConOut, (CHAR16*)str);
+    if (ST && ST->ConOut) {
+        ST->ConOut->OutputString(ST->ConOut, (CHAR16*)str);
     }
+}
+
+static void print_hex(uint64_t val) {
+    CHAR16 buf[21];
+    CHAR16 *hex_chars = L"0123456789ABCDEF";
+    buf[0] = L'0';
+    buf[1] = L'x';
+    for (int i = 0; i < 16; i++) {
+        buf[17 - i] = hex_chars[(val >> (i * 4)) & 0xF];
+    }
+    buf[18] = L'\r';
+    buf[19] = L'\n';
+    buf[20] = L'\0';
+    print(buf);
 }
 
 // Load ELF kernel
@@ -69,31 +82,28 @@ static int load_elf_kernel(void* elf_buffer, struct boot_info* boot_info) {
 // Get UEFI memory map and convert to boot_info format
 static EFI_STATUS get_memory_map(struct boot_info *boot_info, UINTN *map_key) {
     EFI_MEMORY_DESCRIPTOR *memory_map = NULL;
-    UINTN memory_map_size = 0, descriptor_size = 0;
+    UINTN memory_map_size = 0;
+    UINTN descriptor_size = 0;
     UINT32 descriptor_version = 0;
     EFI_STATUS status;
     
-    status = gBS->GetMemoryMap(&memory_map_size, memory_map, map_key,
-                               &descriptor_size, &descriptor_version);
+    status = BS->GetMemoryMap(&memory_map_size, memory_map, map_key, &descriptor_size, &descriptor_version);
     if (status != EFI_BUFFER_TOO_SMALL) return status;
     
     memory_map_size += 2 * descriptor_size;
-    status = gBS->AllocatePool(EfiLoaderData, memory_map_size, (VOID**)&memory_map);
+    status = BS->AllocatePool(EfiLoaderData, memory_map_size, (VOID**)&memory_map);
     if (EFI_ERROR(status)) return status;
     
-    status = gBS->GetMemoryMap(&memory_map_size, memory_map, map_key,
-                               &descriptor_size, &descriptor_version);
+    status = BS->GetMemoryMap(&memory_map_size, memory_map, map_key, &descriptor_size, &descriptor_version);
     if (EFI_ERROR(status)) {
-        gBS->FreePool(memory_map);
+        BS->FreePool(memory_map);
         return status;
     }
     
     UINTN num_desc = memory_map_size / descriptor_size;
-    status = gBS->AllocatePool(EfiLoaderData, 
-                               num_desc * sizeof(struct boot_mmap_entry),
-                               (VOID**)&boot_info->mmap);
+    status = BS->AllocatePool(EfiLoaderData, num_desc * sizeof(struct boot_mmap_entry), (VOID**)&boot_info->mmap);
     if (EFI_ERROR(status)) {
-        gBS->FreePool(memory_map);
+        BS->FreePool(memory_map);
         return status;
     }
     
@@ -126,7 +136,7 @@ static EFI_STATUS get_memory_map(struct boot_info *boot_info, UINTN *map_key) {
         desc = (EFI_MEMORY_DESCRIPTOR*)((UINT8*)desc + descriptor_size);
     }
     
-    gBS->FreePool(memory_map);
+    BS->FreePool(memory_map);
     return EFI_SUCCESS;
 }
 
@@ -140,10 +150,10 @@ static EFI_STATUS load_kernel(EFI_HANDLE image_handle, VOID **kernel_buffer, UIN
     EFI_GUID lip_guid = EFI_LOADED_IMAGE_PROTOCOL_GUID;
     EFI_GUID fs_guid = EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID;
     
-    status = EFI_HandleProtocol(gBS, image_handle, &lip_guid, (VOID**)&loaded_image);
+    status = BS->HandleProtocol(image_handle, &lip_guid, (VOID**)&loaded_image);
     if (EFI_ERROR(status)) return status;
     
-    status = EFI_HandleProtocol(gBS, loaded_image->DeviceHandle, &fs_guid, (VOID**)&fs);
+    status = BS->HandleProtocol(loaded_image->DeviceHandle, &fs_guid, (VOID**)&fs);
     if (EFI_ERROR(status)) return status;
     
     status = fs->OpenVolume(fs, &root);
@@ -163,7 +173,7 @@ static EFI_STATUS load_kernel(EFI_HANDLE image_handle, VOID **kernel_buffer, UIN
     UINTN info_size = sizeof(EFI_FILE_INFO) + 256;
     EFI_FILE_INFO *file_info = NULL;
     
-    status = gBS->AllocatePool(EfiLoaderData, info_size, (VOID**)&file_info);
+    status = BS->AllocatePool(EfiLoaderData, info_size, (VOID**)&file_info);
     if (EFI_ERROR(status)) {
         kernel_file->Close(kernel_file);
         root->Close(root);
@@ -172,16 +182,16 @@ static EFI_STATUS load_kernel(EFI_HANDLE image_handle, VOID **kernel_buffer, UIN
     
     status = kernel_file->GetInfo(kernel_file, &file_info_guid, &info_size, file_info);
     if (EFI_ERROR(status)) {
-        gBS->FreePool(file_info);
+        BS->FreePool(file_info);
         kernel_file->Close(kernel_file);
         root->Close(root);
         return status;
     }
     
     *kernel_size = (UINTN)file_info->FileSize;
-    gBS->FreePool(file_info);
+    BS->FreePool(file_info);
     
-    status = gBS->AllocatePool(EfiLoaderData, *kernel_size, kernel_buffer);
+    status = BS->AllocatePool(EfiLoaderData, *kernel_size, kernel_buffer);
     if (EFI_ERROR(status)) {
         kernel_file->Close(kernel_file);
         root->Close(root);
@@ -200,7 +210,7 @@ static void get_graphics_info(struct boot_info *boot_info) {
     EFI_GRAPHICS_OUTPUT_PROTOCOL *gop = NULL;
     EFI_GUID gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
     
-    if (EFI_ERROR(gBS->LocateProtocol(&gop_guid, NULL, (VOID**)&gop))) {
+    if (EFI_ERROR(BS->LocateProtocol(&gop_guid, NULL, (VOID**)&gop))) {
         boot_info->framebuffer_addr = 0;
         return;
     }
@@ -213,19 +223,33 @@ static void get_graphics_info(struct boot_info *boot_info) {
     boot_info->framebuffer_type = 1;
 }
 
+static void exit_boot_services(EFI_HANDLE image_handle) {
+    UINTN final_map_key = 0;
+    UINTN m_size = 0, d_size = 0;
+    UINT32 d_ver = 0;
+    EFI_MEMORY_DESCRIPTOR *m_map = NULL;
+    EFI_STATUS status;
+
+    BS->GetMemoryMap(&m_size, NULL, &final_map_key, &d_size, &d_ver);
+
+    m_size += 2 * d_size;
+    BS->AllocatePool(EfiLoaderData, m_size, (VOID**)&m_map);
+
+    status = BS->GetMemoryMap(&m_size, m_map, &final_map_key, &d_size, &d_ver);
+}
+
 // UEFI application entry point
-EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
-    gImageHandle = ImageHandle;
-    gST = SystemTable;
-    gBS = SystemTable->BootServices;
+EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable) {
+    ST = SystemTable;
+    BS = SystemTable->BootServices;
     
-    gST->ConOut->ClearScreen(gST->ConOut);
+    ST->ConOut->ClearScreen(ST->ConOut);
     print(L"\r\nZonix UEFI Bootloader v1.0\r\n\r\n");
     
-    gBS->SetWatchdogTimer(0, 0, 0, NULL);
+    BS->SetWatchdogTimer(0, 0, 0, NULL);
     
     struct boot_info *boot_info = NULL;
-    EFI_STATUS status = gBS->AllocatePool(EfiLoaderData, sizeof(struct boot_info), (VOID**)&boot_info);
+    EFI_STATUS status = BS->AllocatePool(EfiLoaderData, sizeof(struct boot_info), (VOID**)&boot_info);
     if (EFI_ERROR(status)) return status;
     
     memset(boot_info, 0, sizeof(struct boot_info));
@@ -253,12 +277,13 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     }
     
     get_graphics_info(boot_info);
+
+    print_hex(boot_info->kernel_entry & 0x00FFFFFF);
+
+    print(L"Exiting Boot Services...\r\n");
+    exit_boot_services(ImageHandle);
     
-    print(L"Exiting boot services...\r\n");
-    status = gBS->ExitBootServices(ImageHandle, map_key);
-    if (EFI_ERROR(status)) return status;
-    
-    kernel_entry_t kernel_entry = (kernel_entry_t)boot_info->kernel_entry;
+    kernel_entry_t kernel_entry = (kernel_entry_t)(boot_info->kernel_entry & 0x00FFFFFF);
     kernel_entry(boot_info);
     
     return EFI_SUCCESS;

@@ -2,16 +2,20 @@
 
 CC		:= gcc
 CXX		:= g++
-CFLAGS	:= -g -fno-builtin -Wall -ggdb -O0 -m32 -nostdinc -fno-stack-protector -fno-PIC -gdwarf-2
-CXXFLAGS	:= -g -Wall -ggdb -O0 -m32 -nostdinc -nostdinc++ -fno-builtin -fno-stack-protector \
+CFLAGS	:= -g -fno-builtin -Wall -ggdb -O0 -m64 -mno-red-zone -mcmodel=kernel -mno-sse -mno-sse2 -mno-mmx -msoft-float -nostdinc -fno-stack-protector -fno-PIC -gdwarf-2
+CXXFLAGS	:= -g -Wall -ggdb -O0 -m64 -mno-red-zone -mcmodel=kernel -mno-sse -mno-sse2 -mno-mmx -msoft-float -nostdinc -nostdinc++ -fno-builtin -fno-stack-protector \
 			 -fno-PIC -fno-exceptions -fno-rtti -fno-use-cxa-atexit -fno-threadsafe-statics \
 			 -fno-asynchronous-unwind-tables -fno-unwind-tables -ffreestanding -std=gnu++17 -gdwarf-2
+
+# Boot code flags (32-bit, since BIOS bootloader runs in protected mode)
+BOOT_CFLAGS := -g -fno-builtin -Wall -ggdb -O0 -m32 -nostdinc -fno-stack-protector -fno-PIC -gdwarf-2
+BOOT_LDFLAGS := -m elf_i386 -nostdlib
 
 HOSTCC		:= gcc
 HOSTCFLAGS	:= -g -Wall -O2
 
 LD      := ld
-LDFLAGS := -m elf_i386 -nostdlib
+LDFLAGS := -m elf_x86_64 -nostdlib
 
 DASM = ndisasm
 
@@ -136,17 +140,17 @@ $(kernel): $(KOBJS) tools/kernel.ld | $$(dir $$@)
 	$(OBJDUMP) -D $@ > obj/kernel.asm
 #	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > obj/kernel.sym
 	$(OBJCOPY) -S -O binary $@ $(call tobin,kernel)
-	$(DASM) -b 32 $(call tobin,kernel) > obj/kernel.disasm
+	$(DASM) -b 64 $(call tobin,kernel) > obj/kernel.disasm
 
 # MBR build (Master Boot Record) - BIOS mode
 mbr = $(call totarget,mbr)
 MOBJ = $(call toobj,boot/bios/mbr.S)
 
 $(MOBJ): boot/bios/mbr.S | $$(dir $$@)
-	$(CC) $(CFLAGS) -Os -c $< -o $@
+	$(CC) $(BOOT_CFLAGS) -I include -Os -c $< -o $@
 
 $(mbr): $(MOBJ) tools/mbr.ld | $$(dir $$@)
-	$(LD) $(LDFLAGS) -T tools/mbr.ld -o $@ $<
+	$(LD) $(BOOT_LDFLAGS) -T tools/mbr.ld -o $@ $<
 	$(OBJDUMP) -D $@ > obj/mbr.asm
 	$(OBJCOPY) -S -O binary $@ $(call tobin,mbr)
 	$(DASM) -b 16 $(call tobin,mbr) > obj/mbr.disasm
@@ -158,14 +162,14 @@ $(mbr): $(MOBJ) tools/mbr.ld | $$(dir $$@)
 
 # VBR and Bootblock build (exclude mbr.S and bootload.c) - BIOS mode
 bootfiles = $(filter-out boot/bios/mbr.S boot/bios/bootload.c, $(call listf_cc,boot/bios))
-$(eval $(call compiles,$(bootfiles),$(CC),$(CFLAGS) -Os))
+$(eval $(call compiles,$(bootfiles),$(CC),$(BOOT_CFLAGS) -I include -Os))
 
 # VBR build (Volume Boot Record, formerly bootblock)
 vbr = $(call totarget,vbr)
 VOBJS = $(call toobj,$(bootfiles))
 
 $(vbr): $(VOBJS) tools/boot.ld | $$(dir $$@)
-	$(LD) $(LDFLAGS) -T tools/boot.ld -o $@ $(VOBJS)
+	$(LD) $(BOOT_LDFLAGS) -T tools/boot.ld -o $@ $(VOBJS)
 	$(OBJDUMP) -S $@ > obj/vbr.asm
 	$(OBJCOPY) -S -O binary $@ $(call tobin,vbr)
 	$(DASM) -b 16 $(call tobin,vbr) > obj/vbr.disasm
@@ -179,8 +183,8 @@ $(vbr): $(VOBJS) tools/boot.ld | $$(dir $$@)
 # Can use reserved sectors: sector 1-7 (512 * 7 bytes total)
 bootloader = $(call totarget,bootloader)
 $(bootloader): boot/bios/bootload.c tools/bootload.ld | $$(dir $$@)
-	$(CC) $(CFLAGS) -O2 -g -nostdinc -fno-builtin -fno-stack-protector -c boot/bios/bootload.c -o $(call toobj,boot/bios/bootload.c)
-	$(LD) $(LDFLAGS) -T tools/bootload.ld -o $@ $(call toobj,boot/bios/bootload.c)
+	$(CC) $(BOOT_CFLAGS) -I include -O2 -g -nostdinc -fno-builtin -fno-stack-protector -c boot/bios/bootload.c -o $(call toobj,boot/bios/bootload.c)
+	$(LD) $(BOOT_LDFLAGS) -T tools/bootload.ld -o $@ $(call toobj,boot/bios/bootload.c)
 	$(OBJDUMP) -S $@ > obj/bootloader.asm
 	$(OBJCOPY) -S -O binary $@ $(call tobin,bootloader)
 	$(DASM) -b 32 $(call tobin,bootloader) > obj/bootloader.disasm
@@ -191,39 +195,21 @@ $(bootloader): boot/bios/bootload.c tools/bootload.ld | $$(dir $$@)
 	fi
 
 # UEFI Bootloader build (PE32+ format for x86_64 UEFI)
-UEFI_CC := gcc
+UEFI_CC := x86_64-w64-mingw32-gcc
 UEFI_LD := ld
 UEFI_OBJDUMP := objdump
 UEFI_OBJCOPY := objcopy
 UEFI_CFLAGS := -I include -I /usr/include/efi \
                -I /usr/include/efi/x86_64 \
-               -ffreestanding -fno-stack-protector -fno-stack-check \
-               -fshort-wchar -mno-red-zone -maccumulate-outgoing-args -fcf-protection=none \
-               -Og -g -mabi=ms -mno-sse -mno-sse2 -mno-mmx -mgeneral-regs-only \
-               -DUEFI_MODE -DGNU_EFI_USE_MS_ABI -m64 -Wall -O0 -g -fno-omit-frame-pointer
+               -nostdlib -ffreestanding -fshort-wchar -mno-red-zone -O2
 
-UEFI_LDS := /usr/lib/elf_x86_64_efi.lds
+UEFI_LDFLAGS := -Wl,--entry=efi_main -Wl,--subsystem,10 -Wl,--image-base,0 \
+		    -L/usr/lib -lefi -lgnuefi
 
 bootx64 = $(call totarget,BOOTX64.EFI)
 $(bootx64): boot/uefi/bootload.c | $$(dir $$@)
 	@mkdir -p obj/boot/uefi
-	$(UEFI_CC) $(UEFI_CFLAGS) -c boot/uefi/bootload.c -o obj/boot/uefi/bootload_uefi.o
-	$(UEFI_OBJDUMP) -d -S obj/boot/uefi/bootload_uefi.o > obj/boot/uefi/bootload_uefi.asm
-	$(UEFI_CC) -shared -nostdlib \
-		-Wl,-Bsymbolic \
-		-Wl,-T,$(UEFI_LDS) \
-		-Wl,--no-undefined \
-		/usr/lib/crt0-efi-x86_64.o \
-		obj/boot/uefi/bootload_uefi.o \
-		/usr/lib/libefi.a \
-		/usr/lib/libgnuefi.a \
-		-o obj/boot/bootx64.so
-	$(UEFI_OBJDUMP) -d -S obj/boot/bootx64.so > obj/boot/bootx64_so.asm
-	$(UEFI_OBJCOPY) -j .text -j .sdata -j .data -j .dynamic \
-		-j .dynsym -j .rel -j .rela -j .reloc \
-		--target=efi-app-x86_64 --subsystem=10 \
-		obj/boot/bootx64.so $@
-	$(UEFI_OBJDUMP) -d -S $@ > bin/BOOTX64_efi.asm
+	$(UEFI_CC) $(UEFI_CFLAGS) boot/uefi/bootload.c -o $@ $(UEFI_LDFLAGS)
 	@echo "UEFI bootloader created: $@"
 
 
@@ -274,7 +260,7 @@ bin/zonix-uefi.img: bin/BOOTX64.EFI bin/kernel | $$(dir $$@)
 	@bash tools/create_uefi_image.sh
 	@echo "UEFI disk image created: $@"
 
-TARGETS: bin/mbr bin/vbr bin/bootloader bin/kernel bin/zonix.img
+TARGETS: bin/mbr bin/vbr bin/bootloader bin/kernel bin/zonix.img bin/BOOTX64.EFI
 
 # Additional disk images for testing
 DISK_IMAGES := bin/fat32_test.img
@@ -315,7 +301,7 @@ qemu-uefi: bin/zonix-uefi.img
 debug-qemu-uefi: bin/zonix-uefi.img
 	$(QEMU) -bios /usr/share/ovmf/OVMF.fd -readconfig qemu-uefi.cfg -S -s &
 	sleep 2
-	$(TERMINAL) -e "gdb -q -x tools/gdbinit"
+	$(TERMINAL) -e gdb -q -x tools/gdbinit
 
 debug-qemu: bin/zonix.img
 	$(QEMU) -readconfig qemu-debug.cfg -S -s &

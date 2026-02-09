@@ -270,7 +270,7 @@ int FatInfo::find_file(const char* filename, fat_dir_entry_t *result) {
     
     const char *dot = strchr(filename, '.');
     if (dot) {
-        memcpy(name, filename, min(dot - filename, 8));
+        memcpy(name, filename, min(dot - filename, (long)8));
         memcpy(ext, dot + 1, min(strlen(dot + 1), (size_t)3));
     } else {
         memcpy(name, filename, min(strlen(filename), (size_t)8));

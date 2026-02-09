@@ -16,7 +16,7 @@ constexpr uint16_t CGA_DATA_REG = 0x3D5;
 constexpr uint8_t CRTC_CURSOR_HIGH = 0x0E;
 constexpr uint8_t CRTC_CURSOR_LOW  = 0x0F;
 
-// CGA memory buffer address
+// CGA memory buffer address (physical 0xB8000)
 constexpr uintptr_t CGA_BUF = 0xB8000;
 
 // Character with default attribute (white on black)

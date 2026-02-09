@@ -124,9 +124,9 @@ static int read_sectors(uint32_t lba, uint32_t count, uint8_t* buffer) {
     return 0;
 }
 
-// Load ELF kernel
+// Load ELF64 kernel
 static int load_elf_kernel(uint8_t* elf_buffer, struct boot_info* boot_info) {
-    elfhdr* elf = (elfhdr*)elf_buffer;
+    elfhdr64* elf = (elfhdr64*)elf_buffer;
     
     // Verify ELF magic
     if (elf->e_magic != ELF_MAGIC) {
@@ -136,33 +136,33 @@ static int load_elf_kernel(uint8_t* elf_buffer, struct boot_info* boot_info) {
     // Track kernel boundaries
     boot_info->kernel_start = 0xFFFFFFFF;
     boot_info->kernel_end = 0;
-    boot_info->kernel_entry = elf->e_entry;
+    boot_info->kernel_entry = (uint32_t)(elf->e_entry & 0xFFFFFFFF);  // Physical entry
     
-    // Load each program segment
-    proghdr* ph = (proghdr*)((uint8_t*)elf + elf->e_phoff);
-    proghdr* eph = ph + elf->e_phnum;
+    // Load each program segment (ELF64 program headers)
+    proghdr64* ph = (proghdr64*)((uint8_t*)elf + (uint32_t)elf->e_phoff);
+    proghdr64* eph = ph + elf->e_phnum;
     
     for (; ph < eph; ph++) {
         if (ph->p_type != ELF_PT_LOAD)
             continue;
         
-        // Physical address (mask off virtual kernel base 0xC0000000)
-        uint8_t* dst = (uint8_t*)(ph->p_va & 0x00FFFFFF);
-        uint8_t* src = (uint8_t*)elf + ph->p_offset;
+        // Use physical address from ELF program header directly
+        uint32_t phys_addr = (uint32_t)ph->p_pa;
+        uint8_t* dst = (uint8_t*)phys_addr;
+        uint8_t* src = (uint8_t*)elf + (uint32_t)ph->p_offset;
         
         // Track kernel boundaries
-        uint32_t phys_addr = (uint32_t)dst;
         if (phys_addr < boot_info->kernel_start)
             boot_info->kernel_start = phys_addr;
-        if (phys_addr + ph->p_memsz > boot_info->kernel_end)
-            boot_info->kernel_end = phys_addr + ph->p_memsz;
+        if (phys_addr + (uint32_t)ph->p_memsz > boot_info->kernel_end)
+            boot_info->kernel_end = phys_addr + (uint32_t)ph->p_memsz;
         
         // Copy segment
-        memcpy(dst, src, ph->p_filesz);
+        memcpy(dst, src, (uint32_t)ph->p_filesz);
         
         // Zero BSS
         if (ph->p_memsz > ph->p_filesz) {
-            memset(dst + ph->p_filesz, 0, ph->p_memsz - ph->p_filesz);
+            memset(dst + (uint32_t)ph->p_filesz, 0, (uint32_t)(ph->p_memsz - ph->p_filesz));
         }
     }
 
@@ -269,7 +269,8 @@ void __attribute__((section(".text.bootmain"))) bootmain(uint32_t boot_drive_par
     }
     
     // Jump to kernel entry point
-    kernel_entry_t kernel_entry = (kernel_entry_t)(boot_info.kernel_entry & 0x00FFFFFF);
+    // Strip higher-half virtual base to get physical address
+    kernel_entry_t kernel_entry = (kernel_entry_t)(boot_info.kernel_entry & 0x7FFFFFFF);
     kernel_entry(&boot_info);
     
 bad:

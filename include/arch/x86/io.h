@@ -20,8 +20,8 @@ static inline void outb_p(uint16_t port, uint8_t data) __attribute__((always_inl
 
 static inline void io_wait(void) __attribute__((always_inline));
 
-static inline uint32_t read_eflags(void) __attribute__((always_inline));
-static inline void write_eflags(uint32_t eflags) __attribute__((always_inline));
+static inline uint64_t read_eflags(void) __attribute__((always_inline));
+static inline void write_eflags(uint64_t eflags) __attribute__((always_inline));
 
 static inline void lcr0(uintptr_t cr0) __attribute__((always_inline));
 static inline void lcr3(uintptr_t cr3) __attribute__((always_inline));
@@ -113,14 +113,14 @@ static inline void io_wait(void) {
     inb(0x80);
 }
 
-static inline uint32_t read_eflags(void) {
-    uint32_t eflags;
-    asm volatile("pushfl; popl %0" : "=r"(eflags));
+static inline uint64_t read_eflags(void) {
+    uint64_t eflags;
+    asm volatile("pushfq; popq %0" : "=r"(eflags));
     return eflags;
 }
 
-static inline void write_eflags(uint32_t eflags) {
-    asm volatile("pushl %0; popfl" ::"r"(eflags));
+static inline void write_eflags(uint64_t eflags) {
+    asm volatile("pushq %0; popfq" ::"r"(eflags));
 }
 
 static inline void lcr0(uintptr_t cr0) {

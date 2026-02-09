@@ -316,16 +316,16 @@ static void test_context_structure() {
     Context ctx{};
     
     // Verify default initialization
-    TEST_ASSERT(ctx.eip == 0, "Context eip initialized to 0");
-    TEST_ASSERT(ctx.esp == 0, "Context esp initialized to 0");
-    TEST_ASSERT(ctx.ebx == 0, "Context ebx initialized to 0");
-    TEST_ASSERT(ctx.ebp == 0, "Context ebp initialized to 0");
+    TEST_ASSERT(ctx.rip == 0, "Context rip initialized to 0");
+    TEST_ASSERT(ctx.rsp == 0, "Context rsp initialized to 0");
+    TEST_ASSERT(ctx.rbx == 0, "Context rbx initialized to 0");
+    TEST_ASSERT(ctx.rbp == 0, "Context rbp initialized to 0");
     
     // Set and verify values
-    ctx.eip = 0x12345678;
-    ctx.esp = 0xDEADBEEF;
-    TEST_ASSERT(ctx.eip == 0x12345678, "Context eip set correctly");
-    TEST_ASSERT(ctx.esp == 0xDEADBEEF, "Context esp set correctly");
+    ctx.rip = 0x12345678;
+    ctx.rsp = 0xDEADBEEF;
+    TEST_ASSERT(ctx.rip == 0x12345678, "Context rip set correctly");
+    TEST_ASSERT(ctx.rsp == 0xDEADBEEF, "Context rsp set correctly");
     
     TEST_END();
 }

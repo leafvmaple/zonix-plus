@@ -76,5 +76,9 @@
         "Zonix"
     ],
     "files.eol": "\n",
-    "C_Cpp.errorSquiggles": "disabled"
+    "C_Cpp.errorSquiggles": "disabled",
+    "C_Cpp.default.systemIncludePath": [
+        "/usr/include/efi",
+        "/usr/include/efi/x86_64"
+    ]
 }

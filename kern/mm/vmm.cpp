@@ -11,15 +11,10 @@
 #include "vmm.h"
 #include "swap.h"
 
-extern pde_t __boot_pgdir;
-pde_t* boot_pgdir = &__boot_pgdir;
-
-pte_t *const vpt = (pte_t *)VPT;
-pde_t *const vpd = (pde_t *)PG_ADDR(PDX(VPT), PDX(VPT), 0);
+extern pde_t __boot_pml4;
+pde_t* boot_pgdir = &__boot_pml4;  // PML4 is the top-level "page directory" in x86_64
 
 MemoryDesc init_mm;
-
-extern pde_t* boot_pgdir;
 
 static const char* perm2str(int perm) {
     static char str[4];
@@ -30,33 +25,13 @@ static const char* perm2str(int perm) {
     return str;
 }
 
-static int get_pgtable_items(size_t start, size_t limit, uintptr_t *table, size_t *left, size_t *right) {
-    if (start >= limit) {
-        return 0;
-    }
-    while (start < limit && !(table[start] & PTE_P)) {
-        start++;
-    }
-    if (start < limit) {
-		*left = start;
-        int perm = (table[start++] & PTE_USER);
-        while (start < limit && (table[start] & PTE_USER) == perm) {
-            start++;
-        }
-		*right = start;
-        return perm;
-    }
-    return 0;
-}
-
 void print_pgdir() {
     cprintf("-------------------- BEGIN --------------------\n");
-    size_t left, right = 0, perm;
-    while ((perm = get_pgtable_items(right, PDE_NUM, vpd, &left, &right)) != 0) {
-        cprintf("PDE(%03x) %08x-%08x %08x %s\n", right - left, left * PT_SIZE, right * PT_SIZE, (right - left) * PT_SIZE, perm2str(perm));
-        size_t l, r = left * PTE_NUM;
-        while ((perm = get_pgtable_items(r, right * PTE_NUM, vpt, &l, &r)) != 0) {
-            cprintf("  |-- PTE(%05x) %08x-%08x %08x %s\n", r - l, l * PG_SIZE, r * PG_SIZE, (r - l) * PG_SIZE, perm2str(perm));
+    cprintf("PML4 at %p\n", boot_pgdir);
+    // Simple dump of PML4 entries that are present
+    for (int i = 0; i < 512; i++) {
+        if (boot_pgdir[i] & PTE_P) {
+            cprintf("  PML4[%03d] = 0x%016lx %s\n", i, boot_pgdir[i], perm2str(boot_pgdir[i] & PTE_USER));
         }
     }
     cprintf("--------------------- END ---------------------\n");
@@ -84,7 +59,7 @@ static void mm_init(MemoryDesc *mm) {
     mm->map_count = 0;
 }
 
-// fill all entries in page directory
+// Map virtual pages to physical pages in 4-level page table
 void pgdir_init(pde_t* pgdir, uintptr_t la, size_t size, uintptr_t pa, uint32_t perm) {
 	size_t n = round_up(size, PG_SIZE) / PG_SIZE;
     la = round_down(la, PG_SIZE);
@@ -96,14 +71,13 @@ void pgdir_init(pde_t* pgdir, uintptr_t la, size_t size, uintptr_t pa, uint32_t 
 }
 
 void vmm_init() {
-	boot_pgdir[PDX(VPT)] = P_ADDR(boot_pgdir) | PTE_P | PTE_W;
-	cprintf("Page Director: [0x%x]\n", boot_pgdir);
+	cprintf("PML4 (Page Map Level 4): [0x%p]\n", boot_pgdir);
     
 	pgdir_init(boot_pgdir, KERNEL_BASE, KERNEL_MEM_SIZE, 0, PTE_W);
 
     // Map MMIO region for devices (AHCI, etc.)
-    // Physical 0xFEBF0000-0xFEBFFFFF -> Virtual 0xFEBF0000 (identity mapping for MMIO)
-    pgdir_init(boot_pgdir, 0xFEBF0000, 0x10000, 0xFEBF0000, PTE_W | PTE_PCD | PTE_PWT);
+    // In 64-bit, we map MMIO into the higher-half space
+    pgdir_init(boot_pgdir, KERNEL_BASE + 0xFEBF0000ULL, 0x10000, 0xFEBF0000, PTE_W | PTE_PCD | PTE_PWT);
 
     mm_init(&init_mm);
     init_mm.pgdir = boot_pgdir;

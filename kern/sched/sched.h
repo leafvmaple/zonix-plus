@@ -16,16 +16,16 @@ enum class ProcessState : int {
     Zombie   = 4,     // almost dead (waiting to be cleaned up)
 };
 
-// Context for process switching
+// Context for process switching (x86_64 callee-saved registers)
 struct Context {
-    uint32_t eip{};
-    uint32_t esp{};
-    uint32_t ebx{};
-    uint32_t ecx{};
-    uint32_t edx{};
-    uint32_t esi{};
-    uint32_t edi{};
-    uint32_t ebp{};
+    uint64_t rip{};
+    uint64_t rsp{};
+    uint64_t rbx{};
+    uint64_t rbp{};
+    uint64_t r12{};
+    uint64_t r13{};
+    uint64_t r14{};
+    uint64_t r15{};
 };
 
 // Process control block - modeling Linux's task_struct

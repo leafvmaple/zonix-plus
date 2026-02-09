@@ -16,7 +16,7 @@ extern uint8_t KERNEL_START[];
 void cons_init() {
     cga::init();
     kbd::init();
-    cprintf("Zonix OS is Loading in [0x%x]...\n", KERNEL_START);
+    cprintf("Zonix OS (x86_64) is Loading at [0x%p]...\n", KERNEL_START);
 }
 
 char cons_getc(void) {

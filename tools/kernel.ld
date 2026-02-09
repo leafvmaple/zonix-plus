@@ -1,13 +1,16 @@
-OUTPUT_FORMAT("elf32-i386", "elf32-i386", "elf32-i386")
-OUTPUT_ARCH(i386)
+OUTPUT_FORMAT("elf64-x86-64", "elf64-x86-64", "elf64-x86-64")
+OUTPUT_ARCH(i386:x86-64)
 ENTRY(_main)
 
+KERNEL_BASE = 0xFFFFFFFF80000000;
+KERNEL_PHYS = 0x100000;
+
 SECTIONS {
-	. = 0xC0100000;
+	. = KERNEL_BASE + KERNEL_PHYS;
 
 	PROVIDE(KERNEL_START = .);
 
-	.text : {
+	.text : AT(KERNEL_PHYS) {
 		*(.text .stub .text.* .gnu.linkonce.t.*)
 	}
 	
@@ -33,7 +36,7 @@ SECTIONS {
 
 	PROVIDE(KERNEL_END = .);
 
-    /DISCARD/ : {
-        *(.eh_frame .note.GNU-stack)
-    }
+	/DISCARD/ : {
+		*(.eh_frame .note.GNU-stack)
+	}
 }

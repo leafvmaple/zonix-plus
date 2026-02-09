@@ -57,13 +57,21 @@ const char* trap_name(int trapno) {
 } // namespace
 
 void TrapRegisters::print() const {
-    cprintf("  edi  0x%08x\n", m_edi);
-    cprintf("  esi  0x%08x\n", m_esi);
-    cprintf("  ebp  0x%08x\n", m_ebp);
-    cprintf("  ebx  0x%08x\n", m_ebx);
-    cprintf("  edx  0x%08x\n", m_edx);
-    cprintf("  ecx  0x%08x\n", m_ecx);
-    cprintf("  eax  0x%08x\n", m_eax);
+    cprintf("  rax  0x%016lx\n", m_rax);
+    cprintf("  rcx  0x%016lx\n", m_rcx);
+    cprintf("  rdx  0x%016lx\n", m_rdx);
+    cprintf("  rbx  0x%016lx\n", m_rbx);
+    cprintf("  rbp  0x%016lx\n", m_rbp);
+    cprintf("  rsi  0x%016lx\n", m_rsi);
+    cprintf("  rdi  0x%016lx\n", m_rdi);
+    cprintf("  r8   0x%016lx\n", m_r8);
+    cprintf("  r9   0x%016lx\n", m_r9);
+    cprintf("  r10  0x%016lx\n", m_r10);
+    cprintf("  r11  0x%016lx\n", m_r11);
+    cprintf("  r12  0x%016lx\n", m_r12);
+    cprintf("  r13  0x%016lx\n", m_r13);
+    cprintf("  r14  0x%016lx\n", m_r14);
+    cprintf("  r15  0x%016lx\n", m_r15);
 }
 
 
@@ -71,12 +79,12 @@ void TrapFrame::print() const {
     cprintf("trapframe at %p\n", this);
     m_regs.print();
     cprintf("  trap 0x%08x %s\n", m_trapno, trap_name(m_trapno));
-    cprintf("  err  0x%08x\n", m_err);
-    cprintf("  eip  0x%08x\n", m_eip);
+    cprintf("  err  0x%016lx\n", m_err);
+    cprintf("  rip  0x%016lx\n", m_rip);
 }
 
 void TrapFrame::print_pgfault() const {
-    cprintf("Page Fault at 0x%08x: %c/%c [%s].\n", rcr2(),
+    cprintf("Page Fault at 0x%016lx: %c/%c [%s].\n", rcr2(),
             (m_err & 4) ? 'U' : 'K',
             (m_err & 2) ? 'W' : 'R',
             (m_err & 1) ? "Protection Fault" : "No Page Found");
