@@ -1,5 +1,7 @@
 #include "kdb.h"
 
+#ifdef CONFIG_PS2KBD
+
 #include <arch/x86/drivers/i8042.h>
 #include <arch/x86/drivers/i8259.h>
 
@@ -66,3 +68,5 @@ int getc(void) {
 }
 
 } // namespace kbd
+
+#endif // CONFIG_PS2KBD

@@ -2,6 +2,7 @@
 #include "drivers/pic.h"
 #include "drivers/pit.h"
 #include "drivers/intr.h"
+#include "drivers/fbcons.h"
 #include "arch/x86/idt.h"
 #include "cons/cons.h"
 #include "cons/shell.h"
@@ -32,6 +33,11 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info *boot_info) 
 
     pmm_init();
     vmm_init();
+
+#ifdef CONFIG_FBCONS
+    // Initialize framebuffer console now that VMM can map MMIO
+    fbcons::late_init();
+#endif
 
     // Block device initialization (requires VMM for MMIO access)
     blk::init();

@@ -2,22 +2,23 @@
 
 #include <base/types.h>
 #include <arch/x86/segments.h>
+#include <kernel/bootinfo.h>
 
 #define E820_MAX 20  // number of entries in E820MAP
+#define E820_RAM BOOT_MEM_AVAILABLE
 
-struct e820map {
-    int nr_map;
-    struct {
-        uint64_t addr;
-        uint64_t size;
-        uint32_t type;
-    } __attribute__((packed)) map[E820_MAX];
-};
+// Declared in head.S — kernel's own copy of boot_info
+extern struct boot_info __kernel_boot_info;
 
 template<typename F>
 void traverse_e820_map(F&& callback) {
-    e820map *map = reinterpret_cast<e820map*>((uintptr_t)E820_MEM_BASE + KERNEL_BASE);
-    for (int i = 0; i < map->nr_map; i++) {
-        callback(map->map[i].addr, map->map[i].size, map->map[i].type);
+    struct boot_info *bi = &__kernel_boot_info;
+    // mmap_addr was set by the bootloader using physical addresses;
+    // add KERNEL_BASE to access it from the higher-half kernel.
+    struct boot_mmap_entry *entries =
+        reinterpret_cast<struct boot_mmap_entry*>(bi->mmap_addr + KERNEL_BASE);
+    uint32_t count = bi->mmap_length;
+    for (uint32_t i = 0; i < count; i++) {
+        callback(entries[i].addr, entries[i].len, entries[i].type);
     }
 }

@@ -70,14 +70,25 @@ void pgdir_init(pde_t* pgdir, uintptr_t la, size_t size, uintptr_t pa, uint32_t 
     }
 }
 
+// -------------------------------------------------------------------------
+// MMIO virtual address allocator
+// Assigns consecutive virtual addresses starting at KERNEL_DEVIO_BASE.
+// The virtual address has NO arithmetic relationship to the physical one.
+// -------------------------------------------------------------------------
+static uintptr_t mmio_next_va = KERNEL_DEVIO_BASE;
+
+uintptr_t mmio_map(uintptr_t phys_addr, size_t size, uint32_t perm) {
+    size = round_up(size, PG_SIZE);
+    uintptr_t va = mmio_next_va;
+    pgdir_init(boot_pgdir, va, size, phys_addr, perm);
+    mmio_next_va += size;
+    return va;
+}
+
 void vmm_init() {
 	cprintf("PML4 (Page Map Level 4): [0x%p]\n", boot_pgdir);
     
 	pgdir_init(boot_pgdir, KERNEL_BASE, KERNEL_MEM_SIZE, 0, PTE_W);
-
-    // Map MMIO region for devices (AHCI, etc.)
-    // In 64-bit, we map MMIO into the higher-half space
-    pgdir_init(boot_pgdir, KERNEL_BASE + 0xFEBF0000ULL, 0x10000, 0xFEBF0000, PTE_W | PTE_PCD | PTE_PWT);
 
     mm_init(&init_mm);
     init_mm.pgdir = boot_pgdir;

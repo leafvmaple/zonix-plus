@@ -9,25 +9,39 @@
 
 /*
  * Entry point for the 64-bit kernel.
- * We arrive here from the bootloader already in 32-bit protected mode.
+ *
+ * We arrive here from EITHER:
+ *   - BIOS bootloader: already switched to 64-bit long mode with identity mapping
+ *   - UEFI bootloader: already in 64-bit long mode with identity mapping
+ *
+ * Both bootloaders must:
+ *   - Be in 64-bit long mode with paging enabled
+ *   - Have an identity mapping covering at least 0..kernel_end
+ *   - Pass boot_info pointer in %rdi (x86_64 System V ABI)
+ *   - Have a 64-bit GDT with code/data segments loaded
+ *
  * We need to:
  *   1. Save boot_info
  *   2. Set up identity-mapped + higher-half page tables (4-level)
- *   3. Enable PAE, set PML4 in CR3
- *   4. Enable long mode via EFER MSR
- *   5. Enable paging
- *   6. Far-jump to 64-bit code
+ *   3. Load our own PML4 into CR3
+ *   4. Jump to higher-half address
+ *   5. Remove identity mapping
+ *   6. Call kern_init
  */
 
-.code32
+.code64
 _main:
     # Disable interrupts
     cli
 
-    # Save boot_info pointer (passed by bootloader on stack)
-    movl 4(%esp), %esi              # Source: boot_info from bootloader
-    movl $REALLOC(__kernel_boot_info), %edi  # Dest: kernel's boot_info copy (phys addr)
-    movl $BOOT_INFO_SIZE, %ecx
+    # ---------------------------------------------------------------
+    # Save boot_info: copy from bootloader's buffer to kernel's own copy
+    # We are running at physical address, symbols are linked at virtual,
+    # so we must use REALLOC() for all symbol references in this phase.
+    # ---------------------------------------------------------------
+    movq %rdi, %rsi                          # Source: boot_info from bootloader
+    movq $REALLOC(__kernel_boot_info), %rdi  # Dest: kernel's boot_info copy (phys addr)
+    movq $BOOT_INFO_SIZE, %rcx
     rep movsb
 
     # ---------------------------------------------------------------
@@ -37,91 +51,89 @@ _main:
     # Higher-half:    0xFFFFFFFF_80000000 -> 0xFFFFFFFF_BFFFFFFF  (= phys 0..1GB)
     # ---------------------------------------------------------------
 
-    # Clear page table area
-    movl $REALLOC(__boot_pml4), %edi
-    xorl %eax, %eax
-    movl $(5 * 4096 / 4), %ecx    # 5 pages (PML4, 2xPDPT, 2xPD) in dwords
-    rep stosl
+    # Clear page table area (5 pages = 5 * 4096 bytes)
+    movq $REALLOC(__boot_pml4), %rdi
+    xorq %rax, %rax
+    movq $(5 * 4096 / 8), %rcx    # 5 pages in qwords
+    rep stosq
 
     # PML4[0] -> boot_pdpt_low (identity map)
-    movl $REALLOC(__boot_pdpt_low), %eax
-    orl $(PTE_P | PTE_W), %eax
-    movl %eax, REALLOC(__boot_pml4) + 0 * 8     # PML4[0]
+    movq $REALLOC(__boot_pdpt_low), %rax
+    orq $(PTE_P | PTE_W), %rax
+    movq $REALLOC(__boot_pml4), %rdi
+    movq %rax, (%rdi)                        # PML4[0]
 
     # PML4[511] -> boot_pdpt_high (higher-half map for 0xFFFFFFFF_80000000)
-    movl $REALLOC(__boot_pdpt_high), %eax
-    orl $(PTE_P | PTE_W), %eax
-    movl %eax, REALLOC(__boot_pml4) + 511 * 8   # PML4[511]
+    movq $REALLOC(__boot_pdpt_high), %rax
+    orq $(PTE_P | PTE_W), %rax
+    movq %rax, 511 * 8(%rdi)                 # PML4[511]
 
     # PDPT_low[0] -> boot_pd_low (maps 0..1GB)
-    movl $REALLOC(__boot_pd_low), %eax
-    orl $(PTE_P | PTE_W), %eax
-    movl %eax, REALLOC(__boot_pdpt_low) + 0 * 8
+    movq $REALLOC(__boot_pd_low), %rax
+    orq $(PTE_P | PTE_W), %rax
+    movq $REALLOC(__boot_pdpt_low), %rdi
+    movq %rax, (%rdi)                        # PDPT_low[0]
 
     # PDPT_high[510] -> boot_pd_high (maps 0xFFFFFFFF_80000000..+1GB)
     # 0xFFFFFFFF_80000000 >> 30 & 0x1FF = 510
-    movl $REALLOC(__boot_pd_high), %eax
-    orl $(PTE_P | PTE_W), %eax
-    movl %eax, REALLOC(__boot_pdpt_high) + 510 * 8
+    movq $REALLOC(__boot_pd_high), %rax
+    orq $(PTE_P | PTE_W), %rax
+    movq $REALLOC(__boot_pdpt_high), %rdi
+    movq %rax, 510 * 8(%rdi)                 # PDPT_high[510]
 
     # Fill PD_low and PD_high with 512 x 2MB identity-mapped pages
     # PD entry = (i * 2MB) | PTE_P | PTE_W | PTE_PS
-    movl $REALLOC(__boot_pd_low), %edi
-    movl $REALLOC(__boot_pd_high), %esi
-    movl $0, %eax           # physical address starts at 0
-    movl $512, %ecx
+    movq $REALLOC(__boot_pd_low), %rdi
+    movq $REALLOC(__boot_pd_high), %rsi
+    xorq %rax, %rax             # physical address starts at 0
+    movq $512, %rcx
 1:
-    movl %eax, %edx
-    orl $(PTE_P | PTE_W | PTE_PS), %edx
-    movl %edx, (%edi)       # low dword
-    movl $0, 4(%edi)         # high dword = 0 (below 4GB)
-    movl %edx, (%esi)       # same for high mapping
-    movl $0, 4(%esi)
-    addl $0x200000, %eax    # next 2MB
-    addl $8, %edi
-    addl $8, %esi
-    decl %ecx
+    movq %rax, %rdx
+    orq $(PTE_P | PTE_W | PTE_PS), %rdx
+    movq %rdx, (%rdi)
+    movq %rdx, (%rsi)
+    addq $0x200000, %rax    # next 2MB
+    addq $8, %rdi
+    addq $8, %rsi
+    decq %rcx
     jnz 1b
 
     # ---------------------------------------------------------------
-    # Enable PAE (CR4.PAE = 1)
+    # Ensure PAE is enabled (should already be set, but be safe)
     # ---------------------------------------------------------------
-    movl %cr4, %eax
-    orl $CR4_PAE, %eax
-    movl %eax, %cr4
+    movq %cr4, %rax
+    orq $CR4_PAE, %rax
+    movq %rax, %cr4
 
     # ---------------------------------------------------------------
-    # Load PML4 into CR3
+    # Set up a temporary stack at a safe low-memory address.
+    # This is critical for the UEFI path: UEFI firmware's stack may be
+    # above 1GB, but our new page tables only identity-map 0..1GB.
+    # After CR3 is loaded below, any stack access to high addresses
+    # would page-fault. (The BIOS path already has RSP=0x7000.)
     # ---------------------------------------------------------------
-    movl $REALLOC(__boot_pml4), %eax
-    movl %eax, %cr3
+    movq $0x7000, %rsp
 
     # ---------------------------------------------------------------
-    # Enable Long Mode (EFER.LME = 1)
+    # Load our PML4 into CR3 (replaces bootloader's page tables)
+    # This works because both old and new page tables identity-map low memory
     # ---------------------------------------------------------------
-    movl $MSR_EFER, %ecx
-    rdmsr
-    orl $EFER_LME, %eax
-    wrmsr
+    movq $REALLOC(__boot_pml4), %rax
+    movq %rax, %cr3
 
     # ---------------------------------------------------------------
-    # Enable Paging (CR0.PG = 1) - this activates long mode
+    # Load 64-bit GDT (using physical address, computed via REALLOC)
     # ---------------------------------------------------------------
-    movl %cr0, %eax
-    orl $(CR0_PG | CR0_WP), %eax
-    movl %eax, %cr0
+    movq $REALLOC(__gdtdesc_phys), %rax
+    lgdt (%rax)
 
-    # ---------------------------------------------------------------
-    # Load 64-bit GDT and far-jump to 64-bit code
-    # ---------------------------------------------------------------
-    lgdt REALLOC(__gdtdesc32)
-    ljmp $GD_KTEXT, $REALLOC(_start64)
+    # Reload CS with a far return
+    pushq $GD_KTEXT
+    movabsq $REALLOC(.Lreload_cs_phys), %rax
+    pushq %rax
+    lretq
+.Lreload_cs_phys:
 
-# ===================================================================
-# 64-bit code starts here
-# ===================================================================
-.code64
-_start64:
     # Set up 64-bit data segments
     movw $GD_KDATA, %ax
     movw %ax, %ds
@@ -131,18 +143,30 @@ _start64:
     movw %ax, %fs
     movw %ax, %gs
 
-    # Jump to higher-half address (we were running at identity-mapped address)
+    # ---------------------------------------------------------------
+    # Jump to higher-half address
+    # We have both identity map and higher-half map active, so we can
+    # jump to the virtual address and continue execution there.
+    # ---------------------------------------------------------------
     movabsq $_start64_high, %rax
     jmp *%rax
 
 _start64_high:
     # Now running at higher-half virtual address
+    # RIP-relative addressing now works correctly with virtual symbols
 
     # Reload GDT with higher-half virtual addresses
     lgdt __gdtdesc(%rip)
 
+    # Reload CS with higher-half GDT
+    pushq $GD_KTEXT
+    leaq .Lreload_cs_high(%rip), %rax
+    pushq %rax
+    lretq
+.Lreload_cs_high:
+
     # Remove identity mapping (PML4[0] = 0)
-    movq $0, __boot_pml4
+    movq $0, __boot_pml4(%rip)
     # Flush TLB
     movq %cr3, %rax
     movq %rax, %cr3
@@ -192,14 +216,14 @@ __idt:
     .fill 256 * 2, 8, 0             # 64-bit IDT: each entry is 16 bytes (256 * 2 * 8)
 __idt_end:
 
-.align 4
-# 32-bit GDT descriptor (used before paging/long mode, with physical addresses)
-__gdtdesc32:
+.align 8
+# GDT descriptor with physical addresses (used during identity-mapped phase)
+__gdtdesc_phys:
     .word __gdt_end - __gdt - 1
-    .long REALLOC(__gdt)             # 4-byte physical address for 32-bit lgdt
+    .quad REALLOC(__gdt)
 
-.align 4
-# 64-bit GDT descriptor (used after entering long mode, with virtual addresses)
+.align 8
+# 64-bit GDT descriptor (used after entering higher-half, with virtual addresses)
 __gdtdesc:
     .word __gdt_end - __gdt - 1
     .quad __gdt
@@ -234,10 +258,11 @@ __boot_pd_high:
     .space PG_SIZE
 
 # ===================================================================
-# Kernel boot info copy (in BSS)
+# Kernel boot info copy (in .data so BSS clear does not overwrite it)
 # ===================================================================
+.section .data
 .align 8
 __kernel_boot_info:
-    .space BOOT_INFO_SIZE
+    .fill BOOT_INFO_SIZE, 1, 0
 
 .section .note.GNU-stack,"",@progbits

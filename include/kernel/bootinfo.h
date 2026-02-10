@@ -25,9 +25,9 @@ struct boot_info {
     
     // Memory information
     uint32_t mem_lower;              // Lower memory in KB (0-640KB)
-    uint32_t mem_upper;              // Upper memory in KB (1MB+)
-    uint32_t mmap_length;            // Memory map length
-    struct boot_mmap_entry *mmap;    // Memory map array
+    uint32_t mem_upper;             // Upper memory in KB (1MB+)
+    uint32_t mmap_length;            // Memory map length (number of entries)
+    uint64_t mmap_addr;              // Physical address of boot_mmap_entry array
     
     // Kernel image information
     uint32_t kernel_start;           // Kernel physical start address
@@ -38,7 +38,7 @@ struct boot_info {
     uint8_t  boot_device;            // Boot drive number (BIOS)
     
     // Command line (optional)
-    char    *cmdline;
+    uint64_t cmdline_addr;           // Physical address of command line string
     
     // Framebuffer (for UEFI support)
     uint64_t framebuffer_addr;

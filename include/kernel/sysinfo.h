@@ -18,8 +18,8 @@
 #define SYSINFO_DOMAIN          "local"
 
 /* Hardware/Architecture information */
-#define SYSINFO_ARCH            "i386"
-#define SYSINFO_MACHINE         "i386"
+#define SYSINFO_ARCH            "x86_64"
+#define SYSINFO_MACHINE         "x86_64"
 #define SYSINFO_PLATFORM        "PC"
 
 /* Formatted version string for display (like Ubuntu: #1 SMP Mon Oct 14 12:34:56 UTC 2025) */

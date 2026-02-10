@@ -1,5 +1,8 @@
 #include "cga.h"
 
+#include <kernel/config.h>
+#ifdef CONFIG_CGA
+
 #include <base/types.h>
 #include <arch/x86/io.h>
 #include <arch/x86/segments.h>
@@ -81,3 +84,5 @@ void scrup() {
 }
 
 } // namespace cga
+
+#endif // CONFIG_CGA

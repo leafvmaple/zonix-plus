@@ -112,7 +112,27 @@ pte_t* get_pte(pde_t* pml4, uintptr_t la, bool create) {
     // Level 2: PD
     pde_t* pd = (pde_t*)K_ADDR(PTE_ADDR(*pdpte));
     pde_t* pde = pd + PDX(la);
-    if (!(*pde & PTE_P)) {
+    if (*pde & PTE_PS) {
+        // This is a 2MB large page.  Split it into a 4KB page table so that
+        // individual 4KB pages within the 2MB region can be managed.
+        uintptr_t large_pa = PTE_ADDR(*pde);    // base phys addr of the 2MB page
+        uint64_t  old_perm = *pde & 0xFFF & ~PTE_PS;  // keep original permissions minus PS
+
+        Page* page{};
+        if (!create || (page = alloc_pages(1)) == nullptr)
+            return nullptr;
+        page->ref = PAGE_REF_INIT;
+        pde_t pt_pa = page2pa(page);
+        pte_t* pt = (pte_t*)K_ADDR(pt_pa);
+
+        // Fill the new PT: 512 entries covering the same 2MB range
+        for (int i = 0; i < 512; i++) {
+            pt[i] = (large_pa + i * PG_SIZE) | PTE_P | old_perm;
+        }
+
+        // Replace the 2MB PDE with a pointer to the new PT
+        *pde = pt_pa | PTE_P | (old_perm & (PTE_W | PTE_U));
+    } else if (!(*pde & PTE_P)) {
         Page* page{};
         if (!create || (page = alloc_pages(1)) == nullptr)
             return nullptr;

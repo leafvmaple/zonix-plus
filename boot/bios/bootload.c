@@ -4,7 +4,8 @@
 //   1. Reads FAT16/FAT32 filesystem from disk using ATA PIO ports
 //   2. Locates and loads KERNEL.SYS (ELF file) to 0x10000
 //   3. Parses ELF and loads segments to their proper locations
-//   4. Jumps to kernel entry point
+//   4. Sets up 64-bit long mode (PAE, PML4 page tables, EFER, paging)
+//   5. Jumps to kernel entry point in 64-bit mode
 
 #include <base/elf.h>
 #include <base/types.h>
@@ -12,6 +13,7 @@
 #include <base/bpb.h>
 
 #include <arch/x86/asm/seg.h>
+#include <arch/x86/asm/cr.h>
 #include <arch/x86/io.h>
 
 #define SECT_SIZE 512
@@ -40,6 +42,34 @@
 #define ATA_STATUS_ERR      0x01     // Error
 
 #define KERNEL_ELF_ADDR 0x10000
+
+// =============================================================================
+// Memory layout for 32->64 bit transition structures (placed in low memory)
+//
+//   0x1000 - 0x1FFF  : PML4         (4KB, 4KB-aligned)
+//   0x2000 - 0x2FFF  : PDPT         (4KB, 4KB-aligned)
+//   0x3000 - 0x3FFF  : PD0          (4KB, maps 0-1GB with 2MB pages)
+//   0x4000 - 0x4FFF  : PD1          (4KB, maps 1-2GB with 2MB pages)
+//   0x5000 - 0x5FFF  : Reserved
+//   0x6000 - 0x603F  : 64-bit GDT   (3 entries)
+//   0x6040 - 0x604F  : GDT descriptor
+//   0x6050 - 0x60FF  : Boot info copy area
+// =============================================================================
+#define BOOT_PML4_ADDR  0x1000
+#define BOOT_PDPT_ADDR  0x2000
+#define BOOT_PD0_ADDR   0x3000
+#define BOOT_PD1_ADDR   0x4000
+#define BOOT_GDT64_ADDR 0x6000
+#define BOOT_GDTDESC64_ADDR 0x6040
+
+// Page table entry flags
+#define PT_P    0x001   // Present
+#define PT_W    0x002   // Writable
+#define PT_PS   0x080   // Page Size (2MB)
+
+// EFER MSR
+#define MSR_EFER_ADDR  0xC0000080
+#define EFER_LME_BIT   0x100
 
 // Global variables
 static uint8_t boot_drive;
@@ -234,6 +264,165 @@ static int fat_load_file(const char* filename, uint8_t* buffer) {
     return 0;
 }
 
+// =============================================================================
+// Build identity-mapped page tables for 32->64 transition
+// Maps first 2GB with 2MB pages (enough for kernel loading area)
+// =============================================================================
+static void build_page_tables(void) {
+    uint32_t *pml4 = (uint32_t*)BOOT_PML4_ADDR;
+    uint32_t *pdpt = (uint32_t*)BOOT_PDPT_ADDR;
+    uint32_t *pd0  = (uint32_t*)BOOT_PD0_ADDR;
+    uint32_t *pd1  = (uint32_t*)BOOT_PD1_ADDR;
+
+    // Clear all page table pages
+    memset(pml4, 0, 4096);
+    memset(pdpt, 0, 4096);
+    memset(pd0,  0, 4096);
+    memset(pd1,  0, 4096);
+
+    // PML4[0] -> PDPT (each entry is 8 bytes: low dword + high dword)
+    pml4[0] = BOOT_PDPT_ADDR | PT_P | PT_W;
+    pml4[1] = 0;
+
+    // PDPT[0] -> PD0 (maps 0..1GB)
+    pdpt[0] = BOOT_PD0_ADDR | PT_P | PT_W;
+    pdpt[1] = 0;
+
+    // PDPT[1] -> PD1 (maps 1..2GB)
+    pdpt[2] = BOOT_PD1_ADDR | PT_P | PT_W;
+    pdpt[3] = 0;
+
+    // Fill PD0: 512 x 2MB pages mapping 0..1GB
+    for (uint32_t i = 0; i < 512; i++) {
+        uint32_t phys = i * 0x200000;  // i * 2MB
+        pd0[i * 2]     = phys | PT_P | PT_W | PT_PS;
+        pd0[i * 2 + 1] = 0;  // high dword = 0 (below 4GB)
+    }
+
+    // Fill PD1: 512 x 2MB pages mapping 1GB..2GB
+    for (uint32_t i = 0; i < 512; i++) {
+        uint32_t phys = 0x40000000 + i * 0x200000;  // 1GB + i * 2MB
+        pd1[i * 2]     = phys | PT_P | PT_W | PT_PS;
+        pd1[i * 2 + 1] = 0;
+    }
+}
+
+// =============================================================================
+// Build 64-bit GDT at BOOT_GDT64_ADDR
+// =============================================================================
+static void build_gdt64(void) {
+    uint64_t *gdt = (uint64_t*)BOOT_GDT64_ADDR;
+
+    // Entry 0: NULL descriptor
+    gdt[0] = 0;
+
+    // Entry 1: 64-bit code segment (L=1, D=0, P=1, DPL=0, S=1, Type=Execute/Read)
+    // Bytes: limit_lo=0xFFFF, base_lo=0x0000, base_mid=0x00,
+    //        access=0x9A (P=1,DPL=0,S=1,Type=0xA=exec/read),
+    //        flags_limit=0xAF (G=1,L=1,D=0,limit_hi=0xF), base_hi=0x00
+    gdt[1] = 0x00AF9A000000FFFFULL;
+
+    // Entry 2: 64-bit data segment (P=1, DPL=0, S=1, Type=Read/Write)
+    gdt[2] = 0x00CF92000000FFFFULL;
+
+    // GDT descriptor at BOOT_GDTDESC64_ADDR
+    // Format: 2 bytes limit, 4 bytes base (for 32-bit lgdt)
+    uint16_t *gdtdesc = (uint16_t*)BOOT_GDTDESC64_ADDR;
+    gdtdesc[0] = 3 * 8 - 1;        // limit: 3 entries * 8 bytes - 1
+    uint32_t *gdtdesc_base = (uint32_t*)(BOOT_GDTDESC64_ADDR + 2);
+    *gdtdesc_base = BOOT_GDT64_ADDR;
+}
+
+// =============================================================================
+// Enter 64-bit long mode and jump to kernel
+//
+// This function NEVER returns. It:
+//   1. Enables PAE in CR4
+//   2. Loads PML4 into CR3
+//   3. Enables Long Mode in EFER MSR
+//   4. Enables Paging in CR0 (activating long mode)
+//   5. Loads 64-bit GDT
+//   6. Far-jumps to 64-bit code
+//   7. In 64-bit mode: sets segments, loads boot_info into %rdi, jumps to kernel
+// =============================================================================
+static void __attribute__((noreturn)) enter_long_mode(uint32_t kernel_entry_phys, struct boot_info *info) {
+    // Build page tables and GDT
+    build_page_tables();
+    build_gdt64();
+
+    // The transition code is in inline assembly because we're switching
+    // from 32-bit to 64-bit mode
+    __asm__ volatile (
+        // Save parameters in registers that won't be clobbered
+        "movl %0, %%ebx\n\t"       // ebx = kernel_entry_phys
+        "movl %1, %%esi\n\t"       // esi = boot_info pointer
+
+        // 1. Enable PAE (CR4.PAE = bit 5)
+        "movl %%cr4, %%eax\n\t"
+        "orl  $0x20, %%eax\n\t"    // CR4_PAE
+        "movl %%eax, %%cr4\n\t"
+
+        // 2. Load PML4 into CR3
+        "movl %2, %%eax\n\t"       // BOOT_PML4_ADDR
+        "movl %%eax, %%cr3\n\t"
+
+        // 3. Enable Long Mode (EFER.LME = bit 8)
+        "movl $0xC0000080, %%ecx\n\t"  // MSR_EFER
+        "rdmsr\n\t"
+        "orl  $0x100, %%eax\n\t"       // EFER_LME
+        "wrmsr\n\t"
+
+        // 4. Enable Paging (CR0.PG = bit 31) and Write Protect (CR0.WP = bit 16)
+        "movl %%cr0, %%eax\n\t"
+        "orl  $0x80010000, %%eax\n\t"  // CR0_PG | CR0_WP
+        "movl %%eax, %%cr0\n\t"
+
+        // 5. Load 64-bit GDT
+        "lgdt %3\n\t"
+
+        // 6. Far jump to 64-bit code segment
+        //    GD_KTEXT = 0x08 (selector for entry 1)
+        //    Use ljmp with absolute address to the .Llong_mode label
+        "ljmp $0x08, $.Llong_mode\n\t"
+
+        // 7. 64-bit code
+        ".code64\n\t"
+        ".Llong_mode:\n\t"
+
+        // Set up 64-bit data segments (GD_KDATA = 0x10, entry 2)
+        "movw $0x10, %%ax\n\t"
+        "movw %%ax, %%ds\n\t"
+        "movw %%ax, %%es\n\t"
+        "movw %%ax, %%ss\n\t"
+        "xorw %%ax, %%ax\n\t"
+        "movw %%ax, %%fs\n\t"
+        "movw %%ax, %%gs\n\t"
+
+        // Set up a temporary stack in 64-bit mode
+        "movq $0x7000, %%rsp\n\t"
+
+        // Load boot_info pointer into %rdi (x86_64 calling convention, first argument)
+        // %esi was saved earlier (32-bit), zero-extend to 64-bit
+        "movl %%esi, %%edi\n\t"
+
+        // Jump to kernel entry point (physical address in %ebx, zero-extended)
+        "movl %%ebx, %%eax\n\t"
+        "jmp *%%rax\n\t"
+
+        // Switch back to 32-bit assembly mode for the rest of this file
+        ".code32\n\t"
+
+        :
+        : "r"(kernel_entry_phys),
+          "r"(info),
+          "i"(BOOT_PML4_ADDR),
+          "m"(*(char*)BOOT_GDTDESC64_ADDR)
+        : "eax", "ebx", "ecx", "edx", "esi", "memory"
+    );
+
+    __builtin_unreachable();
+}
+
 void __attribute__((section(".text.bootmain"))) bootmain(uint32_t boot_drive_param) {
     boot_drive = (uint8_t)boot_drive_param;
     
@@ -244,12 +433,13 @@ void __attribute__((section(".text.bootmain"))) bootmain(uint32_t boot_drive_par
     // Copy E820 memory map (set by VBR during E820 probe)
     uint32_t e820_count = *(uint32_t*)E820_MEM_BASE;
     boot_info.mmap_length = e820_count;
-    boot_info.mmap = (struct boot_mmap_entry*)E820_MEM_DATA;
+    boot_info.mmap_addr = E820_MEM_DATA;
     
     // Calculate memory sizes from E820 map
+    struct boot_mmap_entry* mmap_entries = (struct boot_mmap_entry*)E820_MEM_DATA;
     boot_info.mem_lower = 640;  // Always 640KB
     for (uint32_t i = 0; i < e820_count; i++) {
-        struct boot_mmap_entry* entry = &boot_info.mmap[i];
+        struct boot_mmap_entry* entry = &mmap_entries[i];
         if (entry->type == E820_RAM && entry->addr >= 0x100000) {
             boot_info.mem_upper += (entry->len >> 10);
         }
@@ -268,10 +458,14 @@ void __attribute__((section(".text.bootmain"))) bootmain(uint32_t boot_drive_par
         goto bad;
     }
     
-    // Jump to kernel entry point
-    // Strip higher-half virtual base to get physical address
-    kernel_entry_t kernel_entry = (kernel_entry_t)(boot_info.kernel_entry & 0x7FFFFFFF);
-    kernel_entry(&boot_info);
+    // Compute physical entry point:
+    // The ELF entry is a virtual address like 0xFFFFFFFF80100000
+    // Strip the higher-half base (0xFFFFFFFF80000000) to get physical address
+    uint32_t kernel_entry_phys = (uint32_t)(boot_info.kernel_entry & 0x7FFFFFFF);
+
+    // Enter 64-bit long mode and jump to kernel
+    // This function never returns
+    enter_long_mode(kernel_entry_phys, &boot_info);
     
 bad:
     while (1)

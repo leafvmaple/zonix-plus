@@ -45,7 +45,11 @@ static void print_hex(uint64_t val) {
 }
 
 // Load ELF kernel
-static int load_elf_kernel(void* elf_buffer, struct boot_info* boot_info) {
+// The kernel is linked at higher-half (0xFFFFFFFF80000000 + phys).
+// We strip the higher-half base to get the physical load address.
+#define KERNEL_VIRT_BASE 0xFFFFFFFF80000000ULL
+
+static int load_elf_kernel(void* elf_buffer, struct boot_info *boot_info) {
     elfhdr* elf = (elfhdr*)elf_buffer;
     
     if (elf->e_magic != ELF_MAGIC) return -1;
@@ -57,12 +61,19 @@ static int load_elf_kernel(void* elf_buffer, struct boot_info* boot_info) {
     for (; ph < eph; ph++) {
         if (ph->p_type != ELF_PT_LOAD) continue;
         
-        uint8_t* dst = (uint8_t*)(ph->p_va & 0x00FFFFFF);
+        // Convert virtual address to physical by stripping higher-half base
+        // p_pa should already be physical, but p_va needs conversion
+        uint64_t phys_addr64 = ph->p_pa;
+        if (phys_addr64 >= KERNEL_VIRT_BASE) {
+            phys_addr64 = ph->p_va - KERNEL_VIRT_BASE;
+        }
+        uint8_t* dst = (uint8_t*)(uintptr_t)phys_addr64;
         uint8_t* src = (uint8_t*)elf + ph->p_offset;
         
-        uint32_t phys_addr = (uint32_t)dst;
+        uint32_t phys_addr = (uint32_t)phys_addr64;
         if (phys_addr < kernel_start) kernel_start = phys_addr;
-        if (phys_addr + ph->p_memsz > kernel_end) kernel_end = phys_addr + ph->p_memsz;
+        if (phys_addr + (uint32_t)ph->p_memsz > kernel_end)
+            kernel_end = phys_addr + (uint32_t)ph->p_memsz;
         
         memcpy(dst, src, ph->p_filesz);
         if (ph->p_memsz > ph->p_filesz) {
@@ -70,14 +81,23 @@ static int load_elf_kernel(void* elf_buffer, struct boot_info* boot_info) {
         }
     }
     
-    if (boot_info) {
-        boot_info->kernel_start = kernel_start;
-        boot_info->kernel_end = kernel_end;
-        boot_info->kernel_entry = elf->e_entry;
-    }
+    boot_info->kernel_start = kernel_start;
+    boot_info->kernel_end = kernel_end;
+    boot_info->kernel_entry = (uint32_t)(elf->e_entry & 0x7FFFFFFF);  // physical entry
     
     return 0;
 }
+
+// =============================================================================
+// Safe fixed physical addresses for boot_info data (below kernel at 0x100000)
+// These must not conflict with BIOS IVT (0-0x1000), BDA, or VGA memory.
+//
+//   0x5000 - 0x50FF  : struct boot_info (256 bytes)
+//   0x5100 - 0x6FFF  : mmap entries (up to ~390 entries)
+// =============================================================================
+#define SAFE_BOOT_INFO_ADDR   0x5000
+#define SAFE_MMAP_ADDR        0x5100
+#define SAFE_MMAP_MAX_ENTRIES ((0x7000 - SAFE_MMAP_ADDR) / sizeof(struct boot_mmap_entry))
 
 // Get UEFI memory map and convert to boot_info format
 static EFI_STATUS get_memory_map(struct boot_info *boot_info, UINTN *map_key) {
@@ -101,19 +121,22 @@ static EFI_STATUS get_memory_map(struct boot_info *boot_info, UINTN *map_key) {
     }
     
     UINTN num_desc = memory_map_size / descriptor_size;
-    status = BS->AllocatePool(EfiLoaderData, num_desc * sizeof(struct boot_mmap_entry), (VOID**)&boot_info->mmap);
-    if (EFI_ERROR(status)) {
-        BS->FreePool(memory_map);
-        return status;
-    }
+
+    // Use fixed safe address for mmap entries (not AllocatePool, which might
+    // return an address that overlaps with kernel loading area at 0x100000+)
+    boot_info->mmap_addr = SAFE_MMAP_ADDR;
     
     boot_info->mmap_length = 0;
     boot_info->mem_lower = 640;
     boot_info->mem_upper = 0;
     
+    struct boot_mmap_entry *mmap_entries = (struct boot_mmap_entry*)SAFE_MMAP_ADDR;
+
     EFI_MEMORY_DESCRIPTOR *desc = memory_map;
     for (UINTN i = 0; i < num_desc; i++) {
-        struct boot_mmap_entry *entry = &boot_info->mmap[boot_info->mmap_length];
+        if (boot_info->mmap_length >= SAFE_MMAP_MAX_ENTRIES) break;
+
+        struct boot_mmap_entry *entry = &mmap_entries[boot_info->mmap_length];
         entry->addr = desc->PhysicalStart;
         entry->len = desc->NumberOfPages * 4096;
         
@@ -135,7 +158,7 @@ static EFI_STATUS get_memory_map(struct boot_info *boot_info, UINTN *map_key) {
         boot_info->mmap_length++;
         desc = (EFI_MEMORY_DESCRIPTOR*)((UINT8*)desc + descriptor_size);
     }
-    
+
     BS->FreePool(memory_map);
     return EFI_SUCCESS;
 }
@@ -205,7 +228,7 @@ static EFI_STATUS load_kernel(EFI_HANDLE image_handle, VOID **kernel_buffer, UIN
     return status;
 }
 
-// Get graphics info from GOP
+// Get graphics info from GOP (must be called before ExitBootServices)
 static void get_graphics_info(struct boot_info *boot_info) {
     EFI_GRAPHICS_OUTPUT_PROTOCOL *gop = NULL;
     EFI_GUID gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
@@ -223,19 +246,36 @@ static void get_graphics_info(struct boot_info *boot_info) {
     boot_info->framebuffer_type = 1;
 }
 
-static void exit_boot_services(EFI_HANDLE image_handle) {
-    UINTN final_map_key = 0;
+static EFI_STATUS exit_boot_services(EFI_HANDLE image_handle) {
+    UINTN map_key = 0;
     UINTN m_size = 0, d_size = 0;
     UINT32 d_ver = 0;
     EFI_MEMORY_DESCRIPTOR *m_map = NULL;
     EFI_STATUS status;
 
-    BS->GetMemoryMap(&m_size, NULL, &final_map_key, &d_size, &d_ver);
+    // Get fresh memory map (required immediately before ExitBootServices)
+    BS->GetMemoryMap(&m_size, NULL, &map_key, &d_size, &d_ver);
 
     m_size += 2 * d_size;
     BS->AllocatePool(EfiLoaderData, m_size, (VOID**)&m_map);
 
-    status = BS->GetMemoryMap(&m_size, m_map, &final_map_key, &d_size, &d_ver);
+    status = BS->GetMemoryMap(&m_size, m_map, &map_key, &d_size, &d_ver);
+    if (EFI_ERROR(status)) return status;
+
+    // Actually exit boot services - after this, no UEFI boot services are available
+    status = BS->ExitBootServices(image_handle, map_key);
+    if (EFI_ERROR(status)) {
+        // ExitBootServices can fail if map_key changed; retry once
+        m_size = 0;
+        BS->GetMemoryMap(&m_size, NULL, &map_key, &d_size, &d_ver);
+        m_size += 2 * d_size;
+        BS->AllocatePool(EfiLoaderData, m_size, (VOID**)&m_map);
+        BS->GetMemoryMap(&m_size, m_map, &map_key, &d_size, &d_ver);
+        status = BS->ExitBootServices(image_handle, map_key);
+    }
+
+    // After ExitBootServices: no more BS calls, no more UEFI interrupts
+    return status;
 }
 
 // UEFI application entry point
@@ -247,44 +287,62 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable
     print(L"\r\nZonix UEFI Bootloader v1.0\r\n\r\n");
     
     BS->SetWatchdogTimer(0, 0, 0, NULL);
-    
-    struct boot_info *boot_info = NULL;
-    EFI_STATUS status = BS->AllocatePool(EfiLoaderData, sizeof(struct boot_info), (VOID**)&boot_info);
-    if (EFI_ERROR(status)) return status;
-    
+
+    // Prepare boot_info at fixed physical address
+    struct boot_info *boot_info = (struct boot_info*)SAFE_BOOT_INFO_ADDR;
     memset(boot_info, 0, sizeof(struct boot_info));
     boot_info->magic = BOOT_INFO_MAGIC;
-    
-    const char *name = "Zonix UEFI";
-    for (int i = 0; name[i] && i < 31; i++) {
-        boot_info->loader_name[i] = name[i];
-    }
-    
+    boot_info->mmap_addr = SAFE_MMAP_ADDR;
+
+    // Get memory map
     UINTN map_key = 0;
     print(L"Getting memory map...\r\n");
-    status = get_memory_map(boot_info, &map_key);
+    EFI_STATUS status = get_memory_map(boot_info, &map_key);
     if (EFI_ERROR(status)) return status;
-    
+
+    // Load kernel from filesystem
     print(L"Loading kernel...\r\n");
     VOID *kernel_buffer = NULL;
     UINTN kernel_size = 0;
     status = load_kernel(ImageHandle, &kernel_buffer, &kernel_size);
     if (EFI_ERROR(status)) return status;
-    
+
+    // Parse ELF and copy segments to physical addresses (0x100000+)
     print(L"Parsing ELF kernel...\r\n");
     if (load_elf_kernel(kernel_buffer, boot_info) != 0) {
         return EFI_LOAD_ERROR;
     }
-    
+
+    // Get graphics info (needs Boot Services)
     get_graphics_info(boot_info);
 
-    print_hex(boot_info->kernel_entry & 0x00FFFFFF);
+    // Set loader name
+    const char *name = "Zonix UEFI";
+    for (int i = 0; name[i] && i < 31; i++) {
+        boot_info->loader_name[i] = name[i];
+    }
 
+    print(L"Kernel entry (phys): ");
+    print_hex(boot_info->kernel_entry);
+
+    // Exit Boot Services
     print(L"Exiting Boot Services...\r\n");
     exit_boot_services(ImageHandle);
-    
-    kernel_entry_t kernel_entry = (kernel_entry_t)(boot_info->kernel_entry & 0x00FFFFFF);
-    kernel_entry(boot_info);
+
+    // Jump to kernel
+    // CRITICAL: This UEFI bootloader is compiled with mingw (Microsoft x64 ABI)
+    // where the first argument is passed in %rcx. But the kernel (head.S) uses
+    // the System V ABI where the first argument is expected in %rdi.
+    // We MUST use inline assembly to set %rdi explicitly.
+    uint64_t entry_addr = (uint64_t)(uintptr_t)(boot_info->kernel_entry);
+    uint64_t info_addr  = (uint64_t)(uintptr_t)boot_info;
+    __asm__ volatile (
+        "movq %0, %%rdi\n\t"   // boot_info pointer in %rdi (System V ABI)
+        "jmp *%1\n\t"          // jump to kernel entry
+        :
+        : "r"(info_addr), "r"(entry_addr)
+        : "rdi", "memory"
+    );
     
     return EFI_SUCCESS;
 }

@@ -11,6 +11,7 @@
 #include "../drivers/pit.h"
 #include "../drivers/pic.h"
 #include "../drivers/ide.h"
+#include "../drivers/fbcons.h"
 #include "../cons/cons.h"
 #include "../mm/vmm.h"
 #include "../sched/sched.h"
@@ -95,14 +96,17 @@ static void irq_timer(TrapFrame *tf) {
     if ((int)pit::ticks % TICK_NUM == 0) {
         // cprintf("%d ticks\n", TICK_NUM);
     }
+    fbcons::tick();
 }
 
 static void irq_kbd(TrapFrame *tf) {
+#ifdef CONFIG_PS2KBD
     extern void shell_handle_char(char c);
     char c = kbd::getc();
     if (c > 0) {
         shell_handle_char(c);
     }
+#endif // CONFIG_PS2KBD
 }
 
 static int pg_fault(TrapFrame *tf) {

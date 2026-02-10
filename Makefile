@@ -283,14 +283,13 @@ fat32: bin/zonix.img
 uefi: $(UEFI_TARGETS)
 
 qemu: bin/zonix.img
-#	$(QEMU) -S -no-reboot -monitor stdio -drive file=$<,format=raw
-	$(QEMU) -monitor stdio -readconfig qemu.cfg -S -no-reboot
+	$(QEMU) -readconfig qemu.cfg -no-reboot
 
 qemu-ahci: bin/zonix.img
-	$(QEMU) -monitor stdio -readconfig qemu-ahci.cfg -S -no-reboot
+	$(QEMU) -readconfig qemu-ahci.cfg -S -no-reboot
 
 qemu-fat32: bin/zonix.img
-	$(QEMU) -S -no-reboot -monitor stdio -drive file=$<,format=raw
+	$(QEMU) -S -no-reboot -readconfig qemu.cfg
 
 qemu-uefi: bin/zonix-uefi.img
 	$(QEMU) -bios /usr/share/ovmf/OVMF.fd -readconfig qemu-uefi.cfg

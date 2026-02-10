@@ -133,8 +133,7 @@ void AhciManager::init(void) {
     }
     
     // Map AHCI MMIO region into kernel virtual address space
-    uintptr_t s_ahci_base = KERNEL_BASE + (uintptr_t)phys_base;
-    pgdir_init(boot_pgdir, s_ahci_base, 0x10000, phys_base, PTE_W | PTE_PCD | PTE_PWT);
+    uintptr_t s_ahci_base = mmio_map(phys_base, 0x10000, PTE_W | PTE_PCD | PTE_PWT);
     
     // Check if AHCI controller is present by reading version register
     uint32_t version = mmio_read32(s_ahci_base, ahci::AHCI_VS);
