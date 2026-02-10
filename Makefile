@@ -1,25 +1,38 @@
 .SECONDEXPANSION:
 
-CC		:= gcc
-CXX		:= g++
-CFLAGS	:= -g -fno-builtin -Wall -ggdb -O0 -m64 -mno-red-zone -mcmodel=kernel -mno-sse -mno-sse2 -mno-mmx -msoft-float -nostdinc -fno-stack-protector -fno-PIC -gdwarf-2
-CXXFLAGS	:= -g -Wall -ggdb -O0 -m64 -mno-red-zone -mcmodel=kernel -mno-sse -mno-sse2 -mno-mmx -msoft-float -nostdinc -nostdinc++ -fno-builtin -fno-stack-protector \
-			 -fno-PIC -fno-exceptions -fno-rtti -fno-use-cxa-atexit -fno-threadsafe-statics \
-			 -fno-asynchronous-unwind-tables -fno-unwind-tables -ffreestanding -std=gnu++17 -gdwarf-2
+# ==========================================================================
+# Architecture selection (x86 for now, aarch64 in the future)
+# Usage: make ARCH=x86 (default)
+# ==========================================================================
+ARCH ?= x86
 
-# Boot code flags (32-bit, since BIOS bootloader runs in protected mode)
-BOOT_CFLAGS := -g -fno-builtin -Wall -ggdb -O0 -m32 -nostdinc -fno-stack-protector -fno-PIC -gdwarf-2
-BOOT_LDFLAGS := -m elf_i386 -nostdlib
+# Per-architecture toolchain and flags
+ifeq ($(ARCH),x86)
+  CC      := gcc
+  CXX     := g++
+  LD      := ld
+  CFLAGS  := -g -fno-builtin -Wall -ggdb -O0 -m64 -mno-red-zone -mcmodel=kernel \
+             -mno-sse -mno-sse2 -mno-mmx -msoft-float -nostdinc \
+             -fno-stack-protector -fno-PIC -gdwarf-2
+  CXXFLAGS := -g -Wall -ggdb -O0 -m64 -mno-red-zone -mcmodel=kernel \
+             -mno-sse -mno-sse2 -mno-mmx -msoft-float -nostdinc -nostdinc++ \
+             -fno-builtin -fno-stack-protector -fno-PIC -fno-exceptions -fno-rtti \
+             -fno-use-cxa-atexit -fno-threadsafe-statics \
+             -fno-asynchronous-unwind-tables -fno-unwind-tables \
+             -ffreestanding -std=gnu++17 -gdwarf-2
+  LDFLAGS := -m elf_x86_64 -nostdlib
+  BOOT_CFLAGS  := -g -fno-builtin -Wall -ggdb -O0 -m32 -nostdinc -fno-stack-protector -fno-PIC -gdwarf-2
+  BOOT_LDFLAGS := -m elf_i386 -nostdlib
+  DASM    := ndisasm
+  QEMU    := qemu-system-x86_64
+else ifeq ($(ARCH),aarch64)
+  $(error ARM/AArch64 support is not yet implemented)
+else
+  $(error Unsupported ARCH=$(ARCH). Use: x86, aarch64)
+endif
 
 HOSTCC		:= gcc
 HOSTCFLAGS	:= -g -Wall -O2
-
-LD      := ld
-LDFLAGS := -m elf_x86_64 -nostdlib
-
-DASM = ndisasm
-
-QEMU := qemu-system-x86_64
 
 OBJDUMP := objdump
 OBJCOPY := objcopy
@@ -108,32 +121,36 @@ make_dir = $(eval $(call do_make_dir))
 
 #####################################################################################
 
+# Include paths:
+#   include/              - architecture-independent headers
+#   include/arch/$(ARCH)/  - makes <asm/xxx.h> resolve to the right arch
+#   kernel/include/         - kernel internal utilities (string.h, stdio.h, etc.)
 INCLUDE	+=  include  \
-            kern/include
+            include/arch/$(ARCH) \
+            kernel/include
 
-KSRCDIR :=	kern          \
-            kern/arch/x86 \
-			kern/debug    \
-            kern/cons     \
-            kern/trap     \
-            kern/drivers  \
-            kern/block    \
-            kern/sched    \
-            kern/mm       \
-            kern/fs
+# Kernel source directories
+KSRCDIR :=	kernel              \
+            kernel/arch/$(ARCH) \
+			kernel/debug        \
+            kernel/cons         \
+            kernel/trap         \
+            kernel/drivers      \
+            kernel/block        \
+            kernel/sched        \
+            kernel/mm           \
+            kernel/fs
 
 
 CFLAGS	+= $(addprefix -I,$(INCLUDE))
 CXXFLAGS	+= $(addprefix -I,$(INCLUDE))
 
-$(call add_packet_files_cc,$(call listf_cc,init),initial)
-$(call add_packet_files_cxx,$(call listf_cxx,init),initial)
 $(call add_packet_files_cc,$(call listf_cc,$(KSRCDIR)),kernel)
 $(call add_packet_files_cxx,$(call listf_cxx,$(KSRCDIR)),kernel)
 
 kernel = $(call totarget,kernel)
 
-KOBJS := $(sort $(call read_packet,initial) $(call read_packet,kernel))
+KOBJS := $(sort $(call read_packet,kernel))
 
 $(kernel): $(KOBJS) tools/kernel.ld | $$(dir $$@)
 	$(LD) $(LDFLAGS) -T tools/kernel.ld $(KOBJS) -o $@
@@ -147,7 +164,7 @@ mbr = $(call totarget,mbr)
 MOBJ = $(call toobj,boot/bios/mbr.S)
 
 $(MOBJ): boot/bios/mbr.S | $$(dir $$@)
-	$(CC) $(BOOT_CFLAGS) -I include -Os -c $< -o $@
+	$(CC) $(BOOT_CFLAGS) -I include -I include/arch/$(ARCH) -Os -c $< -o $@
 
 $(mbr): $(MOBJ) tools/mbr.ld | $$(dir $$@)
 	$(LD) $(BOOT_LDFLAGS) -T tools/mbr.ld -o $@ $<
@@ -162,7 +179,7 @@ $(mbr): $(MOBJ) tools/mbr.ld | $$(dir $$@)
 
 # VBR and Bootblock build (exclude mbr.S and bootload.c) - BIOS mode
 bootfiles = $(filter-out boot/bios/mbr.S boot/bios/bootload.c, $(call listf_cc,boot/bios))
-$(eval $(call compiles,$(bootfiles),$(CC),$(BOOT_CFLAGS) -I include -Os))
+$(eval $(call compiles,$(bootfiles),$(CC),$(BOOT_CFLAGS) -I include -I include/arch/$(ARCH) -Os))
 
 # VBR build (Volume Boot Record, formerly bootblock)
 vbr = $(call totarget,vbr)
@@ -183,7 +200,7 @@ $(vbr): $(VOBJS) tools/boot.ld | $$(dir $$@)
 # Can use reserved sectors: sector 1-7 (512 * 7 bytes total)
 bootloader = $(call totarget,bootloader)
 $(bootloader): boot/bios/bootload.c tools/bootload.ld | $$(dir $$@)
-	$(CC) $(BOOT_CFLAGS) -I include -O2 -g -nostdinc -fno-builtin -fno-stack-protector -c boot/bios/bootload.c -o $(call toobj,boot/bios/bootload.c)
+	$(CC) $(BOOT_CFLAGS) -I include -I include/arch/$(ARCH) -O2 -g -nostdinc -fno-builtin -fno-stack-protector -c boot/bios/bootload.c -o $(call toobj,boot/bios/bootload.c)
 	$(LD) $(BOOT_LDFLAGS) -T tools/bootload.ld -o $@ $(call toobj,boot/bios/bootload.c)
 	$(OBJDUMP) -S $@ > obj/bootloader.asm
 	$(OBJCOPY) -S -O binary $@ $(call tobin,bootloader)
@@ -199,7 +216,7 @@ UEFI_CC := x86_64-w64-mingw32-gcc
 UEFI_LD := ld
 UEFI_OBJDUMP := objdump
 UEFI_OBJCOPY := objcopy
-UEFI_CFLAGS := -I include -I /usr/include/efi \
+UEFI_CFLAGS := -I include -I include/arch/$(ARCH) -I /usr/include/efi \
                -I /usr/include/efi/x86_64 \
                -nostdlib -ffreestanding -fshort-wchar -mno-red-zone -O2
 

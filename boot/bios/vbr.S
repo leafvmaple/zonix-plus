@@ -13,12 +13,12 @@
 #   6. Switch to protected mode
 #   7. Jump to kernel at 0x10000
 
-#include <arch/x86/asm/cr.h>
-#include <arch/x86/asm/seg.h>
-#include <arch/x86/asm/ports.h>
+#include <asm/cr.h>
+#include <asm/seg.h>
+#include <asm/ports.h>
 
-#include <arch/x86/drivers/i8042.h>
-#include <arch/x86/drivers/i8259.h>
+#include <asm/drivers/i8042.h>
+#include <asm/drivers/i8259.h>
 
 .code16
 .globl _start

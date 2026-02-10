@@ -12,9 +12,9 @@
 #include <kernel/bootinfo.h>
 #include <base/bpb.h>
 
-#include <arch/x86/asm/seg.h>
-#include <arch/x86/asm/cr.h>
-#include <arch/x86/io.h>
+#include <asm/seg.h>
+#include <asm/cr.h>
+#include <asm/io.h>
 
 #define SECT_SIZE 512
 #define KERNEL_NAME "KERNEL  SYS"
