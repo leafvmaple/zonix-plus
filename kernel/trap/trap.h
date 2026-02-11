@@ -1,10 +1,6 @@
 #pragma once
 #include <base/types.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /*
  * x86_64 TrapRegisters - saved by pushq in trapentry.S
  * Order must match the push/pop sequence in _trap_entry.
@@ -26,9 +22,7 @@ struct TrapRegisters {
     uint64_t m_rcx{};
     uint64_t m_rax{};
 
-#ifdef __cplusplus
     void print() const;
-#endif
 };
 
 /*
@@ -54,16 +48,10 @@ struct TrapFrame {
     uint64_t m_rsp{};    // always present in 64-bit mode
     uint64_t m_ss{};     // always present in 64-bit mode
 
-#ifdef __cplusplus
     void print() const;
     void print_pgfault() const;
-#endif
 };
 
 // Trap handling functions
-void trap(TrapFrame *tf);
-void trapret(void);  // Assembly function to return from trap
-
-#ifdef __cplusplus
-}
-#endif
+extern "C" void trap(TrapFrame *tf);
+extern "C" void trapret(void);  // Assembly function to return from trap

@@ -18,6 +18,22 @@ SECTIONS {
 		*(.rodata .rodata.* .gnu.linkonce.r.*)
 	}
 
+	/* C++ global constructors */
+	.init_array : {
+		PROVIDE(__init_array_start = .);
+		KEEP(*(SORT(.init_array.*)))
+		KEEP(*(.init_array))
+		PROVIDE(__init_array_end = .);
+	}
+
+	/* C++ global destructors (unlikely to be called in a kernel) */
+	.fini_array : {
+		PROVIDE(__fini_array_start = .);
+		KEEP(*(SORT(.fini_array.*)))
+		KEEP(*(.fini_array))
+		PROVIDE(__fini_array_end = .);
+	}
+
 	. = ALIGN(0x1000);
 	.data : {
 		*(.data)

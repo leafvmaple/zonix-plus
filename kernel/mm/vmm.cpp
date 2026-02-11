@@ -1,6 +1,6 @@
 
 
-#include <asm/io.h>
+#include <asm/arch.h>
 #include <asm/segments.h>
 #include <asm/mmu.h>
 

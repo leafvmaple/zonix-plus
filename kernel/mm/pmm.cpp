@@ -7,8 +7,7 @@
 #include "stdio.h"
 #include "math.h"
 
-#include <asm/io.h>
-#include <asm/cpu.h>
+#include <asm/arch.h>
 #include <asm/segments.h>
 #include <asm/mmu.h>
 
@@ -60,7 +59,7 @@ Page *pa2page(uintptr_t pa) {
 
 // Convert kernel virtual address to page descriptor
 Page *kva2page(void *kva) {
-    return pa2page(P_ADDR((uintptr_t)kva));
+    return pa2page(P_ADDR(reinterpret_cast<uintptr_t>(kva)));
 }
 
 static void pmm_mgr_init() {
@@ -97,7 +96,7 @@ pte_t* get_pte(pde_t* pml4, uintptr_t la, bool create) {
     }
 
     // Level 3: PDPT
-    pde_t* pdpt = (pde_t*)K_ADDR(PTE_ADDR(*pml4e));
+    pde_t* pdpt = reinterpret_cast<pde_t*>(K_ADDR(PTE_ADDR(*pml4e)));
     pde_t* pdpte = pdpt + PDPTX(la);
     if (!(*pdpte & PTE_P)) {
         Page* page{};
@@ -110,7 +109,7 @@ pte_t* get_pte(pde_t* pml4, uintptr_t la, bool create) {
     }
 
     // Level 2: PD
-    pde_t* pd = (pde_t*)K_ADDR(PTE_ADDR(*pdpte));
+    pde_t* pd = reinterpret_cast<pde_t*>(K_ADDR(PTE_ADDR(*pdpte)));
     pde_t* pde = pd + PDX(la);
     if (*pde & PTE_PS) {
         // This is a 2MB large page.  Split it into a 4KB page table so that
@@ -123,7 +122,7 @@ pte_t* get_pte(pde_t* pml4, uintptr_t la, bool create) {
             return nullptr;
         page->ref = PAGE_REF_INIT;
         pde_t pt_pa = page2pa(page);
-        pte_t* pt = (pte_t*)K_ADDR(pt_pa);
+        pte_t* pt = reinterpret_cast<pte_t*>(K_ADDR(pt_pa));
 
         // Fill the new PT: 512 entries covering the same 2MB range
         for (int i = 0; i < 512; i++) {
@@ -143,7 +142,7 @@ pte_t* get_pte(pde_t* pml4, uintptr_t la, bool create) {
     }
 
     // Level 1: PT
-    return (pte_t*)K_ADDR(PTE_ADDR(*pde)) + PTX(la);
+    return reinterpret_cast<pte_t*>(K_ADDR(PTE_ADDR(*pde))) + PTX(la);
 }
 
 static void page_init() {
@@ -157,7 +156,7 @@ static void page_init() {
 	extern uint8_t KERNEL_END[];
 
 	g_num_pages = page_num(max_pa);
-	g_pages = (Page *)round_up((void*)KERNEL_END, PG_SIZE);
+	g_pages = reinterpret_cast<Page *>(round_up((void*)KERNEL_END, PG_SIZE));
 	
 	// Initially mark all g_pages as reserved
 	for (uint32_t i = 0; i < g_num_pages; i++) {
@@ -175,7 +174,7 @@ static void page_init() {
 				addr = round_up(addr, PG_SIZE);
 				limit = round_down(limit, PG_SIZE);
 				
-    			cprintf("Valid Memory: [0x%016lx, 0x%016lx]\n", (uint64_t)addr, (uint64_t)limit);
+    			cprintf("Valid Memory: [0x%016lx, 0x%016lx]\n", static_cast<uint64_t>(addr), static_cast<uint64_t>(limit));
 				g_pmm->init_memmap(pa2page(addr), page_num(limit - addr));
 			}
 		}
@@ -183,8 +182,8 @@ static void page_init() {
 }
 
 void tlb_invl(pde_t *pgdir, uintptr_t la) {
-    if (rcr3() == P_ADDR(pgdir)) {
-        invlpg((void *)la);
+    if (arch_read_cr3() == P_ADDR(pgdir)) {
+        arch_invlpg((void *)la);
     }
 }
 

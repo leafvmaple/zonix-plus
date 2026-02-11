@@ -5,12 +5,10 @@
 #include "../include/memory.h"
 #include "../include/string.h"
 #include "../drivers/intr.h"
-#include "../cons/shell.h"
 #include "../debug/assert.h"
-#include <base/types.h>
+#include <asm/arch.h>
 #include <asm/segments.h>
 #include <asm/mmu.h>
-#include <asm/io.h>
 
 // External symbols
 extern long user_stack[];
@@ -21,6 +19,9 @@ extern MemoryDesc init_mm;  // Global kernel MemoryDesc
 extern "C" void forkret(void);
 extern "C" void switch_to(struct Context *from, struct Context *to);
 extern void trapret(void);
+
+// Shell process entry point (defined in shell.cpp)
+extern int shell_main(void *arg);
 
 // TaskManager static member definitions (only non-inline members)
 ListNode TaskManager::s_proc_list{};
@@ -46,17 +47,45 @@ static int get_pid(void) {
 
 // Free kernel stack
 static void free_kstack(TaskStruct *proc) {
-    free_page(kva2page((void *)proc->m_kernel_stack));
+    free_page(kva2page(reinterpret_cast<void *>(proc->m_kernel_stack)));
 }
 
-// Init process main function (kernel thread entry point)
-static int init_main(void *arg) {
-    shell_prompt();
+// Wrapper called by new kernel threads via iretq.
+// After iretq, RDI = fn pointer, RSI = arg (set up in TrapFrame by kernel_thread).
+// This function signature matches the x86_64 calling convention:
+// rdi = first param, rsi = second param.
+__attribute__((noreturn))
+static void kernel_thread_entry(int (*fn)(void *), void *arg) {
+    int ret = fn(arg);
+    TaskManager::exit(ret);
+    __builtin_unreachable();
+}
 
-    while (1) {
-        TaskManager::schedule();
+// Init process main function — fork shell, then reap children
+static int init_main(void *arg) {
+    // Fork the shell as a separate process (PID 2)
+    int shell_pid = TaskManager::kernel_thread(shell_main, nullptr);
+    if (shell_pid <= 0) {
+        panic("init: failed to create shell process!");
     }
-    
+
+    // Find and name the shell process
+    TaskStruct *shell_proc = TaskManager::find_proc(shell_pid);
+    if (shell_proc) {
+        strcpy(shell_proc->name, "shell");
+    }
+
+    cprintf("init: started shell process (PID %d)\n", shell_pid);
+
+    // Init's job: wait for child processes (reap zombies)
+    while (1) {
+        int exit_code = 0;
+        int pid = TaskManager::wait(0, &exit_code);
+        if (pid > 0) {
+            cprintf("init: reaped child PID %d (exit code %d)\n", pid, exit_code);
+        }
+    }
+
     panic("init process exited!");
     return 0;
 }
@@ -77,7 +106,7 @@ void TaskStruct::run() {
         uintptr_t next_cr3 = get_cr3();
         uintptr_t prev_cr3 = prev->get_cr3();
         if (next_cr3 != prev_cr3) {
-            lcr3(next_cr3);
+            arch_load_cr3(next_cr3);
         }
 
         switch_to(&(prev->m_context), &(m_context));
@@ -93,7 +122,7 @@ void TaskStruct::wakeup() {
 
 uintptr_t TaskStruct::get_cr3() {
     assert(m_memory != nullptr && m_memory->pgdir != nullptr);
-    return P_ADDR((uintptr_t)m_memory->pgdir);
+    return P_ADDR(reinterpret_cast<uintptr_t>(m_memory->pgdir));
 }
 
 void TaskStruct::copy_mm(uint32_t clone_flags) {
@@ -102,7 +131,7 @@ void TaskStruct::copy_mm(uint32_t clone_flags) {
 }
 
 void TaskStruct::copy_thread(uintptr_t esp, TrapFrame *trapFrame) {
-    m_trap_frame = (TrapFrame*)(m_kernel_stack + KSTACK_SIZE) - 1;
+    m_trap_frame = reinterpret_cast<TrapFrame*>(m_kernel_stack + KSTACK_SIZE) - 1;
     
     *m_trap_frame = *trapFrame;
     m_trap_frame->m_regs.m_rax = 0;  // Return value for child
@@ -110,14 +139,14 @@ void TaskStruct::copy_thread(uintptr_t esp, TrapFrame *trapFrame) {
         m_trap_frame->m_rsp = esp;
     } else {
         // Kernel thread: use the kernel stack (just below the trap frame)
-        m_trap_frame->m_rsp = (uintptr_t)m_trap_frame;
+        m_trap_frame->m_rsp = reinterpret_cast<uintptr_t>(m_trap_frame);
     }
     m_trap_frame->m_rflags |= 0x200;   // Enable interrupts
     m_trap_frame->m_ss = KERNEL_DS;    // Always set SS for iretq
     
     // Set up context for context switch
-    m_context.rip = (uintptr_t)forkret;
-    m_context.rsp = (uintptr_t)(m_trap_frame);
+    m_context.rip = reinterpret_cast<uintptr_t>(forkret);
+    m_context.rsp = reinterpret_cast<uintptr_t>(m_trap_frame);
 }
 
 int TaskStruct::setup_kernel_stack() {
@@ -126,7 +155,7 @@ int TaskStruct::setup_kernel_stack() {
         return -1;
     }
 
-    m_kernel_stack = (uintptr_t)page2kva(page);
+    m_kernel_stack = reinterpret_cast<uintptr_t>(page2kva(page));
     return 0;
 }
 
@@ -144,7 +173,7 @@ void TaskStruct::remove_links() {
 }
 
 void TaskStruct::destroy() {
-    if (m_kernel_stack != (uintptr_t)user_stack) {
+    if (m_kernel_stack != reinterpret_cast<uintptr_t>(user_stack)) {
         free_kstack(this);
     }
     delete this;
@@ -207,7 +236,7 @@ void TaskManager::print() {
                state_str(proc->m_state),
                (proc->m_parent ? proc->m_parent->m_pid : -1),
                proc->m_kernel_stack,
-               (uintptr_t)proc->m_memory,
+               reinterpret_cast<uintptr_t>(proc->m_memory),
                proc->name);
     }
     
@@ -264,6 +293,19 @@ int TaskManager::fork(uint32_t cloneFlags, uintptr_t stack, TrapFrame *trapFrame
 
     proc->wakeup();
     return proc->m_pid;
+}
+
+int TaskManager::kernel_thread(int (*fn)(void *), void *arg) {
+    TrapFrame tf {};
+
+    tf.m_cs = KERNEL_CS;
+    tf.m_rflags = FL_IF;                            // Enable interrupts
+    tf.m_rip = reinterpret_cast<uintptr_t>(kernel_thread_entry);      // Entry wrapper
+    tf.m_regs.m_rdi = reinterpret_cast<uintptr_t>(fn);                // 1st argument: function
+    tf.m_regs.m_rsi = reinterpret_cast<uintptr_t>(arg);               // 2nd argument: arg
+    tf.m_rsp = 0;                                   // Set by copy_thread
+
+    return fork(0, 0, &tf);
 }
 
 int TaskManager::exit(int errorCode) {
@@ -357,7 +399,7 @@ int TaskManager::wait(int pid, int* codeStore) {
 void TaskManager::init_idle() {
     TaskStruct* idleProc = new TaskStruct();
     idleProc->m_state = ProcessState::Runnable;
-    idleProc->m_kernel_stack = (uintptr_t)user_stack;  // Use boot stack
+    idleProc->m_kernel_stack = reinterpret_cast<uintptr_t>(user_stack);  // Use boot stack
     idleProc->m_child_list.init();
     
     // Idle process uses kernel's init_mm (shared by all kernel threads)
@@ -376,7 +418,7 @@ void TaskManager::init_init_proc() {
 
     trapFrame.m_cs = KERNEL_CS;
     trapFrame.m_rflags = FL_IF;  // Enable interrupts
-    trapFrame.m_rip = (uintptr_t)init_main;
+    trapFrame.m_rip = reinterpret_cast<uintptr_t>(init_main);
     trapFrame.m_rsp = 0;  // Will be set up by copy_thread
 
     int ret = fork(0, 0, &trapFrame);

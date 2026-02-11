@@ -12,7 +12,7 @@ extern Page* alloc_pages(size_t n);
 extern void pages_free(Page* base, size_t n);
 
 // Global swap manager (can be changed to select different algorithms)
-SwapManager* swap_mgr;
+static SwapManager* swap_mgr;
 
 // Maximum swap offset (swap entries)
 static unsigned int max_swap_offset;
@@ -50,10 +50,7 @@ int swap_init() {
  * Initialize swap for a memory management struct
  */
 int swap_init_mm(MemoryDesc *mm) {
-    if (swap_mgr->init_mm) {
-        return swap_mgr->init_mm(mm);
-    }
-    return 0;
+    return swap_mgr->init_mm(mm);
 }
 
 /**
@@ -114,7 +111,7 @@ uintptr_t find_vaddr_for_page(MemoryDesc *mm, Page *page) {
         pde_t pde = mm->pgdir[pde_idx];
         if (pde & PTE_P) {
             // Page table exists, search it
-            pte_t *pt = (pte_t *)K_ADDR(PDE_ADDR(pde));
+            pte_t *pt = reinterpret_cast<pte_t *>(K_ADDR(PDE_ADDR(pde)));
             for (int pte_idx = 0; pte_idx < 1024; pte_idx++) {
                 pte_t pte = pt[pte_idx];
                 if ((pte & PTE_P) && PTE_ADDR(pte) == pa) {

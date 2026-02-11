@@ -152,8 +152,19 @@ kernel = $(call totarget,kernel)
 
 KOBJS := $(sort $(call read_packet,kernel))
 
-$(kernel): $(KOBJS) tools/kernel.ld | $$(dir $$@)
-	$(LD) $(LDFLAGS) -T tools/kernel.ld $(KOBJS) -o $@
+# Embedded console font (PSF format -> .o via objcopy)
+FONT_PSF := fonts/console.psf
+FONT_OBJ := $(OBJDIR)/fonts/console.psf.o
+
+$(FONT_OBJ): $(FONT_PSF) | $$(dir $$@)
+	$(OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 \
+		--rename-section .data=.rodata,alloc,load,readonly,data,contents \
+		$< $@
+
+ALLOBJS += $(FONT_OBJ)
+
+$(kernel): $(KOBJS) $(FONT_OBJ) tools/kernel.ld | $$(dir $$@)
+	$(LD) $(LDFLAGS) -T tools/kernel.ld $(KOBJS) $(FONT_OBJ) -o $@
 	$(OBJDUMP) -D $@ > obj/kernel.asm
 #	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > obj/kernel.sym
 	$(OBJCOPY) -S -O binary $@ $(call tobin,kernel)

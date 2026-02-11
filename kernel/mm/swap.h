@@ -3,17 +3,22 @@
 #include "pmm.h"
 #include "vmm.h"
 
-// Swap manager interface
-struct SwapManager {
-    const char* name;
-    int (*init)();                     // Initialize swap manager
-    int (*init_mm)(MemoryDesc* mm);     // Initialize mm struct for swap
-    int (*map_swappable)(MemoryDesc* mm, uintptr_t addr, Page* page, int swap_in);
-    int (*swap_out_victim)(MemoryDesc* mm, Page** page_ptr, int in_tick);
-    int (*check_swap)();               // Check if swap works correctly
-};
+// Swap manager interface (abstract base class)
+class SwapManager {
+public:
+    const char* name{};
 
-using swap_manager = SwapManager;
+    virtual ~SwapManager() = default;
+    virtual int init() = 0;
+    virtual int init_mm(MemoryDesc* mm) = 0;
+    virtual int map_swappable(MemoryDesc* mm, uintptr_t addr, Page* page, int swap_in) = 0;
+    virtual int swap_out_victim(MemoryDesc* mm, Page** page_ptr, int in_tick) = 0;
+    virtual int check_swap() = 0;
+
+    SwapManager() = default;
+    SwapManager(const SwapManager&) = delete;
+    SwapManager& operator=(const SwapManager&) = delete;
+};
 
 // Page-to-address mapping entry (for reverse lookup)
 struct PageAddrMap {
@@ -44,4 +49,4 @@ inline constexpr size_t MAX_OFFSET_LIMIT = 1 << 24;  // 16 GB swap space limit
 
 } // namespace swap
 
-#define MAX_SWAP_OFFSET_LIMIT swap::MAX_OFFSET_LIMIT
+inline constexpr size_t MAX_SWAP_OFFSET_LIMIT = swap::MAX_OFFSET_LIMIT;

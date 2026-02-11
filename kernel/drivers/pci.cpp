@@ -1,17 +1,17 @@
 #include "pci.h"
-#include <asm/io.h>
+#include <asm/arch.h>
 #include "stdio.h"
 
 uint32_t PCILocation::read_config32(uint8_t offset) {
     uint32_t address = get_address() | (offset & 0xFC);
-    outl(pci::CONFIG_ADDRESS, address);
-    return inl(pci::CONFIG_DATA);
+    arch_port_outl(pci::CONFIG_ADDRESS, address);
+    return arch_port_inl(pci::CONFIG_DATA);
 }
 
 void PCILocation::write_config32(uint8_t offset, uint32_t value) {
     uint32_t address = get_address() | (offset & 0xFC);
-    outl(pci::CONFIG_ADDRESS, address);
-    outl(pci::CONFIG_DATA, value);
+    arch_port_outl(pci::CONFIG_ADDRESS, address);
+    arch_port_outl(pci::CONFIG_DATA, value);
 }
 
 uint32_t PCILocation::read_bar(uint8_t barIndex) {

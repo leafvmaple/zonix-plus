@@ -59,7 +59,7 @@ static void test_process_creation() {
     TEST_ASSERT(proc->m_child_list.empty(), "Child list is empty after init");
     
     // Clean up - free the kernel stack
-    free_page(kva2page((void*)proc->m_kernel_stack));
+    free_page(kva2page(reinterpret_cast<void*>(proc->m_kernel_stack)));
     delete proc;
     
     TEST_END();
@@ -349,7 +349,7 @@ static void test_process_destruction() {
     
     uintptr_t kstack_addr = proc->m_kernel_stack;
     TEST_ASSERT(kstack_addr != 0, "Kernel stack address is non-zero");
-    TEST_ASSERT(kstack_addr != (uintptr_t)user_stack, "Kernel stack is not boot stack");
+    TEST_ASSERT(kstack_addr != reinterpret_cast<uintptr_t>(user_stack), "Kernel stack is not boot stack");
     
     TaskManager::add_process(proc);
     TEST_ASSERT(TaskManager::nr_process == initial_count + 1, "Process added");
@@ -359,7 +359,7 @@ static void test_process_destruction() {
     TEST_ASSERT(TaskManager::nr_process == initial_count, "Process removed from list");
     
     // Free kernel stack manually
-    free_page(kva2page((void*)proc->m_kernel_stack));
+    free_page(kva2page(reinterpret_cast<void*>(proc->m_kernel_stack)));
     delete proc;
     
     TEST_END();

@@ -121,6 +121,7 @@ public:
     // Scheduling and process lifecycle
     static void schedule();
     static int fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* tf);
+    static int kernel_thread(int (*fn)(void *), void *arg);
     static int exit(int error_code);
     static int wait(int pid, int* code_store);
 

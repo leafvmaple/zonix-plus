@@ -1,7 +1,6 @@
 #pragma once
 
-#include <asm/io.h>
-#include <asm/cpu.h>
+#include <asm/arch.h>
 
 namespace intr {
 
@@ -9,7 +8,7 @@ void enable();
 void disable();
 
 inline int save_impl() {
-    if (read_eflags() & FL_IF) {
+    if (arch_irq_save() & FL_IF) {
         disable();
         return 1;
     }

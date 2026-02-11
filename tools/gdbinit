@@ -2,7 +2,5 @@
 # file bin/bootloader
 file bin/kernel
 target remote :1234
-# b protected
-b next
 b kern_init
 c

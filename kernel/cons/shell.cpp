@@ -4,6 +4,7 @@
 #include "../mm/vmm.h"
 #include "../mm/swap_test.h"
 #include "../drivers/ide.h"
+#include "../drivers/kdb.h"
 #include "../block/blk.h"
 #include "../sched/sched.h"
 #include "../fs/fat.h"
@@ -587,4 +588,22 @@ void shell_handle_char(char c) {
             }
             break;
     }
+}
+
+// Shell process entry point — runs as an independent kernel thread
+int shell_main(void *arg) {
+    (void)arg;
+
+    shell_init();
+    shell_prompt();
+
+    // Main loop: read characters from keyboard driver (blocking)
+    while (1) {
+        char c = kbd::getc_blocking();
+        if (c > 0) {
+            shell_handle_char(c);
+        }
+    }
+
+    return 0;  // Never reached
 }

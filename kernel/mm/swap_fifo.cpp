@@ -6,13 +6,15 @@
 // FIFO Page Replacement Algorithm
 // Pages are arranged in a queue - first in, first out
 
-ListNode pra_list_head;
+FifoSwapManager swap_mgr_fifo;
 
-int swap_fifo_init() {
+static ListNode pra_list_head;
+
+int FifoSwapManager::init() {
     return 0;
 }
 
-int swap_fifo_init_mm(MemoryDesc *mm) {
+int FifoSwapManager::init_mm(MemoryDesc *mm) {
     pra_list_head.init();
     mm->swap_list = &pra_list_head;
 
@@ -26,8 +28,8 @@ int swap_fifo_init_mm(MemoryDesc *mm) {
  * @param page: page descriptor
  * @param swap_in: 1 if swapping in, 0 if newly mapped
  */
-int swap_fifo_map_swappable(MemoryDesc *mm, uintptr_t addr, Page *page, int swap_in) {
-    ListNode *head = (ListNode*) mm->swap_list;
+int FifoSwapManager::map_swappable(MemoryDesc *mm, uintptr_t addr, Page *page, int swap_in) {
+    auto *head = static_cast<ListNode*>(mm->swap_list);
     head->add_before(page->node());
     
     return 0;
@@ -39,8 +41,8 @@ int swap_fifo_map_swappable(MemoryDesc *mm, uintptr_t addr, Page *page, int swap
  * @param page_ptr: output pointer to victim page
  * @param in_tick: not used in FIFO
  */
-int swap_fifo_swap_out_victim(MemoryDesc *mm, Page **page_ptr, int in_tick) {
-    ListNode *head = (ListNode*) mm->swap_list;
+int FifoSwapManager::swap_out_victim(MemoryDesc *mm, Page **page_ptr, int in_tick) {
+    auto *head = static_cast<ListNode*>(mm->swap_list);
     
     // Select the first page (oldest) in the FIFO queue
     ListNode *victim = head->get_next();
@@ -53,20 +55,11 @@ int swap_fifo_swap_out_victim(MemoryDesc *mm, Page **page_ptr, int in_tick) {
     // Remove from list
     victim->unlink();
     
-    *page_ptr = le2page(victim, m_node);
+    *page_ptr = victim->container<Page>();
     return 0;
 }
 
-int swap_fifo_check_swap() {
+int FifoSwapManager::check_swap() {
     cprintf("FIFO swap check: passed\n");
     return 0;
 }
-
-swap_manager swap_mgr_fifo = {
-    .name = "fifo",
-    .init = swap_fifo_init,
-    .init_mm = swap_fifo_init_mm,
-    .map_swappable = swap_fifo_map_swappable,
-    .swap_out_victim = swap_fifo_swap_out_victim,
-    .check_swap = swap_fifo_check_swap,
-};

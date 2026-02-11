@@ -4,7 +4,7 @@
 #include <base/types.h>
 #include "stdio.h"
 
-#include <asm/io.h>
+#include <asm/arch.h>
 #include <asm/drivers/i8259.h>
 
 #include "../drivers/kdb.h"
@@ -85,7 +85,7 @@ void TrapFrame::print() const {
 }
 
 void TrapFrame::print_pgfault() const {
-    cprintf("Page Fault at 0x%016lx: %c/%c [%s].\n", rcr2(),
+    cprintf("Page Fault at 0x%016lx: %c/%c [%s].\n", arch_read_cr2(),
             (m_err & 4) ? 'U' : 'K',
             (m_err & 2) ? 'W' : 'R',
             (m_err & 1) ? "Protection Fault" : "No Page Found");
@@ -93,7 +93,7 @@ void TrapFrame::print_pgfault() const {
 
 static void irq_timer(TrapFrame *tf) {
     pit::ticks++;
-    if ((int)pit::ticks % TICK_NUM == 0) {
+    if (static_cast<int>(pit::ticks) % TICK_NUM == 0) {
         // cprintf("%d ticks\n", TICK_NUM);
     }
     fbcons::tick();
@@ -101,11 +101,7 @@ static void irq_timer(TrapFrame *tf) {
 
 static void irq_kbd(TrapFrame *tf) {
 #ifdef CONFIG_PS2KBD
-    extern void shell_handle_char(char c);
-    char c = kbd::getc();
-    if (c > 0) {
-        shell_handle_char(c);
-    }
+    kbd::intr();
 #endif // CONFIG_PS2KBD
 }
 
@@ -114,7 +110,7 @@ static int pg_fault(TrapFrame *tf) {
     tf->print_pgfault();
 
     TaskStruct* current = TaskManager::get_current();
-    vmm_pg_fault(current->m_memory, tf->m_err, rcr2());
+    vmm_pg_fault(current->m_memory, tf->m_err, arch_read_cr2());
 
     return 0;
 }

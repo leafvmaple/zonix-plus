@@ -4,7 +4,7 @@
 #ifdef CONFIG_CGA
 
 #include <base/types.h>
-#include <asm/io.h>
+#include <asm/arch.h>
 #include <asm/segments.h>
 
 #include "cons_defs.h"
@@ -29,17 +29,17 @@ uint16_t* crt_buf = reinterpret_cast<uint16_t*>(CGA_BUF + KERNEL_BASE);
 static uint16_t crt_pos = 0;
 
 static void cur_update() {
-    outb(CGA_IDX_REG, CRTC_CURSOR_HIGH);
-    outb(CGA_DATA_REG, crt_pos >> 8);
-    outb(CGA_IDX_REG, CRTC_CURSOR_LOW);
-    outb(CGA_DATA_REG, crt_pos);
+    arch_port_outb(CGA_IDX_REG, CRTC_CURSOR_HIGH);
+    arch_port_outb(CGA_DATA_REG, crt_pos >> 8);
+    arch_port_outb(CGA_IDX_REG, CRTC_CURSOR_LOW);
+    arch_port_outb(CGA_DATA_REG, crt_pos);
 }
 
 void init() {
-    outb(CGA_IDX_REG, CRTC_CURSOR_HIGH);
-    crt_pos = inb(CGA_DATA_REG) << 8;
-    outb(CGA_IDX_REG, CRTC_CURSOR_LOW);
-    crt_pos |= inb(CGA_DATA_REG);
+    arch_port_outb(CGA_IDX_REG, CRTC_CURSOR_HIGH);
+    crt_pos = arch_port_inb(CGA_DATA_REG) << 8;
+    arch_port_outb(CGA_IDX_REG, CRTC_CURSOR_LOW);
+    crt_pos |= arch_port_inb(CGA_DATA_REG);
 }
 
 void putc(int c) {

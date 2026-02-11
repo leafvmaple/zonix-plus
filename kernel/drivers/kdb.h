@@ -8,7 +8,9 @@
 namespace kbd {
 
 void init(void);
-int getc(void);
+int getc(void);              // Non-blocking: read from hardware (used by IRQ handler)
+void intr(void);             // Called from keyboard IRQ: read char, buffer it, wake waiter
+char getc_blocking(void);    // Blocking: sleep until a character is available
 
 } // namespace kbd
 

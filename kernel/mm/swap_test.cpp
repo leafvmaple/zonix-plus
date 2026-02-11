@@ -9,7 +9,6 @@
 #include <asm/mmu.h>
 
 // External declarations
-extern swap_manager *swap_mgr;
 extern pde_t *boot_pgdir;
 extern MemoryDesc* init_mm;
 
@@ -261,7 +260,7 @@ void test_swap_out_basic() {
         if (pages_arr[i]) {
             addrs[i] = 0x200000 + i * PG_SIZE;
             page_insert(mm.pgdir, pages_arr[i], addrs[i], PTE_P | PTE_W | PTE_U);
-            swap_mgr->map_swappable(init_mm, addrs[i], pages_arr[i], 0);
+            swap_mgr_fifo.map_swappable(init_mm, addrs[i], pages_arr[i], 0);
         }
     }
     
@@ -293,7 +292,7 @@ void test_algorithm_comparison() {
     
     cprintf("\n  Testing swap algorithm:\n");
     
-    swap_manager *algorithms[] = {
+    SwapManager *algorithms[] = {
         &swap_mgr_fifo
         // Add more algorithms here when re-enabled:
         // &swap_mgr_clock,
@@ -416,14 +415,14 @@ void test_swap_disk_io() {
     }
     
     // Fill page with test pattern
-    void *kva = page2kva(page);
+    auto *kva = static_cast<uint8_t *>(page2kva(page));
     for (int i = 0; i < PG_SIZE; i++) {
-        ((uint8_t *)kva)[i] = (uint8_t)(i & 0xFF);
+        kva[i] = static_cast<uint8_t>(i & 0xFF);
     }
     
     // 2. Map the page
     page_insert(mm.pgdir, page, test_addr, PTE_P | PTE_W | PTE_U);
-    swap_mgr->map_swappable(init_mm, test_addr, page, 0);
+    swap_mgr_fifo.map_swappable(init_mm, test_addr, page, 0);
     
     cprintf("  Filled page with test pattern\n");
     
@@ -446,12 +445,12 @@ void test_swap_disk_io() {
     
     // 5. Verify data integrity
     if (new_page) {
-        void *new_kva = page2kva(new_page);
+        auto *new_kva = static_cast<uint8_t *>(page2kva(new_page));
         int errors = 0;
         
         for (int i = 0; i < PG_SIZE; i++) {
-            uint8_t expected = (uint8_t)(i & 0xFF);
-            uint8_t actual = ((uint8_t *)new_kva)[i];
+            auto expected = static_cast<uint8_t>(i & 0xFF);
+            uint8_t actual = new_kva[i];
             if (actual != expected) {
                 if (errors < 5) {
                     cprintf("    Mismatch at offset %d: expected 0x%02x, got 0x%02x\n",
@@ -492,13 +491,13 @@ void test_swap_multiple_pages() {
             uintptr_t addr = base_addr + i * PG_SIZE;
             
             // Fill with unique pattern (page number repeated)
-            void *kva = page2kva(pages_arr[i]);
+            auto *kva = static_cast<uint8_t *>(page2kva(pages_arr[i]));
             for (int j = 0; j < PG_SIZE; j++) {
-                ((uint8_t *)kva)[j] = (uint8_t)((i * 17 + j) & 0xFF);
+                kva[j] = static_cast<uint8_t>((i * 17 + j) & 0xFF);
             }
             
             page_insert(mm.pgdir, pages_arr[i], addr, PTE_P | PTE_W | PTE_U);
-            swap_mgr->map_swappable(init_mm, addr, pages_arr[i], 0);
+            swap_mgr_fifo.map_swappable(init_mm, addr, pages_arr[i], 0);
         }
     }
     

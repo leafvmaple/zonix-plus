@@ -2,8 +2,7 @@
 #include "stdio.h"
 #include "string.h"
 
-#include <asm/io.h>
-#include <asm/cpu.h>
+#include <asm/arch.h>
 #include <asm/drivers/i8259.h>
 #include "pic.h"
 #include "../sched/sched.h"
@@ -24,7 +23,7 @@ static int hd_wait_ready_on_base(uint16_t base) {
     int timeout = 100000;
     
     while (timeout-- > 0) {
-        uint8_t status = inb(base + ide::REG_STATUS);
+        uint8_t status = arch_port_inb(base + ide::REG_STATUS);
 
         if ((status & (ide::STATUS_BSY | ide::STATUS_DRDY)) == ide::STATUS_DRDY) {
             return 0;
@@ -38,7 +37,7 @@ static int hd_wait_data_on_base(uint16_t base) {
     int timeout = 100000;
     
     while (timeout-- > 0) {
-        uint8_t status = inb(base + ide::REG_STATUS);
+        uint8_t status = arch_port_inb(base + ide::REG_STATUS);
 
         if ((status & (ide::STATUS_BSY | ide::STATUS_DRQ)) == ide::STATUS_DRQ) {
             return 0;
@@ -59,7 +58,7 @@ void IdeDevice::detect(const IdeConfig* config) {
     m_present = 1;
 
     uint16_t identifyData[256]{};
-    insw(m_config->base + ide::REG_DATA, identifyData, 256);
+    arch_port_insw(m_config->base + ide::REG_DATA, identifyData, 256);
 
     m_info.cylinders = identifyData[1];
     m_info.heads = identifyData[3];
@@ -72,9 +71,9 @@ void IdeDevice::detect(const IdeConfig* config) {
 
 void IdeDevice::interupt() {
     do {
-        uint8_t status = inb(m_config->base + ide::REG_STATUS);
+        uint8_t status = arch_port_inb(m_config->base + ide::REG_STATUS);
         if (status & ide::STATUS_ERR) {
-            uint8_t err = inb(m_config->base + ide::REG_ERROR);
+            uint8_t err = arch_port_inb(m_config->base + ide::REG_ERROR);
             cprintf("hd_intr: disk error on %s (status=0x%02x, error=0x%02x)\n", m_name, status, err);
             m_request.err = -1;
             break;
@@ -86,7 +85,7 @@ void IdeDevice::interupt() {
                 break;
             }
             if (m_request.buffer) {
-                insw(m_config->base + ide::REG_DATA, m_request.buffer, ide::SECTOR_SIZE / 2);
+                arch_port_insw(m_config->base + ide::REG_DATA, m_request.buffer, ide::SECTOR_SIZE / 2);
             }
             break;
         }
@@ -95,7 +94,7 @@ void IdeDevice::interupt() {
                 break;
             }
             if (m_request.buffer) {
-                outsw(m_config->base + ide::REG_DATA, m_request.buffer, ide::SECTOR_SIZE / 2);
+                arch_port_outsw(m_config->base + ide::REG_DATA, m_request.buffer, ide::SECTOR_SIZE / 2);
             }
         }
     } while (0);
@@ -115,14 +114,14 @@ void IdeManager::init(void) {
     for (int i = 0; i < ide::MAX_DEVICES; i++) {
         auto& config = s_ide_configs[i];
         uint8_t driveSel = config.drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
-        outb(config.base + ide::REG_DEVICE, 0xA0 | (driveSel << 4));
-        io_wait();
+        arch_port_outb(config.base + ide::REG_DEVICE, 0xA0 | (driveSel << 4));
+        arch_io_wait();
 
-        outb(config.base + ide::REG_COMMAND, ide::CMD_IDENTIFY);
-        io_wait();
+        arch_port_outb(config.base + ide::REG_COMMAND, ide::CMD_IDENTIFY);
+        arch_io_wait();
 
         // Check if device is present
-        uint8_t status = inb(config.base + ide::REG_STATUS);
+        uint8_t status = arch_port_inb(config.base + ide::REG_STATUS);
         if (status == 0) {
             continue; // No device
         }
@@ -183,21 +182,21 @@ int IdeDevice::read(uint32_t blockNumber, void* buf, size_t blockCount) {
             m_request.waiting = TaskManager::get_current();
 
             // Set sector count and LBA address
-            outb(m_config->base + ide::REG_SECTOR_COUNT, 1);
-            outb(m_config->base + ide::REG_LBA_LOW, lba & 0xFF);
-            outb(m_config->base + ide::REG_LBA_MID, (lba >> 8) & 0xFF);
-            outb(m_config->base + ide::REG_LBA_HIGH, (lba >> 16) & 0xFF);
-            outb(m_config->base + ide::REG_DEVICE, driveSel | ((lba >> 24) & 0x0F));
+            arch_port_outb(m_config->base + ide::REG_SECTOR_COUNT, 1);
+            arch_port_outb(m_config->base + ide::REG_LBA_LOW, lba & 0xFF);
+            arch_port_outb(m_config->base + ide::REG_LBA_MID, (lba >> 8) & 0xFF);
+            arch_port_outb(m_config->base + ide::REG_LBA_HIGH, (lba >> 16) & 0xFF);
+            arch_port_outb(m_config->base + ide::REG_DEVICE, driveSel | ((lba >> 24) & 0x0F));
 
             // Send read command (will trigger interrupt)
-            outb(m_config->base + ide::REG_COMMAND, ide::CMD_READ);
+            arch_port_outb(m_config->base + ide::REG_COMMAND, ide::CMD_READ);
         }
 
         // Wait for interrupt completion (double-checked pattern)
         while (!m_request.done) {
             {
                 InterruptsGuard guard;
-                if (m_request.done) break;  // Re-check with interrupts disabled
+                if (m_request.done) break;
                 TaskManager::get_current()->m_state = ProcessState::Sleeping;
             }
             TaskManager::schedule();
@@ -246,14 +245,14 @@ int IdeDevice::write(uint32_t blockNumber, const void* buf, size_t blockCount) {
             m_request.op = IdeRequest::Op::Write;
             m_request.waiting = TaskManager::get_current();
 
-            outb(m_config->base + ide::REG_SECTOR_COUNT, 1);
-            outb(m_config->base + ide::REG_LBA_LOW, lba & 0xFF);
-            outb(m_config->base + ide::REG_LBA_MID, (lba >> 8) & 0xFF);
-            outb(m_config->base + ide::REG_LBA_HIGH, (lba >> 16) & 0xFF);
-            outb(m_config->base + ide::REG_DEVICE, driveSel | ((lba >> 24) & 0x0F));
+            arch_port_outb(m_config->base + ide::REG_SECTOR_COUNT, 1);
+            arch_port_outb(m_config->base + ide::REG_LBA_LOW, lba & 0xFF);
+            arch_port_outb(m_config->base + ide::REG_LBA_MID, (lba >> 8) & 0xFF);
+            arch_port_outb(m_config->base + ide::REG_LBA_HIGH, (lba >> 16) & 0xFF);
+            arch_port_outb(m_config->base + ide::REG_DEVICE, driveSel | ((lba >> 24) & 0x0F));
 
             // Send write command
-            outb(m_config->base + ide::REG_COMMAND, ide::CMD_WRITE);
+            arch_port_outb(m_config->base + ide::REG_COMMAND, ide::CMD_WRITE);
 
             // Wait for device ready to receive data (within critical section)
             if (hd_wait_ready_on_base(m_config->base) != 0) {
@@ -262,7 +261,7 @@ int IdeDevice::write(uint32_t blockNumber, const void* buf, size_t blockCount) {
             }
 
             // Write the data
-            outsw(m_config->base + ide::REG_DATA, m_request.buffer, ide::SECTOR_SIZE / 2);
+            arch_port_outsw(m_config->base + ide::REG_DATA, m_request.buffer, ide::SECTOR_SIZE / 2);
         }
 
         // Wait for interrupt completion (double-checked pattern)

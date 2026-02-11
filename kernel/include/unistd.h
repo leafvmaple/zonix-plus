@@ -4,11 +4,19 @@
 
 #define __NR_pause	29
 
+// Syscall wrappers using C++ inline functions
+// nr: syscall number, returns the result or -1 on error
+template<typename T>
+inline T syscall0(long nr) {
+    long res;
+    __asm__ volatile("int %1" : "=a"(res) : "i"(T_SYSCALL), "0"(nr));
+    if (res >= 0)
+        return static_cast<T>(res);
+    return static_cast<T>(-1);
+}
+
+// Legacy macro for compatibility
 #define _syscall0(type, name) \
     type name(void) {         \
-    long __res;               \
-    __asm__ volatile ("int %1" : "=a" (__res) : "i" (T_SYSCALL), "0" ((long)__NR_##name)); \
-    if (__res >= 0)           \
-	    return (type) __res;  \
-    return -1;                \
-}
+        return syscall0<type>(__NR_##name); \
+    }

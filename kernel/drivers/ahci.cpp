@@ -3,8 +3,7 @@
 #include "stdio.h"
 #include "string.h"
 
-#include <asm/io.h>
-#include <asm/cpu.h>
+#include <asm/arch.h>
 #include <asm/pg.h>
 #include <asm/drivers/i8259.h>
 #include "pic.h"

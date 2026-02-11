@@ -14,7 +14,6 @@ typedef __UINTPTR_TYPE__ uintptr_t;
 
 typedef unsigned long long size_t;
 
-#ifdef __cplusplus
 template<typename T, typename M>
 constexpr size_t offset_of(M T::*member) {
     return reinterpret_cast<size_t>(&(static_cast<T*>(nullptr)->*member));
@@ -29,18 +28,7 @@ inline T* to_struct(void* ptr, M T::*member) {
     reinterpret_cast<size_t>(&(static_cast<type*>(nullptr)->member))
 #define TO_STRUCT(ptr, type, member) \
     reinterpret_cast<type*>(reinterpret_cast<char*>(ptr) - OFFSET_OF(type, member))
-#else
-#define offset_of(type, member) __builtin_offsetof(type, member)
-#define to_struct(ptr, type, member) \
-    ((type *)((char *)(ptr) - offset_of(type, member)))
-#define OFFSET_OF(type, member) offset_of(type, member)
-#define TO_STRUCT(ptr, type, member) to_struct(ptr, type, member)
-#endif
 
 #ifndef NULL
-#ifdef __cplusplus
 #define NULL nullptr
-#else
-#define NULL ((void *)0)
-#endif
 #endif

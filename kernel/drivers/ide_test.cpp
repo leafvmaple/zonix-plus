@@ -1,7 +1,7 @@
 #include "ide.h"
 #include "stdio.h"
 
-#include <asm/io.h>
+#include <asm/arch.h>
 
 /**
  * Test disk read/write for all devices
@@ -96,7 +96,7 @@ void IdeManager::test_interrupt(void) {
     cprintf("  base=0x%x, ctrl=0x%x, irq=%d\n", dev->m_config->base, dev->m_config->ctrl, dev->m_config->irq);
     
     // Check interrupt enable status
-    uint8_t ctrl = inb(dev->m_config->ctrl);
+    uint8_t ctrl = arch_port_inb(dev->m_config->ctrl);
     cprintf("  Control register: 0x%02x (interrupts %s)\n", 
             ctrl, (ctrl & ide::CTRL_nIEN) ? "DISABLED" : "ENABLED");
     

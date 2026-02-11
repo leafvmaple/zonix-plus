@@ -60,8 +60,6 @@ public:
     PMMManager& operator=(const PMMManager&) = delete;
 };
 
-#define le2page(le, member) TO_STRUCT((le), Page, member)
-
 namespace pmm {
 
 inline constexpr int SUCCESS = 0;

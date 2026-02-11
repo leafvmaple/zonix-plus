@@ -1,17 +1,17 @@
 #include "intr.h"
 
-#include <asm/io.h>
+#include <asm/arch.h>
 
 namespace intr {
 
 /* intr enable - enable irq interrupt */
 void enable() {
-    sti();
+    arch_irq_enable();
 }
 
 /* intr disable - disable irq interrupt */
 void disable() {
-    cli();
+    arch_irq_disable();
 }
 
 } // namespace intr

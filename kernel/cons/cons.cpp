@@ -1,7 +1,7 @@
 #include "cons.h"
 
 #include <kernel/config.h>
-#include <asm/io.h>
+#include <asm/arch.h>
 
 #ifdef CONFIG_CGA
 #include "../drivers/cga.h"
@@ -50,6 +50,6 @@ void cons_putc(int c) {
     serial::putc(c);
 #endif
 #ifdef CONFIG_BOCHS_DBG
-    outb(0xe9, c);
+    arch_port_outb(0xe9, c);
 #endif
 }
