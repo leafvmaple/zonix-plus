@@ -21,7 +21,7 @@ extern "C" {
     extern ctor_func __init_array_end[];
 }
 
-static void call_global_ctors() {
+static void cxx_init() {
     for (auto* fn = __init_array_start; fn < __init_array_end; fn++) {
         (*fn)();
     }
@@ -32,8 +32,8 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info *boot_info) 
         goto halt;
     }
 
-    // Call C++ global constructors before anything else
-    call_global_ctors();
+    // C++ global constructors (must run before any other init)
+    cxx_init();
     
     // Console initialization first (basic driver: CGA + keyboard)
     // This must be first to enable cprintf for other modules

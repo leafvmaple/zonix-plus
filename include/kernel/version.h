@@ -8,8 +8,8 @@
  */
 
 #define ZONIX_VERSION_MAJOR     0
-#define ZONIX_VERSION_MINOR     7
-#define ZONIX_VERSION_PATCH     1
+#define ZONIX_VERSION_MINOR     8
+#define ZONIX_VERSION_PATCH     0
 
 /* Macro stringification helpers */
 #define _ZONIX_STR(x)           #x
@@ -24,7 +24,7 @@
 #define ZONIX_CODENAME          "Genesis"
 
 /* Build information - auto-updated during compilation */
-#define ZONIX_BUILD_DATE        "Feb 05 2026"
-#define ZONIX_BUILD_TIME        "18:38:28"
+#define ZONIX_BUILD_DATE        "Feb 12 2026"
+#define ZONIX_BUILD_TIME        "15:30:57"
 #define ZONIX_BUILD_NUMBER      1
 

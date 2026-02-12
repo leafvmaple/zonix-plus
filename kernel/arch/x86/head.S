@@ -238,24 +238,11 @@ __idtdesc:
 .section .data.pgdir, "aw", @progbits
 
 .align PG_SIZE
-__boot_pml4:
-    .space PG_SIZE
-
-.align PG_SIZE
-__boot_pdpt_low:
-    .space PG_SIZE
-
-.align PG_SIZE
-__boot_pdpt_high:
-    .space PG_SIZE
-
-.align PG_SIZE
-__boot_pd_low:
-    .space PG_SIZE
-
-.align PG_SIZE
-__boot_pd_high:
-    .space PG_SIZE
+__boot_pml4:    .space PG_SIZE
+__boot_pdpt_low:  .space PG_SIZE
+__boot_pdpt_high: .space PG_SIZE
+__boot_pd_low:    .space PG_SIZE
+__boot_pd_high:   .space PG_SIZE
 
 # ===================================================================
 # Kernel boot info copy (in .data so BSS clear does not overwrite it)

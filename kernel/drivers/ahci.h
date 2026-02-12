@@ -150,5 +150,5 @@ private:
     static int s_ahci_devices_count;
 
     static AhciPortConfig s_ahci_port_configs[ahci::MAX_DEVICES];
-    static uint32_t s_ahci_base;  // AHCI controller MMIO base
+    static uintptr_t s_ahci_base;  // AHCI controller MMIO virtual base
 };

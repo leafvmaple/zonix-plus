@@ -5,6 +5,72 @@ All notable changes to the Zonix Operating System project will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-02-12
+
+### Summary
+**Milestone release** — Zonix has evolved from a basic 32-bit prototype into a fully functional x86_64
+dual-boot kernel with complete infrastructure: process scheduling, virtual memory with swap, FAT32 filesystem,
+AHCI/SATA driver, framebuffer console, and 20+ interactive shell commands.
+
+### Added
+- **AHCI (SATA) Driver**: MMIO-based SATA controller via PCI BAR discovery
+  - FIS command submission with interrupt handling
+  - Support for up to 4 SATA ports
+  - Integrated into block device layer with auto-detection
+- **PCI Bus Enumeration**: Full PCI configuration space driver
+  - Config space read/write (8/16/32-bit), BAR reading
+  - Bus master enable, device enumeration by class/subclass
+- **Framebuffer Console**: Pixel-based text rendering for UEFI/VESA modes
+  - PSF font loading and glyph rendering on GOP framebuffer
+  - Cursor blinking via timer interrupt
+  - CONFIG_FBCONS toggle for conditional compilation
+- **Serial Console**: COM1 debug output at 115200 baud (CONFIG_SERIAL)
+- **Interrupt Guard**: RAII `InterruptsGuard` class for safe CLI/STI scoping
+- **Scheduler Test Suite**: `schedtest` shell command for process management validation
+- **Kconfig-style Configuration**: `include/kernel/config.h` with modular CONFIG_* toggles
+  - CONFIG_CGA, CONFIG_FBCONS, CONFIG_SERIAL, CONFIG_BOCHS_DBG
+  - CONFIG_PS2KBD, CONFIG_IDE, CONFIG_AHCI, CONFIG_FAT, CONFIG_SWAP
+- **C++ Kernel Infrastructure**:
+  - Global `operator new`/`operator delete` via kmalloc/kfree
+  - C++ global constructor chain (.init_array) called before kernel init
+  - RAII patterns for interrupt management
+- **QEMU Configurations**: Added `qemu.cfg`, `qemu-uefi.cfg`, `qemu-debug.cfg`, `qemu-ahci.cfg`
+
+### Changed
+- **Architecture**: Kernel is now fully **x86_64 long mode** (64-bit)
+  - Higher-half kernel mapped at `0xFFFFFFFF80000000`
+  - 4-level page tables (PML4 → PDPT → PD → PT)
+  - TrapFrame and Context use 64-bit registers (RAX-R15)
+  - Linker script outputs `elf64-x86-64`
+- **Process Management**: Major enhancements to scheduler subsystem
+  - Complete fork/exit/wait lifecycle with zombie reaping and orphan reparenting
+  - `kernel_thread()` API for creating kernel threads
+  - Process hash table (1024 buckets) for O(1) PID lookup
+  - Dedicated init process (PID 1) and shell process (PID 2)
+- **Memory Management**: Full virtual memory subsystem
+  - Page table create/destroy/map/unmap with permission management
+  - MMIO mapping support (`mmio_map()`) for device memory
+  - Page fault handler integrated with swap system
+  - Swap out/in with FIFO replacement and disk-backed storage
+- **Block Device Layer**: Refactored to C++ with abstract `BlockDevice` base class
+  - `BlockManager` supporting up to 4 devices with name/index/type lookup
+- **Shell**: Expanded to 20+ commands with argument parsing (argc/argv)
+  - Added: `mount`, `umount`, `ls`, `cat`, `info`, `pgdir`, `swaptest`, `schedtest`
+  - Auto-mount system disk on first filesystem access
+- **Build System**: Added UEFI and QEMU targets alongside Bochs
+  - `make qemu-uefi` for UEFI testing with OVMF firmware
+  - `make qemu-debug` for GDB remote debugging
+  - Automatic FAT32 image creation scripts
+- **Source Language**: Migrated kernel source from `.c` to `.cpp` (C++17 freestanding)
+
+### Technical Details
+- Boot info structure: unified `boot_info` protocol for BIOS and UEFI paths
+- E820 memory map parsed from bootloader, passed via boot_info
+- AHCI uses memory-mapped HBA registers with port-based command slots
+- PCI enumeration scans bus 0-255 / device 0-31 / function 0-7
+- Framebuffer console renders PSF2 fonts at pixel level on linear framebuffer
+- Serial driver: 8N1, 115200 baud, FIFO enabled, polled output
+
 ## [0.7.1] - 2025-12-04
 
 ### Changed

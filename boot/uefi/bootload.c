@@ -6,23 +6,14 @@
 #include <kernel/bootinfo.h>
 #include <base/elf.h>
 
+#include "../bootlib.h"
+
 // Global UEFI state
 EFI_SYSTEM_TABLE* ST = NULL;
 EFI_BOOT_SERVICES* BS = NULL;
 
-// Utility functions
-static void* memcpy(void* dst, const void* src, size_t n) {
-    char* d = (char*)dst;
-    const char* s = (const char*)src;
-    while (n--) *d++ = *s++;
-    return dst;
-}
+#define ZONIX_LOADER_VERSION L"v1.0"
 
-static void* memset(void* dst, int c, size_t n) {
-    char* d = (char*)dst;
-    while (n--) *d++ = (char)c;
-    return dst;
-}
 
 static void print(const CHAR16 *str) {
     if (ST && ST->ConOut) {
@@ -100,21 +91,22 @@ static int load_elf_kernel(void* elf_buffer, struct boot_info *boot_info) {
 #define SAFE_MMAP_MAX_ENTRIES ((0x7000 - SAFE_MMAP_ADDR) / sizeof(struct boot_mmap_entry))
 
 // Get UEFI memory map and convert to boot_info format
-static EFI_STATUS get_memory_map(struct boot_info *boot_info, UINTN *map_key) {
+static EFI_STATUS get_memory_map(struct boot_info *boot_info) {
+    UINTN map_key = 0;
     EFI_MEMORY_DESCRIPTOR *memory_map = NULL;
     UINTN memory_map_size = 0;
     UINTN descriptor_size = 0;
     UINT32 descriptor_version = 0;
     EFI_STATUS status;
     
-    status = BS->GetMemoryMap(&memory_map_size, memory_map, map_key, &descriptor_size, &descriptor_version);
+    status = BS->GetMemoryMap(&memory_map_size, memory_map, &map_key, &descriptor_size, &descriptor_version);
     if (status != EFI_BUFFER_TOO_SMALL) return status;
     
     memory_map_size += 2 * descriptor_size;
     status = BS->AllocatePool(EfiLoaderData, memory_map_size, (VOID**)&memory_map);
     if (EFI_ERROR(status)) return status;
     
-    status = BS->GetMemoryMap(&memory_map_size, memory_map, map_key, &descriptor_size, &descriptor_version);
+    status = BS->GetMemoryMap(&memory_map_size, memory_map, &map_key, &descriptor_size, &descriptor_version);
     if (EFI_ERROR(status)) {
         BS->FreePool(memory_map);
         return status;
@@ -158,6 +150,23 @@ static EFI_STATUS get_memory_map(struct boot_info *boot_info, UINTN *map_key) {
         boot_info->mmap_length++;
         desc = (EFI_MEMORY_DESCRIPTOR*)((UINT8*)desc + descriptor_size);
     }
+
+    uint32_t merged = 0;
+    for (uint32_t i = 0; i < boot_info->mmap_length; i++) {
+        if (merged > 0) {
+            struct boot_mmap_entry *prev = &mmap_entries[merged - 1];
+            struct boot_mmap_entry *cur  = &mmap_entries[i];
+            if (prev->type == cur->type && prev->addr + prev->len == cur->addr) {
+                prev->len += cur->len;
+                continue;
+            }
+        }
+        if (merged != i) {
+            mmap_entries[merged] = mmap_entries[i];
+        }
+        merged++;
+    }
+    boot_info->mmap_length = merged;
 
     BS->FreePool(memory_map);
     return EFI_SUCCESS;
@@ -284,7 +293,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable
     BS = SystemTable->BootServices;
     
     ST->ConOut->ClearScreen(ST->ConOut);
-    print(L"\r\nZonix UEFI Bootloader v1.0\r\n\r\n");
+    print(L"\r\nZonix UEFI Bootloader " ZONIX_LOADER_VERSION "\r\n\r\n");
     
     BS->SetWatchdogTimer(0, 0, 0, NULL);
 
@@ -295,9 +304,8 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable
     boot_info->mmap_addr = SAFE_MMAP_ADDR;
 
     // Get memory map
-    UINTN map_key = 0;
     print(L"Getting memory map...\r\n");
-    EFI_STATUS status = get_memory_map(boot_info, &map_key);
+    EFI_STATUS status = get_memory_map(boot_info);
     if (EFI_ERROR(status)) return status;
 
     // Load kernel from filesystem

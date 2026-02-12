@@ -4,32 +4,39 @@
 
 ## 📋 项目概览
 
-### 最近更新 (2025-10-14)
-- ✨ **多磁盘支持**：实现完整的4磁盘IDE/ATA驱动
-  - 支持Primary/Secondary双IDE通道，每通道Master/Slave设备
-  - 设备命名：hda（主引导盘）、hdb、hdc、hdd（Linux风格命名）
-  - 自动设备检测与初始化
-  - 实现带小数精度的lsblk磁盘列表显示（如"4.0M"）
-  - Makefile自动创建4个磁盘镜像
-  - Bochs配置支持完整的4磁盘环境
-  - 块设备层支持多设备注册与管理
+### 最近更新 (2026-02-12) — v0.8.0 里程碑
 
-- ✨ **性能优化**：修复键盘输入响应慢的问题
-  - 实现8259A PIC的EOI信号处理机制
-  - 优化Bochs模拟器配置（IPS: 15MHz → 50MHz）
-  - 移除时钟同步限制，提升整体运行速度
-  - 优化CGA光标更新逻辑
+**v0.8.0 标志着 Zonix 从单一引导的 32 位原型升级为具备完整基础设施的 x86_64 双引导内核。**
 
-Zonix 是一个基于 x86 架构的教学型操作系统，当前已实现：
-- ✅ 基础引导加载（bootloader）
-- ✅ 简单的物理内存管理器
-- ✅ 中断和异常处理框架（含EOI信号处理）
-- ✅ 基础的控制台输出（CGA驱动）
-- ✅ 简单的 Shell 框架
-- ✅ 键盘输入驱动（优化响应性能）
-- ✅ 完整的多磁盘IDE/ATA驱动（支持4设备）
-- ✅ 块设备抽象层（支持多设备注册）
-- ✅ 交换系统（支持FIFO/Clock/LRU算法）
+#### 自 v0.5.0 以来的主要成就
+- ✨ **x86_64 长模式**：完整迁移到 64 位，高半核映射 `0xFFFFFFFF80000000`
+- ✨ **UEFI 双引导**：BIOS (MBR→VBR→bootloader) + UEFI (BOOTX64.EFI) 双路径
+- ✨ **FAT32 文件系统**：从 FAT16 升级为 FAT32，支持 MBR 分区自动检测
+- ✨ **AHCI/SATA 驱动**：通过 PCI BAR 发现的 MMIO SATA 控制器驱动
+- ✨ **帧缓冲控制台**：UEFI GOP/VESA 像素级 PSF 字体渲染
+- ✨ **进程管理**：完整的 fork/exit/wait、僵尸回收、孤儿重定向
+- ✨ **虚拟内存**：4 级页表、MMIO 映射、缺页处理、FIFO 换页
+- ✨ **C++17 内核**：全局 new/delete、RAII InterruptsGuard、C++ 构造函数链
+- ✨ **串口调试**：COM1 115200 baud 调试输出
+- ✨ **Kconfig 风格配置**：CONFIG_* 模块化开关
+
+Zonix 是一个基于 x86_64 架构的教学型操作系统，当前 (v0.8.0) 已实现：
+- ✅ 双引导加载（BIOS + UEFI）
+- ✅ x86_64 长模式（64 位内核）
+- ✅ 物理内存管理器（First-Fit 页分配 + 引用计数）
+- ✅ 虚拟内存管理（页表、MMIO 映射、缺页处理）
+- ✅ 页面置换/交换系统（FIFO 算法 + 磁盘后端）
+- ✅ 中断和异常处理框架（IDT 256 项 + 完整 TrapFrame）
+- ✅ 进程调度（Round-Robin + fork/exit/wait + 上下文切换）
+- ✅ 多输出控制台（CGA + 帧缓冲 + 串口）
+- ✅ 交互式 Shell（20+ 命令 + 参数解析）
+- ✅ PS/2 键盘驱动（中断驱动 + 扫描码映射）
+- ✅ 完整的多磁盘 IDE/ATA 驱动（4 设备 + 中断 I/O）
+- ✅ AHCI/SATA 驱动（MMIO + PCI 枚举）
+- ✅ 块设备抽象层（多设备注册与管理）
+- ✅ FAT32 只读文件系统（MBR 分区 + 双挂载点）
+- ✅ kmalloc/kfree + C++ new/delete 运算符重载
+- ✅ CONFIG_* 模块化内核配置
 
 ---
 
@@ -131,11 +138,14 @@ Zonix 是一个基于 x86 架构的教学型操作系统，当前已实现：
   - 效果：修复键盘响应慢的问题
   - 学习点：8259A PIC工作原理、中断确认机制
 
+- [x] **IDT 完整初始化** ✅ (v0.8.0)
+  - 完成：256 项 IDT 初始化
+  - 完成：x86_64 TrapFrame（所有 GPR + 硬件压栈上下文）
+  - 完成：20 个 CPU 异常命名处理器
+  - 完成：缺页异常处理（输出 CR2，委托 `vmm_pg_fault()`）
+
 - [ ] **完善异常处理**
-  - 修改：`kern/trap/trap.c`
-  - 添加：详细的异常信息输出
-  - 添加：异常堆栈回溯
-  - 实现：缺页异常处理
+  - 添加：异常堆栈回溯（backtrace / stack unwinding）
 
 - [ ] **实现中断嵌套**
   - 支持：可重入中断处理
@@ -171,16 +181,22 @@ Zonix 是一个基于 x86 架构的教学型操作系统，当前已实现：
 
 #### 块设备
 - [x] **多磁盘IDE/ATA驱动** ✅ (2025-10-14)
-  - 完成：`kern/drivers/hd.c` - 支持4个IDE设备
+  - 完成：`kernel/drivers/ide.cpp` - 支持4个IDE设备，中断驱动 sleep/wakeup I/O
   - 完成：Primary/Secondary双通道支持
-  - 完成：设备自动检测（hda/hdb/hdc/hdd）
-  - 完成：`kern/drivers/blk.c` - 块设备层多设备注册
+  - 完成：设备自动检测（hd0/hd1/hd2/hd3）
+  - 完成：`kernel/block/blk.cpp` - 抽象块设备层多设备注册
   - 完成：带小数的磁盘容量显示（lsblk命令）
-  - 完成：`Makefile` - 自动创建多磁盘镜像
-  - 完成：`bochsrc.bxrc` - 配置4磁盘环境
+
+- [x] **AHCI/SATA 驱动** ✅ (v0.8.0)
+  - 完成：`kernel/drivers/ahci.cpp` - MMIO SATA 控制器
+  - 完成：PCI BAR 发现 + FIS 命令提交
+  - 完成：中断处理，支持最多 4 端口
+
+- [x] **PCI 总线枚举** ✅ (v0.8.0)
+  - 完成：`kernel/drivers/pci.cpp` - 配置空间读写
+  - 完成：BAR 读取、Bus Master 使能、按 class/subclass 设备枚举
 
 - [ ] **完善硬盘驱动**
-  - 完善：`kern/drivers/hd.c`
   - 待添加：DMA 支持
   - 待添加：异步 I/O
   - 待添加：更完善的错误处理
@@ -448,10 +464,10 @@ Zonix 是一个基于 x86 架构的教学型操作系统，当前已实现：
 
 ### 6.3 64 位支持
 
-- [ ] **迁移到 Long Mode**
-  - 修改：引导代码
-  - 修改：`tools/boot.ld`、`tools/kernel.ld`
-  - 学习点：分页模式变化、寄存器扩展
+- [x] **迁移到 Long Mode** ✅ (v0.7.0)
+  - 完成：x86_64 长模式内核，高半核映射 `0xFFFFFFFF80000000`
+  - 完成：64 位 TrapFrame、Context（RAX-R15）
+  - 完成：引导代码 32→64 模式切换
 
 - [ ] **支持大内存**
   - 支持：超过 4GB 物理内存
@@ -654,17 +670,19 @@ sudo apt install clang-format cppcheck
 ### 统计信息
 - **总任务数**：约 150+ 个子任务
 - **预计完成时间**：6-12 个月（取决于学习深度）
-- **当前完成度**：约 18%（基础框架 + 中断优化 + 磁盘驱动）
-- **最近完成**：键盘响应性能优化 (2025-10-14)
+- **当前完成度**：约 35%（完整基础设施 + 双引导 + 64 位 + 进程调度 + 磁盘/文件系统）
+- **最近完成**：v0.8.0 里程碑 (2026-02-12)
 
 ### 里程碑
 
-- [ ] **Milestone 1**：能够运行简单的用户程序
-- [ ] **Milestone 2**：实现基本的文件系统操作
-- [ ] **Milestone 3**：支持多进程并发
-- [ ] **Milestone 4**：实现完整的 Shell
-- [ ] **Milestone 5**：支持网络通信
-- [ ] **Milestone 6**：迁移到 64 位
+- [x] **Milestone 0**：✅ 迁移到 64 位长模式 (v0.7.0)
+- [x] **Milestone 1**：✅ 实现基本的文件系统操作 — FAT32 只读 (v0.7.1)
+- [x] **Milestone 2**：✅ 支持多进程并发 — Round-Robin + fork/exit/wait (v0.3.0+)
+- [x] **Milestone 3**：✅ 实现交互式 Shell — 20+ 命令 (v0.8.0)
+- [ ] **Milestone 4**：同步原语 + 抢占式调度
+- [ ] **Milestone 5**：用户态进程 (Ring 3) + syscall 表 + ELF 加载
+- [ ] **Milestone 6**：VFS + 文件描述符 + 管道
+- [ ] **Milestone 7**：支持网络通信
 
 ---
 

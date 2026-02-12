@@ -15,7 +15,7 @@
 AhciDevice AhciManager::s_ahci_devices[ahci::MAX_DEVICES] = {};
 int AhciManager::s_ahci_devices_count = 0;
 
-uint32_t AhciManager::s_ahci_base = ahci::AHCI_BAR_BASE;
+uintptr_t AhciManager::s_ahci_base = 0;
 
 AhciPortConfig AhciManager::s_ahci_port_configs[ahci::MAX_DEVICES] = {
     {0, IRQ_IDE1, "sda"},  // AHCI port 0
@@ -63,7 +63,7 @@ static int ahci_wait_port_ready(uintptr_t portBase, int timeout_ms) {
     return -1;
 }
 
-static int ahci_enable_port(uint32_t portBase) {
+static int ahci_enable_port(uintptr_t portBase) {
 
     uint32_t cmd = mmio_read32(portBase, ahci::PORT_CMD_STAT);
     cmd |= ahci::CMD_FRE;  // Enable FIS receive
@@ -132,7 +132,7 @@ void AhciManager::init(void) {
     }
     
     // Map AHCI MMIO region into kernel virtual address space
-    uintptr_t s_ahci_base = mmio_map(phys_base, 0x10000, PTE_W | PTE_PCD | PTE_PWT);
+    s_ahci_base = mmio_map(phys_base, 0x10000, PTE_W | PTE_PCD | PTE_PWT);
     
     // Check if AHCI controller is present by reading version register
     uint32_t version = mmio_read32(s_ahci_base, ahci::AHCI_VS);

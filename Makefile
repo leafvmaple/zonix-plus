@@ -210,9 +210,19 @@ $(vbr): $(VOBJS) tools/boot.ld | $$(dir $$@)
 # Bootloader build (ELF loader at 0x7E00) - BIOS mode
 # Can use reserved sectors: sector 1-7 (512 * 7 bytes total)
 bootloader = $(call totarget,bootloader)
-$(bootloader): boot/bios/bootload.c tools/bootload.ld | $$(dir $$@)
-	$(CC) $(BOOT_CFLAGS) -I include -I include/arch/$(ARCH) -O2 -g -nostdinc -fno-builtin -fno-stack-protector -c boot/bios/bootload.c -o $(call toobj,boot/bios/bootload.c)
-	$(LD) $(BOOT_LDFLAGS) -T tools/bootload.ld -o $@ $(call toobj,boot/bios/bootload.c)
+BOOTLOAD_C_OBJ := $(call toobj,boot/bios/bootload.c)
+BOOTLOAD_S_OBJ := $(call toobj,boot/bios/entry.S)
+
+$(BOOTLOAD_C_OBJ): boot/bios/bootload.c | $$(dir $$@)
+	$(CC) $(BOOT_CFLAGS) -I include -I include/arch/$(ARCH) -O2 -g -nostdinc -fno-builtin -fno-stack-protector -c $< -o $@
+
+$(BOOTLOAD_S_OBJ): boot/bios/entry.S | $$(dir $$@)
+	$(CC) $(BOOT_CFLAGS) -I include -I include/arch/$(ARCH) -c $< -o $@
+
+ALLOBJS += $(BOOTLOAD_C_OBJ) $(BOOTLOAD_S_OBJ)
+
+$(bootloader): $(BOOTLOAD_C_OBJ) $(BOOTLOAD_S_OBJ) tools/bootload.ld | $$(dir $$@)
+	$(LD) $(BOOT_LDFLAGS) -T tools/bootload.ld -o $@ $(BOOTLOAD_C_OBJ) $(BOOTLOAD_S_OBJ)
 	$(OBJDUMP) -S $@ > obj/bootloader.asm
 	$(OBJCOPY) -S -O binary $@ $(call tobin,bootloader)
 	$(DASM) -b 32 $(call tobin,bootloader) > obj/bootloader.disasm
@@ -310,7 +320,7 @@ fat32: bin/zonix.img
 # Build UEFI bootloader and image
 uefi: $(UEFI_TARGETS)
 
-qemu: bin/zonix.img
+qemu: bin/zonix.img bin/fat32_test.img
 	$(QEMU) -readconfig qemu.cfg -no-reboot
 
 qemu-ahci: bin/zonix.img
@@ -319,7 +329,7 @@ qemu-ahci: bin/zonix.img
 qemu-fat32: bin/zonix.img
 	$(QEMU) -S -no-reboot -readconfig qemu.cfg
 
-qemu-uefi: bin/zonix-uefi.img
+qemu-uefi: bin/zonix-uefi.img bin/fat32_test.img
 	$(QEMU) -bios /usr/share/ovmf/OVMF.fd -readconfig qemu-uefi.cfg
 #	$(QEMU) -bios /usr/share/ovmf/OVMF.fd \
 #	-drive file=bin/zonix-uefi.img,format=raw \

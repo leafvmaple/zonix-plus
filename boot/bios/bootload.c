@@ -16,6 +16,8 @@
 #include <asm/cr.h>
 #include <asm/io.h>
 
+#include "../bootlib.h"
+
 #define SECT_SIZE 512
 #define KERNEL_NAME "KERNEL  SYS"
 
@@ -76,41 +78,6 @@ static uint8_t boot_drive;
 static fat32_bpb_t* bpb32 = (fat32_bpb_t*)0x7C0B;  // BPB starts at 0x7C00 + 0x0B (after jmp + oem)
 static struct boot_info boot_info;
 
-// Simple memcpy
-static void* memcpy(void* dst, const void* src, size_t n) {
-    char* d = (char*)dst;
-    const char* s = (const char*)src;
-    while (n--)
-        *d++ = *s++;
-    return dst;
-}
-
-// Simple memset
-static void* memset(void* dst, int c, size_t n) {
-    char* d = (char*)dst;
-    while (n--)
-        *d++ = (char)c;
-    return dst;
-}
-
-static void* strcpy(char* dst, const char* src) {
-    char* d = dst;
-    while ((*d++ = *src++));
-    return dst;
-}
-
-// Compare memory
-static int memcmp(const void* s1, const void* s2, size_t n) {
-    const uint8_t* p1 = (const uint8_t*)s1;
-    const uint8_t* p2 = (const uint8_t*)s2;
-    while (n--) {
-        if (*p1 != *p2)
-            return *p1 - *p2;
-        p1++;
-        p2++;
-    }
-    return 0;
-}
 
 // Wait for ATA drive to be ready (not busy)
 static void ata_wait_ready(void) {
@@ -123,8 +90,6 @@ static void ata_wait_ready(void) {
 // lba: absolute LBA sector number
 // buffer: must be 512-byte aligned
 static int ata_read_sector(uint32_t lba, void* buffer) {
-    uint16_t* buf = (uint16_t*)buffer;
-    
     // Wait for drive to be ready
     ata_wait_ready();
 
@@ -143,7 +108,6 @@ static int ata_read_sector(uint32_t lba, void* buffer) {
     return 0;
 }
 
-// Read multiple sectors
 static int read_sectors(uint32_t lba, uint32_t count, uint8_t* buffer) {
     for (uint32_t i = 0; i < count; i++) {
         // Calculate absolute LBA: hidden_sectors + 1 (VBR) + lba
@@ -334,94 +298,13 @@ static void build_gdt64(void) {
 }
 
 // =============================================================================
-// Enter 64-bit long mode and jump to kernel
-//
-// This function NEVER returns. It:
-//   1. Enables PAE in CR4
-//   2. Loads PML4 into CR3
-//   3. Enables Long Mode in EFER MSR
-//   4. Enables Paging in CR0 (activating long mode)
-//   5. Loads 64-bit GDT
-//   6. Far-jumps to 64-bit code
-//   7. In 64-bit mode: sets segments, loads boot_info into %rdi, jumps to kernel
+// enter_long_mode: defined in enter_long_mode.S
+// Transitions from 32-bit protected mode to 64-bit long mode and jumps to kernel.
+// Never returns.
+//   kernel_entry_phys: physical address of kernel entry point
+//   info: pointer to struct boot_info (passed to kernel in %rdi)
 // =============================================================================
-static void __attribute__((noreturn)) enter_long_mode(uint32_t kernel_entry_phys, struct boot_info *info) {
-    // Build page tables and GDT
-    build_page_tables();
-    build_gdt64();
-
-    // The transition code is in inline assembly because we're switching
-    // from 32-bit to 64-bit mode
-    __asm__ volatile (
-        // Save parameters in registers that won't be clobbered
-        "movl %0, %%ebx\n\t"       // ebx = kernel_entry_phys
-        "movl %1, %%esi\n\t"       // esi = boot_info pointer
-
-        // 1. Enable PAE (CR4.PAE = bit 5)
-        "movl %%cr4, %%eax\n\t"
-        "orl  $0x20, %%eax\n\t"    // CR4_PAE
-        "movl %%eax, %%cr4\n\t"
-
-        // 2. Load PML4 into CR3
-        "movl %2, %%eax\n\t"       // BOOT_PML4_ADDR
-        "movl %%eax, %%cr3\n\t"
-
-        // 3. Enable Long Mode (EFER.LME = bit 8)
-        "movl $0xC0000080, %%ecx\n\t"  // MSR_EFER
-        "rdmsr\n\t"
-        "orl  $0x100, %%eax\n\t"       // EFER_LME
-        "wrmsr\n\t"
-
-        // 4. Enable Paging (CR0.PG = bit 31) and Write Protect (CR0.WP = bit 16)
-        "movl %%cr0, %%eax\n\t"
-        "orl  $0x80010000, %%eax\n\t"  // CR0_PG | CR0_WP
-        "movl %%eax, %%cr0\n\t"
-
-        // 5. Load 64-bit GDT
-        "lgdt %3\n\t"
-
-        // 6. Far jump to 64-bit code segment
-        //    GD_KTEXT = 0x08 (selector for entry 1)
-        //    Use ljmp with absolute address to the .Llong_mode label
-        "ljmp $0x08, $.Llong_mode\n\t"
-
-        // 7. 64-bit code
-        ".code64\n\t"
-        ".Llong_mode:\n\t"
-
-        // Set up 64-bit data segments (GD_KDATA = 0x10, entry 2)
-        "movw $0x10, %%ax\n\t"
-        "movw %%ax, %%ds\n\t"
-        "movw %%ax, %%es\n\t"
-        "movw %%ax, %%ss\n\t"
-        "xorw %%ax, %%ax\n\t"
-        "movw %%ax, %%fs\n\t"
-        "movw %%ax, %%gs\n\t"
-
-        // Set up a temporary stack in 64-bit mode
-        "movq $0x7000, %%rsp\n\t"
-
-        // Load boot_info pointer into %rdi (x86_64 calling convention, first argument)
-        // %esi was saved earlier (32-bit), zero-extend to 64-bit
-        "movl %%esi, %%edi\n\t"
-
-        // Jump to kernel entry point (physical address in %ebx, zero-extended)
-        "movl %%ebx, %%eax\n\t"
-        "jmp *%%rax\n\t"
-
-        // Switch back to 32-bit assembly mode for the rest of this file
-        ".code32\n\t"
-
-        :
-        : "r"(kernel_entry_phys),
-          "r"(info),
-          "i"(BOOT_PML4_ADDR),
-          "m"(*(char*)BOOT_GDTDESC64_ADDR)
-        : "eax", "ebx", "ecx", "edx", "esi", "memory"
-    );
-
-    __builtin_unreachable();
-}
+extern void __attribute__((noreturn)) enter_long_mode(uint32_t kernel_entry_phys, struct boot_info *info);
 
 void __attribute__((section(".text.bootmain"))) bootmain(uint32_t boot_drive_param) {
     boot_drive = (uint8_t)boot_drive_param;
@@ -463,9 +346,13 @@ void __attribute__((section(".text.bootmain"))) bootmain(uint32_t boot_drive_par
     // Strip the higher-half base (0xFFFFFFFF80000000) to get physical address
     uint32_t kernel_entry_phys = (uint32_t)(boot_info.kernel_entry & 0x7FFFFFFF);
 
+    // Build page tables and GDT for 64-bit transition
+    build_page_tables();
+    build_gdt64();
+
     // Enter 64-bit long mode and jump to kernel
     // This function never returns
-    enter_long_mode(kernel_entry_phys, &boot_info);
+    enter_long_mode(kernel_entry_phys, &boot_info); // in entry.S
     
 bad:
     while (1)

@@ -114,23 +114,37 @@ void IdeManager::init(void) {
     for (int i = 0; i < ide::MAX_DEVICES; i++) {
         auto& config = s_ide_configs[i];
         uint8_t driveSel = config.drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
-        arch_port_outb(config.base + ide::REG_DEVICE, 0xA0 | (driveSel << 4));
+
+        // Select drive
+        arch_port_outb(config.base + ide::REG_DEVICE, driveSel);
         arch_io_wait();
 
+        // Send IDENTIFY command
         arch_port_outb(config.base + ide::REG_COMMAND, ide::CMD_IDENTIFY);
         arch_io_wait();
 
         // Check if device is present
         uint8_t status = arch_port_inb(config.base + ide::REG_STATUS);
-        if (status == 0) {
-            continue; // No device
+        if (status == 0 || status == 0xFF) {
+            continue; // No device or floating bus
         }
 
         // Wait for BSY to clear
         if (hd_wait_ready_on_base(config.base) != 0) {
             continue; // Device not ready
         }
-        s_ide_devices[s_ide_devices_count++].detect(&config);
+
+        // Check that DRQ is set (IDENTIFY data ready) and no error
+        status = arch_port_inb(config.base + ide::REG_STATUS);
+        if ((status & ide::STATUS_ERR) || !(status & ide::STATUS_DRQ)) {
+            continue; // Not an ATA device (could be ATAPI or absent)
+        }
+
+        s_ide_devices[s_ide_devices_count].detect(&config);
+        // Only count the device if it reported a valid size
+        if (s_ide_devices[s_ide_devices_count].m_info.size > 0) {
+            s_ide_devices_count++;
+        }
     }
     
     cprintf("hd_init: found %d device(s)\n", s_ide_devices_count);
