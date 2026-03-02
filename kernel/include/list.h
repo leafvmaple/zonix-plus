@@ -12,11 +12,11 @@ struct ListNode {
         m_prev = m_next = this;
     }
 
-    inline ListNode* get_next() const {
+    [[nodiscard]] inline ListNode* get_next() const {
         return m_next;
     }
 
-    inline ListNode* get_prev() const {
+    [[nodiscard]] inline ListNode* get_prev() const {
         return m_prev;
     }
 
@@ -38,7 +38,7 @@ struct ListNode {
         add_after(elm);
     }
 
-    inline void unlink() {
+    inline void unlink() const {
         m_prev->m_next = m_next;
         m_next->m_prev = m_prev;
     }

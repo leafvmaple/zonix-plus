@@ -97,7 +97,7 @@ static EFI_STATUS get_memory_map(struct boot_info *boot_info) {
     UINTN memory_map_size = 0;
     UINTN descriptor_size = 0;
     UINT32 descriptor_version = 0;
-    EFI_STATUS status;
+    EFI_STATUS status = 0;
     
     status = BS->GetMemoryMap(&memory_map_size, memory_map, &map_key, &descriptor_size, &descriptor_version);
     if (status != EFI_BUFFER_TOO_SMALL) return status;
@@ -177,7 +177,7 @@ static EFI_STATUS load_kernel(EFI_HANDLE image_handle, VOID **kernel_buffer, UIN
     EFI_LOADED_IMAGE_PROTOCOL *loaded_image = NULL;
     EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *fs = NULL;
     EFI_FILE_PROTOCOL *root = NULL, *kernel_file = NULL;
-    EFI_STATUS status;
+    EFI_STATUS status = 0;
     
     EFI_GUID lip_guid = EFI_LOADED_IMAGE_PROTOCOL_GUID;
     EFI_GUID fs_guid = EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID;
@@ -260,7 +260,7 @@ static EFI_STATUS exit_boot_services(EFI_HANDLE image_handle) {
     UINTN m_size = 0, d_size = 0;
     UINT32 d_ver = 0;
     EFI_MEMORY_DESCRIPTOR *m_map = NULL;
-    EFI_STATUS status;
+    EFI_STATUS status = 0;
 
     // Get fresh memory map (required immediately before ExitBootServices)
     BS->GetMemoryMap(&m_size, NULL, &map_key, &d_size, &d_ver);
@@ -288,9 +288,9 @@ static EFI_STATUS exit_boot_services(EFI_HANDLE image_handle) {
 }
 
 // UEFI application entry point
-EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable) {
-    ST = SystemTable;
-    BS = SystemTable->BootServices;
+EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_table) {
+    ST = system_table;
+    BS = system_table->BootServices;
     
     ST->ConOut->ClearScreen(ST->ConOut);
     print(L"\r\nZonix UEFI Bootloader " ZONIX_LOADER_VERSION "\r\n\r\n");
@@ -312,7 +312,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable
     print(L"Loading kernel...\r\n");
     VOID *kernel_buffer = NULL;
     UINTN kernel_size = 0;
-    status = load_kernel(ImageHandle, &kernel_buffer, &kernel_size);
+    status = load_kernel(image_handle, &kernel_buffer, &kernel_size);
     if (EFI_ERROR(status)) return status;
 
     // Parse ELF and copy segments to physical addresses (0x100000+)
@@ -335,7 +335,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable
 
     // Exit Boot Services
     print(L"Exiting Boot Services...\r\n");
-    exit_boot_services(ImageHandle);
+    exit_boot_services(image_handle);
 
     // Jump to kernel
     // CRITICAL: This UEFI bootloader is compiled with mingw (Microsoft x64 ABI)

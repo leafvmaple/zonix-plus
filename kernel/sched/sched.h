@@ -54,7 +54,7 @@ struct TaskStruct {
     void run();
     void wakeup();
 
-    uintptr_t get_cr3();
+    uintptr_t get_cr3() const;
     void copy_mm(uint32_t clone_flags);
     void copy_thread(uintptr_t esp, TrapFrame *tf);
     int setup_kernel_stack();
@@ -120,7 +120,7 @@ public:
 
     // Scheduling and process lifecycle
     static void schedule();
-    static int fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* tf);
+    static int fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_frame);
     static int kernel_thread(int (*fn)(void *), void *arg);
     static int exit(int error_code);
     static int wait(int pid, int* code_store);

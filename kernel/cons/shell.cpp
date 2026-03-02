@@ -25,8 +25,8 @@ int cmd_pos = 0;
 } // namespace
 
 struct ShellCommand {
-    const char* name;
-    const char* desc;
+    const char* name{};
+    const char* desc{};
     void (*func)(int argc, char** argv);
 };
 
@@ -74,23 +74,23 @@ static void cmd_lsblk(int argc, char **argv) {
 
 static void cmd_hdparm(int argc, char **argv) {
     (void)argc; (void)argv;
-    int devicesCount = IdeManager::get_device_count();
+    int devices_count = IdeManager::get_device_count();
     
-    if (devicesCount == 0) {
+    if (devices_count == 0) {
         cprintf("No disk devices found\n");
         return;
     }
     
-    cprintf("IDE Disk Information (%d device(s) found):\n\n", devicesCount);
+    cprintf("IDE Disk Information (%d device(s) found):\n\n", devices_count);
     
-    for (int deviceID = 0; deviceID < 4; deviceID++) {
-        IdeDevice *dev = IdeManager::get_device(deviceID);
+    for (int device_id = 0; device_id < 4; device_id++) {
+        IdeDevice *dev = IdeManager::get_device(device_id);
         
         if (dev == nullptr) {
             continue;
         }
         
-        cprintf("Device: %s (dev_id=%d)\n", dev->m_name, deviceID);
+        cprintf("Device: %s (dev_id=%d)\n", dev->m_name, device_id);
         cprintf("  Channel: %s, Drive: %s\n", dev->m_config->channel == 0 ? "Primary" : "Secondary",
                dev->m_config->drive == 0 ? "Master" : "Slave");
         cprintf("  Base I/O: 0x%x, IRQ: %d\n", dev->m_config->base, dev->m_config->irq);
@@ -446,7 +446,7 @@ shell_cmd_t commands[] = {
     {"cat",        "Display file contents (usage: cat <file> [/mnt])", cmd_cat},
 };
 
-int command_count = sizeof(commands) / sizeof(shell_cmd_t);
+int command_count = array_size(commands);
 
 // Parse command line into arguments
 // Returns number of arguments parsed
@@ -598,7 +598,7 @@ int shell_main(void *arg) {
     shell_prompt();
 
     // Main loop: read characters from keyboard driver (blocking)
-    while (1) {
+    while (true) {
         char c = kbd::getc_blocking();
         if (c > 0) {
             shell_handle_char(c);

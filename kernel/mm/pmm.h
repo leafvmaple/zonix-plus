@@ -9,7 +9,7 @@ using pte_t = uintptr_t;   // Page Table Entry
 using pde_t = uintptr_t;   // Page Directory Entry
 
 // Page flags
-enum class PageFlag : uint32_t {
+enum class PageFlag : uint8_t {
     Reserved = 0,
     Property = 1,
 };
@@ -84,7 +84,7 @@ void pmm_init();
 
 Page* pgdir_alloc_page(pde_t* pgdir, uintptr_t la, uint32_t perm);
 
-pte_t* get_pte(pde_t* pgdir, uintptr_t la, bool create);
+pte_t* get_pte(pde_t* pml4, uintptr_t la, bool create);
 int page_insert(pde_t* pgdir, Page* page, uintptr_t la, uint32_t perm);
 
 // Page allocation functions

@@ -49,9 +49,9 @@ Page* FirstFitPMMManager::alloc(size_t n) {
 
     Page* page{};
 
-    ListNode *validNode = &m_free.free_list;
-    while ((validNode = validNode->get_next()) != &m_free.free_list) {
-        Page *p = validNode->container<Page>();
+    ListNode *valid_node = &m_free.free_list;
+    while ((valid_node = valid_node->get_next()) != &m_free.free_list) {
+        Page *p = valid_node->container<Page>();
         if (p->property >= n) {
             page = p;
             break;
@@ -63,9 +63,9 @@ Page* FirstFitPMMManager::alloc(size_t n) {
             Page* remaining = page + n;
             remaining->property = page->property - n;
             remaining->set_reserved();
-            validNode->add_after(remaining->node());
+            valid_node->add_after(remaining->node());
         }
-        validNode->unlink();
+        valid_node->unlink();
         m_free.nr_free -= n;
         page->clear_reserved();
     }

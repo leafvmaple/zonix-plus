@@ -6,25 +6,24 @@
 namespace blk {
 
 // Block device types
-enum class DeviceType {
+enum class DeviceType : uint8_t {
     None = 0,
-    Disk = 1,           // Hard disk
-    Swap = 2,           // Swap device
+    Disk = 1,  // Hard disk
+    Swap = 2,  // Swap device
 };
 
-} // namespace blk
+}  // namespace blk
 
-// Block device operations
 struct BlockDevice {
     static constexpr size_t SIZE = 512;  // Standard block size (sector size)
 
-    blk::DeviceType m_type{};               // Device type
-    uint32_t m_size{};                      // Size in blocks
-    char m_name[8]{};                       // Device name
-    
+    blk::DeviceType m_type{};  // Device type
+    uint32_t m_size{};         // Size in blocks
+    char m_name[8]{};          // Device name
+
     // Virtual operations (for C++ subclasses)
-    virtual int read(uint32_t blockNumber, void* buf, size_t blockCount) = 0;
-    virtual int write(uint32_t blockNumber, const void* buf, size_t blockCount) = 0;
+    virtual int read(uint32_t block_number, void* buf, size_t block_count) = 0;
+    virtual int write(uint32_t block_number, const void* buf, size_t block_count) = 0;
 };
 
 // Block device manager
@@ -46,5 +45,7 @@ private:
 };
 
 namespace blk {
-    void init();
-}
+
+void init();
+
+}  // namespace blk

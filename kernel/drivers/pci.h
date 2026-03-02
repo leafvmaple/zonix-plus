@@ -20,13 +20,28 @@ struct PCILocation {
     uint32_t read_config32(uint8_t offset);
     void write_config32(uint8_t offset, uint32_t value);
 
-    uint32_t read_bar(uint8_t barIndex);
+    uint32_t read_bar(uint8_t bar_index);
     void enable_bus_master();
 
-    static bool find_device_by_class(uint8_t classCode, uint8_t subclass, uint8_t interface, PCILocation* loc);
+    static bool find_device_by_class(uint8_t class_code, uint8_t subclass, uint8_t interface, PCILocation* loc);
 };
 
 namespace pci {
+
+// PCI configuration space register offsets
+enum PCIConfigOffset : uint8_t {
+    PCI_VENDOR_ID       = 0x00,  // Vendor ID (16-bit) + Device ID (16-bit)
+    PCI_COMMAND         = 0x04,  // Command + Status
+    PCI_CLASS_REVISION  = 0x08,  // Revision ID + Class Code
+    PCI_HEADER_TYPE     = 0x0C,  // BIST, Header Type, Latency Timer, Cache Line Size
+    PCI_BAR0            = 0x10,
+    PCI_BAR1            = 0x14,
+    PCI_BAR2            = 0x18,
+    PCI_BAR3            = 0x1C,
+    PCI_BAR4            = 0x20,
+    PCI_BAR5            = 0x24,
+    PCI_INTERRUPT       = 0x3C,  // Interrupt Line + Interrupt Pin
+};
 
 // PCI configuration space ports
 constexpr uint16_t CONFIG_ADDRESS = 0xCF8;

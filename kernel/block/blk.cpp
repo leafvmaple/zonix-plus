@@ -19,35 +19,32 @@ void BlockManager::init() {
     pic::enable(IRQ_IDE1);
     pic::enable(IRQ_IDE2);
 
-    // Initialize IDE devices
     IdeManager::init();
-    
-    int hdCount = IdeManager::get_device_count();
-    for (int i = 0; i < hdCount; i++) {
-        IdeDevice *ideDevice = IdeManager::get_device(i);
-        if (ideDevice) {
-            ideDevice->m_size = ideDevice->m_info.size;
-            BlockManager::register_device(ideDevice);
+    int hd_count = IdeManager::get_device_count();
+    for (int i = 0; i < hd_count; i++) {
+        IdeDevice *ide_device = IdeManager::get_device(i);
+        if (ide_device) {
+            ide_device->m_size = ide_device->m_info.size;
+            register_device(ide_device);
         }
     }
     
-    if (hdCount == 0) {
+    if (hd_count == 0) {
         cprintf("blk_init: no IDE disk devices found\n");
     }
     
     // Initialize AHCI devices
     AhciManager::init();
-    
-    int ahciCount = AhciManager::get_device_count();
-    for (int i = 0; i < ahciCount; i++) {
-        AhciDevice *ahciDevice = AhciManager::get_device(i);
-        if (ahciDevice) {
-            ahciDevice->m_size = ahciDevice->m_info.size;
-            BlockManager::register_device(ahciDevice);
+    int ahci_count = AhciManager::get_device_count();
+    for (int i = 0; i < ahci_count; i++) {
+        AhciDevice *ahci_device = AhciManager::get_device(i);
+        if (ahci_device) {
+            ahci_device->m_size = ahci_device->m_info.size;
+            register_device(ahci_device);
         }
     }
     
-    if (ahciCount == 0) {
+    if (ahci_count == 0) {
         cprintf("blk_init: no AHCI disk devices found\n");
     }
 }
@@ -61,16 +58,14 @@ void BlockManager::register_device(BlockDevice* device) {
     s_devices[s_device_count++] = device;
 }
 
-BlockDevice* BlockManager::get_device(const char* deviceName) {
-    if (!deviceName) {
+BlockDevice* BlockManager::get_device(const char* device_name) {
+    if (!device_name) {
         return nullptr;
     }
     
     for (int i = 0; i < s_device_count; i++) {
-        if (s_devices[i]) {
-            if (strcmp(s_devices[i]->m_name, deviceName) == 0) {
-                return s_devices[i];
-            }
+        if (s_devices[i] && strcmp(s_devices[i]->m_name, device_name) == 0) {
+            return s_devices[i];
         }
     }
     return nullptr;
@@ -101,16 +96,16 @@ void BlockManager::print_info() {
     
     for (int i = 0; i < s_device_count; i++) {
         if (s_devices[i]) {
-            const char *typeString = "disk";
-            const char *mountString = "";
+            const char *type_string = "disk";
+            const char *mount_string = "";
             
             if (s_devices[i]->m_type == blk::DeviceType::Swap) {
-                mountString = "[SWAP]";
+                mount_string = "[SWAP]";
             }
             
-            uint32_t sizeBytes = s_devices[i]->m_size * BlockDevice::SIZE;
-            uint32_t sizeMB = sizeBytes / (1024 * 1024);
-            uint32_t remainder = sizeBytes % (1024 * 1024);
+            uint32_t size_bytes = s_devices[i]->m_size * BlockDevice::SIZE;
+            uint32_t size_mb = size_bytes / (1024 * 1024);
+            uint32_t remainder = size_bytes % (1024 * 1024);
             uint32_t decimal = (remainder * 10) / (1024 * 1024);
             
             cprintf("%-6s %3d:%-3d %-2d %2d.%dM %-2d %-4s %s\n",
@@ -118,17 +113,19 @@ void BlockManager::print_info() {
                    8,
                    i * 16,
                    0,
-                   sizeMB,
+                   size_mb,
                    decimal,
                    0,
-                   typeString,
-                   mountString);
+                   type_string,
+                   mount_string);
         }
     }
 }
 
 namespace blk {
-    void init() {
-        BlockManager::init();
-    }
+
+void init() {
+    BlockManager::init();
+}
+
 }

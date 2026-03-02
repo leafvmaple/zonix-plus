@@ -70,8 +70,8 @@ void print_num(va_list* args, uint32_t base, int lflag, int width, char padc, in
 
 void print_signed_num(va_list* args, int base, int lflag, int width, char padc, int left_align) {
     int64_t signed_num = lflag ? va_arg(*args, int64_t) : va_arg(*args, int32_t);
-    uint64_t num;
-    int is_negative = 0;
+    uint64_t num{};
+    int is_negative{};
     
     // Handle negative numbers
     if (signed_num < 0) {
@@ -148,10 +148,12 @@ void print_str(va_list* args, int width, int left_align) {
 }
 
 int cprintf(const char *fmt, ...) {
-    char c;
+    char c{};
     int status = FMT_NONE;
-    int lflag, width, left_align;
-    char padc;
+    int lflag{};
+    int width{};
+    int left_align{};
+    char padc{};
     va_list args;
     va_start(args, fmt);
 
@@ -162,12 +164,11 @@ int cprintf(const char *fmt, ...) {
             if (c == '%') {
                 status = FMT_TRANSFER;
             }
-            else
+            else {
                 cons_putc(c);
+            }
             padc = ' ';
-            lflag = 0;
-            width = 0;
-            left_align = 0;
+            lflag = width = left_align = 0;
             break;
         case FMT_TRANSFER:
             switch (c) {

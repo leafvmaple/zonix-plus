@@ -78,7 +78,7 @@ static int init_main(void *arg) {
     cprintf("init: started shell process (PID %d)\n", shell_pid);
 
     // Init's job: wait for child processes (reap zombies)
-    while (1) {
+    while (true) {
         int exit_code = 0;
         int pid = TaskManager::wait(0, &exit_code);
         if (pid > 0) {
@@ -120,7 +120,7 @@ void TaskStruct::wakeup() {
     }
 }
 
-uintptr_t TaskStruct::get_cr3() {
+uintptr_t TaskStruct::get_cr3() const {
     assert(m_memory != nullptr && m_memory->pgdir != nullptr);
     return P_ADDR(reinterpret_cast<uintptr_t>(m_memory->pgdir));
 }
@@ -130,10 +130,10 @@ void TaskStruct::copy_mm(uint32_t clone_flags) {
     m_memory = TaskManager::get_current()->m_memory;
 }
 
-void TaskStruct::copy_thread(uintptr_t esp, TrapFrame *trapFrame) {
+void TaskStruct::copy_thread(uintptr_t esp, TrapFrame *trap_frame) {
     m_trap_frame = reinterpret_cast<TrapFrame*>(m_kernel_stack + KSTACK_SIZE) - 1;
     
-    *m_trap_frame = *trapFrame;
+    *m_trap_frame = *trap_frame;
     m_trap_frame->m_regs.m_rax = 0;  // Return value for child
     if (esp != 0) {
         m_trap_frame->m_rsp = esp;
@@ -276,14 +276,14 @@ void TaskManager::schedule() {
     }
 }
 
-int TaskManager::fork(uint32_t cloneFlags, uintptr_t stack, TrapFrame *trapFrame) {
+int TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame *trap_frame) {
     TaskStruct *proc = new TaskStruct();
     proc->m_parent = get_current();
     proc->m_child_list.init();
     
     proc->setup_kernel_stack();
-    proc->copy_mm(cloneFlags);
-    proc->copy_thread(stack, trapFrame);
+    proc->copy_mm(clone_flags);
+    proc->copy_thread(stack, trap_frame);
 
     {
         InterruptsGuard guard;
@@ -308,10 +308,10 @@ int TaskManager::kernel_thread(int (*fn)(void *), void *arg) {
     return fork(0, 0, &tf);
 }
 
-int TaskManager::exit(int errorCode) {
+int TaskManager::exit(int error_code) {
     TaskStruct* current = get_current();
     current->m_state = ProcessState::Zombie;
-    current->m_exit_code = errorCode;
+    current->m_exit_code = error_code;
 
     {
         InterruptsGuard guard;
@@ -345,12 +345,12 @@ int TaskManager::exit(int errorCode) {
     return 0;  // Never reached
 }
 
-int TaskManager::wait(int pid, int* codeStore) {
+int TaskManager::wait(int pid, int* code_store) {
     TaskStruct* current = get_current();
     
     while (true) {
-        bool hasChildren = false;
-        TaskStruct* zombieChild = nullptr;
+        bool has_children = false;
+        TaskStruct* zombie_child = nullptr;
         
         {
             InterruptsGuard guard;
@@ -358,33 +358,33 @@ int TaskManager::wait(int pid, int* codeStore) {
             ListNode* head = &current->m_child_list;
             for (auto* le = head->get_next(); le != head; le = le->get_next()) {
                 TaskStruct* child = TaskStruct::from_child_link(le);
-                hasChildren = true;
+                has_children = true;
 
                 if (pid == 0 || child->m_pid == pid) {
                     if (child->m_state == ProcessState::Zombie) {
-                        zombieChild = child;
+                        zombie_child = child;
                         break;
                     }
                 }
             }
         }
         
-        if (zombieChild) {
-            int childPid = zombieChild->m_pid;
-            if (codeStore) {
-                *codeStore = zombieChild->m_exit_code;
+        if (zombie_child) {
+            int child_pid = zombie_child->m_pid;
+            if (code_store) {
+                *code_store = zombie_child->m_exit_code;
             }
             
             {
                 InterruptsGuard guard;
-                zombieChild->remove_links();
+                zombie_child->remove_links();
             }
-            zombieChild->destroy();
+            zombie_child->destroy();
             
-            return childPid;
+            return child_pid;
         }
         
-        if (!hasChildren) {
+        if (!has_children) {
             return -1;
         }
 
@@ -397,31 +397,31 @@ int TaskManager::wait(int pid, int* codeStore) {
 
 // Initialize idle process (PID 0)
 void TaskManager::init_idle() {
-    TaskStruct* idleProc = new TaskStruct();
-    idleProc->m_state = ProcessState::Runnable;
-    idleProc->m_kernel_stack = reinterpret_cast<uintptr_t>(user_stack);  // Use boot stack
-    idleProc->m_child_list.init();
+    TaskStruct* idle_proc = new TaskStruct();
+    idle_proc->m_state = ProcessState::Runnable;
+    idle_proc->m_kernel_stack = reinterpret_cast<uintptr_t>(user_stack);  // Use boot stack
+    idle_proc->m_child_list.init();
     
     // Idle process uses kernel's init_mm (shared by all kernel threads)
-    idleProc->m_memory = &init_mm;
+    idle_proc->m_memory = &init_mm;
     
-    strcpy(idleProc->name, "idle");
+    strcpy(idle_proc->name, "idle");
 
-    s_idle_proc = idleProc;
-    set_current(idleProc);
-    add_process(idleProc);
+    s_idle_proc = idle_proc;
+    set_current(idle_proc);
+    add_process(idle_proc);
 }
 
 // Create init process using fork (PID 1)
 void TaskManager::init_init_proc() {
-    TrapFrame trapFrame {};
+    TrapFrame trap_frame {};
 
-    trapFrame.m_cs = KERNEL_CS;
-    trapFrame.m_rflags = FL_IF;  // Enable interrupts
-    trapFrame.m_rip = reinterpret_cast<uintptr_t>(init_main);
-    trapFrame.m_rsp = 0;  // Will be set up by copy_thread
+    trap_frame.m_cs = KERNEL_CS;
+    trap_frame.m_rflags = FL_IF;  // Enable interrupts
+    trap_frame.m_rip = reinterpret_cast<uintptr_t>(init_main);
+    trap_frame.m_rsp = 0;  // Will be set up by copy_thread
 
-    int ret = fork(0, 0, &trapFrame);
+    int ret = fork(0, 0, &trap_frame);
     s_init_proc = find_proc(ret);
 
     strcpy(s_init_proc->name, "init");

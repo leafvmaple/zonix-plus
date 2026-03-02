@@ -41,14 +41,28 @@ inline void* operator new(__SIZE_TYPE__ size, void* ptr) noexcept {
 void* kmalloc(size_t size);
 void kfree(void* ptr);
 
-// Global operator new - uses page-aligned kmalloc
+namespace std {
+    // NOLINTNEXTLINE(readability-identifier-naming)
+    struct nothrow_t { explicit nothrow_t() = default; };
+    // NOLINTNEXTLINE(readability-identifier-naming)
+    extern const nothrow_t nothrow;
+}
+
 // Memory is always page-aligned (4KB) since kmalloc uses page allocator
-inline void* operator new(__SIZE_TYPE__ size) noexcept {
+inline void* operator new(__SIZE_TYPE__ size, const std::nothrow_t&) noexcept {
     return kmalloc(size);
 }
 
-inline void* operator new[](__SIZE_TYPE__ size) noexcept {
+inline void* operator new[](__SIZE_TYPE__ size, const std::nothrow_t&) noexcept {
     return kmalloc(size);
+}
+
+inline void* operator new(__SIZE_TYPE__ size) {
+    return operator new(size, std::nothrow);
+}
+
+inline void* operator new[](__SIZE_TYPE__ size) {
+    return operator new[](size, std::nothrow);
 }
 
 // Global operator delete - uses kfree

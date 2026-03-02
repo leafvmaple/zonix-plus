@@ -9,10 +9,10 @@
 #include "../drivers/intr.h"
 
 // Global IDE devices
-IdeDevice IdeManager::s_ide_devices[ide::MAX_DEVICES] = {};
-int IdeManager::s_ide_devices_count = 0;
+IdeDevice IdeManager::s_devices[ide::MAX_DEVICES] = {};
+int IdeManager::s_devices_count = 0;
 
-IdeConfig IdeManager::s_ide_configs[ide::MAX_DEVICES] = {
+IdeConfig IdeManager::s_configs[ide::MAX_DEVICES] = {
     {0, 0, ide::IDE0_BASE, ide::IDE0_CTRL, IRQ_IDE1, "hda"},  // Primary Master
     {0, 1, ide::IDE0_BASE, ide::IDE0_CTRL, IRQ_IDE1, "hdb"},  // Primary Slave
     {1, 0, ide::IDE1_BASE, ide::IDE1_CTRL, IRQ_IDE2, "hdc"},  // Secondary Master
@@ -57,13 +57,13 @@ void IdeDevice::detect(const IdeConfig* config) {
     m_type = blk::DeviceType::Disk;
     m_present = 1;
 
-    uint16_t identifyData[256]{};
-    arch_port_insw(m_config->base + ide::REG_DATA, identifyData, 256);
+    uint16_t identify_data[256]{};
+    arch_port_insw(m_config->base + ide::REG_DATA, identify_data, 256);
 
-    m_info.cylinders = identifyData[1];
-    m_info.heads = identifyData[3];
-    m_info.sectors = identifyData[6];
-    m_info.size = *reinterpret_cast<uint32_t*>(&identifyData[60]);
+    m_info.cylinders = identify_data[1];
+    m_info.heads = identify_data[3];
+    m_info.sectors = identify_data[6];
+    m_info.size = *reinterpret_cast<uint32_t*>(&identify_data[60]);
     m_info.valid = 1;
 
     strncpy(m_name, m_config->name, sizeof(m_name));
@@ -112,11 +112,11 @@ void IdeManager::init(void) {
 
     // Try to detect all 4 possible devices
     for (int i = 0; i < ide::MAX_DEVICES; i++) {
-        auto& config = s_ide_configs[i];
-        uint8_t driveSel = config.drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
+        auto& config = s_configs[i];
+        uint8_t drive_sel = config.drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
 
         // Select drive
-        arch_port_outb(config.base + ide::REG_DEVICE, driveSel);
+        arch_port_outb(config.base + ide::REG_DEVICE, drive_sel);
         arch_io_wait();
 
         // Send IDENTIFY command
@@ -140,46 +140,46 @@ void IdeManager::init(void) {
             continue; // Not an ATA device (could be ATAPI or absent)
         }
 
-        s_ide_devices[s_ide_devices_count].detect(&config);
+        s_devices[s_devices_count].detect(&config);
         // Only count the device if it reported a valid size
-        if (s_ide_devices[s_ide_devices_count].m_info.size > 0) {
-            s_ide_devices_count++;
+        if (s_devices[s_devices_count].m_info.size > 0) {
+            s_devices_count++;
         }
     }
     
-    cprintf("hd_init: found %d device(s)\n", s_ide_devices_count);
+    cprintf("hd_init: found %d device(s)\n", s_devices_count);
 }
 
-IdeDevice* IdeManager::get_device(int deviceID) {
-    if (deviceID < 0 || deviceID >= s_ide_devices_count) {
+IdeDevice* IdeManager::get_device(int device_id) {
+    if (device_id < 0 || device_id >= s_devices_count) {
         return nullptr;
     }
-    if (!s_ide_devices[deviceID].m_present) {
+    if (!s_devices[device_id].m_present) {
         return nullptr;
     }
-    return &s_ide_devices[deviceID];
+    return &s_devices[device_id];
 }
 
 int IdeManager::get_device_count() {
-    return s_ide_devices_count;
+    return s_devices_count;
 }
 
-int IdeDevice::read(uint32_t blockNumber, void* buf, size_t blockCount) {
+int IdeDevice::read(uint32_t block_number, void* buf, size_t block_count) {
     if (!m_present) {
         cprintf("IdeDevice::read: device %s not present\n", m_name);
         return -1;
     }
     
-    if (blockNumber + blockCount > m_info.size) {
-        cprintf("IdeDevice::read: out of range (block %d + %d > %d)\n", blockNumber, blockCount, m_info.size);
+    if (block_number + block_count > m_info.size) {
+        cprintf("IdeDevice::read: out of range (block %d + %d > %d)\n", block_number, block_count, m_info.size);
         return -1;
     }
     
-    uint8_t driveSel = m_config->drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
+    uint8_t drive_sel = m_config->drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
     
     // Read blocks one by one (interrupt-driven)
-    for (size_t i = 0; i < blockCount; i++) {
-        uint32_t lba = blockNumber + i;
+    for (size_t i = 0; i < block_count; i++) {
+        uint32_t lba = block_number + i;
 
         // Wait for device ready
         if (hd_wait_ready_on_base(m_config->base) != 0) {
@@ -200,7 +200,7 @@ int IdeDevice::read(uint32_t blockNumber, void* buf, size_t blockCount) {
             arch_port_outb(m_config->base + ide::REG_LBA_LOW, lba & 0xFF);
             arch_port_outb(m_config->base + ide::REG_LBA_MID, (lba >> 8) & 0xFF);
             arch_port_outb(m_config->base + ide::REG_LBA_HIGH, (lba >> 16) & 0xFF);
-            arch_port_outb(m_config->base + ide::REG_DEVICE, driveSel | ((lba >> 24) & 0x0F));
+            arch_port_outb(m_config->base + ide::REG_DEVICE, drive_sel | ((lba >> 24) & 0x0F));
 
             // Send read command (will trigger interrupt)
             arch_port_outb(m_config->base + ide::REG_COMMAND, ide::CMD_READ);
@@ -228,22 +228,22 @@ int IdeDevice::read(uint32_t blockNumber, void* buf, size_t blockCount) {
     return 0;
 }
 
-int IdeDevice::write(uint32_t blockNumber, const void* buf, size_t blockCount) {
+int IdeDevice::write(uint32_t block_number, const void* buf, size_t block_count) {
     if (!m_present) {
         cprintf("IdeDevice::write: device %s not present\n", m_name);
         return -1;
     }
     
-    if (blockNumber + blockCount > m_info.size) {
-        cprintf("IdeDevice::write: out of range (block %d + %d > %d)\n", blockNumber, blockCount, m_info.size);
+    if (block_number + block_count > m_info.size) {
+        cprintf("IdeDevice::write: out of range (block %d + %d > %d)\n", block_number, block_count, m_info.size);
         return -1;
     }
     
-    uint8_t driveSel = m_config->drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
+    uint8_t drive_sel = m_config->drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
     
     // Write blocks one by one (interrupt-driven)
-    for (size_t i = 0; i < blockCount; i++) {
-        uint32_t lba = blockNumber + i;
+    for (size_t i = 0; i < block_count; i++) {
+        uint32_t lba = block_number + i;
 
         // Wait for device ready
         if (hd_wait_ready_on_base(m_config->base) != 0) {
@@ -263,7 +263,7 @@ int IdeDevice::write(uint32_t blockNumber, const void* buf, size_t blockCount) {
             arch_port_outb(m_config->base + ide::REG_LBA_LOW, lba & 0xFF);
             arch_port_outb(m_config->base + ide::REG_LBA_MID, (lba >> 8) & 0xFF);
             arch_port_outb(m_config->base + ide::REG_LBA_HIGH, (lba >> 16) & 0xFF);
-            arch_port_outb(m_config->base + ide::REG_DEVICE, driveSel | ((lba >> 24) & 0x0F));
+            arch_port_outb(m_config->base + ide::REG_DEVICE, drive_sel | ((lba >> 24) & 0x0F));
 
             // Send write command
             arch_port_outb(m_config->base + ide::REG_COMMAND, ide::CMD_WRITE);
@@ -305,8 +305,8 @@ int IdeDevice::write(uint32_t blockNumber, const void* buf, size_t blockCount) {
  * @param channel IDE channel (0 = primary, 1 = secondary)
  */
 void IdeManager::interrupt_handler(int channel) {
-    for (int i = 0; i < s_ide_devices_count; i++) {
-        IdeDevice& dev = s_ide_devices[i];
+    for (int i = 0; i < s_devices_count; i++) {
+        IdeDevice& dev = s_devices[i];
 
         if (!dev.m_present || dev.m_config->channel != channel) {
             continue;

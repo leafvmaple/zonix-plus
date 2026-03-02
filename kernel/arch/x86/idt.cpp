@@ -5,7 +5,7 @@
 
 #include "unistd.h"
 
-extern gate_desc __idt[];
+extern GateDesc __idt[];
 extern "C" uintptr_t __vectors[];
 
 void idt_init() {

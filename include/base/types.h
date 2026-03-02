@@ -31,6 +31,11 @@ inline T* to_struct(void* ptr, M T::*member) {
 #define TO_STRUCT(ptr, type, member) \
     reinterpret_cast<type*>(reinterpret_cast<char*>(ptr) - OFFSET_OF(type, member))
 
+template<typename T, size_t N>
+constexpr size_t array_size(const T (&)[N]) noexcept {
+    return N;
+}
+
 #ifndef NULL
 #define NULL nullptr
 #endif

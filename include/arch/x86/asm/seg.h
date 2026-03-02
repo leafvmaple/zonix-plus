@@ -41,7 +41,7 @@
 #define USER_CS   ((GD_UTEXT) | DPL_USER)
 #define USER_DS   ((GD_UDATA) | DPL_USER)
 
-#define GATE_DESC(type, dpl) (0x8000 + (dpl << 13) + (type << 8))
+#define GATE_DESC(type, dpl) (0x8000 + ((dpl) << 13) + ((type) << 8))
 
 /* Normal segment */
 #define GEN_SEG_NULL                                            \

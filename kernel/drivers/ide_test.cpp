@@ -17,8 +17,8 @@ void IdeManager::test(void) {
     }
     
     // Allocate test buffers
-    static uint8_t writeBuff[ide::SECTOR_SIZE]{};
-    static uint8_t readBuff[ide::SECTOR_SIZE]{};
+    static uint8_t write_buff[ide::SECTOR_SIZE]{};
+    static uint8_t read_buff[ide::SECTOR_SIZE]{};
     
     // Test each device
     for (int i = 0; i < IdeManager::get_device_count(); i++) {
@@ -33,20 +33,20 @@ void IdeManager::test(void) {
         
         // Fill write buffer with test pattern (unique per device)
         for (size_t j = 0; j < ide::SECTOR_SIZE; j++) {
-            writeBuff[j] = (uint8_t)((j + j * 17) & 0xFF);
+            write_buff[j] = (uint8_t)((j + j * 17) & 0xFF);
         }
         
         // Use sector 100 for testing
-        uint32_t testSector = 100;
-        cprintf("  Test 1: Write sector %d...\n", testSector);
-        if (dev->write(testSector, writeBuff, 1) != 0) {
+        uint32_t test_sector = 100;
+        cprintf("  Test 1: Write sector %d...\n", test_sector);
+        if (dev->write(test_sector, write_buff, 1) != 0) {
             cprintf("    FAILED: write error\n");
             continue;
         }
         cprintf("    OK\n");
         
-        cprintf("  Test 2: Read sector %d...\n", testSector);
-        if (dev->read(testSector, readBuff, 1) != 0) {
+        cprintf("  Test 2: Read sector %d...\n", test_sector);
+        if (dev->read(test_sector, read_buff, 1) != 0) {
             cprintf("    FAILED: read error\n");
             continue;
         }
@@ -55,9 +55,9 @@ void IdeManager::test(void) {
         cprintf("  Test 3: Verify data...\n");
         int errors = 0;
         for (size_t j = 0; j < ide::SECTOR_SIZE; j++) {
-            if (readBuff[j] != writeBuff[j]) {
+            if (read_buff[j] != write_buff[j]) {
                 if (errors < 5) {
-                    cprintf("    Mismatch at offset %d: expected 0x%02x, got 0x%02x\n", j, writeBuff[j], readBuff[j]);
+                    cprintf("    Mismatch at offset %d: expected 0x%02x, got 0x%02x\n", j, write_buff[j], read_buff[j]);
                 }
                 errors++;
             }

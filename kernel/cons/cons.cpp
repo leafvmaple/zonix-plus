@@ -16,8 +16,6 @@
 
 #include "stdio.h"
 
-extern uint8_t KERNEL_START[];
-
 void cons_init() {
 #ifdef CONFIG_CGA
     cga::init();
@@ -28,6 +26,7 @@ void cons_init() {
 #ifdef CONFIG_PS2KBD
     kbd::init();
 #endif
+    extern uint8_t KERNEL_START[];
     cprintf("Zonix OS (x86_64) is Loading at [0x%p]...\n", KERNEL_START);
 }
 

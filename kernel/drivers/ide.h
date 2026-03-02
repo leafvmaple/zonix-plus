@@ -99,8 +99,8 @@ struct IdeDevice : public BlockDevice {
     void detect(const IdeConfig* config);
     void interupt();
 
-    int read(uint32_t blockNumber, void* buf, size_t blockCount) override;
-    int write(uint32_t blockNumber, const void* buf, size_t blockCount) override;
+    int read(uint32_t block_number, void* buf, size_t block_count) override;
+    int write(uint32_t block_number, const void* buf, size_t block_count) override;
 };
 
 // IDE device manager class
@@ -108,7 +108,7 @@ class IdeManager {
 public:
     static void init();
 
-    static IdeDevice* get_device(int deviceID);
+    static IdeDevice* get_device(int device_id);
     static int get_device_count();
 
     static void interrupt_handler(int channel);
@@ -118,8 +118,7 @@ public:
     static void test_interrupt();
 
 private:
-    static IdeDevice s_ide_devices[ide::MAX_DEVICES];
-    static int s_ide_devices_count;
-
-    static IdeConfig s_ide_configs[ide::MAX_DEVICES];
+    static IdeConfig s_configs[ide::MAX_DEVICES];
+    static IdeDevice s_devices[ide::MAX_DEVICES];
+    static int s_devices_count;
 };

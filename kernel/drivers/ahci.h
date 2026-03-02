@@ -11,7 +11,7 @@ inline constexpr int MAX_DEVICES = 4;             // Maximum AHCI ports/devices
 
 // AHCI controller PCI configuration
 inline constexpr uint32_t AHCI_BAR_BASE = 0xFEBF1000;  // Default MMIO base (may vary)
-inline constexpr size_t AHCI_BAR_SIZE = 0x1000;        // Standard AHCI bar size
+inline constexpr size_t AHCI_BAR_SIZE = 0x10000;       // AHCI MMIO region size (64KB)
 
 // AHCI register offsets (HBA memory registers)
 inline constexpr uint32_t AHCI_CAP = 0x00;       // Host Capabilities
@@ -19,6 +19,10 @@ inline constexpr uint32_t AHCI_GHC = 0x04;       // Global Host Control
 inline constexpr uint32_t AHCI_IS = 0x08;        // Interrupt Status
 inline constexpr uint32_t AHCI_PI = 0x0C;        // Ports Implemented
 inline constexpr uint32_t AHCI_VS = 0x10;        // Version
+
+// Port register layout
+inline constexpr uint32_t PORT_BASE_OFFSET = 0x100;  // Offset to first port's registers
+inline constexpr uint32_t PORT_REG_SIZE = 0x80;      // Size of each port's register block (128 bytes)
 
 // AHCI_GHC bits (Global Host Control)
 inline constexpr uint32_t GHC_AHCI_EN = 0x80000000;  // AHCI enable
@@ -129,26 +133,33 @@ struct AhciDevice : public BlockDevice {
     void detect(const AhciPortConfig* config, uintptr_t mmio_base);
     void interrupt();
 
-    int read(uint32_t blockNumber, void* buf, size_t blockCount) override;
-    int write(uint32_t blockNumber, const void* buf, size_t blockCount) override;
+    int read(uint32_t block_number, void* buf, size_t block_count) override;
+    int write(uint32_t block_number, const void* buf, size_t block_count) override;
 };
 
 class AhciManager {
 public:
     static void init();
 
-    static AhciDevice* get_device(int deviceID);
+    static AhciDevice* get_device(int device_id);
     static int get_device_count();
 
     static void interrupt_handler(int port);
 
+    static uint32_t pci_find_bar();
+    static void mmio_write32(uintptr_t base, uint32_t offset, uint32_t value);
+    static uint32_t mmio_read32(uintptr_t base, uint32_t offset);
+
+    static int wait_port_ready(uintptr_t port_base, int timeout_ms);
+    static int enable_port(uintptr_t port_base);
+    
     // Test
     static void test();
 
 private:
-    static AhciDevice s_ahci_devices[ahci::MAX_DEVICES];
-    static int s_ahci_devices_count;
+    static AhciDevice s_devices[ahci::MAX_DEVICES];
+    static int s_devices_count;
 
-    static AhciPortConfig s_ahci_port_configs[ahci::MAX_DEVICES];
-    static uintptr_t s_ahci_base;  // AHCI controller MMIO virtual base
+    static AhciPortConfig s_port_configs[ahci::MAX_DEVICES];
+    static uintptr_t s_base;  // AHCI controller MMIO virtual base
 };

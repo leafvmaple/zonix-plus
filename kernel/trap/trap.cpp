@@ -20,7 +20,7 @@ namespace {
 
 constexpr int TICK_NUM = 100;
 
-const char* const excnames[] = {
+const char* const EXC_NAMES[] = {
     "Divide error",
     "Debug",
     "Non-Maskable Interrupt",
@@ -43,11 +43,11 @@ const char* const excnames[] = {
     "SIMD Floating-Point Exception"
 };
 
-constexpr size_t NUM_EXCEPTIONS = sizeof(excnames) / sizeof(excnames[0]);
+constexpr size_t NUM_EXCEPTIONS = array_size(EXC_NAMES);
 
 const char* trap_name(int trapno) {
     if (static_cast<size_t>(trapno) < NUM_EXCEPTIONS) {
-        return excnames[trapno];
+        return EXC_NAMES[trapno];
     }
     if (trapno >= IRQ_OFFSET && trapno < IRQ_OFFSET + 16) {
         return "Hardware Interrupt";
@@ -133,7 +133,6 @@ void trap(TrapFrame *tf) {
             IdeManager::interrupt_handler(1);  // Secondary channel
             break;
         case T_SYSCALL:
-            break;
         default:
             break;
     }

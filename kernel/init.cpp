@@ -12,7 +12,9 @@
 #include "unistd.h"
 #include <kernel/bootinfo.h>
 
-static inline _syscall0(int, pause)
+static inline int sys_pause() {
+    return syscall0<int>(NR_PAUSE);
+}
 
 // Call C++ global constructors registered in .init_array
 extern "C" {
@@ -65,10 +67,10 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info *boot_info) 
     intr::enable();
 
     // Idle loop: PID 0 halts until an interrupt arrives, then reschedules
-    while (1) {
+    while (true) {
         __asm__ volatile("sti; hlt");   // Enable interrupts + halt atomically
         TaskManager::schedule();
     }
 halt:
-    while (1) __asm__ volatile("hlt");
+    while (true) __asm__ volatile("hlt");
 }

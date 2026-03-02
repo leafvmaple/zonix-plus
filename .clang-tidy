@@ -1,0 +1,168 @@
+---
+# zonix-plus clang-tidy configuration
+
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-reserved-identifier,
+  -bugprone-signal-handler,
+  cppcoreguidelines-init-variables,
+  cppcoreguidelines-pro-type-cstyle-cast,
+  cppcoreguidelines-pro-type-static-cast-downcast,
+  misc-definitions-in-headers,
+  misc-non-copyable-objects,
+  misc-redundant-expression,
+  misc-unused-using-decls,
+  modernize-use-auto,
+  modernize-use-bool-literals,
+  modernize-use-default-member-init,
+  modernize-use-emplace,
+  modernize-use-equals-default,
+  modernize-use-equals-delete,
+  modernize-use-nodiscard,
+  modernize-use-nullptr,
+  modernize-use-override,
+  modernize-use-using,
+  performance-*,
+  -performance-no-int-to-ptr,
+  readability-braces-around-statements,
+  readability-const-return-type,
+  readability-container-size-empty,
+  readability-else-after-return,
+  readability-identifier-naming,
+  readability-implicit-bool-conversion,
+  readability-inconsistent-declaration-parameter-name,
+  readability-make-member-function-const,
+  readability-non-const-parameter,
+  readability-qualified-auto,
+  readability-redundant-member-init,
+  readability-redundant-string-init,
+  readability-static-accessed-through-instance,
+  readability-uppercase-literal-suffix,
+
+WarningsAsErrors: ''
+
+HeaderFilterRegex: '(kernel|boot|include)/.*\.(h|hpp)$'
+
+CheckOptions:
+  # --- Namespace: lowercase ---
+  - key: readability-identifier-naming.NamespaceCase
+    value: lower_case
+
+  # --- Class / Struct: CamelCase (PascalCase) ---
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.StructCase
+    value: CamelCase
+
+  # --- Enum: CamelCase ---
+  - key: readability-identifier-naming.EnumCase
+    value: CamelCase
+  - key: readability-identifier-naming.EnumConstantCase
+    value: CamelCase
+
+  # --- Type alias: CamelCase or lower_case_t ---
+  - key: readability-identifier-naming.TypeAliasCase
+    value: aNy_CasE
+  - key: readability-identifier-naming.TypedefCase
+    value: aNy_CasE
+
+  # --- Functions / Methods: lower_case ---
+  - key: readability-identifier-naming.FunctionCase
+    value: lower_case
+  - key: readability-identifier-naming.MethodCase
+    value: lower_case
+
+  # --- Variables: lower_case ---
+  - key: readability-identifier-naming.VariableCase
+    value: lower_case
+  - key: readability-identifier-naming.LocalVariableCase
+    value: lower_case
+  - key: readability-identifier-naming.ParameterCase
+    value: lower_case
+
+  # --- Member variables: lower_case with m_ prefix ---
+  - key: readability-identifier-naming.MemberCase
+    value: lower_case
+  - key: readability-identifier-naming.MemberPrefix
+    value: 'm_'
+
+  # --- Public member variables: lower_case with m_ prefix ---
+  - key: readability-identifier-naming.PublicMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.PublicMemberPrefix
+    value: 'm_'
+
+  # --- Private member variables: lower_case with m_ prefix ---
+  - key: readability-identifier-naming.PrivateMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.PrivateMemberPrefix
+    value: 'm_'
+
+  # --- Protected member variables: lower_case with m_ prefix ---
+  - key: readability-identifier-naming.ProtectedMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.ProtectedMemberPrefix
+    value: 'm_'
+
+  # --- Static class members: lower_case with s_ prefix ---
+  - key: readability-identifier-naming.ClassMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.ClassMemberPrefix
+    value: 's_'
+  
+  - key: readability-identifier-naming.StructMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.StructMemberPrefix
+    value: ''
+  - key: readability-identifier-naming.PublicStructMemberPrefix
+    value: ''
+  - key: readability-identifier-naming.PrivateStructMemberPrefix
+    value: ''
+
+  # --- Constants / constexpr: UPPER_CASE ---
+  - key: readability-identifier-naming.ConstexprVariableCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.StaticConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.ClassConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.LocalConstantCase
+    value: lower_case
+  - key: readability-identifier-naming.ConstantParameterCase
+    value: lower_case
+
+  # --- Global variables: lower_case ---
+  - key: readability-identifier-naming.GlobalVariableCase
+    value: lower_case
+
+  # --- Macros: UPPER_CASE ---
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_CASE
+
+  # --- Template parameters: CamelCase ---
+  - key: readability-identifier-naming.TemplateParameterCase
+    value: CamelCase
+
+  # --- modernize-use-auto: conservative (only iterators etc.) ---
+  - key: modernize-use-auto.MinTypeNameLength
+    value: '12'
+
+  # --- modernize-use-default-member-init: use braces {} ---
+  - key: modernize-use-default-member-init.UseAssignment
+    value: 'false'
+
+  # --- readability-implicit-bool-conversion ---
+  - key: readability-implicit-bool-conversion.AllowPointerConditions
+    value: 'true'
+  - key: readability-implicit-bool-conversion.AllowIntegerConditions
+    value: 'true'
+
+  # --- readability-braces-around-statements ---
+  - key: readability-braces-around-statements.ShortStatementLines
+    value: '1'
+...

@@ -7,7 +7,7 @@
  * x86_64 Interrupt/Trap Gate Descriptor (16 bytes)
  * In long mode, gate descriptors are 16 bytes instead of 8.
  */
-typedef struct {
+struct GateDesc {
     uint16_t gd_off_15_0;    // low 16 bits of offset
     uint16_t gd_ss;          // segment selector
     uint8_t  gd_ist;         // IST index (bits 0-2), reserved bits 3-7
@@ -15,7 +15,7 @@ typedef struct {
     uint16_t gd_off_31_16;   // bits 16-31 of offset
     uint32_t gd_off_63_32;   // bits 32-63 of offset
     uint32_t gd_rsv;         // reserved, must be zero
-} __attribute__((packed)) gate_desc;
+} __attribute__((packed));
 
 // SET_GATE for 64-bit gate descriptors
 #define SET_GATE(gate, type, sel, dpl, addr) {                          \
@@ -35,7 +35,7 @@ typedef struct {
  * x86_64 Segment Descriptor (8 bytes, same layout as 32-bit for code/data)
  * For system descriptors (TSS/LDT) in 64-bit mode, these are 16 bytes.
  */
-struct seg_desc {
+struct SegmentDesc {
     unsigned sd_lim_15_0   : 16; // low bits of segment limit
     unsigned sd_base_15_0  : 16; // low bits of segment base address
     unsigned sd_base_23_16 : 8;  // middle bits of segment base address
@@ -56,7 +56,7 @@ struct seg_desc {
  * In long mode, TSS has a different layout than 32-bit.
  * It does NOT contain general-purpose registers.
  */
-typedef struct tss_struct {
+struct TssDesc {
     uint32_t reserved0;
     uint64_t rsp0;          // Stack pointer for ring 0
     uint64_t rsp1;          // Stack pointer for ring 1
@@ -72,4 +72,4 @@ typedef struct tss_struct {
     uint64_t reserved2;
     uint16_t reserved3;
     uint16_t iopb_offset;   // I/O Permission Bitmap offset
-} __attribute__((packed)) tss_struct;
+} __attribute__((packed));
