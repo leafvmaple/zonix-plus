@@ -114,11 +114,11 @@ make_dir = $(eval $(call do_make_dir))
 #   include/               — architecture-independent headers
 #   arch/$(ARCH)/include/  — makes <asm/xxx.h> resolve to the right arch
 #   arch/$(ARCH)/kernel/   — arch-specific kernel headers (idt.h, e820.h, ...)
-#   kernel/lib/            — kernel internal utilities (string.h, stdio.h, ...)
+#   kernel/                — cross-module kernel includes (drivers/, mm/, lib/, ...)
 INCLUDE := include \
            arch/$(ARCH)/include \
            arch/$(ARCH)/kernel \
-           kernel/lib
+           kernel
 
 # ==========================================================================
 # Kernel

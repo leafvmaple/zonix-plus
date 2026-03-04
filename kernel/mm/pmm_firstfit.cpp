@@ -1,7 +1,7 @@
 #include "pmm_firstfit.h"
-#include "../debug/assert.h"
+#include "debug/assert.h"
 
-#include "memory.h"
+#include "lib/memory.h"
 
 // First-Fit Physical Memory Manager
 //

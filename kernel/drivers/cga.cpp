@@ -5,7 +5,7 @@
 #include <asm/arch.h>
 #include <asm/segments.h>
 
-#include "cons_defs.h"
+#include "lib/cons_defs.h"
 
 namespace cga {
 

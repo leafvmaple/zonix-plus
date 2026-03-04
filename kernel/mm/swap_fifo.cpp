@@ -1,4 +1,4 @@
-#include "stdio.h"
+#include "lib/stdio.h"
 #include "vmm.h"
 
 #include "swap_fifo.h"

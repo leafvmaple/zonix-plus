@@ -1,20 +1,20 @@
 #include "trap.h"
 
-#include "unistd.h"
+#include "lib/unistd.h"
 #include <base/types.h>
-#include "stdio.h"
+#include "lib/stdio.h"
 
 #include <asm/arch.h>
 #include <asm/drivers/i8259.h>
 
-#include "../drivers/kbd.h"
-#include "../drivers/pit.h"
-#include "../drivers/pic.h"
-#include "../drivers/ide.h"
-#include "../drivers/fbcons.h"
-#include "../cons/cons.h"
-#include "../mm/vmm.h"
-#include "../sched/sched.h"
+#include "drivers/kbd.h"
+#include "drivers/pit.h"
+#include "drivers/pic.h"
+#include "drivers/ide.h"
+#include "drivers/fbcons.h"
+#include "cons/cons.h"
+#include "mm/vmm.h"
+#include "sched/sched.h"
 
 namespace {
 

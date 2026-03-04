@@ -1,8 +1,8 @@
-#include "stdio.h"
+#include "lib/stdio.h"
 #include "cons.h"
-#include "stdarg.h"
+#include "lib/stdarg.h"
 #include <base/types.h>
-#include "math.h"
+#include "lib/math.h"
 
 namespace {
 

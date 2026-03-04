@@ -1,7 +1,7 @@
 #include "sched.h"
-#include "../mm/pmm.h"
-#include "../lib/stdio.h"
-#include "../lib/memory.h"
+#include "mm/pmm.h"
+#include "lib/stdio.h"
+#include "lib/memory.h"
 
 // External symbols
 extern long user_stack[];

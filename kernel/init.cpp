@@ -9,7 +9,7 @@
 #include "mm/vmm.h"
 #include "mm/swap.h"
 #include "sched/sched.h"
-#include "unistd.h"
+#include "lib/unistd.h"
 #include <kernel/bootinfo.h>
 
 static inline int sys_pause() {

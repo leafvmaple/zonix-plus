@@ -8,7 +8,7 @@
 
 #include "pic.h"
 #include "intr.h"
-#include "../sched/sched.h"
+#include "sched/sched.h"
 
 // ============================================================================
 // Input ring buffer — filled by IRQ, drained by getc_blocking()

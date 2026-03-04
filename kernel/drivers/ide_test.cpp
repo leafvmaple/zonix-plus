@@ -1,5 +1,5 @@
 #include "ide.h"
-#include "stdio.h"
+#include "lib/stdio.h"
 
 #include <asm/arch.h>
 

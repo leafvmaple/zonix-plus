@@ -1,17 +1,17 @@
 #include "shell.h"
 #include "cons.h"
-#include "stdio.h"
-#include "../mm/vmm.h"
-#include "../mm/swap_test.h"
-#include "../drivers/ide.h"
-#include "../drivers/kbd.h"
-#include "../block/blk.h"
-#include "../sched/sched.h"
-#include "../fs/fat.h"
+#include "lib/stdio.h"
+#include "mm/vmm.h"
+#include "mm/swap_test.h"
+#include "drivers/ide.h"
+#include "drivers/kbd.h"
+#include "block/blk.h"
+#include "sched/sched.h"
+#include "fs/fat.h"
 
 #include <base/types.h>
 #include <kernel/sysinfo.h>
-#include "cons_defs.h"
+#include "lib/cons_defs.h"
 
 // Command buffer configuration
 namespace {

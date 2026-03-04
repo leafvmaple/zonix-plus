@@ -3,7 +3,7 @@
 #include <base/types.h>
 #include <asm/segments.h>
 
-#include "unistd.h"
+#include "lib/unistd.h"
 
 extern GateDesc __idt[];
 extern "C" uintptr_t __vectors[];

@@ -1,13 +1,13 @@
 #include "blk.h"
 
-#include "stdio.h"
-#include "string.h"
+#include "lib/stdio.h"
+#include "lib/string.h"
 
 #include <asm/drivers/i8259.h>
 
-#include "../drivers/pic.h"
-#include "../drivers/ide.h"
-#include "../drivers/ahci.h"
+#include "drivers/pic.h"
+#include "drivers/ide.h"
+#include "drivers/ahci.h"
 
 // Static member definitions
 BlockDevice* BlockManager::s_devices[BlockManager::MAX_DEV] = {};

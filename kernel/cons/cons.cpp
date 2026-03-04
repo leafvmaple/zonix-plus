@@ -3,12 +3,12 @@
 #include <kernel/config.h>
 #include <asm/arch.h>
 
-#include "../drivers/cga.h"
-#include "../drivers/kbd.h"
-#include "../drivers/fbcons.h"
-#include "../drivers/serial.h"
+#include "drivers/cga.h"
+#include "drivers/kbd.h"
+#include "drivers/fbcons.h"
+#include "drivers/serial.h"
 
-#include "stdio.h"
+#include "lib/stdio.h"
 
 extern uint8_t KERNEL_START[];
 

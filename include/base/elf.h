@@ -1,6 +1,6 @@
 #pragma once
 
-#include "types.h"
+#include <base/types.h>
 
 #define ELF_MAGIC 0x464C457F
 
@@ -25,7 +25,7 @@ typedef struct elfhdr32 {
 
 /* ELF64 header */
 typedef struct elfhdr64 {
-    uint32_t e_magic;      // must equal ELF_MAGIC
+    uint32_t e_magic;  // must equal ELF_MAGIC
     uint8_t e_elf[12];
     uint16_t e_type;       // 1=relocatable, 2=executable, 3=shared object, 4=core image
     uint16_t e_machine;    // 0x3E=x86_64

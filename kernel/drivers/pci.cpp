@@ -1,6 +1,6 @@
 #include "pci.h"
 #include <asm/arch.h>
-#include "stdio.h"
+#include "lib/stdio.h"
 
 uint32_t PCILocation::read_config32(uint8_t offset) {
     uint32_t address = get_address() | (offset & 0xFC);

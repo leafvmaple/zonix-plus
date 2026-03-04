@@ -3,9 +3,9 @@
 #include <asm/segments.h>
 #include <base/types.h>
 
-#include "../lib/list.h"
-#include "../trap/trap.h"
-#include "../mm/vmm.h"
+#include "lib/list.h"
+#include "trap/trap.h"
+#include "mm/vmm.h"
 
 // Process states - modeling Linux's approach
 enum class ProcessState : int {

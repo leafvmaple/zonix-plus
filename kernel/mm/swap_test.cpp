@@ -4,7 +4,7 @@
 // #include "swap_clock.h"
 // #include "swap_lru.h"
 #include "pmm.h"
-#include "stdio.h"
+#include "lib/stdio.h"
 
 #include <asm/mmu.h>
 

@@ -1,11 +1,11 @@
-#include "stdio.h"
+#include "lib/stdio.h"
 
 #include "swap_fifo.h"
 #include "swap.h"
 #include "pmm.h"
 
 #include <asm/mmu.h>
-#include "../block/blk.h"
+#include "block/blk.h"
 
 // External function declarations
 extern Page* alloc_pages(size_t n);

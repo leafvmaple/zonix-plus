@@ -1,8 +1,8 @@
 #include "fat.h"
-#include "stdio.h"
-#include "math.h"
-#include "../lib/memory.h"
-#include "../lib/string.h"
+#include "lib/stdio.h"
+#include "lib/math.h"
+#include "lib/memory.h"
+#include "lib/string.h"
 #include <base/mbr.h>
 #include <base/bpb.h>
 

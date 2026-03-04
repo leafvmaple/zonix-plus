@@ -1,16 +1,16 @@
 #include "ahci.h"
 #include "pci.h"
-#include "stdio.h"
-#include "string.h"
+#include "lib/stdio.h"
+#include "lib/string.h"
 
 #include <asm/arch.h>
 #include <asm/pg.h>
 #include <asm/drivers/i8259.h>
 #include "pic.h"
-#include "../sched/sched.h"
-#include "../drivers/intr.h"
-#include "../mm/vmm.h"
-#include "../mm/pmm.h"
+#include "sched/sched.h"
+#include "intr.h"
+#include "mm/vmm.h"
+#include "mm/pmm.h"
 
 AhciDevice AhciManager::s_devices[ahci::MAX_DEVICES] = {};
 int AhciManager::s_devices_count = 0;

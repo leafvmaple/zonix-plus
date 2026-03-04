@@ -2,7 +2,7 @@
 
 #include <base/types.h>
 
-#include "../block/blk.h"
+#include "block/blk.h"
 
 // IDE/ATA disk constants
 namespace ide {

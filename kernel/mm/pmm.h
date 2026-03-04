@@ -3,7 +3,7 @@
 #include <base/types.h>
 #include <asm/cpu.h>
 
-#include "list.h"
+#include "lib/list.h"
 
 using pte_t = uintptr_t;  // Page Table Entry
 using pde_t = uintptr_t;  // Page Directory Entry

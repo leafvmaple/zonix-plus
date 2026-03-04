@@ -4,9 +4,9 @@
 #include <asm/segments.h>
 #include <asm/mmu.h>
 
-#include "math.h"
-#include "stdio.h"
-#include "../trap/trap.h"
+#include "lib/math.h"
+#include "lib/stdio.h"
+#include "trap/trap.h"
 
 #include "vmm.h"
 #include "swap.h"

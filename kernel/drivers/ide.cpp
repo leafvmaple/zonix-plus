@@ -1,12 +1,12 @@
 #include "ide.h"
-#include "stdio.h"
-#include "string.h"
+#include "lib/stdio.h"
+#include "lib/string.h"
 
 #include <asm/arch.h>
 #include <asm/drivers/i8259.h>
 #include "pic.h"
-#include "../sched/sched.h"
-#include "../drivers/intr.h"
+#include "sched/sched.h"
+#include "intr.h"
 
 // Global IDE devices
 IdeDevice IdeManager::s_devices[ide::MAX_DEVICES] = {};

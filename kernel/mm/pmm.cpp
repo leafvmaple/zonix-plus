@@ -1,11 +1,11 @@
 #include "pmm.h"
-#include "../debug/assert.h"
+#include "debug/assert.h"
 #include "e820.h"
-#include "../drivers/intr.h"
+#include "drivers/intr.h"
 
-#include "memory.h"
-#include "stdio.h"
-#include "math.h"
+#include "lib/memory.h"
+#include "lib/stdio.h"
+#include "lib/math.h"
 
 #include <asm/arch.h>
 #include <asm/segments.h>

@@ -5,8 +5,8 @@
 #include <asm/pg.h>
 #include <kernel/bootinfo.h>
 #include <kernel/psf.h>
-#include "../mm/vmm.h"
-#include "stdio.h"
+#include "mm/vmm.h"
+#include "lib/stdio.h"
 
 extern struct boot_info __kernel_boot_info;
 
