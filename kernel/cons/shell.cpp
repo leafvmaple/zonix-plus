@@ -4,7 +4,7 @@
 #include "../mm/vmm.h"
 #include "../mm/swap_test.h"
 #include "../drivers/ide.h"
-#include "../drivers/kdb.h"
+#include "../drivers/kbd.h"
 #include "../block/blk.h"
 #include "../sched/sched.h"
 #include "../fs/fat.h"
@@ -53,7 +53,7 @@ static void cmd_help(int argc, char** argv) {
 static void cmd_pgdir(int argc, char** argv) {
     (void)argc;
     (void)argv;
-    print_pgdir();
+    vmm::print_pgdir();
 }
 
 static void cmd_clear(int argc, char** argv) {

@@ -97,7 +97,7 @@ struct IdeDevice : public BlockDevice {
     IdeRequest request{};       // Current I/O request state
 
     void detect(const IdeConfig* config);
-    void interupt();
+    void interrupt();
 
     int read(uint32_t block_number, void* buf, size_t block_count) override;
     int write(uint32_t block_number, const void* buf, size_t block_count) override;

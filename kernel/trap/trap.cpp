@@ -7,7 +7,7 @@
 #include <asm/arch.h>
 #include <asm/drivers/i8259.h>
 
-#include "../drivers/kdb.h"
+#include "../drivers/kbd.h"
 #include "../drivers/pit.h"
 #include "../drivers/pic.h"
 #include "../drivers/ide.h"
@@ -104,7 +104,7 @@ static int pg_fault(TrapFrame* tf) {
     tf->print_pgfault();
 
     TaskStruct* current = TaskManager::get_current();
-    vmm_pg_fault(current->memory, tf->err, arch_read_cr2());
+    vmm::pg_fault(current->memory, tf->err, arch_read_cr2());
 
     return 0;
 }

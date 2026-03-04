@@ -4,7 +4,7 @@
 #include <asm/arch.h>
 
 #include "../drivers/cga.h"
-#include "../drivers/kdb.h"
+#include "../drivers/kbd.h"
 #include "../drivers/fbcons.h"
 #include "../drivers/serial.h"
 

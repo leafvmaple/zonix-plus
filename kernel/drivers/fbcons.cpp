@@ -260,7 +260,7 @@ void late_init() {
     uint32_t fb_size = bi->framebuffer_pitch * bi->framebuffer_height;
 
     // Map framebuffer into kernel virtual address space
-    uintptr_t fb_va = mmio_map(static_cast<uintptr_t>(fb_phys), fb_size, PTE_W | PTE_PCD | PTE_PWT);
+    uintptr_t fb_va = vmm::mmio_map(static_cast<uintptr_t>(fb_phys), fb_size, PTE_W | PTE_PCD | PTE_PWT);
 
     cprintf("fbcons: phys 0x%lx -> virt 0x%lx (%dx%d)\n", static_cast<unsigned long>(fb_phys),
             static_cast<unsigned long>(fb_va), bi->framebuffer_width, bi->framebuffer_height);

@@ -46,10 +46,10 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info* boot_info) 
     pit::init();
 
     // arch
-    idt_init();
+    idt::init();
 
-    pmm_init();
-    vmm_init();
+    pmm::init();
+    vmm::init();
 
     // Initialize framebuffer console now that VMM can map MMIO
     fbcons::late_init();
@@ -58,7 +58,7 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info* boot_info) 
     blk::init();
 
     // Swap initialization (requires block devices)
-    swap_init();
+    swap::init();
 
     sched::init();
 

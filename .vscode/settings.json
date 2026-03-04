@@ -16,7 +16,7 @@
         "cons.h": "c",
         "pit.h": "c",
         "io.h": "c",
-        "kdb.h": "c",
+        "kbd.h": "c",
         "math.h": "c",
         "seg.h": "c",
         "pmm_firstfit.h": "c",

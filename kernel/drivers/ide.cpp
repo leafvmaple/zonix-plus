@@ -21,7 +21,7 @@ IdeConfig IdeManager::s_configs[ide::MAX_DEVICES] = {
 
 static int hd_wait_ready_on_base(uint16_t base) {
     int timeout = 100000;
-    
+
     while (timeout-- > 0) {
         uint8_t status = arch_port_inb(base + ide::REG_STATUS);
 
@@ -29,13 +29,13 @@ static int hd_wait_ready_on_base(uint16_t base) {
             return 0;
         }
     }
-    
+
     return -1;
 }
 
 static int hd_wait_data_on_base(uint16_t base) {
     int timeout = 100000;
-    
+
     while (timeout-- > 0) {
         uint8_t status = arch_port_inb(base + ide::REG_STATUS);
 
@@ -47,13 +47,13 @@ static int hd_wait_data_on_base(uint16_t base) {
             return -1;
         }
     }
-    
+
     return -1;
 }
 
 void IdeDevice::detect(const IdeConfig* config) {
     config = config;
-    
+
     type = blk::DeviceType::Disk;
     present = 1;
 
@@ -69,7 +69,7 @@ void IdeDevice::detect(const IdeConfig* config) {
     strncpy(name, config->name, sizeof(name));
 }
 
-void IdeDevice::interupt() {
+void IdeDevice::interrupt() {
     do {
         uint8_t status = arch_port_inb(config->base + ide::REG_STATUS);
         if (status & ide::STATUS_ERR) {
@@ -88,8 +88,7 @@ void IdeDevice::interupt() {
                 arch_port_insw(config->base + ide::REG_DATA, request.buffer, ide::SECTOR_SIZE / 2);
             }
             break;
-        }
-        else if (request.op == IdeRequest::Op::Write) {
+        } else if (request.op == IdeRequest::Op::Write) {
             if (!(status & ide::STATUS_DRQ)) {
                 break;
             }
@@ -106,7 +105,6 @@ void IdeDevice::interupt() {
 }
 
 void IdeManager::init(void) {
-
     pic::enable(IRQ_IDE1);
     pic::enable(IRQ_IDE2);
 
@@ -126,18 +124,18 @@ void IdeManager::init(void) {
         // Check if device is present
         uint8_t status = arch_port_inb(config.base + ide::REG_STATUS);
         if (status == 0 || status == 0xFF) {
-            continue; // No device or floating bus
+            continue;  // No device or floating bus
         }
 
         // Wait for BSY to clear
         if (hd_wait_ready_on_base(config.base) != 0) {
-            continue; // Device not ready
+            continue;  // Device not ready
         }
 
         // Check that DRQ is set (IDENTIFY data ready) and no error
         status = arch_port_inb(config.base + ide::REG_STATUS);
         if ((status & ide::STATUS_ERR) || !(status & ide::STATUS_DRQ)) {
-            continue; // Not an ATA device (could be ATAPI or absent)
+            continue;  // Not an ATA device (could be ATAPI or absent)
         }
 
         s_devices[s_devices_count].detect(&config);
@@ -146,7 +144,7 @@ void IdeManager::init(void) {
             s_devices_count++;
         }
     }
-    
+
     cprintf("hd_init: found %d device(s)\n", s_devices_count);
 }
 
@@ -169,14 +167,14 @@ int IdeDevice::read(uint32_t block_number, void* buf, size_t block_count) {
         cprintf("IdeDevice::read: device %s not present\n", name);
         return -1;
     }
-    
+
     if (block_number + block_count > info.size) {
         cprintf("IdeDevice::read: out of range (block %d + %d > %d)\n", block_number, block_count, info.size);
         return -1;
     }
-    
+
     uint8_t drive_sel = config->drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
-    
+
     // Read blocks one by one (interrupt-driven)
     for (size_t i = 0; i < block_count; i++) {
         uint32_t lba = block_number + i;
@@ -210,7 +208,8 @@ int IdeDevice::read(uint32_t block_number, void* buf, size_t block_count) {
         while (!request.done) {
             {
                 InterruptsGuard guard;
-                if (request.done) break;
+                if (request.done)
+                    break;
                 TaskManager::get_current()->state = ProcessState::Sleeping;
             }
             TaskManager::schedule();
@@ -224,7 +223,7 @@ int IdeDevice::read(uint32_t block_number, void* buf, size_t block_count) {
 
         request.reset();
     }
-    
+
     return 0;
 }
 
@@ -233,14 +232,14 @@ int IdeDevice::write(uint32_t block_number, const void* buf, size_t block_count)
         cprintf("IdeDevice::write: device %s not present\n", name);
         return -1;
     }
-    
+
     if (block_number + block_count > info.size) {
         cprintf("IdeDevice::write: out of range (block %d + %d > %d)\n", block_number, block_count, info.size);
         return -1;
     }
-    
+
     uint8_t drive_sel = config->drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
-    
+
     // Write blocks one by one (interrupt-driven)
     for (size_t i = 0; i < block_count; i++) {
         uint32_t lba = block_number + i;
@@ -282,7 +281,8 @@ int IdeDevice::write(uint32_t block_number, const void* buf, size_t block_count)
         while (!request.done) {
             {
                 InterruptsGuard guard;
-                if (request.done) break;  // Re-check with interrupts disabled
+                if (request.done)
+                    break;  // Re-check with interrupts disabled
                 TaskManager::get_current()->state = ProcessState::Sleeping;
             }
             TaskManager::schedule();
@@ -296,7 +296,7 @@ int IdeDevice::write(uint32_t block_number, const void* buf, size_t block_count)
 
         request.reset();
     }
-    
+
     return 0;
 }
 
@@ -315,6 +315,6 @@ void IdeManager::interrupt_handler(int channel) {
             continue;
         }
 
-        dev.interupt();
+        dev.interrupt();
     }
 }

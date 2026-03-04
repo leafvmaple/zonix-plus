@@ -30,10 +30,16 @@ struct PageAddrMap {
 using page_addr_map_t = PageAddrMap;
 
 // Global functions
-int swap_init();
-int swap_init_mm(MemoryDesc* mm);
-int swap_in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr);
-int swap_out(MemoryDesc* mm, int n, int in_tick);
+namespace swap {
+
+inline constexpr size_t MAX_OFFSET_LIMIT = 1 << 24;  // 16 GB swap space limit
+
+int init();
+int init_mm(MemoryDesc* mm);
+int in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr);
+int out(MemoryDesc* mm, int n, int in_tick);
+
+}  // namespace swap
 
 // Swap disk operations (to be implemented with disk driver)
 int swapfs_init();
@@ -42,11 +48,5 @@ int swapfs_write(uintptr_t entry, Page* page);
 
 // Helper function to find virtual address for a page
 uintptr_t find_vaddr_for_page(MemoryDesc* mm, Page* page);
-
-namespace swap {
-
-inline constexpr size_t MAX_OFFSET_LIMIT = 1 << 24;  // 16 GB swap space limit
-
-} // namespace swap
 
 inline constexpr size_t MAX_SWAP_OFFSET_LIMIT = swap::MAX_OFFSET_LIMIT;

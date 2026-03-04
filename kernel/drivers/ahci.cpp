@@ -27,7 +27,7 @@ AhciPortConfig AhciManager::s_port_configs[ahci::MAX_DEVICES] = {
 void AhciDevice::detect(const AhciPortConfig* config, uintptr_t mmio_base) {
     config = config;
     port_base = mmio_base + ahci::PORT_BASE_OFFSET + (config->port_num * ahci::PORT_REG_SIZE);
-    
+
     type = blk::DeviceType::Disk;
     present = 1;
 
@@ -41,9 +41,9 @@ void AhciDevice::detect(const AhciPortConfig* config, uintptr_t mmio_base) {
 
 void AhciDevice::interrupt() {
     uint32_t is = AhciManager::mmio_read32(port_base, ahci::PORT_IS);
- 
+
     AhciManager::mmio_write32(port_base, ahci::PORT_IS, is);
-    
+
     if (is & ahci::IS_DHRS) {
         if (request.op == AhciRequest::Op::Read) {
             // Data is ready in buffer
@@ -51,15 +51,15 @@ void AhciDevice::interrupt() {
             // Write completed
         }
     }
-    
+
     if (is & ahci::IS_PCS) {
         cprintf("ahci%d: port connect change detected\n", config->port_num);
     }
-    
+
     if (is & ahci::IS_OFS) {
         request.err = -1;
     }
-    
+
     request.done = 1;
     if (request.waiting) {
         request.waiting->wakeup();
@@ -70,15 +70,15 @@ void AhciManager::init(void) {
     cprintf("AHCI: Initializing AHCI controller...\n");
 
     uint32_t phys_base = pci_find_bar();
-    
+
     if (phys_base == 0) {
         cprintf("AHCI: No AHCI controller found on PCI bus\n");
         return;
     }
 
-    s_base = mmio_map(phys_base, ahci::AHCI_BAR_SIZE, PTE_W | PTE_PCD | PTE_PWT);
+    s_base = vmm::mmio_map(phys_base, ahci::AHCI_BAR_SIZE, PTE_W | PTE_PCD | PTE_PWT);
     uint32_t version = mmio_read32(s_base, ahci::AHCI_VS);
-    
+
     // If version is 0x00000000 or 0xFFFFFFFF, controller is not present
     if (version == 0x00000000 || version == 0xFFFFFFFF) {
         cprintf("AHCI: No AHCI controller detected (version: 0x%08x)\n", version);
@@ -132,7 +132,7 @@ void AhciManager::init(void) {
         // Detect device
         s_devices[s_devices_count++].detect(&config, s_base);
     }
-    
+
     cprintf("AHCI: Found %d device(s)\n", s_devices_count);
 }
 
@@ -155,7 +155,7 @@ int AhciDevice::read(uint32_t block_number, void* buf, size_t block_count) {
         cprintf("AhciDevice::read: device %s not present\n", name);
         return -1;
     }
-    
+
     if (block_number + block_count > info.size) {
         cprintf("AhciDevice::read: out of range (block %d + %d > %d)\n", block_number, block_count, info.size);
         return -1;
@@ -182,7 +182,8 @@ int AhciDevice::read(uint32_t block_number, void* buf, size_t block_count) {
         while (!request.done) {
             {
                 InterruptsGuard guard;
-                if (request.done) break;
+                if (request.done)
+                    break;
                 TaskManager::get_current()->state = ProcessState::Sleeping;
             }
             TaskManager::schedule();
@@ -196,7 +197,7 @@ int AhciDevice::read(uint32_t block_number, void* buf, size_t block_count) {
 
         request.reset();
     }
-    
+
     return 0;
 }
 
@@ -205,7 +206,7 @@ int AhciDevice::write(uint32_t block_number, const void* buf, size_t block_count
         cprintf("AhciDevice::write: device %s not present\n", name);
         return -1;
     }
-    
+
     if (block_number + block_count > info.size) {
         cprintf("AhciDevice::write: out of range (block %d + %d > %d)\n", block_number, block_count, info.size);
         return -1;
@@ -232,7 +233,8 @@ int AhciDevice::write(uint32_t block_number, const void* buf, size_t block_count
         while (!request.done) {
             {
                 InterruptsGuard guard;
-                if (request.done) break;
+                if (request.done)
+                    break;
                 TaskManager::get_current()->state = ProcessState::Sleeping;
             }
             TaskManager::schedule();
@@ -246,7 +248,7 @@ int AhciDevice::write(uint32_t block_number, const void* buf, size_t block_count
 
         request.reset();
     }
-    
+
     return 0;
 }
 
@@ -290,9 +292,9 @@ uint32_t AhciManager::pci_find_bar() {
     uint32_t bar5 = loc.read_bar(5);
     loc.enable_bus_master();
     uint32_t abar = bar5 & 0xFFFFFFF0;
-    
+
     cprintf("AHCI: Found controller at PCI %02x:%02x.%x, ABAR=0x%08x\n", loc.bus, loc.device, loc.function, abar);
-    
+
     return abar;
 }
 
@@ -306,7 +308,7 @@ void AhciManager::mmio_write32(uintptr_t base, uint32_t offset, uint32_t value) 
 
 int AhciManager::wait_port_ready(uintptr_t port_base, int timeout_ms) {
     int timeout = timeout_ms * 1000;  // Convert to iterations
-    
+
     while (timeout-- > 0) {
         uint32_t ssts = mmio_read32(port_base, ahci::PORT_SATA_STS);
 
@@ -314,20 +316,20 @@ int AhciManager::wait_port_ready(uintptr_t port_base, int timeout_ms) {
             return 0;
         }
     }
-    
+
     return -1;
 }
 
 int AhciManager::enable_port(uintptr_t port_base) {
-
     uint32_t cmd = mmio_read32(port_base, ahci::PORT_CMD_STAT);
     cmd |= ahci::CMD_FRE;  // Enable FIS receive
     mmio_write32(port_base, ahci::PORT_CMD_STAT, cmd);
 
-    for (int i = 0; i < 100000; i++);
+    for (int i = 0; i < 100000; i++)
+        ;
 
     cmd |= ahci::CMD_ST;
     mmio_write32(port_base, ahci::PORT_CMD_STAT, cmd);
-    
+
     return 0;
 }

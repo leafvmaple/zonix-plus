@@ -75,7 +75,7 @@ Page* alloc_pages(size_t n) {
     return page;
 }
 
-void pages_free(Page* base, size_t n) {
+void free_pages(Page* base, size_t n) {
     InterruptsGuard guard;
     g_pmm->free(base, n);
 }
@@ -223,7 +223,7 @@ void kfree(void* ptr) {
     }
 }
 
-void pmm_init() {
+void pmm::init() {
     pmm_mgr_init();
     page_init();
 }

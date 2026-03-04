@@ -59,6 +59,8 @@ inline constexpr int SUCCESS = 0;
 inline constexpr int FAILURE = -1;
 inline constexpr Page* INVALID_PTR = nullptr;
 
+void init();
+
 }  // namespace pmm
 
 class FreeArea {
@@ -71,8 +73,6 @@ public:
 
 void tlb_invl(pde_t* pgdir, uintptr_t la);
 
-void pmm_init();
-
 Page* pgdir_alloc_page(pde_t* pgdir, uintptr_t la, uint32_t perm);
 
 pte_t* get_pte(pde_t* pml4, uintptr_t la, bool create);
@@ -80,12 +80,12 @@ int page_insert(pde_t* pgdir, Page* page, uintptr_t la, uint32_t perm);
 
 // Page allocation functions
 Page* alloc_pages(size_t n);
-void pages_free(Page* base, size_t n);
+void free_pages(Page* base, size_t n);
 inline Page* alloc_page() {
     return alloc_pages(1);
 }
 inline void free_page(Page* page) {
-    pages_free(page, 1);
+    free_pages(page, 1);
 }
 
 // Helper functions for page address conversion

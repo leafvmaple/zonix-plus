@@ -25,6 +25,14 @@ static const char* perm2str(int perm) {
     return str;
 }
 
+static void mm_init(MemoryDesc* mm) {
+    mm->mmap_list.init();
+    mm->pgdir = nullptr;
+    mm->map_count = 0;
+}
+
+namespace vmm {
+
 void print_pgdir() {
     cprintf("-------------------- BEGIN --------------------\n");
     cprintf("PML4 at %p\n", boot_pgdir);
@@ -37,31 +45,25 @@ void print_pgdir() {
     cprintf("--------------------- END ---------------------\n");
 }
 
-int vmm_pg_fault(MemoryDesc *mm, uint32_t error_code, uintptr_t addr) {
+int pg_fault(MemoryDesc* mm, uint32_t error_code, uintptr_t addr) {
     uint32_t perm = PTE_U;
-    Page *page = nullptr;
+    Page* page = nullptr;
 
     addr = round_down(addr, PG_SIZE);
 
-    pte_t *ptep = get_pte(mm->pgdir, addr, 1);
+    pte_t* ptep = get_pte(mm->pgdir, addr, 1);
     if (*ptep == 0) {
         page = pgdir_alloc_page(mm->pgdir, addr, perm);
     } else {
-        swap_in(mm, addr, &page);
+        swap::in(mm, addr, &page);
     }
 
     return 0;
 }
 
-static void mm_init(MemoryDesc *mm) {
-    mm->mmap_list.init();
-    mm->pgdir = nullptr;
-    mm->map_count = 0;
-}
-
 // Map virtual pages to physical pages in 4-level page table
 void pgdir_init(pde_t* pgdir, uintptr_t la, size_t size, uintptr_t pa, uint32_t perm) {
-	size_t n = round_up(size, PG_SIZE) / PG_SIZE;
+    size_t n = round_up(size, PG_SIZE) / PG_SIZE;
     la = round_down(la, PG_SIZE);
     pa = round_down(pa, PG_SIZE);
     for (; n > 0; n--, la += PG_SIZE, pa += PG_SIZE) {
@@ -85,11 +87,13 @@ uintptr_t mmio_map(uintptr_t phys_addr, size_t size, uint32_t perm) {
     return va;
 }
 
-void vmm_init() {
-	cprintf("PML4 (Page Map Level 4): [0x%p]\n", boot_pgdir);
-    
-	pgdir_init(boot_pgdir, KERNEL_BASE, KERNEL_MEM_SIZE, 0, PTE_W);
+void init() {
+    cprintf("PML4 (Page Map Level 4): [0x%p]\n", boot_pgdir);
+
+    pgdir_init(boot_pgdir, KERNEL_BASE, KERNEL_MEM_SIZE, 0, PTE_W);
 
     mm_init(&init_mm);
     init_mm.pgdir = boot_pgdir;
 }
+
+}  // namespace vmm

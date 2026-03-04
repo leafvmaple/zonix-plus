@@ -124,10 +124,10 @@ make_dir = $(eval $(call do_make_dir))
 # Include paths:
 #   include/              - architecture-independent headers
 #   include/arch/$(ARCH)/  - makes <asm/xxx.h> resolve to the right arch
-#   kernel/include/         - kernel internal utilities (string.h, stdio.h, etc.)
+#   kernel/lib/            - kernel internal utilities (string.h, stdio.h, etc.)
 INCLUDE	+=  include  \
             include/arch/$(ARCH) \
-            kernel/include
+            kernel/lib
 
 # Kernel source directories
 KSRCDIR :=	kernel              \

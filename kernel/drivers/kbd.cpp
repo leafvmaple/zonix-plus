@@ -1,4 +1,4 @@
-#include "kdb.h"
+#include "kbd.h"
 
 #include <asm/drivers/i8042.h>
 #include <asm/drivers/i8259.h>

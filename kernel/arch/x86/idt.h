@@ -1,3 +1,7 @@
 #pragma once
 
-void idt_init();
+namespace idt {
+
+void init();
+
+}  // namespace idt
