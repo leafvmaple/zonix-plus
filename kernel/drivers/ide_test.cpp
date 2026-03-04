@@ -24,12 +24,12 @@ void IdeManager::test(void) {
     for (int i = 0; i < IdeManager::get_device_count(); i++) {
         IdeDevice* dev = IdeManager::get_device(i);
         
-        if (dev == nullptr || !dev->m_present) {
+        if (dev == nullptr || !dev->present) {
             continue;
         }
         
-        cprintf("--- Testing %s (dev_id=%d) ---\n", dev->m_name, i);
-        cprintf("  Size: %d sectors (%d MB)\n", dev->m_info.size, dev->m_info.size / 2048);
+        cprintf("--- Testing %s (dev_id=%d) ---\n", dev->name, i);
+        cprintf("  Size: %d sectors (%d MB)\n", dev->info.size, dev->info.size / 2048);
         
         // Fill write buffer with test pattern (unique per device)
         for (size_t j = 0; j < ide::SECTOR_SIZE; j++) {
@@ -69,7 +69,7 @@ void IdeManager::test(void) {
             cprintf("    OK\n");
         }
         
-        cprintf("  %s test %s\n\n", dev->m_name, errors == 0 ? "PASSED" : "FAILED");
+        cprintf("  %s test %s\n\n", dev->name, errors == 0 ? "PASSED" : "FAILED");
     }
     
     cprintf("=== Multi-Disk Test Complete ===\n\n");
@@ -92,16 +92,16 @@ void IdeManager::test_interrupt(void) {
         return;
     }
     
-    cprintf("Testing device: %s\n", dev->m_name);
-    cprintf("  base=0x%x, ctrl=0x%x, irq=%d\n", dev->m_config->base, dev->m_config->ctrl, dev->m_config->irq);
+    cprintf("Testing device: %s\n", dev->name);
+    cprintf("  base=0x%x, ctrl=0x%x, irq=%d\n", dev->config->base, dev->config->ctrl, dev->config->irq);
     
     // Check interrupt enable status
-    uint8_t ctrl = arch_port_inb(dev->m_config->ctrl);
+    uint8_t ctrl = arch_port_inb(dev->config->ctrl);
     cprintf("  Control register: 0x%02x (interrupts %s)\n", 
             ctrl, (ctrl & ide::CTRL_nIEN) ? "DISABLED" : "ENABLED");
     
     // Check PIC mask
-    cprintf("  Checking if IRQ %d is enabled in PIC...\n", dev->m_config->irq);
+    cprintf("  Checking if IRQ %d is enabled in PIC...\n", dev->config->irq);
     
     // Try a simple read with interrupt
     cprintf("  Attempting interrupt-driven read of sector 0...\n");

@@ -33,23 +33,23 @@ struct TaskStruct {
     static constexpr size_t KSTACK_SIZE  = 4096;  // 4KB kernel stack
 
     char name[32]{};                     // Process name
-    int m_pid{};                         // Process ID
+    int pid{};                         // Process ID
 
-    volatile ProcessState m_state{};     // Process state
-    uintptr_t m_kernel_stack{};          // Kernel stack bottom
-    MemoryDesc* m_memory{};              // Memory management
-    Context m_context{};                 // Process context for switching
-    TrapFrame* m_trap_frame{};           // Trap frame for current interrupt
-    uint32_t m_flags{};                  // Process flags
+    volatile ProcessState state{};     // Process state
+    uintptr_t kernel_stack{};          // Kernel stack bottom
+    MemoryDesc* memory{};              // Memory management
+    Context context{};                 // Process context for switching
+    TrapFrame* trap_frame{};           // Trap frame for current interrupt
+    uint32_t flags{};                  // Process flags
 
-    ListNode m_list_node{};              // Link in process list
-    ListNode m_hash_node{};              // Link in hash list
-    ListNode m_child_node{};             // Link in parent's child list
-    int m_exit_code{};                   // Exit code (for zombie processes)
-    uint32_t m_wait_state{};             // Waiting state
+    ListNode list_node{};              // Link in process list
+    ListNode hash_node{};              // Link in hash list
+    ListNode child_node{};             // Link in parent's child list
+    int exit_code{};                   // Exit code (for zombie processes)
+    uint32_t wait_state{};             // Waiting state
 
-    TaskStruct* m_parent{};              // Parent process
-    ListNode m_child_list{};             // Head of child process list
+    TaskStruct* parent{};              // Parent process
+    ListNode child_list{};             // Head of child process list
     
     void run();
     void wakeup();
@@ -60,22 +60,22 @@ struct TaskStruct {
     int setup_kernel_stack();
     
     ListNode* node() {
-        return &m_list_node;
+        return &list_node;
     }
 
     static TaskStruct* from_list_link(ListNode* node) {
         return reinterpret_cast<TaskStruct*>(
-            reinterpret_cast<char*>(node) - offset_of(&TaskStruct::m_list_node));
+            reinterpret_cast<char*>(node) - offset_of(&TaskStruct::list_node));
     }
 
     static TaskStruct* from_hash_link(ListNode* node) {
         return reinterpret_cast<TaskStruct*>(
-            reinterpret_cast<char*>(node) - offset_of(&TaskStruct::m_hash_node));
+            reinterpret_cast<char*>(node) - offset_of(&TaskStruct::hash_node));
     }
 
     static TaskStruct* from_child_link(ListNode* node) {
         return reinterpret_cast<TaskStruct*>(
-            reinterpret_cast<char*>(node) - offset_of(&TaskStruct::m_child_node));
+            reinterpret_cast<char*>(node) - offset_of(&TaskStruct::child_node));
     }
 
     void set_links();

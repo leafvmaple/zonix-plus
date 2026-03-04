@@ -18,9 +18,9 @@ static inline int sys_pause() {
 
 // Call C++ global constructors registered in .init_array
 extern "C" {
-    using ctor_func = void(*)();
-    extern ctor_func __init_array_start[];
-    extern ctor_func __init_array_end[];
+using ctor_func = void (*)();
+extern ctor_func __init_array_start[];
+extern ctor_func __init_array_end[];
 }
 
 static void cxx_init() {
@@ -29,17 +29,17 @@ static void cxx_init() {
     }
 }
 
-extern "C" __attribute__((noreturn)) int kern_init(struct boot_info *boot_info) {
+extern "C" __attribute__((noreturn)) int kern_init(struct boot_info* boot_info) {
     if (!boot_info || boot_info->magic != BOOT_INFO_MAGIC) {
         goto halt;
     }
 
     // C++ global constructors (must run before any other init)
     cxx_init();
-    
+
     // Console initialization first (basic driver: CGA + keyboard)
     // This must be first to enable cprintf for other modules
-    cons_init();
+    cons::init();
 
     // drivers
     pic::init();
@@ -51,14 +51,12 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info *boot_info) 
     pmm_init();
     vmm_init();
 
-#ifdef CONFIG_FBCONS
     // Initialize framebuffer console now that VMM can map MMIO
     fbcons::late_init();
-#endif
 
     // Block device initialization (requires VMM for MMIO access)
     blk::init();
-    
+
     // Swap initialization (requires block devices)
     swap_init();
 
@@ -68,9 +66,10 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info *boot_info) 
 
     // Idle loop: PID 0 halts until an interrupt arrives, then reschedules
     while (true) {
-        __asm__ volatile("sti; hlt");   // Enable interrupts + halt atomically
+        __asm__ volatile("sti; hlt");  // Enable interrupts + halt atomically
         TaskManager::schedule();
     }
 halt:
-    while (true) __asm__ volatile("hlt");
+    while (true)
+        __asm__ volatile("hlt");
 }

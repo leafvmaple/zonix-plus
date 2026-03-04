@@ -83,29 +83,25 @@ CheckOptions:
   - key: readability-identifier-naming.ParameterCase
     value: lower_case
 
-  # --- Member variables: lower_case with m_ prefix ---
+  # --- Member variables: lower_case (default, no suffix) ---
   - key: readability-identifier-naming.MemberCase
     value: lower_case
-  - key: readability-identifier-naming.MemberPrefix
-    value: 'm_'
 
-  # --- Public member variables: lower_case with m_ prefix ---
+  # --- Public member variables: lower_case, no suffix (struct-style) ---
   - key: readability-identifier-naming.PublicMemberCase
     value: lower_case
-  - key: readability-identifier-naming.PublicMemberPrefix
-    value: 'm_'
 
-  # --- Private member variables: lower_case with m_ prefix ---
+  # --- Private member variables: lower_case with _ suffix (class-style) ---
   - key: readability-identifier-naming.PrivateMemberCase
     value: lower_case
-  - key: readability-identifier-naming.PrivateMemberPrefix
-    value: 'm_'
+  - key: readability-identifier-naming.PrivateMemberSuffix
+    value: '_'
 
-  # --- Protected member variables: lower_case with m_ prefix ---
+  # --- Protected member variables: lower_case with _ suffix (class-style) ---
   - key: readability-identifier-naming.ProtectedMemberCase
     value: lower_case
-  - key: readability-identifier-naming.ProtectedMemberPrefix
-    value: 'm_'
+  - key: readability-identifier-naming.ProtectedMemberSuffix
+    value: '_'
 
   # --- Static class members: lower_case with s_ prefix ---
   - key: readability-identifier-naming.ClassMemberCase

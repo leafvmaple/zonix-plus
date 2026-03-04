@@ -8,13 +8,13 @@ static inline uint8_t inb(uint16_t port) __attribute__((always_inline));
 static inline uint8_t inb_p(uint16_t port) __attribute__((always_inline));
 static inline uint16_t inw(uint16_t port) __attribute__((always_inline));
 static inline uint32_t inl(uint16_t port) __attribute__((always_inline));
-static inline void insl(uint32_t port, void *addr, int cnt) __attribute__((always_inline));
-static inline void insw(uint32_t port, void *addr, int cnt) __attribute__((always_inline));
+static inline void insl(uint32_t port, void* addr, int cnt) __attribute__((always_inline));
+static inline void insw(uint32_t port, void* addr, int cnt) __attribute__((always_inline));
 
 static inline void outb(uint16_t port, uint8_t data) __attribute__((always_inline));
 static inline void outw(uint16_t port, uint16_t data) __attribute__((always_inline));
 static inline void outl(uint16_t port, uint32_t data) __attribute__((always_inline));
-static inline void outsw(uint32_t port, const void *addr, int cnt) __attribute__((always_inline));
+static inline void outsw(uint32_t port, const void* addr, int cnt) __attribute__((always_inline));
 
 static inline void outb_p(uint16_t port, uint8_t data) __attribute__((always_inline));
 
@@ -29,58 +29,58 @@ static inline void lcr3(uintptr_t cr3) __attribute__((always_inline));
 static inline uintptr_t rcr2(void) __attribute__((always_inline));
 static inline uintptr_t rcr3(void) __attribute__((always_inline));
 
-static inline void invlpg(void *addr) __attribute__((always_inline));
+static inline void invlpg(void* addr) __attribute__((always_inline));
 
 
 static inline uint8_t inb(uint16_t port) {
     uint8_t data{};
-    asm volatile ("inb %1, %0" : "=a" (data) : "d" (port));
+    asm volatile("inb %1, %0" : "=a"(data) : "d"(port));
     return data;
 }
 
 static inline uint8_t inb_p(uint16_t port) {
     uint8_t data{};
-    asm volatile ("inb %1, %0;"
-	    "jmp 1f;"
-	    "1:jmp 1f;"
-	    "1:" : "=a" (data) : "d" (port));
+    asm volatile("inb %1, %0;"
+                 "jmp 1f;"
+                 "1:jmp 1f;"
+                 "1:"
+                 : "=a"(data)
+                 : "d"(port));
     return data;
 }
 
 static inline uint16_t inw(uint16_t port) {
     uint16_t data{};
-    asm volatile ("inw %1, %0" : "=a" (data) : "d" (port));
+    asm volatile("inw %1, %0" : "=a"(data) : "d"(port));
     return data;
 }
 
 static inline uint32_t inl(uint16_t port) {
     uint32_t data{};
-    asm volatile ("inl %1, %0" : "=a" (data) : "d" (port));
+    asm volatile("inl %1, %0" : "=a"(data) : "d"(port));
     return data;
 }
 
 // Read [cnt] dwords to address [addr] from port [port]
-static inline void insl(uint32_t port, void *addr, int cnt) {
-    asm volatile (
-            "cld;"
-            "repne; insl;"
-            : "=D" (addr), "=c" (cnt)
-            : "d" (port), "0" (addr), "1" (cnt)
-            : "memory", "cc");
+static inline void insl(uint32_t port, void* addr, int cnt) {
+    asm volatile("cld;"
+                 "repne; insl;"
+                 : "=D"(addr), "=c"(cnt)
+                 : "d"(port), "0"(addr), "1"(cnt)
+                 : "memory", "cc");
 }
 
 // Read [cnt] words to address [addr] from port [port]
-static inline void insw(uint32_t port, void *addr, int cnt) {
-    asm volatile (
-            "cld;"
-            "rep; insw;"
-            : "=D" (addr), "=c" (cnt)
-            : "d" (port), "0" (addr), "1" (cnt)
-            : "memory", "cc");
+static inline void insw(uint32_t port, void* addr, int cnt) {
+    asm volatile("cld;"
+                 "rep; insw;"
+                 : "=D"(addr), "=c"(cnt)
+                 : "d"(port), "0"(addr), "1"(cnt)
+                 : "memory", "cc");
 }
 
 static inline void outb(uint16_t port, uint8_t data) {
-    asm volatile ("outb %0, %1" :: "a"(data), "d"(port));
+    asm volatile("outb %0, %1" ::"a"(data), "d"(port));
 }
 
 static inline void outw(uint16_t port, uint16_t data) {
@@ -92,20 +92,20 @@ static inline void outl(uint16_t port, uint32_t data) {
 }
 
 // Write [cnt] words from address [addr] to port [port]
-static inline void outsw(uint32_t port, const void *addr, int cnt) {
-    asm volatile (
-            "cld;"
-            "rep; outsw;"
-            : "=S" (addr), "=c" (cnt)
-            : "d" (port), "0" (addr), "1" (cnt)
-            : "memory", "cc");
+static inline void outsw(uint32_t port, const void* addr, int cnt) {
+    asm volatile("cld;"
+                 "rep; outsw;"
+                 : "=S"(addr), "=c"(cnt)
+                 : "d"(port), "0"(addr), "1"(cnt)
+                 : "memory", "cc");
 }
 
 static inline void outb_p(uint16_t port, uint8_t data) {
-    asm volatile ("outb %0, %1;"
-		"jmp 1f;"
-		"1:jmp 1f;"
-		"1:" :: "a"(data), "d"(port));
+    asm volatile("outb %0, %1;"
+                 "jmp 1f;"
+                 "1:jmp 1f;"
+                 "1:" ::"a"(data),
+                 "d"(port));
 }
 
 // Short delay using port 0x80 (POST diagnostic port)
@@ -143,6 +143,6 @@ static inline uintptr_t rcr3(void) {
     return cr3;
 }
 
-static inline void invlpg(void *addr) {
-    asm volatile("invlpg (%0)" :: "r"(addr) : "memory");
+static inline void invlpg(void* addr) {
+    asm volatile("invlpg (%0)" ::"r"(addr) : "memory");
 }

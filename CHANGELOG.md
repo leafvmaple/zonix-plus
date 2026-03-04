@@ -331,7 +331,7 @@ AHCI/SATA driver, framebuffer console, and 20+ interactive shell commands.
   - Added BSS clearing code in `init/head.S` (follows Linux kernel pattern)
   - Defined `__bss_start` and `__bss_end` symbols in linker script
   - Root cause: Bootloader loads segments but doesn't zero BSS
-- **Debug Support**: Added Bochs port e9 output to `cons_putc()` for logging
+- **Debug Support**: Added Bochs port e9 output to `cons::putc()` for logging
 
 ## [0.2.1] - 2025-10-21
 

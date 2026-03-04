@@ -37,7 +37,7 @@ int swap_init() {
     
     // Calculate maximum swap offset based on available disk space
     // Reserve space for swap (use sectors after SWAP_START_SECTOR)
-    uint32_t available_sectors = swap_device->m_size - SWAP_START_SECTOR;
+    uint32_t available_sectors = swap_device->size - SWAP_START_SECTOR;
     max_swap_offset = available_sectors / SECTORS_PER_PAGE;
     
     cprintf("swap: manager = %s, available space = %d pages (%d MB)\n", 
@@ -206,7 +206,7 @@ int swapfs_init(void) {
         return -1;
     }
     
-    cprintf("swapfs init: using device '%s' for swap\n", swap_device->m_name);
+    cprintf("swapfs init: using device '%s' for swap\n", swap_device->name);
     cprintf("swapfs init: swap starts at sector %d\n", SWAP_START_SECTOR);
     
     return 0;

@@ -21,15 +21,17 @@ inline void restore_impl(int flag) {
     }
 }
 
-} // namespace intr
+}  // namespace intr
 
 // RAII class for scoped interrupt disable
 class InterruptsGuard {
-    int m_flag;
 public:
-    InterruptsGuard() : m_flag(intr::save_impl()) {}
-    ~InterruptsGuard() { intr::restore_impl(m_flag); }
-    
+    InterruptsGuard() : flag_(intr::save_impl()) {}
+    ~InterruptsGuard() { intr::restore_impl(flag_); }
+
     InterruptsGuard(const InterruptsGuard&) = delete;
     InterruptsGuard& operator=(const InterruptsGuard&) = delete;
+
+private:
+    int flag_;
 };

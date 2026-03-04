@@ -25,44 +25,44 @@ AhciPortConfig AhciManager::s_port_configs[ahci::MAX_DEVICES] = {
 };
 
 void AhciDevice::detect(const AhciPortConfig* config, uintptr_t mmio_base) {
-    m_config = config;
-    m_port_base = mmio_base + ahci::PORT_BASE_OFFSET + (config->port_num * ahci::PORT_REG_SIZE);
+    config = config;
+    port_base = mmio_base + ahci::PORT_BASE_OFFSET + (config->port_num * ahci::PORT_REG_SIZE);
     
-    m_type = blk::DeviceType::Disk;
-    m_present = 1;
+    type = blk::DeviceType::Disk;
+    present = 1;
 
-    m_info.size = 131072;  // TODO
-    m_info.serial = config->port_num;
-    m_info.model = 0;
-    m_info.valid = 1;
+    info.size = 131072;  // TODO
+    info.serial = config->port_num;
+    info.model = 0;
+    info.valid = 1;
 
-    strncpy(m_name, m_config->name, sizeof(m_name));
+    strncpy(name, config->name, sizeof(name));
 }
 
 void AhciDevice::interrupt() {
-    uint32_t is = AhciManager::mmio_read32(m_port_base, ahci::PORT_IS);
+    uint32_t is = AhciManager::mmio_read32(port_base, ahci::PORT_IS);
  
-    AhciManager::mmio_write32(m_port_base, ahci::PORT_IS, is);
+    AhciManager::mmio_write32(port_base, ahci::PORT_IS, is);
     
     if (is & ahci::IS_DHRS) {
-        if (m_request.op == AhciRequest::Op::Read) {
+        if (request.op == AhciRequest::Op::Read) {
             // Data is ready in buffer
-        } else if (m_request.op == AhciRequest::Op::Write) {
+        } else if (request.op == AhciRequest::Op::Write) {
             // Write completed
         }
     }
     
     if (is & ahci::IS_PCS) {
-        cprintf("ahci%d: port connect change detected\n", m_config->port_num);
+        cprintf("ahci%d: port connect change detected\n", config->port_num);
     }
     
     if (is & ahci::IS_OFS) {
-        m_request.err = -1;
+        request.err = -1;
     }
     
-    m_request.done = 1;
-    if (m_request.waiting) {
-        m_request.waiting->wakeup();
+    request.done = 1;
+    if (request.waiting) {
+        request.waiting->wakeup();
     }
 }
 
@@ -140,7 +140,7 @@ AhciDevice* AhciManager::get_device(int device_id) {
     if (device_id < 0 || device_id >= s_devices_count) {
         return nullptr;
     }
-    if (!s_devices[device_id].m_present) {
+    if (!s_devices[device_id].present) {
         return nullptr;
     }
     return &s_devices[device_id];
@@ -151,13 +151,13 @@ int AhciManager::get_device_count() {
 }
 
 int AhciDevice::read(uint32_t block_number, void* buf, size_t block_count) {
-    if (!m_present) {
-        cprintf("AhciDevice::read: device %s not present\n", m_name);
+    if (!present) {
+        cprintf("AhciDevice::read: device %s not present\n", name);
         return -1;
     }
     
-    if (block_number + block_count > m_info.size) {
-        cprintf("AhciDevice::read: out of range (block %d + %d > %d)\n", block_number, block_count, m_info.size);
+    if (block_number + block_count > info.size) {
+        cprintf("AhciDevice::read: out of range (block %d + %d > %d)\n", block_number, block_count, info.size);
         return -1;
     }
 
@@ -168,46 +168,46 @@ int AhciDevice::read(uint32_t block_number, void* buf, size_t block_count) {
         {
             InterruptsGuard guard;
 
-            m_request.reset();
-            m_request.buffer = reinterpret_cast<uint8_t*>(buf) + i * ahci::SECTOR_SIZE;
-            m_request.op = AhciRequest::Op::Read;
-            m_request.waiting = TaskManager::get_current();
+            request.reset();
+            request.buffer = reinterpret_cast<uint8_t*>(buf) + i * ahci::SECTOR_SIZE;
+            request.op = AhciRequest::Op::Read;
+            request.waiting = TaskManager::get_current();
 
             // In a real implementation, would set up command list and issue READ_DMA_EXT command
             // For now, just simulate success
-            m_request.done = 1;
+            request.done = 1;
         }
 
         // Wait for interrupt completion (double-checked pattern)
-        while (!m_request.done) {
+        while (!request.done) {
             {
                 InterruptsGuard guard;
-                if (m_request.done) break;
-                TaskManager::get_current()->m_state = ProcessState::Sleeping;
+                if (request.done) break;
+                TaskManager::get_current()->state = ProcessState::Sleeping;
             }
             TaskManager::schedule();
         }
 
-        if (m_request.err) {
-            m_request.reset();
-            cprintf("AhciDevice::read: error reading block %d from %s\n", lba, m_name);
+        if (request.err) {
+            request.reset();
+            cprintf("AhciDevice::read: error reading block %d from %s\n", lba, name);
             return -1;
         }
 
-        m_request.reset();
+        request.reset();
     }
     
     return 0;
 }
 
 int AhciDevice::write(uint32_t block_number, const void* buf, size_t block_count) {
-    if (!m_present) {
-        cprintf("AhciDevice::write: device %s not present\n", m_name);
+    if (!present) {
+        cprintf("AhciDevice::write: device %s not present\n", name);
         return -1;
     }
     
-    if (block_number + block_count > m_info.size) {
-        cprintf("AhciDevice::write: out of range (block %d + %d > %d)\n", block_number, block_count, m_info.size);
+    if (block_number + block_count > info.size) {
+        cprintf("AhciDevice::write: out of range (block %d + %d > %d)\n", block_number, block_count, info.size);
         return -1;
     }
 
@@ -218,33 +218,33 @@ int AhciDevice::write(uint32_t block_number, const void* buf, size_t block_count
         {
             InterruptsGuard guard;
 
-            m_request.reset();
-            m_request.buffer = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(buf) + i * ahci::SECTOR_SIZE);
-            m_request.op = AhciRequest::Op::Write;
-            m_request.waiting = TaskManager::get_current();
+            request.reset();
+            request.buffer = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(buf) + i * ahci::SECTOR_SIZE);
+            request.op = AhciRequest::Op::Write;
+            request.waiting = TaskManager::get_current();
 
             // In a real implementation, would set up command list and issue WRITE_DMA_EXT command
             // For now, just simulate success
-            m_request.done = 1;
+            request.done = 1;
         }
 
         // Wait for interrupt completion (double-checked pattern)
-        while (!m_request.done) {
+        while (!request.done) {
             {
                 InterruptsGuard guard;
-                if (m_request.done) break;
-                TaskManager::get_current()->m_state = ProcessState::Sleeping;
+                if (request.done) break;
+                TaskManager::get_current()->state = ProcessState::Sleeping;
             }
             TaskManager::schedule();
         }
 
-        if (m_request.err) {
-            m_request.reset();
-            cprintf("AhciDevice::write: error writing block %d to %s\n", lba, m_name);
+        if (request.err) {
+            request.reset();
+            cprintf("AhciDevice::write: error writing block %d to %s\n", lba, name);
             return -1;
         }
 
-        m_request.reset();
+        request.reset();
     }
     
     return 0;
@@ -258,10 +258,10 @@ void AhciManager::interrupt_handler(int port) {
     for (int i = 0; i < s_devices_count; i++) {
         AhciDevice& dev = s_devices[i];
 
-        if (!dev.m_present || dev.m_config->port_num != port) {
+        if (!dev.present || dev.config->port_num != port) {
             continue;
         }
-        if (dev.m_request.op == AhciRequest::Op::None) {
+        if (dev.request.op == AhciRequest::Op::None) {
             continue;
         }
 
@@ -274,7 +274,7 @@ void AhciManager::test() {
     for (int i = 0; i < s_devices_count; i++) {
         AhciDevice* dev = get_device(i);
         if (dev) {
-            cprintf("AHCI: test() - Device %d: %s (%d sectors)\n", i, dev->m_name, dev->m_info.size);
+            cprintf("AHCI: test() - Device %d: %s (%d sectors)\n", i, dev->name, dev->info.size);
         }
     }
 }

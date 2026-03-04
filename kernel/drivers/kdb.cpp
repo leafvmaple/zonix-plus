@@ -1,7 +1,5 @@
 #include "kdb.h"
 
-#ifdef CONFIG_PS2KBD
-
 #include <asm/drivers/i8042.h>
 #include <asm/drivers/i8259.h>
 
@@ -20,25 +18,20 @@ namespace {
 constexpr size_t KBD_BUF_SIZE = 128;
 
 char kbd_buf[KBD_BUF_SIZE];
-volatile int kbd_read  = 0;
+volatile int kbd_read = 0;
 volatile int kbd_write = 0;
 
-TaskStruct* kbd_waiter = nullptr;   // process sleeping on input
+TaskStruct* kbd_waiter = nullptr;  // process sleeping on input
 
-} // namespace
+}  // namespace
 
 static uint8_t normal_map[256] = {
-    NO  , 0x1B, '1', '2' , '3' , '4', '5' , '6' ,  // 0x00
-    '7' , '8' , '9', '0' , '-' , '=', '\b', '\t',
-    'q' , 'w' , 'e', 'r' , 't' , 'y', 'u' , 'i' ,  // 0x10
-    'o' , 'p' , '[', ']' , '\n', NO , 'a' , 's' ,
-    'd' , 'f' , 'g', 'h' , 'j' , 'k', 'l' , ';' ,  // 0x20
-    '\'', '`' , NO , '\\', 'z' , 'x', 'c' , 'v' ,
-    'b' , 'n' , 'm', ',' , '.' , '/', NO  , '*' ,  // 0x30
-    NO  , ' ' , NO , NO  , NO  , NO , NO  , NO  ,
-    NO  , NO  , NO , NO  , NO  , NO , NO  , '7' ,  // 0x40
-    '8' , '9' , '-', '4' , '5' , '6', '+' , '1' ,
-    '2' , '3' , '0', '.' , NO  , NO , NO  , NO  ,  // 0x50
+    NO,   0x1B, '1', '2',  '3',  '4', '5',  '6',                                           // 0x00
+    '7',  '8',  '9', '0',  '-',  '=', '\b', '\t', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i',  // 0x10
+    'o',  'p',  '[', ']',  '\n', NO,  'a',  's',  'd', 'f', 'g', 'h', 'j', 'k', 'l', ';',  // 0x20
+    '\'', '`',  NO,  '\\', 'z',  'x', 'c',  'v',  'b', 'n', 'm', ',', '.', '/', NO,  '*',  // 0x30
+    NO,   ' ',  NO,  NO,   NO,   NO,  NO,   NO,   NO,  NO,  NO,  NO,  NO,  NO,  NO,  '7',  // 0x40
+    '8',  '9',  '-', '4',  '5',  '6', '+',  '1',  '2', '3', '0', '.', NO,  NO,  NO,  NO,   // 0x50
 };
 
 static bool normal_map_initialized = false;
@@ -76,21 +69,23 @@ int getc(void) {
         return -1;
 
     uint8_t data = arch_port_inb(KBD_DATA_REG);
-    
+
     // Ignore key release events (scancode & 0x80)
     if (data & 0x80)
         return -1;
-    
+
     return normal_map[data];
 }
 
 // Called from keyboard IRQ handler — read char from hardware, buffer it
 void intr(void) {
     int c = getc();
-    if (c <= 0) return;
+    if (c <= 0)
+        return;
 
     int next = (kbd_write + 1) % KBD_BUF_SIZE;
-    if (next == kbd_read) return;   // buffer full, drop
+    if (next == kbd_read)
+        return;  // buffer full, drop
 
     kbd_buf[kbd_write] = (char)c;
     kbd_write = next;
@@ -115,12 +110,10 @@ char getc_blocking(void) {
             // Nothing available — sleep
             TaskStruct* current = TaskManager::get_current();
             kbd_waiter = current;
-            current->m_state = ProcessState::Sleeping;
+            current->state = ProcessState::Sleeping;
         }
         TaskManager::schedule();
     }
 }
 
-} // namespace kbd
-
-#endif // CONFIG_PS2KBD
+}  // namespace kbd

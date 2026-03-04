@@ -14,5 +14,5 @@ public:
     void check() override;
 
 private:
-    FreeArea m_free{};
+    FreeArea free_{};
 };

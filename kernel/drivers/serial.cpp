@@ -1,8 +1,6 @@
 #include "serial.h"
 
 #include <kernel/config.h>
-#ifdef CONFIG_SERIAL
-
 #include <asm/arch.h>
 
 #define COM1_PORT 0x3F8
@@ -21,11 +19,8 @@ void init() {
 
 void putc(int c) {
     // Wait for transmit buffer to be empty (bit 5 of LSR)
-    while ((arch_port_inb(COM1_PORT + 5) & 0x20) == 0)
-        ;
+    while ((arch_port_inb(COM1_PORT + 5) & 0x20) == 0) {}
     arch_port_outb(COM1_PORT, c);
 }
 
-} // namespace serial
-
-#endif // CONFIG_SERIAL
+}  // namespace serial

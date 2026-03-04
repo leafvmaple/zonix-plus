@@ -5,8 +5,6 @@
 
 namespace fbcons {
 
-#ifdef CONFIG_FBCONS
-
 // Late initialization: map framebuffer MMIO and activate console (requires VMM)
 void late_init();
 
@@ -21,6 +19,5 @@ void tick();
 
 // Check if framebuffer console is active
 bool is_active();
-#endif
 
-} // namespace fbcons
+}  // namespace fbcons

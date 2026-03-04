@@ -48,33 +48,33 @@ int FatInfo::mount(BlockDevice* dev) {
         return -1;
     }
 
-    m_dev = dev;
-    m_partition_start = partition_start;
-    m_total_sectors = bs.total_sectors_32;
-    m_bytes_per_sector = bs.bytes_per_sector;
-    m_sectors_per_cluster = bs.sectors_per_cluster;
-    m_bytes_per_cluster = bs.bytes_per_sector * bs.sectors_per_cluster;
+    dev_ = dev;
+    partition_start_ = partition_start;
+    total_sectors_ = bs.total_sectors_32;
+    bytes_per_sector_ = bs.bytes_per_sector;
+    sectors_per_cluster_ = bs.sectors_per_cluster;
+    bytes_per_cluster_ = bs.bytes_per_sector * bs.sectors_per_cluster;
     
-    m_reserved_sectors = bs.reserved_sectors;
-    m_num_fats = bs.num_fats;
-    m_fat_size = bs.fat_size_32;
-    m_root_entries = 0;
-    m_root_cluster = bs.root_cluster;
+    reserved_sectors_ = bs.reserved_sectors;
+    num_fats_ = bs.num_fats;
+    fat_size_ = bs.fat_size_32;
+    root_entries_ = 0;
+    root_cluster_ = bs.root_cluster;
     
     // Calculate FAT start sector (relative to partition)
-    m_root_start = 0;
-    m_root_sectors = 0;
-    m_fat_start = m_reserved_sectors;
-    m_data_start = m_fat_start + (m_num_fats * m_fat_size);
+    root_start_ = 0;
+    root_sectors_ = 0;
+    fat_start_ = reserved_sectors_;
+    data_start_ = fat_start_ + (num_fats_ * fat_size_);
     
     // Calculate cluster count
-    uint32_t data_sectors = m_total_sectors - m_data_start;
-    m_cluster_count = data_sectors / m_sectors_per_cluster;
-    m_fat_type = FAT_TYPE_FAT32;
+    uint32_t data_sectors = total_sectors_ - data_start_;
+    cluster_count_ = data_sectors / sectors_per_cluster_;
+    fat_type_ = FAT_TYPE_FAT32;
     
     // Initialize FAT cache
-    m_buffer_sector = (uint32_t)-1;  // Invalid sector
-    m_buffer_dirty = false;
+    buffer_sector_ = (uint32_t)-1;  // Invalid sector
+    buffer_dirty_ = false;
     
     // Print file system information
     char oem[9]{};
@@ -83,7 +83,7 @@ int FatInfo::mount(BlockDevice* dev) {
     memcpy(oem, bs.oem, 8);
     memcpy(label, bs.volume_label, 11);
     
-    cprintf("FAT%d mounted: %s\n", m_fat_type, label);
+    cprintf("FAT%d mounted: %s\n", fat_type_, label);
     cprintf("  OEM: %s\n", oem);
     cprintf("  Partition Start: LBA %d\n", partition_start);
     print_info();
@@ -93,38 +93,38 @@ int FatInfo::mount(BlockDevice* dev) {
 
 void FatInfo::unmount() {
     // Flush FAT buffer if dirty
-    if (m_buffer_dirty && m_buffer_sector != (uint32_t)-1) {
-        for (uint32_t i = 0; i < m_num_fats; i++) {
-            uint32_t fat_sector = m_fat_start + (i * m_fat_size) + (m_buffer_sector - m_fat_start);
-            if (m_dev->write(m_partition_start + fat_sector, m_buffer, 1) != 0) {
+    if (buffer_dirty_ && buffer_sector_ != (uint32_t)-1) {
+        for (uint32_t i = 0; i < num_fats_; i++) {
+            uint32_t fat_sector = fat_start_ + (i * fat_size_) + (buffer_sector_ - fat_start_);
+            if (dev_->write(partition_start_ + fat_sector, buffer_, 1) != 0) {
                 cprintf("fat_unmount: failed to write FAT sector %d\n", fat_sector);
             }
         }
-        m_buffer_dirty = false;
+        buffer_dirty_ = false;
     }
     
     // Clear info
-    m_dev = nullptr;
-    m_buffer_sector = (uint32_t)-1;
-    m_buffer_dirty = 0;
+    dev_ = nullptr;
+    buffer_sector_ = (uint32_t)-1;
+    buffer_dirty_ = 0;
 }
 
 void FatInfo::print_info() {
-    cprintf("FAT%d File System Information:\n", m_fat_type);
-    cprintf("  Bytes/Sector: %d\n", m_bytes_per_sector);
-    cprintf("  Sectors/Cluster: %d\n", m_sectors_per_cluster);
-    cprintf("  Bytes/Cluster: %d\n", m_bytes_per_cluster);
-    cprintf("  Total Sectors: %d\n", m_total_sectors);
-    cprintf("  FAT Start: sector %d\n", m_fat_start);
-    cprintf("  FAT Size: %d sectors\n", m_fat_size);
-    if (m_fat_type == FAT_TYPE_FAT32) {
-        cprintf("  Root Cluster: %d\n", m_root_cluster);
+    cprintf("FAT%d File System Information:\n", fat_type_);
+    cprintf("  Bytes/Sector: %d\n", bytes_per_sector_);
+    cprintf("  Sectors/Cluster: %d\n", sectors_per_cluster_);
+    cprintf("  Bytes/Cluster: %d\n", bytes_per_cluster_);
+    cprintf("  Total Sectors: %d\n", total_sectors_);
+    cprintf("  FAT Start: sector %d\n", fat_start_);
+    cprintf("  FAT Size: %d sectors\n", fat_size_);
+    if (fat_type_ == FAT_TYPE_FAT32) {
+        cprintf("  Root Cluster: %d\n", root_cluster_);
     } else {
-        cprintf("  Root Start: sector %d\n", m_root_start);
-        cprintf("  Root Entries: %d\n", m_root_entries);
+        cprintf("  Root Start: sector %d\n", root_start_);
+        cprintf("  Root Entries: %d\n", root_entries_);
     }
-    cprintf("  Data Start: sector %d\n", m_data_start);
-    cprintf("  Cluster Count: %d\n", m_cluster_count);
+    cprintf("  Data Start: sector %d\n", data_start_);
+    cprintf("  Cluster Count: %d\n", cluster_count_);
 }
 
 uint32_t FatInfo::get_cluster(fat_dir_entry_t& entry) {
@@ -135,26 +135,26 @@ uint32_t FatInfo::get_cluster(fat_dir_entry_t& entry) {
 }
 
 uint32_t FatInfo::read_entry(uint32_t cluster) {
-    if (cluster < 2 || cluster >= m_cluster_count + 2) {
+    if (cluster < 2 || cluster >= cluster_count_ + 2) {
         return 0;
     }
     
-    if (m_fat_type != FAT_TYPE_FAT32) {
+    if (fat_type_ != FAT_TYPE_FAT32) {
         return 0;
     }
     uint32_t fat_offset = cluster << 2;
-    uint32_t fat_sector = m_fat_start + (fat_offset / m_bytes_per_sector);
-    uint32_t ent_offset = fat_offset % m_bytes_per_sector;
+    uint32_t fat_sector = fat_start_ + (fat_offset / bytes_per_sector_);
+    uint32_t ent_offset = fat_offset % bytes_per_sector_;
     
     // Load FAT sector if not cached
-    if (fat_sector != m_buffer_sector) {
-        if (m_dev->read(m_partition_start + fat_sector, m_buffer, 1) != 0) {
+    if (fat_sector != buffer_sector_) {
+        if (dev_->read(partition_start_ + fat_sector, buffer_, 1) != 0) {
             return 0;
         }
-        m_buffer_sector = fat_sector;
+        buffer_sector_ = fat_sector;
     }
     
-    uint32_t value = *(uint32_t *)&m_buffer[ent_offset];
+    uint32_t value = *(uint32_t *)&buffer_[ent_offset];
     return value & FAT32_CLUSTER_MASK;  // Mask out top 4 bits
 }
 
@@ -170,7 +170,7 @@ uint32_t FatInfo::cluster_to_sector(uint32_t cluster) {
         return 0;
     }
     
-    return m_data_start + ((cluster - 2) * m_sectors_per_cluster);
+    return data_start_ + ((cluster - 2) * sectors_per_cluster_);
 }
 
 bool FatInfo::is_valid_entry(fat_dir_entry_t& entry) {
@@ -214,24 +214,24 @@ int FatInfo::read_root_dir(int (*callback)(fat_dir_entry_t* entry, void *arg), v
     
     int count{};
 
-    if (m_fat_type != FAT_TYPE_FAT32) {
+    if (fat_type_ != FAT_TYPE_FAT32) {
         return -1;
     }
     
     uint8_t sector_buf[512];
-    for (uint32_t cluster = m_root_cluster;
+    for (uint32_t cluster = root_cluster_;
         cluster >= 2 && cluster < FAT32_EOC_MIN; cluster = read_entry(cluster)) {
 
         uint32_t sector = cluster_to_sector(cluster);
         
-        for (uint32_t i = 0; i < m_sectors_per_cluster; i++) {
-            if (m_dev->read(m_partition_start + sector + i, sector_buf, 1) != 0) {
+        for (uint32_t i = 0; i < sectors_per_cluster_; i++) {
+            if (dev_->read(partition_start_ + sector + i, sector_buf, 1) != 0) {
                 cprintf("fat_read_root_dir: failed to read sector %d\n", sector + i);
                 return -1;
             }
 
             fat_dir_entry_t* entries = (fat_dir_entry_t*)sector_buf;
-            for (uint32_t j = 0; j < m_bytes_per_sector / 32; j++) {
+            for (uint32_t j = 0; j < bytes_per_sector_ / 32; j++) {
                 fat_dir_entry_t& entry = entries[j];
 
                 if (entry.name[0] == 0x00) {
@@ -258,7 +258,7 @@ int FatInfo::find_file(const char* filename, fat_dir_entry_t *result) {
     if (!filename || !result) {
         return -1;
     }   
-    if (m_fat_type != FAT_TYPE_FAT32) {
+    if (fat_type_ != FAT_TYPE_FAT32) {
         return -1;
     }
     
@@ -288,18 +288,18 @@ int FatInfo::find_file(const char* filename, fat_dir_entry_t *result) {
     }
 
     uint8_t sector_buf[512];
-    for (uint32_t cluster = m_root_cluster;
+    for (uint32_t cluster = root_cluster_;
         cluster >= 2 && cluster < FAT32_EOC_MIN; cluster = read_entry(cluster)) {
 
         uint32_t sector = cluster_to_sector(cluster);
         
-        for (uint32_t s = 0; s < m_sectors_per_cluster; s++, sector++) {
-            if (m_dev->read(m_partition_start + sector, sector_buf, 1) != 0) {
+        for (uint32_t s = 0; s < sectors_per_cluster_; s++, sector++) {
+            if (dev_->read(partition_start_ + sector, sector_buf, 1) != 0) {
                 return -1;
             }
             
             fat_dir_entry_t* entries = (fat_dir_entry_t*)sector_buf;
-            for (uint32_t j = 0; j < m_bytes_per_sector / 32; j++) {
+            for (uint32_t j = 0; j < bytes_per_sector_ / 32; j++) {
                 fat_dir_entry_t& entry = entries[j];
                 
                 if (entry.name[0] == 0x00) {
@@ -349,7 +349,7 @@ int FatInfo::read_file(fat_dir_entry_t* entry, uint8_t* buf, uint32_t offset, ui
     }
     
     uint8_t cluster_buf[4096];  // Max cluster size we support
-    if (m_bytes_per_cluster > sizeof(cluster_buf)) {
+    if (bytes_per_cluster_ > sizeof(cluster_buf)) {
         cprintf("fat_read_file: cluster too large\n");
         return -1;
     }
@@ -360,14 +360,14 @@ int FatInfo::read_file(fat_dir_entry_t* entry, uint8_t* buf, uint32_t offset, ui
     while (cluster >= 2 && cluster < FAT32_EOC_MIN && bytes_read < size) {
 
         uint32_t sector = cluster_to_sector(cluster);
-        if (m_dev->read(m_partition_start + sector, cluster_buf, m_sectors_per_cluster) != 0) {
+        if (dev_->read(partition_start_ + sector, cluster_buf, sectors_per_cluster_) != 0) {
             cprintf("fat_read_file: failed to read cluster %d\n", cluster);
             return -1;
         }
         
         // Calculate how much to copy from this cluster
         uint32_t cluster_offset = 0;
-        uint32_t cluster_bytes = m_bytes_per_cluster;
+        uint32_t cluster_bytes = bytes_per_cluster_;
         
         // Skip bytes if needed
         if (skip_bytes > 0) {

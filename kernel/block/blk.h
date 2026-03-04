@@ -17,9 +17,9 @@ enum class DeviceType : uint8_t {
 struct BlockDevice {
     static constexpr size_t SIZE = 512;  // Standard block size (sector size)
 
-    blk::DeviceType m_type{};  // Device type
-    uint32_t m_size{};         // Size in blocks
-    char m_name[8]{};          // Device name
+    blk::DeviceType type{};  // Device type
+    uint32_t size{};         // Size in blocks
+    char name[8]{};          // Device name
 
     // Virtual operations (for C++ subclasses)
     virtual int read(uint32_t block_number, void* buf, size_t block_count) = 0;
@@ -37,7 +37,7 @@ public:
     static BlockDevice* get_device(int index);
     static BlockDevice* get_device(blk::DeviceType type);
     static int get_device_count();
-    static void print_info();
+    static void print();
 
 private:
     static BlockDevice* s_devices[MAX_DEV];

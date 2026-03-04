@@ -5,50 +5,39 @@
 // Intrusive Data Structure
 
 struct ListNode {
-    ListNode* m_prev{};
-    ListNode* m_next{};
+    ListNode* prev{};
+    ListNode* next{};
 
-    inline void init() {
-        m_prev = m_next = this;
-    }
+    inline void init() { prev = next = this; }
 
-    [[nodiscard]] inline ListNode* get_next() const {
-        return m_next;
-    }
-
-    [[nodiscard]] inline ListNode* get_prev() const {
-        return m_prev;
-    }
+    [[nodiscard]] inline ListNode* get_next() const { return next; }
+    [[nodiscard]] inline ListNode* get_prev() const { return prev; }
 
     inline void add_before(ListNode& elm) {
-        elm.m_prev = m_prev;
-        elm.m_next = this;
-        m_prev->m_next = &elm;
-        m_prev = &elm;
+        elm.prev = prev;
+        elm.next = this;
+        prev->next = &elm;
+        prev = &elm;
     }
 
     inline void add_after(ListNode& elm) {
-        elm.m_prev = this;
-        elm.m_next = m_next;
-        m_next->m_prev = &elm;
-        m_next = &elm;
+        elm.prev = this;
+        elm.next = next;
+        next->prev = &elm;
+        next = &elm;
     }
 
-    inline void add(ListNode& elm) {
-        add_after(elm);
-    }
+    inline void add(ListNode& elm) { add_after(elm); }
 
     inline void unlink() const {
-        m_prev->m_next = m_next;
-        m_next->m_prev = m_prev;
+        prev->next = next;
+        next->prev = prev;
     }
 
-    [[nodiscard]] inline bool empty() const {
-        return m_next == this;
-    }
+    [[nodiscard]] inline bool empty() const { return next == this; }
 
     template<typename T>
-    inline T* container() const {
+    [[nodiscard]] inline T* container() const {
         return reinterpret_cast<T*>(reinterpret_cast<uintptr_t>(this) - T::node_offset());
     }
 
