@@ -1,3 +1,3 @@
 #pragma once
 
-int cprintf(const char *fmt, ...);
+int cprintf(const char* fmt, ...);

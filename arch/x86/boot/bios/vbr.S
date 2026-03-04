@@ -15,6 +15,7 @@
 
 #include <asm/cr.h>
 #include <asm/seg.h>
+#include <asm/memlayout.h>
 #include <asm/ports.h>
 
 #include <asm/drivers/i8042.h>

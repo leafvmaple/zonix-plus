@@ -3,6 +3,7 @@
 #include <kernel/config.h>
 #include <base/types.h>
 #include <asm/arch.h>
+#include <asm/memlayout.h>
 #include <asm/segments.h>
 
 #include "lib/cons_defs.h"

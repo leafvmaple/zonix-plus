@@ -5,6 +5,47 @@ All notable changes to the Zonix Operating System project will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-03-05
+
+### Summary
+**Code quality & namespace hygiene release** — Major cleanup of the codebase: all subsystem functions
+moved into proper C++ namespaces, build system warnings fully eliminated, header responsibilities
+clarified, and project documentation brought up to date.
+
+### Changed
+- **Namespace migration**: Moved subsystem functions into their respective namespaces
+  - `shell_init/handle_char/prompt/main()` → `shell::init/handle_char/prompt/main()`
+  - `page2pa/page2kva/pa2page/kva2page()` → `pmm::`
+  - `alloc_pages/free_pages/alloc_page/free_page()` → `pmm::`
+  - `get_pte/page_insert/pgdir_alloc_page/tlb_invl()` → `pmm::`
+  - `swapfs_init/read/write()`, `find_vaddr_for_page()` → `swap::`
+- **`seg.h` / `memlayout.h` split**: `seg.h` trimmed to GDT-only; memory layout constants
+  (`KERNEL_BASE`, etc.) and E820 definitions extracted into new `asm/memlayout.h`
+- **`InterruptsGuard` → `intr::Guard`**: Moved RAII interrupt guard into `namespace intr`
+- **Removed `e820.h`/`e820.cpp`**: E820-specific code inlined into `pmm.cpp`; uses
+  `BOOT_MEM_AVAILABLE` from `bootinfo.h` instead of `E820_RAM`
+
+### Fixed
+- **All compiler warnings eliminated** (6 total):
+  - `shell.cpp`: `cmd_pos`/loop var changed to `size_t`; removed unused `strncmp()`
+  - `stdio.cpp`: added `static_cast<uint64_t>(base)` for signed comparison
+  - `ide.cpp`: removed unused `hd_wait_data_on_base()`
+- **All linker warnings eliminated**:
+  - Added `.note.GNU-stack` section to `entry.S` and `console.psf.o`
+  - Added `--no-warn-rwx-segments` to LDFLAGS
+- **Makefile cleanup**: removed unused `HOSTCC`/`HOSTCFLAGS`; deduplicated boot CFLAGS
+- **README.md**: fixed stale paths (`./tools/` → `./scripts/`, `make qemu-debug` → `make debug-qemu`)
+
+### Removed
+- `arch/x86/kernel/e820.h` and `e820.cpp` (obsolete; abstracted into `boot_info`)
+- Root `-c` junk file and empty `scripts/bin/` directory
+- Stale `.vscode/settings.json` entries for deleted headers
+
+### Improved
+- **`.gitignore`**: extended with `*.o`, `*.d`, `*.bin`, `*.img`, `*.EFI`, `.vscode/`, editor temps
+- **`docs/TODO.md`**: paths corrected, completed items checked, structure tree updated (35% → 45%)
+- **`DEVELOPMENT.md`**: all high/medium/low TODO items resolved and marked done
+
 ## [0.8.0] - 2026-02-12
 
 ### Summary

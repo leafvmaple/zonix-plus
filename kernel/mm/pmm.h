@@ -22,7 +22,6 @@ struct Page {
     ListNode list_node{};     // free list link
 
     void set_reserved() { flags |= (1 << static_cast<uint32_t>(PageFlag::Reserved)); }
-
     void clear_reserved() { flags &= ~(1 << static_cast<uint32_t>(PageFlag::Reserved)); }
 
     [[nodiscard]] bool is_reserved() const { return (flags & (1 << static_cast<uint32_t>(PageFlag::Reserved))) != 0; }
@@ -61,24 +60,13 @@ inline constexpr Page* INVALID_PTR = nullptr;
 
 void init();
 
-}  // namespace pmm
-
-class FreeArea {
-public:
-    ListNode free_list{};
-    unsigned int nr_free{};
-
-    FreeArea() { free_list.init(); }
-};
-
+// TLB and page table operations
 void tlb_invl(pde_t* pgdir, uintptr_t la);
-
 Page* pgdir_alloc_page(pde_t* pgdir, uintptr_t la, uint32_t perm);
-
 pte_t* get_pte(pde_t* pml4, uintptr_t la, bool create);
 int page_insert(pde_t* pgdir, Page* page, uintptr_t la, uint32_t perm);
 
-// Page allocation functions
+// Page allocation
 Page* alloc_pages(size_t n);
 void free_pages(Page* base, size_t n);
 inline Page* alloc_page() {
@@ -88,12 +76,22 @@ inline void free_page(Page* page) {
     free_pages(page, 1);
 }
 
-// Helper functions for page address conversion
+// Page address conversion helpers
 void* page2kva(Page* page);
 uintptr_t page2pa(Page* page);
 Page* pa2page(uintptr_t pa);
 Page* kva2page(void* kva);
 
-// Memory allocation functions
+}  // namespace pmm
+
+// Kernel memory allocation (page-granularity, global library functions)
 void* kmalloc(size_t size);
 void kfree(void* ptr);
+
+class FreeArea {
+public:
+    ListNode free_list{};
+    unsigned int nr_free{};
+
+    FreeArea() { free_list.init(); }
+};

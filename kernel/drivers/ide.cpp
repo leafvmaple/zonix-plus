@@ -33,24 +33,6 @@ static int hd_wait_ready_on_base(uint16_t base) {
     return -1;
 }
 
-static int hd_wait_data_on_base(uint16_t base) {
-    int timeout = 100000;
-
-    while (timeout-- > 0) {
-        uint8_t status = arch_port_inb(base + ide::REG_STATUS);
-
-        if ((status & (ide::STATUS_BSY | ide::STATUS_DRQ)) == ide::STATUS_DRQ) {
-            return 0;
-        }
-
-        if (status & ide::STATUS_ERR) {
-            return -1;
-        }
-    }
-
-    return -1;
-}
-
 void IdeDevice::detect(const IdeConfig* config) {
     config = config;
 
@@ -186,7 +168,7 @@ int IdeDevice::read(uint32_t block_number, void* buf, size_t block_count) {
         }
 
         {
-            InterruptsGuard guard;
+            intr::Guard guard;
 
             request.reset();
             request.buffer = reinterpret_cast<uint8_t*>(buf) + i * ide::SECTOR_SIZE;
@@ -207,9 +189,10 @@ int IdeDevice::read(uint32_t block_number, void* buf, size_t block_count) {
         // Wait for interrupt completion (double-checked pattern)
         while (!request.done) {
             {
-                InterruptsGuard guard;
-                if (request.done)
+                intr::Guard guard;
+                if (request.done) {
                     break;
+                }
                 TaskManager::get_current()->state = ProcessState::Sleeping;
             }
             TaskManager::schedule();
@@ -251,7 +234,7 @@ int IdeDevice::write(uint32_t block_number, const void* buf, size_t block_count)
         }
 
         {
-            InterruptsGuard guard;
+            intr::Guard guard;
 
             request.reset();
             request.buffer = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(buf) + i * ide::SECTOR_SIZE);
@@ -280,7 +263,7 @@ int IdeDevice::write(uint32_t block_number, const void* buf, size_t block_count)
         // Wait for interrupt completion (double-checked pattern)
         while (!request.done) {
             {
-                InterruptsGuard guard;
+                intr::Guard guard;
                 if (request.done)
                     break;  // Re-check with interrupts disabled
                 TaskManager::get_current()->state = ProcessState::Sleeping;

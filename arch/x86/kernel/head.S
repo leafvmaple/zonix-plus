@@ -1,5 +1,6 @@
 #include <asm/pg.h>
 #include <asm/seg.h>
+#include <asm/memlayout.h>
 #include <asm/cr.h>
 
 #define REALLOC(x) ((x) - KERNEL_BASE)

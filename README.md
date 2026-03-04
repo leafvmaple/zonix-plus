@@ -70,7 +70,7 @@ make uefi       # Build UEFI bootloader
 
 ```bash
 # Create disk images (first time only)
-./tools/create_fat32_image.sh
+./scripts/create_fat32_image.sh
 
 # BIOS mode
 bochs -f bochsrc.bxrc
@@ -79,7 +79,7 @@ bochs -f bochsrc.bxrc
 make qemu-uefi
 
 # Debug with GDB
-make qemu-debug
+make debug-qemu
 ```
 
 ## Shell Commands

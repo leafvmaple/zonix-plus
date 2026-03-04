@@ -12,36 +12,36 @@
 #include <kernel/bootinfo.h>
 #include <base/bpb.h>
 
-#include <asm/seg.h>
+#include <asm/memlayout.h>
 #include <asm/cr.h>
 #include <asm/io.h>
 
 #include "../bootlib.h"
 
-#define SECT_SIZE 512
+#define SECT_SIZE   512
 #define KERNEL_NAME "KERNEL  SYS"
 
 // ATA PIO ports (Primary IDE controller)
-#define ATA_PORT_DATA       0x1F0    // Data register
-#define ATA_PORT_ERROR      0x1F1    // Error register (read)
-#define ATA_PORT_FEATURES   0x1F1    // Features register (write)
-#define ATA_PORT_SECTOR_CNT 0x1F2    // Sector count
-#define ATA_PORT_LBA_LOW    0x1F3    // LBA low byte
-#define ATA_PORT_LBA_MID    0x1F4    // LBA mid byte
-#define ATA_PORT_LBA_HIGH   0x1F5    // LBA high byte
-#define ATA_PORT_DRIVE      0x1F6    // Drive/Head register
-#define ATA_PORT_STATUS     0x1F7    // Status register (read)
-#define ATA_PORT_COMMAND    0x1F7    // Command register (write)
+#define ATA_PORT_DATA       0x1F0  // Data register
+#define ATA_PORT_ERROR      0x1F1  // Error register (read)
+#define ATA_PORT_FEATURES   0x1F1  // Features register (write)
+#define ATA_PORT_SECTOR_CNT 0x1F2  // Sector count
+#define ATA_PORT_LBA_LOW    0x1F3  // LBA low byte
+#define ATA_PORT_LBA_MID    0x1F4  // LBA mid byte
+#define ATA_PORT_LBA_HIGH   0x1F5  // LBA high byte
+#define ATA_PORT_DRIVE      0x1F6  // Drive/Head register
+#define ATA_PORT_STATUS     0x1F7  // Status register (read)
+#define ATA_PORT_COMMAND    0x1F7  // Command register (write)
 
 // ATA commands
-#define ATA_CMD_READ_PIO    0x20     // Read with retry
-#define ATA_CMD_READ_PIO_EXT 0x24    // Read PIO extended (48-bit LBA)
+#define ATA_CMD_READ_PIO     0x20  // Read with retry
+#define ATA_CMD_READ_PIO_EXT 0x24  // Read PIO extended (48-bit LBA)
 
 // ATA status bits
-#define ATA_STATUS_BSY      0x80     // Busy
-#define ATA_STATUS_DRDY     0x40     // Drive ready
-#define ATA_STATUS_DRQ      0x08     // Data request ready
-#define ATA_STATUS_ERR      0x01     // Error
+#define ATA_STATUS_BSY  0x80  // Busy
+#define ATA_STATUS_DRDY 0x40  // Drive ready
+#define ATA_STATUS_DRQ  0x08  // Data request ready
+#define ATA_STATUS_ERR  0x01  // Error
 
 #define KERNEL_ELF_ADDR 0x10000
 
@@ -57,21 +57,21 @@
 //   0x6040 - 0x604F  : GDT descriptor
 //   0x6050 - 0x60FF  : Boot info copy area
 // =============================================================================
-#define BOOT_PML4_ADDR  0x1000
-#define BOOT_PDPT_ADDR  0x2000
-#define BOOT_PD0_ADDR   0x3000
-#define BOOT_PD1_ADDR   0x4000
-#define BOOT_GDT64_ADDR 0x6000
+#define BOOT_PML4_ADDR      0x1000
+#define BOOT_PDPT_ADDR      0x2000
+#define BOOT_PD0_ADDR       0x3000
+#define BOOT_PD1_ADDR       0x4000
+#define BOOT_GDT64_ADDR     0x6000
 #define BOOT_GDTDESC64_ADDR 0x6040
 
 // Page table entry flags
-#define PT_P    0x001   // Present
-#define PT_W    0x002   // Writable
-#define PT_PS   0x080   // Page Size (2MB)
+#define PT_P  0x001  // Present
+#define PT_W  0x002  // Writable
+#define PT_PS 0x080  // Page Size (2MB)
 
 // EFER MSR
-#define MSR_EFER_ADDR  0xC0000080
-#define EFER_LME_BIT   0x100
+#define MSR_EFER_ADDR 0xC0000080
+#define EFER_LME_BIT  0x100
 
 // Global variables
 static uint8_t boot_drive;
@@ -99,12 +99,12 @@ static int ata_read_sector(uint32_t lba, void* buffer) {
     outb(0x1F5, (lba >> 16) & 0xFF);
     outb(0x1F6, ((lba >> 24) & 0xF) | 0xE0);
     outb(0x1F7, 0x20);
-    
+
     // Wait for data to be ready
     ata_wait_ready();
 
     insl(0x1F0, buffer, SECT_SIZE >> 2);  // Read 512 bytes (256 words)
-    
+
     return 0;
 }
 
@@ -121,39 +121,42 @@ static int read_sectors(uint32_t lba, uint32_t count, uint8_t* buffer) {
 // Load ELF64 kernel
 static int load_elf_kernel(uint8_t* elf_buffer, struct boot_info* boot_info) {
     elfhdr64* elf = (elfhdr64*)elf_buffer;
-    
+
     // Verify ELF magic
     if (elf->e_magic != ELF_MAGIC) {
         return -1;
     }
-    
+
     // Track kernel boundaries
     boot_info->kernel_start = 0xFFFFFFFF;
     boot_info->kernel_end = 0;
     boot_info->kernel_entry = (uint32_t)(elf->e_entry & 0xFFFFFFFF);  // Physical entry
-    
+
     // Load each program segment (ELF64 program headers)
     proghdr64* ph = (proghdr64*)((uint8_t*)elf + (uint32_t)elf->e_phoff);
     proghdr64* eph = ph + elf->e_phnum;
-    
+
     for (; ph < eph; ph++) {
-        if (ph->p_type != ELF_PT_LOAD)
+        if (ph->p_type != ELF_PT_LOAD) {
             continue;
-        
+        }
+
         // Use physical address from ELF program header directly
         uint32_t phys_addr = (uint32_t)ph->p_pa;
         uint8_t* dst = (uint8_t*)phys_addr;
         uint8_t* src = (uint8_t*)elf + (uint32_t)ph->p_offset;
-        
+
         // Track kernel boundaries
-        if (phys_addr < boot_info->kernel_start)
+        if (phys_addr < boot_info->kernel_start) {
             boot_info->kernel_start = phys_addr;
-        if (phys_addr + (uint32_t)ph->p_memsz > boot_info->kernel_end)
+        }
+        if (phys_addr + (uint32_t)ph->p_memsz > boot_info->kernel_end) {
             boot_info->kernel_end = phys_addr + (uint32_t)ph->p_memsz;
-        
+        }
+
         // Copy segment
         memcpy(dst, src, (uint32_t)ph->p_filesz);
-        
+
         // Zero BSS
         if (ph->p_memsz > ph->p_filesz) {
             memset(dst + (uint32_t)ph->p_filesz, 0, (uint32_t)(ph->p_memsz - ph->p_filesz));
@@ -167,7 +170,7 @@ static int load_elf_kernel(uint8_t* elf_buffer, struct boot_info* boot_info) {
 // Returns starting cluster number, or 0 if not found
 static uint32_t fat_find_file(const char* filename, uint8_t* dir_buffer, uint32_t root_entries) {
     fat_dir_entry_t* entry = (fat_dir_entry_t*)dir_buffer;
-    
+
     for (uint32_t i = 0; i < root_entries; i++) {
         if (entry[i].name[0] == 0x00)  // No more entries
             break;
@@ -189,42 +192,42 @@ static int fat_load_file(const char* filename, uint8_t* buffer) {
         return -1;
 
     uint8_t sectors_per_cluster = bpb32->common.sectors_per_cluster;
-    uint32_t fat_start          = bpb32->common.reserved_sectors;
-    uint32_t data_start         = fat_start + (bpb32->common.num_fats * bpb32->fat_size_32);
-    uint32_t root_start         = data_start + (bpb32->root_cluster - 2) * sectors_per_cluster;
-    
+    uint32_t fat_start = bpb32->common.reserved_sectors;
+    uint32_t data_start = fat_start + (bpb32->common.num_fats * bpb32->fat_size_32);
+    uint32_t root_start = data_start + (bpb32->root_cluster - 2) * sectors_per_cluster;
+
     // Load root directory to temporary buffer at 0x8E00
     uint8_t* root_dir = (uint8_t*)0x8C00;
     // read 1 cluster. from root sectors
     if (read_sectors(root_start, sectors_per_cluster, root_dir) != 0)
         return -1;
     uint32_t root_entries = (sectors_per_cluster * SECT_SIZE) / 32;
-    
+
     // Find file in root directory
     uint32_t cluster = fat_find_file(filename, root_dir, root_entries);
     if (cluster == 0)
         return -1;  // File not found
-    
+
     // Load FAT table to 0x8E00 (reuse root_dir buffer)
     uint32_t* fat = (uint32_t*)0x8C00;
     if (read_sectors(fat_start, bpb32->fat_size_32, (uint8_t*)fat) != 0)
         return -1;
-    
+
     // Load file clusters
     uint8_t* dest = buffer;
     while (cluster < 0x0FFFFFF8) {
         // Calculate sector for this cluster
         uint32_t sector = data_start + (cluster - 2) * sectors_per_cluster;
-        
+
         // Read cluster
         if (read_sectors(sector, sectors_per_cluster, dest) != 0)
             return -1;
-        
+
         // Move to next cluster
         dest += sectors_per_cluster * SECT_SIZE;
         cluster = fat[cluster];
     }
-    
+
     return 0;
 }
 
@@ -233,16 +236,16 @@ static int fat_load_file(const char* filename, uint8_t* buffer) {
 // Maps first 2GB with 2MB pages (enough for kernel loading area)
 // =============================================================================
 static void build_page_tables(void) {
-    uint32_t *pml4 = (uint32_t*)BOOT_PML4_ADDR;
-    uint32_t *pdpt = (uint32_t*)BOOT_PDPT_ADDR;
-    uint32_t *pd0  = (uint32_t*)BOOT_PD0_ADDR;
-    uint32_t *pd1  = (uint32_t*)BOOT_PD1_ADDR;
+    uint32_t* pml4 = (uint32_t*)BOOT_PML4_ADDR;
+    uint32_t* pdpt = (uint32_t*)BOOT_PDPT_ADDR;
+    uint32_t* pd0 = (uint32_t*)BOOT_PD0_ADDR;
+    uint32_t* pd1 = (uint32_t*)BOOT_PD1_ADDR;
 
     // Clear all page table pages
     memset(pml4, 0, 4096);
     memset(pdpt, 0, 4096);
-    memset(pd0,  0, 4096);
-    memset(pd1,  0, 4096);
+    memset(pd0, 0, 4096);
+    memset(pd1, 0, 4096);
 
     // PML4[0] -> PDPT (each entry is 8 bytes: low dword + high dword)
     pml4[0] = BOOT_PDPT_ADDR | PT_P | PT_W;
@@ -259,14 +262,14 @@ static void build_page_tables(void) {
     // Fill PD0: 512 x 2MB pages mapping 0..1GB
     for (uint32_t i = 0; i < 512; i++) {
         uint32_t phys = i * 0x200000;  // i * 2MB
-        pd0[i * 2]     = phys | PT_P | PT_W | PT_PS;
+        pd0[i * 2] = phys | PT_P | PT_W | PT_PS;
         pd0[i * 2 + 1] = 0;  // high dword = 0 (below 4GB)
     }
 
     // Fill PD1: 512 x 2MB pages mapping 1GB..2GB
     for (uint32_t i = 0; i < 512; i++) {
         uint32_t phys = 0x40000000 + i * 0x200000;  // 1GB + i * 2MB
-        pd1[i * 2]     = phys | PT_P | PT_W | PT_PS;
+        pd1[i * 2] = phys | PT_P | PT_W | PT_PS;
         pd1[i * 2 + 1] = 0;
     }
 }
@@ -275,7 +278,7 @@ static void build_page_tables(void) {
 // Build 64-bit GDT at BOOT_GDT64_ADDR
 // =============================================================================
 static void build_gdt64(void) {
-    uint64_t *gdt = (uint64_t*)BOOT_GDT64_ADDR;
+    uint64_t* gdt = (uint64_t*)BOOT_GDT64_ADDR;
 
     // Entry 0: NULL descriptor
     gdt[0] = 0;
@@ -291,9 +294,9 @@ static void build_gdt64(void) {
 
     // GDT descriptor at BOOT_GDTDESC64_ADDR
     // Format: 2 bytes limit, 4 bytes base (for 32-bit lgdt)
-    uint16_t *gdtdesc = (uint16_t*)BOOT_GDTDESC64_ADDR;
-    gdtdesc[0] = 3 * 8 - 1;        // limit: 3 entries * 8 bytes - 1
-    uint32_t *gdtdesc_base = (uint32_t*)(BOOT_GDTDESC64_ADDR + 2);
+    uint16_t* gdtdesc = (uint16_t*)BOOT_GDTDESC64_ADDR;
+    gdtdesc[0] = 3 * 8 - 1;  // limit: 3 entries * 8 bytes - 1
+    uint32_t* gdtdesc_base = (uint32_t*)(BOOT_GDTDESC64_ADDR + 2);
     *gdtdesc_base = BOOT_GDT64_ADDR;
 }
 
@@ -304,20 +307,20 @@ static void build_gdt64(void) {
 //   kernel_entry_phys: physical address of kernel entry point
 //   info: pointer to struct boot_info (passed to kernel in %rdi)
 // =============================================================================
-extern void __attribute__((noreturn)) enter_long_mode(uint32_t kernel_entry_phys, struct boot_info *info);
+extern void __attribute__((noreturn)) enter_long_mode(uint32_t kernel_entry_phys, struct boot_info* info);
 
 void __attribute__((section(".text.bootmain"))) bootmain(uint32_t boot_drive_param) {
     boot_drive = (uint8_t)boot_drive_param;
-    
+
     // Prepare boot_info structure
     memset(&boot_info, 0, sizeof(boot_info));
     boot_info.magic = BOOT_INFO_MAGIC;
-    
+
     // Copy E820 memory map (set by VBR during E820 probe)
     uint32_t e820_count = *(uint32_t*)E820_MEM_BASE;
     boot_info.mmap_length = e820_count;
     boot_info.mmap_addr = E820_MEM_DATA;
-    
+
     // Calculate memory sizes from E820 map
     struct boot_mmap_entry* mmap_entries = (struct boot_mmap_entry*)E820_MEM_DATA;
     boot_info.mem_lower = 640;  // Always 640KB
@@ -330,17 +333,17 @@ void __attribute__((section(".text.bootmain"))) bootmain(uint32_t boot_drive_par
 
     // Set loader name
     strcpy(boot_info.loader_name, "Zonix BIOS");
-    
+
     // Load KERNEL.SYS from FAT filesystem
     if (fat_load_file(KERNEL_NAME, (uint8_t*)KERNEL_ELF_ADDR) != 0) {
         goto bad;
     }
-    
+
     // Load ELF kernel
     if (load_elf_kernel((uint8_t*)KERNEL_ELF_ADDR, &boot_info) != 0) {
         goto bad;
     }
-    
+
     // Compute physical entry point:
     // The ELF entry is a virtual address like 0xFFFFFFFF80100000
     // Strip the higher-half base (0xFFFFFFFF80000000) to get physical address
@@ -352,8 +355,8 @@ void __attribute__((section(".text.bootmain"))) bootmain(uint32_t boot_drive_par
 
     // Enter 64-bit long mode and jump to kernel
     // This function never returns
-    enter_long_mode(kernel_entry_phys, &boot_info); // in entry.S
-    
+    enter_long_mode(kernel_entry_phys, &boot_info);  // in entry.S
+
 bad:
     while (1)
         __asm__ volatile("hlt");

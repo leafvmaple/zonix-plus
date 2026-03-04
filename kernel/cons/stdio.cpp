@@ -42,7 +42,7 @@ void print_digit(uint64_t num, uint32_t base, int width, char padc) {
 
 void print_digit_no_pad(uint64_t num, int base) {
     uint32_t mod = 0;
-    if (num >= base) {
+    if (num >= static_cast<uint64_t>(base)) {
         mod = do_div(num, base);
         print_digit_no_pad(num, base);
     } else {

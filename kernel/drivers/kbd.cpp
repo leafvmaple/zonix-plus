@@ -101,7 +101,7 @@ void intr(void) {
 char getc_blocking(void) {
     while (true) {
         {
-            InterruptsGuard guard;
+            intr::Guard guard;
             if (kbd_read != kbd_write) {
                 char c = kbd_buf[kbd_read];
                 kbd_read = (kbd_read + 1) % KBD_BUF_SIZE;

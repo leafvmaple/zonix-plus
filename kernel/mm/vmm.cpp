@@ -51,9 +51,9 @@ int pg_fault(MemoryDesc* mm, uint32_t error_code, uintptr_t addr) {
 
     addr = round_down(addr, PG_SIZE);
 
-    pte_t* ptep = get_pte(mm->pgdir, addr, 1);
+    pte_t* ptep = pmm::get_pte(mm->pgdir, addr, 1);
     if (*ptep == 0) {
-        page = pgdir_alloc_page(mm->pgdir, addr, perm);
+        page = pmm::pgdir_alloc_page(mm->pgdir, addr, perm);
     } else {
         swap::in(mm, addr, &page);
     }
@@ -67,7 +67,7 @@ void pgdir_init(pde_t* pgdir, uintptr_t la, size_t size, uintptr_t pa, uint32_t 
     la = round_down(la, PG_SIZE);
     pa = round_down(pa, PG_SIZE);
     for (; n > 0; n--, la += PG_SIZE, pa += PG_SIZE) {
-        pte_t* ptep = get_pte(pgdir, la, 1);
+        pte_t* ptep = pmm::get_pte(pgdir, la, 1);
         *ptep = pa | PTE_P | perm;
     }
 }

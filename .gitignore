@@ -1,3 +1,23 @@
+# Build outputs
 /obj
 /bin
+*.o
+*.d
+*.bin
+*.img
+*.EFI
+
+# Editor / IDE
+.vscode/
+*.swp
+*.swo
+*~
+compile_commands.json
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Misc
+-c
 bochsout.txt

@@ -49,7 +49,7 @@ BOOTLOAD_C_OBJ := $(call toobj,$(BOOT_BIOS_DIR)/bootload.c)
 BOOTLOAD_S_OBJ := $(call toobj,$(BOOT_BIOS_DIR)/entry.S)
 
 $(BOOTLOAD_C_OBJ): $(BOOT_BIOS_DIR)/bootload.c | $$(dir $$@)
-	$(Q)$(CC) $(BOOT_CFLAGS) $(BOOT_INC) $(DEPFLAGS) -O2 -g -nostdinc -fno-builtin -fno-stack-protector -c $< -o $@
+	$(Q)$(CC) $(BOOT_CFLAGS) $(BOOT_INC) $(DEPFLAGS) -O2 -c $< -o $@
 
 $(BOOTLOAD_S_OBJ): $(BOOT_BIOS_DIR)/entry.S | $$(dir $$@)
 	$(Q)$(CC) $(BOOT_CFLAGS) $(BOOT_INC) $(DEPFLAGS) -c $< -o $@

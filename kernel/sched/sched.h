@@ -8,7 +8,7 @@
 #include "mm/vmm.h"
 
 // Process states - modeling Linux's approach
-enum class ProcessState : int {
+enum class ProcessState : uint8_t {
     Uninit = 0,    // uninitialized
     Sleeping = 1,  // sleeping (blocked, waiting for event)
     Runnable = 2,  // runnable (might be in run queue)
@@ -54,9 +54,9 @@ struct TaskStruct {
     void run();
     void wakeup();
 
-    uintptr_t get_cr3() const;
+    [[nodiscard]] uintptr_t get_cr3() const;
     void copy_mm(uint32_t clone_flags);
-    void copy_thread(uintptr_t esp, TrapFrame* tf);
+    void copy_thread(uintptr_t esp, TrapFrame* trap_frame);
     int setup_kernel_stack();
 
     ListNode* node() { return &list_node; }

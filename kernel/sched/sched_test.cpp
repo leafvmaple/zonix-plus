@@ -59,7 +59,7 @@ static void test_process_creation() {
     TEST_ASSERT(proc->child_list.empty(), "Child list is empty after init");
 
     // Clean up - free the kernel stack
-    free_page(kva2page(reinterpret_cast<void*>(proc->kernel_stack)));
+    pmm::free_page(pmm::kva2page(reinterpret_cast<void*>(proc->kernel_stack)));
     delete proc;
 
     TEST_END();
@@ -358,7 +358,7 @@ static void test_process_destruction() {
     TEST_ASSERT(TaskManager::nr_process == initial_count, "Process removed from list");
 
     // Free kernel stack manually
-    free_page(kva2page(reinterpret_cast<void*>(proc->kernel_stack)));
+    pmm::free_page(pmm::kva2page(reinterpret_cast<void*>(proc->kernel_stack)));
     delete proc;
 
     TEST_END();

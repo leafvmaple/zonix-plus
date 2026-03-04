@@ -34,7 +34,7 @@
 #define GD_KDATA ((SEG_KDATA) << 3)  // kernel data
 #define GD_UTEXT ((SEG_UTEXT) << 3)  // user text
 #define GD_UDATA ((SEG_UDATA) << 3)  // user data
-#define GD_TSS   ((SEG_TSS)   << 3)  // task segment selector
+#define GD_TSS   ((SEG_TSS) << 3)    // task segment selector
 
 #define KERNEL_CS ((GD_KTEXT) | DPL_KERNEL)
 #define KERNEL_DS ((GD_KDATA) | DPL_KERNEL)
@@ -44,54 +44,21 @@
 #define GATE_DESC(type, dpl) (0x8000 + ((dpl) << 13) + ((type) << 8))
 
 /* Normal segment */
-#define GEN_SEG_NULL                                            \
-    .word 0, 0;                                                 \
+#define GEN_SEG_NULL \
+    .word 0, 0;      \
     .byte 0, 0, 0, 0
 
 /* 64-bit code segment: L=1, D=0, P=1, DPL=0, S=1, Type=Execute/Read */
-#define GEN_SEG_CODE64                                          \
-    .word 0xFFFF, 0x0000;                                       \
+#define GEN_SEG_CODE64    \
+    .word 0xFFFF, 0x0000; \
     .byte 0x00, 0x9A, 0xAF, 0x00
 
 /* 64-bit data segment: P=1, DPL=0, S=1, Type=Read/Write */
-#define GEN_SEG_DATA64                                          \
-    .word 0xFFFF, 0x0000;                                       \
+#define GEN_SEG_DATA64    \
+    .word 0xFFFF, 0x0000; \
     .byte 0x00, 0x92, 0xCF, 0x00
 
 /* Legacy 32-bit segment descriptor (for transitional code) */
-#define GEN_SEG_DESC(type,base,lim)                             \
-    .word (((lim) >> 12) & 0xffff), ((base) & 0xffff);          \
-    .byte (((base) >> 16) & 0xff), (0x90 | (type)), (0xC0 | (((lim) >> 28) & 0xf)), (((base) >> 24) & 0xff)
-
-
-// Memory Layout
-
-// Memory Layout (x86_64 higher-half kernel at -2GB)
-#define KERNEL_BASE 0xFFFFFFFF80000000
-#define KERNEL_HEADER 0x10000
-#define KERNEL_MEM_SIZE 0x38000000
-
-// Start of the MMIO virtual address pool, right after the kernel
-// direct-mapped region.  mmio_map() hands out consecutive VAs from here;
-// the VA has NO fixed arithmetic relation to the physical address.
-#define KERNEL_DEVIO_BASE  (KERNEL_BASE + (uintptr_t)KERNEL_MEM_SIZE)  // 0xFFFFFFFFB8000000
-
-#define E820_MEM_BASE 0x7000
-#define E820_MEM_DATA (E820_MEM_BASE + 4)
-
-#define E820_RAM 1
-#define E820_RESERVED 2
-#define E820_ACPI 3
-#define E820_NVS 4
-
-
-// Physical Memory Management
-/* *
-      DISK2_END -----------> +---------------------------------+ 0x01FF0000   32MB
-      KERNEL_BASE ---------> +---------------------------------+ 0x00100000    1MB
-      KERNEL_HEADER -------> +---------------------------------+ 0x00010000   64KB
-*     E820_MEM_DATA -------> +---------------------------------+ 0x00008004
-*     E820_MEM_BASE -------> +---------------------------------+ 0x00008000   32KB
-*                            |              BIOS IVT           | --/--
-*     DISK1_BEGIN ---------> +---------------------------------+ 0x00000000
- * */
+#define GEN_SEG_DESC(type, base, lim)                 \
+    .word(((lim) >> 12) & 0xffff), ((base) & 0xffff); \
+    .byte(((base) >> 16) & 0xff), (0x90 | (type)), (0xC0 | (((lim) >> 28) & 0xf)), (((base) >> 24) & 0xff)

@@ -39,14 +39,16 @@ int init_mm(MemoryDesc* mm);
 int in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr);
 int out(MemoryDesc* mm, int n, int in_tick);
 
-}  // namespace swap
-
-// Swap disk operations (to be implemented with disk driver)
+// Swap disk operations
 int swapfs_init();
 int swapfs_read(uintptr_t entry, Page* page);
 int swapfs_write(uintptr_t entry, Page* page);
 
 // Helper function to find virtual address for a page
 uintptr_t find_vaddr_for_page(MemoryDesc* mm, Page* page);
+
+inline constexpr size_t MAX_OFFSET_LIMIT_COMPAT = MAX_OFFSET_LIMIT;
+
+}  // namespace swap
 
 inline constexpr size_t MAX_SWAP_OFFSET_LIMIT = swap::MAX_OFFSET_LIMIT;

@@ -7,10 +7,6 @@
 #include <asm/mmu.h>
 #include "block/blk.h"
 
-// External function declarations
-extern Page* alloc_pages(size_t n);
-extern void free_pages(Page* base, size_t n);
-
 // Global swap manager (can be changed to select different algorithms)
 static SwapManager* swap_mgr;
 
@@ -63,17 +59,17 @@ int init_mm(MemoryDesc* mm) {
  */
 int in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr) {
     // Allocate a physical page
-    Page* page = alloc_pages(1);
+    Page* page = pmm::alloc_pages(1);
     if (page == nullptr) {
         cprintf("swap_in: failed to allocate page\n");
         return -1;
     }
 
     // Get the page table entry
-    pte_t* ptep = get_pte(mm->pgdir, addr, 0);
+    pte_t* ptep = pmm::get_pte(mm->pgdir, addr, 0);
     if (ptep == nullptr) {
         cprintf("swap_in: no page table entry\n");
-        free_pages(page, 1);
+        pmm::free_pages(page, 1);
         return -1;
     }
 
@@ -84,14 +80,14 @@ int in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr) {
     // Read from disk if swap device is available
     if (swapfs_read(swap_entry, page) != 0) {
         cprintf("swap_in: failed to read from swap\n");
-        free_pages(page, 1);
+        pmm::free_pages(page, 1);
         return -1;
     }
 
     cprintf("swap_in: loaded addr 0x%x from swap entry 0x%x to page %p\n", addr, swap_entry, page);
 
     // Update page table to map the virtual address to the new physical page
-    page_insert(mm->pgdir, page, addr, PTE_P | PTE_W | PTE_U);
+    pmm::page_insert(mm->pgdir, page, addr, PTE_P | PTE_W | PTE_U);
 
     // Mark page as swappable
     swap_mgr->map_swappable(mm, addr, page, 1);
@@ -106,8 +102,8 @@ int in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr) {
  * Helper function to find virtual address for a page
  * Searches the page table to find the virtual address mapped to this page
  */
-uintptr_t find_vaddr_for_page(MemoryDesc* mm, Page* page) {
-    uintptr_t pa = page2pa(page);
+uintptr_t swap::find_vaddr_for_page(MemoryDesc* mm, Page* page) {
+    uintptr_t pa = pmm::page2pa(page);
 
     // Search through page directory
     for (int pde_idx = 0; pde_idx < 1024; pde_idx++) {
@@ -163,7 +159,7 @@ int out(MemoryDesc* mm, int n, int in_tick) {
         cprintf("swap_out: swapping out page %p at vaddr 0x%x\n", victim, victim_addr);
 
         // Get the page table entry
-        pte_t* ptep = get_pte(mm->pgdir, victim_addr, 0);
+        pte_t* ptep = pmm::get_pte(mm->pgdir, victim_addr, 0);
         if (ptep == nullptr) {
             cprintf("swap_out: cannot get PTE for vaddr 0x%x\n", victim_addr);
             continue;
@@ -183,10 +179,10 @@ int out(MemoryDesc* mm, int n, int in_tick) {
         *ptep = swap_entry;
 
         // Invalidate TLB for this address
-        tlb_invl(mm->pgdir, victim_addr);
+        pmm::tlb_invl(mm->pgdir, victim_addr);
 
         // Free the physical page
-        free_pages(victim, 1);
+        pmm::free_pages(victim, 1);
 
         // Increment swap offset for next allocation
         swap_offset++;
@@ -205,7 +201,7 @@ int out(MemoryDesc* mm, int n, int in_tick) {
 /**
  * Initialize swap filesystem
  */
-int swapfs_init(void) {
+int swap::swapfs_init(void) {
     // Get disk device (use first disk for swap space)
     swap_device = BlockManager::get_device(blk::DeviceType::Disk);
     if (swap_device == nullptr) {
@@ -224,7 +220,7 @@ int swapfs_init(void) {
  * @param entry: swap entry (page offset in swap space)
  * @param page: page descriptor to read into
  */
-int swapfs_read(uintptr_t entry, Page* page) {
+int swap::swapfs_read(uintptr_t entry, Page* page) {
     // Calculate disk sector number
     // +--------------------------------+--------+---+
     // |    Swap Offset (24 bits)       | Reserved| P |
@@ -234,7 +230,7 @@ int swapfs_read(uintptr_t entry, Page* page) {
     uint32_t sector = SWAP_START_SECTOR + (offset * SECTORS_PER_PAGE);
 
     // Get kernel virtual address for the page
-    void* kva = page2kva(page);
+    void* kva = pmm::page2kva(page);
 
     // Read from disk
     if (swap_device->read(sector, kva, SECTORS_PER_PAGE) != 0) {
@@ -251,13 +247,13 @@ int swapfs_read(uintptr_t entry, Page* page) {
  * @param entry: swap entry (page offset in swap space)
  * @param page: page descriptor to write from
  */
-int swapfs_write(uintptr_t entry, Page* page) {
+int swap::swapfs_write(uintptr_t entry, Page* page) {
     // Calculate disk sector number
     uint32_t offset = (entry >> 8) & 0xFFFFFF;  // Extract offset from swap entry
     uint32_t sector = SWAP_START_SECTOR + (offset * SECTORS_PER_PAGE);
 
     // Get kernel virtual address for the page
-    void* kva = page2kva(page);
+    void* kva = pmm::page2kva(page);
 
     // Write to disk
     if (swap_device->write(sector, kva, SECTORS_PER_PAGE) != 0) {

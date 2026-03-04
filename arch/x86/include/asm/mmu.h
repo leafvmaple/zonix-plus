@@ -1,7 +1,7 @@
 #pragma once
 
 #include "pg.h"
-#include "seg.h"
+#include "memlayout.h"
 
 /*
  * x86_64 4-level paging:
@@ -26,12 +26,12 @@
 #define PDX_SHIFT   21  // offset of PD index in a linear address
 #define PTX_SHIFT   12  // offset of PT index in a linear address
 
-#define ENTRY_NUM   512  // entries per page table level (2^9)
-#define ENTRY_MASK  (ENTRY_NUM - 1)  // 0x1FF
+#define ENTRY_NUM  512              // entries per page table level (2^9)
+#define ENTRY_MASK (ENTRY_NUM - 1)  // 0x1FF
 
-#define PG_MASK  (PG_SIZE - 1)  // page offset mask
+#define PG_MASK (PG_SIZE - 1)  // page offset mask
 
-#define PT_SIZE   (PG_SIZE * ENTRY_NUM)         // bytes mapped by one PT entry range = 2MB
+#define PT_SIZE   (PG_SIZE * ENTRY_NUM)            // bytes mapped by one PT entry range = 2MB
 #define PD_SIZE   ((uint64_t)PT_SIZE * ENTRY_NUM)  // bytes mapped by one PD entry range = 1GB
 #define PDPT_SIZE ((uint64_t)PD_SIZE * ENTRY_NUM)  // bytes mapped by one PDPT entry = 512GB
 
@@ -52,4 +52,4 @@
 #define PTE_NUM ENTRY_NUM
 
 #define P_ADDR(kva) ((uintptr_t)(kva) - KERNEL_BASE)          // convert kernel virtual address to physical address
-#define K_ADDR(pa) ((void *)((uintptr_t)(pa) + KERNEL_BASE))  // convert physical address to kernel virtual address
+#define K_ADDR(pa)  ((void*)((uintptr_t)(pa) + KERNEL_BASE))  // convert physical address to kernel virtual address

@@ -31,9 +31,9 @@ ifeq ($(ARCH),x86)
              -fno-use-cxa-atexit -fno-threadsafe-statics \
              -fno-asynchronous-unwind-tables -fno-unwind-tables \
              -ffreestanding -std=gnu++17 -gdwarf-2
-  LDFLAGS := -m elf_x86_64 -nostdlib
+  LDFLAGS := -m elf_x86_64 -nostdlib --no-warn-rwx-segments
   BOOT_CFLAGS  := -g -fno-builtin -Wall -ggdb -O0 -m32 -nostdinc -fno-stack-protector -fno-PIC -gdwarf-2
-  BOOT_LDFLAGS := -m elf_i386 -nostdlib
+  BOOT_LDFLAGS := -m elf_i386 -nostdlib --no-warn-rwx-segments
   DASM    := ndisasm
   QEMU    := qemu-system-x86_64
 else ifeq ($(ARCH),aarch64)
@@ -45,9 +45,6 @@ endif
 # Auto-dependency generation (gcc/g++ -MMD -MP)
 # .d files are placed next to .o files automatically
 DEPFLAGS := -MMD -MP
-
-HOSTCC     := gcc
-HOSTCFLAGS := -g -Wall -O2
 
 OBJDUMP := objdump
 OBJCOPY := objcopy
@@ -113,7 +110,7 @@ make_dir = $(eval $(call do_make_dir))
 # ==========================================================================
 #   include/               — architecture-independent headers
 #   arch/$(ARCH)/include/  — makes <asm/xxx.h> resolve to the right arch
-#   arch/$(ARCH)/kernel/   — arch-specific kernel headers (idt.h, e820.h, ...)
+#   arch/$(ARCH)/kernel/   — arch-specific kernel headers (idt.h, ...)
 #   kernel/                — cross-module kernel includes (drivers/, mm/, lib/, ...)
 INCLUDE := include \
            arch/$(ARCH)/include \
@@ -150,6 +147,8 @@ FONT_OBJ := $(OBJDIR)/fonts/console.psf.o
 $(FONT_OBJ): $(FONT_PSF) | $$(dir $$@)
 	$(Q)$(OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 \
 		--rename-section .data=.rodata,alloc,load,readonly,data,contents \
+		--add-section .note.GNU-stack=/dev/null \
+		--set-section-flags .note.GNU-stack=contents,readonly \
 		$< $@
 
 ALLOBJS += $(FONT_OBJ)

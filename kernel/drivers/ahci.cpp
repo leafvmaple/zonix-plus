@@ -166,7 +166,7 @@ int AhciDevice::read(uint32_t block_number, void* buf, size_t block_count) {
         uint32_t lba = block_number + i;
 
         {
-            InterruptsGuard guard;
+            intr::Guard guard;
 
             request.reset();
             request.buffer = reinterpret_cast<uint8_t*>(buf) + i * ahci::SECTOR_SIZE;
@@ -181,7 +181,7 @@ int AhciDevice::read(uint32_t block_number, void* buf, size_t block_count) {
         // Wait for interrupt completion (double-checked pattern)
         while (!request.done) {
             {
-                InterruptsGuard guard;
+                intr::Guard guard;
                 if (request.done)
                     break;
                 TaskManager::get_current()->state = ProcessState::Sleeping;
@@ -217,7 +217,7 @@ int AhciDevice::write(uint32_t block_number, const void* buf, size_t block_count
         uint32_t lba = block_number + i;
 
         {
-            InterruptsGuard guard;
+            intr::Guard guard;
 
             request.reset();
             request.buffer = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(buf) + i * ahci::SECTOR_SIZE);
@@ -232,7 +232,7 @@ int AhciDevice::write(uint32_t block_number, const void* buf, size_t block_count
         // Wait for interrupt completion (double-checked pattern)
         while (!request.done) {
             {
-                InterruptsGuard guard;
+                intr::Guard guard;
                 if (request.done)
                     break;
                 TaskManager::get_current()->state = ProcessState::Sleeping;

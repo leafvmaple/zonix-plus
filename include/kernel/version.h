@@ -7,24 +7,21 @@
  * VERSION_STRING will be automatically generated.
  */
 
-#define ZONIX_VERSION_MAJOR     0
-#define ZONIX_VERSION_MINOR     8
-#define ZONIX_VERSION_PATCH     0
+#define ZONIX_VERSION_MAJOR 0
+#define ZONIX_VERSION_MINOR 9
+#define ZONIX_VERSION_PATCH 0
 
 /* Macro stringification helpers */
-#define _ZONIX_STR(x)           #x
-#define ZONIX_STR(x)            _ZONIX_STR(x)
+#define _ZONIX_STR(x) #x
+#define ZONIX_STR(x)  _ZONIX_STR(x)
 
 /* Auto-generated version string from MAJOR.MINOR.PATCH */
-#define ZONIX_VERSION_STRING    \
-    ZONIX_STR(ZONIX_VERSION_MAJOR) "." \
-    ZONIX_STR(ZONIX_VERSION_MINOR) "." \
-    ZONIX_STR(ZONIX_VERSION_PATCH)
+#define ZONIX_VERSION_STRING \
+    ZONIX_STR(ZONIX_VERSION_MAJOR) "." ZONIX_STR(ZONIX_VERSION_MINOR) "." ZONIX_STR(ZONIX_VERSION_PATCH)
 
-#define ZONIX_CODENAME          "Genesis"
+#define ZONIX_CODENAME "Genesis"
 
 /* Build information - auto-updated during compilation */
-#define ZONIX_BUILD_DATE        "Feb 12 2026"
-#define ZONIX_BUILD_TIME        "15:30:57"
-#define ZONIX_BUILD_NUMBER      1
-
+#define ZONIX_BUILD_DATE        "Mar 04 2026"
+#define ZONIX_BUILD_TIME        "20:19:57"
+#define ZONIX_BUILD_NUMBER 1

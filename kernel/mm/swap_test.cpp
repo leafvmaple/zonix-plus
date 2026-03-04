@@ -220,7 +220,7 @@ void test_swap_in_basic() {
     uintptr_t addr = 0x100000;
 
     // Create a PTE with swap entry
-    pte_t* ptep = get_pte(mm.pgdir, addr, 1);
+    pte_t* ptep = pmm::get_pte(mm.pgdir, addr, 1);
     if (ptep) {
         *ptep = 0x100;  // Fake swap entry (present bit = 0, offset = 1)
 
@@ -231,11 +231,11 @@ void test_swap_in_basic() {
         TEST_ASSERT(page != nullptr, "Page allocated");
 
         // Check that PTE was updated
-        pte_t* new_ptep = get_pte(mm.pgdir, addr, 0);
+        pte_t* new_ptep = pmm::get_pte(mm.pgdir, addr, 0);
         TEST_ASSERT(new_ptep != nullptr && (*new_ptep & PTE_P), "PTE updated with present bit");
 
         if (page) {
-            free_pages(page, 1);
+            pmm::free_pages(page, 1);
         }
     } else {
         TEST_ASSERT(0, "Failed to create PTE");
@@ -256,10 +256,10 @@ void test_swap_out_basic() {
     uintptr_t addrs[3];
 
     for (int i = 0; i < 3; i++) {
-        pages_arr[i] = alloc_pages(1);
+        pages_arr[i] = pmm::alloc_pages(1);
         if (pages_arr[i]) {
             addrs[i] = 0x200000 + i * PG_SIZE;
-            page_insert(mm.pgdir, pages_arr[i], addrs[i], PTE_P | PTE_W | PTE_U);
+            pmm::page_insert(mm.pgdir, pages_arr[i], addrs[i], PTE_P | PTE_W | PTE_U);
             swap_mgr_fifo.map_swappable(init_mm, addrs[i], pages_arr[i], 0);
         }
     }
@@ -270,7 +270,7 @@ void test_swap_out_basic() {
 
     // Verify that PTEs were updated (present bit cleared)
     for (int i = 0; i < count; i++) {
-        pte_t* ptep = get_pte(mm.pgdir, addrs[i], 0);
+        pte_t* ptep = pmm::get_pte(mm.pgdir, addrs[i], 0);
         if (ptep) {
             TEST_ASSERT(!(*ptep & PTE_P), "PTE present bit cleared after swap out");
         }
@@ -406,7 +406,7 @@ void test_swap_disk_io() {
     uintptr_t test_addr = 0x300000;
 
     // 1. Allocate a page and fill it with test pattern
-    Page* page = alloc_pages(1);
+    Page* page = pmm::alloc_pages(1);
     TEST_ASSERT(page != nullptr, "Page allocation successful");
 
     if (!page) {
@@ -415,13 +415,13 @@ void test_swap_disk_io() {
     }
 
     // Fill page with test pattern
-    auto* kva = static_cast<uint8_t*>(page2kva(page));
+    auto* kva = static_cast<uint8_t*>(pmm::page2kva(page));
     for (int i = 0; i < PG_SIZE; i++) {
         kva[i] = static_cast<uint8_t>(i & 0xFF);
     }
 
     // 2. Map the page
-    page_insert(mm.pgdir, page, test_addr, PTE_P | PTE_W | PTE_U);
+    pmm::page_insert(mm.pgdir, page, test_addr, PTE_P | PTE_W | PTE_U);
     swap_mgr_fifo.map_swappable(init_mm, test_addr, page, 0);
 
     cprintf("  Filled page with test pattern\n");
@@ -431,7 +431,7 @@ void test_swap_disk_io() {
     TEST_ASSERT(swapped == 1, "Page swapped out");
 
     // Verify PTE was updated
-    pte_t* ptep = get_pte(mm.pgdir, test_addr, 0);
+    pte_t* ptep = pmm::get_pte(mm.pgdir, test_addr, 0);
     TEST_ASSERT(ptep != nullptr && !(*ptep & PTE_P), "PTE marked as not present");
 
     uintptr_t swap_entry = *ptep;
@@ -445,7 +445,7 @@ void test_swap_disk_io() {
 
     // 5. Verify data integrity
     if (new_page) {
-        auto* new_kva = static_cast<uint8_t*>(page2kva(new_page));
+        auto* new_kva = static_cast<uint8_t*>(pmm::page2kva(new_page));
         int errors = 0;
 
         for (int i = 0; i < PG_SIZE; i++) {
@@ -466,7 +466,7 @@ void test_swap_disk_io() {
             TEST_ASSERT(0, "Data corruption detected");
         }
 
-        free_pages(new_page, 1);
+        pmm::free_pages(new_page, 1);
     }
 
     TEST_END();
@@ -485,17 +485,17 @@ void test_swap_multiple_pages() {
 
     // 1. Allocate and fill multiple pages with unique patterns
     for (int i = 0; i < NUM_TEST_PAGES; i++) {
-        pages_arr[i] = alloc_pages(1);
+        pages_arr[i] = pmm::alloc_pages(1);
         if (pages_arr[i]) {
             uintptr_t addr = base_addr + i * PG_SIZE;
 
             // Fill with unique pattern (page number repeated)
-            auto* kva = static_cast<uint8_t*>(page2kva(pages_arr[i]));
+            auto* kva = static_cast<uint8_t*>(pmm::page2kva(pages_arr[i]));
             for (int j = 0; j < PG_SIZE; j++) {
                 kva[j] = static_cast<uint8_t>((i * 17 + j) & 0xFF);
             }
 
-            page_insert(mm.pgdir, pages_arr[i], addr, PTE_P | PTE_W | PTE_U);
+            pmm::page_insert(mm.pgdir, pages_arr[i], addr, PTE_P | PTE_W | PTE_U);
             swap_mgr_fifo.map_swappable(init_mm, addr, pages_arr[i], 0);
         }
     }
@@ -511,7 +511,7 @@ void test_swap_multiple_pages() {
     int verified = 0;
     for (int i = 0; i < swapped; i++) {
         uintptr_t addr = base_addr + i * PG_SIZE;
-        pte_t* ptep = get_pte(mm.pgdir, addr, 0);
+        pte_t* ptep = pmm::get_pte(mm.pgdir, addr, 0);
 
         if (ptep && !(*ptep & PTE_P)) {
             // This page was swapped out, swap it back in
@@ -520,7 +520,7 @@ void test_swap_multiple_pages() {
 
             if (ret == 0 && page) {
                 // Verify data
-                void* kva = page2kva(page);
+                void* kva = pmm::page2kva(page);
                 int errors = 0;
 
                 for (int j = 0; j < 256; j++) {  // Check first 256 bytes
@@ -535,7 +535,7 @@ void test_swap_multiple_pages() {
                     verified++;
                 }
 
-                free_pages(page, 1);
+                pmm::free_pages(page, 1);
             }
         }
     }

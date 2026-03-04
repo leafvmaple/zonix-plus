@@ -21,7 +21,7 @@ extern "C" void switch_to(struct Context* from, struct Context* to);
 extern void trapret(void);
 
 // Shell process entry point (defined in shell.cpp)
-extern int shell_main(void* arg);
+#include "cons/shell.h"
 
 // TaskManager static member definitions (only non-inline members)
 ListNode TaskManager::s_proc_list{};
@@ -47,7 +47,7 @@ static int get_pid(void) {
 
 // Free kernel stack
 static void free_kstack(TaskStruct* proc) {
-    free_page(kva2page(reinterpret_cast<void*>(proc->kernel_stack)));
+    pmm::free_page(pmm::kva2page(reinterpret_cast<void*>(proc->kernel_stack)));
 }
 
 // Wrapper called by new kernel threads via iretq.
@@ -63,7 +63,7 @@ __attribute__((noreturn)) static void kernel_thread_entry(int (*fn)(void*), void
 // Init process main function — fork shell, then reap children
 static int init_main(void* arg) {
     // Fork the shell as a separate process (PID 2)
-    int shell_pid = TaskManager::kernel_thread(shell_main, nullptr);
+    int shell_pid = TaskManager::kernel_thread(shell::main, nullptr);
     if (shell_pid <= 0) {
         panic("init: failed to create shell process!");
     }
@@ -96,7 +96,7 @@ static int init_main(void* arg) {
 void TaskStruct::run() {
     TaskStruct* current = TaskManager::get_current();
     if (this != current) {
-        InterruptsGuard guard;
+        intr::Guard guard;
 
         TaskStruct* prev = current;
         TaskManager::set_current(this);
@@ -149,12 +149,12 @@ void TaskStruct::copy_thread(uintptr_t esp, TrapFrame* trap_frame) {
 }
 
 int TaskStruct::setup_kernel_stack() {
-    Page* page = alloc_page();
+    Page* page = pmm::alloc_page();
     if (!page) {
         return -1;
     }
 
-    kernel_stack = reinterpret_cast<uintptr_t>(page2kva(page));
+    kernel_stack = reinterpret_cast<uintptr_t>(pmm::page2kva(page));
     return 0;
 }
 
@@ -250,7 +250,7 @@ uint32_t TaskManager::pid_hash(int x) {
 
 // Simple round-robin scheduler
 void TaskManager::schedule() {
-    InterruptsGuard guard;
+    intr::Guard guard;
 
     TaskStruct* next = s_idle_proc;
     ListNode* head = &s_proc_list;
@@ -280,7 +280,7 @@ int TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_fra
     proc->copy_thread(stack, trap_frame);
 
     {
-        InterruptsGuard guard;
+        intr::Guard guard;
         proc->pid = get_pid();
         proc->set_links();
     }
@@ -308,7 +308,7 @@ int TaskManager::exit(int error_code) {
     current->exit_code = error_code;
 
     {
-        InterruptsGuard guard;
+        intr::Guard guard;
 
         if (current->parent && current->parent->wait_state) {
             current->parent->wakeup();
@@ -347,7 +347,7 @@ int TaskManager::wait(int pid, int* code_store) {
         TaskStruct* zombie_child = nullptr;
 
         {
-            InterruptsGuard guard;
+            intr::Guard guard;
 
             ListNode* head = &current->child_list;
             for (auto* le = head->get_next(); le != head; le = le->get_next()) {
@@ -370,7 +370,7 @@ int TaskManager::wait(int pid, int* code_store) {
             }
 
             {
-                InterruptsGuard guard;
+                intr::Guard guard;
                 zombie_child->remove_links();
             }
             zombie_child->destroy();

@@ -1,6 +1,5 @@
 #include "pmm.h"
 #include "debug/assert.h"
-#include "e820.h"
 #include "drivers/intr.h"
 
 #include "lib/memory.h"
@@ -10,6 +9,22 @@
 #include <asm/arch.h>
 #include <asm/segments.h>
 #include <asm/mmu.h>
+#include <kernel/bootinfo.h>
+
+// Declared in head.S — kernel's own copy of boot_info
+extern struct boot_info __kernel_boot_info;
+
+template<typename F>
+void traverse_boot_mmap(F&& callback) {
+    struct boot_info* bi = &__kernel_boot_info;
+    // mmap_addr was set by the bootloader using physical addresses;
+    // add KERNEL_BASE to access it from the higher-half kernel.
+    auto* entries = reinterpret_cast<struct boot_mmap_entry*>(bi->mmap_addr + KERNEL_BASE);
+    uint32_t count = bi->mmap_length;
+    for (uint32_t i = 0; i < count; i++) {
+        callback(entries[i].addr, entries[i].len, entries[i].type);
+    }
+}
 
 #include "pmm_firstfit.h"
 
@@ -45,21 +60,21 @@ inline size_t page_num(uintptr_t addr) {
     return addr >> PG_SHIFT;
 }
 
-uintptr_t page2pa(Page* page) {
+uintptr_t pmm::page2pa(Page* page) {
     return static_cast<uintptr_t>((page - g_pages) << PG_SHIFT);
 }
 
-void* page2kva(Page* page) {
-    return reinterpret_cast<void*>(KERNEL_BASE + page2pa(page));
+void* pmm::page2kva(Page* page) {
+    return reinterpret_cast<void*>(KERNEL_BASE + pmm::page2pa(page));
 }
 
-Page* pa2page(uintptr_t pa) {
+Page* pmm::pa2page(uintptr_t pa) {
     return g_pages + page_num(pa);
 }
 
 // Convert kernel virtual address to page descriptor
-Page* kva2page(void* kva) {
-    return pa2page(P_ADDR(reinterpret_cast<uintptr_t>(kva)));
+Page* pmm::kva2page(void* kva) {
+    return pmm::pa2page(P_ADDR(reinterpret_cast<uintptr_t>(kva)));
 }
 
 static void pmm_mgr_init() {
@@ -68,19 +83,19 @@ static void pmm_mgr_init() {
     cprintf("pmm: manager = %s\n", g_pmm->get_name());
 }
 
-Page* alloc_pages(size_t n) {
-    InterruptsGuard guard;
+Page* pmm::alloc_pages(size_t n) {
+    intr::Guard guard;
     Page* page = g_pmm->alloc(n);
 
     return page;
 }
 
-void free_pages(Page* base, size_t n) {
-    InterruptsGuard guard;
+void pmm::free_pages(Page* base, size_t n) {
+    intr::Guard guard;
     g_pmm->free(base, n);
 }
 
-pte_t* get_pte(pde_t* pml4, uintptr_t la, bool create) {
+pte_t* pmm::get_pte(pde_t* pml4, uintptr_t la, bool create) {
     // Walk 4-level page table: PML4 -> PDPT -> PD -> PT
 
     // Level 4: PML4
@@ -147,8 +162,8 @@ pte_t* get_pte(pde_t* pml4, uintptr_t la, bool create) {
 
 static void page_init() {
     uint64_t max_pa{};
-    traverse_e820_map([&max_pa](uint64_t addr, uint64_t size, uint32_t type) {
-        if (type == E820_RAM && max_pa < addr + size) {
+    traverse_boot_mmap([&max_pa](uint64_t addr, uint64_t size, uint32_t type) {
+        if (type == BOOT_MEM_AVAILABLE && max_pa < addr + size) {
             max_pa = addr + size;
         }
     });
@@ -164,8 +179,8 @@ static void page_init() {
     }
 
     uintptr_t valid_mem = P_ADDR(g_pages + g_num_pages);
-    traverse_e820_map([valid_mem](uint64_t addr, uint64_t size, uint32_t type) {
-        if (type == E820_RAM) {
+    traverse_boot_mmap([valid_mem](uint64_t addr, uint64_t size, uint32_t type) {
+        if (type == BOOT_MEM_AVAILABLE) {
             uint64_t limit = addr + size;
             if (addr < valid_mem)
                 addr = valid_mem;
@@ -176,36 +191,36 @@ static void page_init() {
 
                 cprintf("Valid Memory: [0x%016lx, 0x%016lx]\n", static_cast<uint64_t>(addr),
                         static_cast<uint64_t>(limit));
-                g_pmm->init_memmap(pa2page(addr), page_num(limit - addr));
+                g_pmm->init_memmap(pmm::pa2page(addr), page_num(limit - addr));
             }
         }
     });
 }
 
-void tlb_invl(pde_t* pgdir, uintptr_t la) {
+void pmm::tlb_invl(pde_t* pgdir, uintptr_t la) {
     if (arch_read_cr3() == P_ADDR(pgdir)) {
         arch_invlpg((void*)la);
     }
 }
 
-Page* pgdir_alloc_page(pde_t* pgdir, uintptr_t la, uint32_t perm) {
-    Page* page = alloc_pages(SINGLE_PAGE);
+Page* pmm::pgdir_alloc_page(pde_t* pgdir, uintptr_t la, uint32_t perm) {
+    Page* page = pmm::alloc_pages(SINGLE_PAGE);
     if (page) {
-        page_insert(pgdir, page, la, perm);
+        pmm::page_insert(pgdir, page, la, perm);
     }
 
     return page;
 }
 
-int page_insert(pde_t* pgdir, Page* page, uintptr_t la, uint32_t perm) {
-    pte_t* ptep = get_pte(pgdir, la, true);
+int pmm::page_insert(pde_t* pgdir, Page* page, uintptr_t la, uint32_t perm) {
+    pte_t* ptep = pmm::get_pte(pgdir, la, true);
     if (!ptep) {
         return INSERT_FAILURE;
     }
     page->ref++;
-    *ptep = page2pa(page) | perm | PTE_P;
+    *ptep = pmm::page2pa(page) | perm | PTE_P;
 
-    tlb_invl(pgdir, la);
+    pmm::tlb_invl(pgdir, la);
     return INSERT_SUCCESS;
 }
 
@@ -213,13 +228,13 @@ int page_insert(pde_t* pgdir, Page* page, uintptr_t la, uint32_t perm) {
 // For now, always allocate full g_pages (4KB)
 // TODO: Implement proper slab allocator
 void* kmalloc(size_t size) {
-    Page* page = alloc_page();
-    return page ? page2kva(page) : nullptr;
+    Page* page = pmm::alloc_page();
+    return page ? pmm::page2kva(page) : nullptr;
 }
 
 void kfree(void* ptr) {
     if (ptr) {
-        free_page(kva2page(ptr));
+        pmm::free_page(pmm::kva2page(ptr));
     }
 }
 

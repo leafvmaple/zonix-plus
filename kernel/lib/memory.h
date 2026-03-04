@@ -42,11 +42,13 @@ void* kmalloc(size_t size);
 void kfree(void* ptr);
 
 namespace std {
-    // NOLINTNEXTLINE(readability-identifier-naming)
-    struct nothrow_t { explicit nothrow_t() = default; };
-    // NOLINTNEXTLINE(readability-identifier-naming)
-    extern const nothrow_t nothrow;
-}
+// NOLINTNEXTLINE(readability-identifier-naming)
+struct nothrow_t {
+    explicit nothrow_t() = default;
+};
+// NOLINTNEXTLINE(readability-identifier-naming)
+extern const nothrow_t nothrow;
+}  // namespace std
 
 // Memory is always page-aligned (4KB) since kmalloc uses page allocator
 inline void* operator new(__SIZE_TYPE__ size, const std::nothrow_t&) noexcept {

@@ -7,31 +7,17 @@ namespace intr {
 void enable();
 void disable();
 
-inline int save_impl() {
-    if (arch_irq_save() & FL_IF) {
-        disable();
-        return 1;
-    }
-    return 0;
-}
-
-inline void restore_impl(int flag) {
-    if (flag) {
-        enable();
-    }
-}
-
-}  // namespace intr
-
 // RAII class for scoped interrupt disable
-class InterruptsGuard {
+class Guard {
 public:
-    InterruptsGuard() : flag_(intr::save_impl()) {}
-    ~InterruptsGuard() { intr::restore_impl(flag_); }
+    Guard();
+    ~Guard();
 
-    InterruptsGuard(const InterruptsGuard&) = delete;
-    InterruptsGuard& operator=(const InterruptsGuard&) = delete;
+    Guard(const Guard&) = delete;
+    Guard& operator=(const Guard&) = delete;
 
 private:
     int flag_;
 };
+
+}  // namespace intr

@@ -95,3 +95,6 @@ long_mode_entry:
 
 // Switch back to 32-bit mode for the assembler (in case more code follows)
 .code32
+
+// Mark stack as non-executable
+.section .note.GNU-stack,"",@progbits

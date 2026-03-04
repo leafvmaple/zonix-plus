@@ -20,7 +20,7 @@ constexpr size_t CMD_BUF_SIZE = 128;
 constexpr int MAX_ARGS = 16;
 
 char cmd_buffer[CMD_BUF_SIZE];
-int cmd_pos = 0;
+size_t cmd_pos = 0;
 
 }  // namespace
 
@@ -33,7 +33,6 @@ struct ShellCommand {
 using shell_cmd_t = ShellCommand;
 
 // Forward declarations
-static int strncmp(const char* s1, const char* s2, size_t n);
 static int strcmp(const char* s1, const char* s2);
 static int parse_args(const char* cmd, char** argv);
 
@@ -470,7 +469,7 @@ static int parse_args(const char* cmd, char** argv) {
     int argc = 0;
 
     // Copy to buffer for manipulation
-    int i = 0;
+    size_t i = 0;
     while (cmd[i] && i < CMD_BUF_SIZE - 1) {
         arg_buf[i] = cmd[i];
         i++;
@@ -535,18 +534,6 @@ static void execute_command(const char* cmd) {
     cprintf("Type 'help' for available commands.\n");
 }
 
-static int strncmp(const char* s1, const char* s2, size_t n) {
-    while (n && *s1 && (*s1 == *s2)) {
-        ++s1;
-        ++s2;
-        --n;
-    }
-    if (n == 0) {
-        return 0;
-    }
-    return (*(unsigned char*)s1 - *(unsigned char*)s2);
-}
-
 static int strcmp(const char* s1, const char* s2) {
     while (*s1 && (*s1 == *s2)) {
         s1++;
@@ -555,11 +542,11 @@ static int strcmp(const char* s1, const char* s2) {
     return (*(unsigned char*)s1 - *(unsigned char*)s2);
 }
 
-void shell_prompt(void) {
+void shell::prompt(void) {
     cprintf("zonix> ");
 }
 
-void shell_init(void) {
+void shell::init(void) {
     cmd_pos = 0;
     cmd_buffer[0] = '\0';
     cprintf("\n");
@@ -570,7 +557,7 @@ void shell_init(void) {
     // Don't print prompt yet - wait until system is fully ready
 }
 
-void shell_handle_char(char c) {
+void shell::handle_char(char c) {
     if (c <= 0) {
         return;  // Invalid character
     }
@@ -583,7 +570,7 @@ void shell_handle_char(char c) {
             cmd_buffer[cmd_pos] = '\0';
             execute_command(cmd_buffer);
             cmd_pos = 0;
-            shell_prompt();
+            shell::prompt();
             break;
 
         case '\b':
@@ -609,17 +596,17 @@ void shell_handle_char(char c) {
 }
 
 // Shell process entry point — runs as an independent kernel thread
-int shell_main(void* arg) {
+int shell::main(void* arg) {
     (void)arg;
 
-    shell_init();
-    shell_prompt();
+    shell::init();
+    shell::prompt();
 
     // Main loop: read characters from keyboard driver (blocking)
     while (true) {
         char c = kbd::getc_blocking();
         if (c > 0) {
-            shell_handle_char(c);
+            shell::handle_char(c);
         }
     }
 
