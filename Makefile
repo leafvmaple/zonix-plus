@@ -5,8 +5,19 @@
 # Usage: make ARCH=x86 (default)
 # ==========================================================================
 ARCH ?= x86
+V    ?= 0  # Verbose mode: make V=1
 
+# Quiet / verbose output
+ifeq ($(V),0)
+  Q := @
+  MAKEFLAGS += --no-print-directory
+else
+  Q :=
+endif
+
+# ==========================================================================
 # Per-architecture toolchain and flags
+# ==========================================================================
 ifeq ($(ARCH),x86)
   CC      := gcc
   CXX     := g++
@@ -31,295 +42,193 @@ else
   $(error Unsupported ARCH=$(ARCH). Use: x86, aarch64)
 endif
 
-HOSTCC		:= gcc
-HOSTCFLAGS	:= -g -Wall -O2
+# Auto-dependency generation (gcc/g++ -MMD -MP)
+# .d files are placed next to .o files automatically
+DEPFLAGS := -MMD -MP
+
+HOSTCC     := gcc
+HOSTCFLAGS := -g -Wall -O2
 
 OBJDUMP := objdump
 OBJCOPY := objcopy
 MKDIR   := mkdir -p
 
-TERMINAL :=wt.exe wsl
-
-ALLOBJS	:=  # 用来最终mkdir
-
-SLASH	:= /
+SLASH   := /
 OBJDIR  := obj
-BINDIR	:= bin
+BINDIR  := bin
+SCRIPTDIR := scripts
 
-OBJPREFIX	:= __objs_
-CTYPE	:= c S
-CXXTYPE	:= cpp cc cxx
+OBJPREFIX := __objs_
+CTYPE     := c S
+CXXTYPE   := cpp cc cxx
 
-# dirs, #types
-# $filter(%.type1 %.type2, dir1/* dir2/*)
+# ==========================================================================
+# Build-system macros
+# ==========================================================================
+
+# dirs, #types -> matching source files
 listf = $(filter $(if $(2),$(addprefix %.,$(2)),%), $(wildcard $(addsuffix $(SLASH)*,$(1))))
-
-# dirs
-# $filter(%.c %.S, dir1/* dir2/*)
-listf_cc = $(call listf,$(1),$(CTYPE))
+listf_cc  = $(call listf,$(1),$(CTYPE))
 listf_cxx = $(call listf,$(1),$(CXXTYPE))
 
-# name1 name2 -> __objs_$(name1)
-# __objs_
+# Packet helpers
 packetname = $(if $(1),$(addprefix $(OBJPREFIX),$(1)),$(OBJPREFIX))
 
-# name1.* name2.*... -> obj/name1.o obj/name2.o
-# name1.* name2.*..., dir -> obj/$(dir)/$(name1).o obj/$(dir)/$(name2).o)
-toobj = $(addprefix $(OBJDIR)$(SLASH)$(if $(2),$(2)$(SLASH)),$(addsuffix .o,$(basename $(1))))
+# source -> obj path
+toobj     = $(addprefix $(OBJDIR)$(SLASH)$(if $(2),$(2)$(SLASH)),$(addsuffix .o,$(basename $(1))))
+totarget  = $(addprefix $(BINDIR)$(SLASH),$(1))
+tobin     = $(addprefix $(BINDIR)$(SLASH),$(addsuffix .bin,$(1)))
 
-# file1 file2 -> bin/file1 bin/file2
-totarget = $(addprefix $(BINDIR)$(SLASH),$(1))
+ALLOBJS :=
 
-# file1 file2 -> bin/file1.bin bin/file2.bin
-tobin = $(addprefix $(BINDIR)$(SLASH),$(addsuffix .bin,$(1)))
-
-# #files, cc, cflags
-# obj/src/file1.o | src/file1.c | obj/src/
-#	cc -Isrc cflags -c src/file1.c -o obj/src/file1.o
-# ALLOBJS += obj/src/file1.o
+# Single compile rule (with auto-deps via DEPFLAGS)
 define compile
 $$(call toobj,$(1)): $(1) | $$$$(dir $$$$@)
-	$(2) -I$$(dir $(1)) $(3) -c $$< -o $$@
+	$(Q)$(2) -I$$(dir $(1)) $(3) $(DEPFLAGS) -c $$< -o $$@
 ALLOBJS += $$(call toobj,$(1))
 endef
 
 compiles = $$(foreach f,$(1),$$(eval $$(call compile,$$(f),$(2),$(3))))
 
-# #files, cc, cflags, packet
-# __objs_$(packet) := obj/src/file1.o obj/src/file2.o...
-# obj/src/file1.o:
-#	cc -Isrc -Iinclude cflags -c src/file1.c -o obj/src/file1.o
-# obj/src/file2.o:
-#	cc -Isrc -Iinclude cflags -c src/file2.c -o obj/src/file2.o
 define add_packet
 __packet__ := $(call packetname,$(4))
 $$(__packet__) += $(call toobj,$(1))
 $(call compiles,$(1),$(2),$(3))
 endef
 
-# #packets
-# obj/src/file1.o obj/src/file2.o...
 read_packet = $(foreach p,$(call packetname,$(1)),$($(p)))
 
-# #files, cc, cflas, packet
-add_packet_files = $(eval $(call add_packet,$(1),$(2),$(3),$(4)))
-# #files, packet
-add_packet_files_cc = $(call add_packet_files,$(1),$(CC),$(CFLAGS),$(2))
+add_packet_files     = $(eval $(call add_packet,$(1),$(2),$(3),$(4)))
+add_packet_files_cc  = $(call add_packet_files,$(1),$(CC),$(CFLAGS),$(2))
 add_packet_files_cxx = $(call add_packet_files,$(1),$(CXX),$(CXXFLAGS),$(2))
 
-# obj/
-#	mkdir -p obj/
-# bin/
-#	mkdir -p bin/
-# obj/src/
-#	mkdir -p obj/src/
 define do_make_dir
 $$(sort $$(dir $$(ALLOBJS)) $(BINDIR)$(SLASH) $(OBJDIR)$(SLASH)):
-	$(MKDIR) $$@
+	$(Q)$(MKDIR) $$@
 endef
 make_dir = $(eval $(call do_make_dir))
 
-#####################################################################################
+# ==========================================================================
+# Include paths
+# ==========================================================================
+#   include/               — architecture-independent headers
+#   arch/$(ARCH)/include/  — makes <asm/xxx.h> resolve to the right arch
+#   arch/$(ARCH)/kernel/   — arch-specific kernel headers (idt.h, e820.h, ...)
+#   kernel/lib/            — kernel internal utilities (string.h, stdio.h, ...)
+INCLUDE := include \
+           arch/$(ARCH)/include \
+           arch/$(ARCH)/kernel \
+           kernel/lib
 
-# Include paths:
-#   include/              - architecture-independent headers
-#   include/arch/$(ARCH)/  - makes <asm/xxx.h> resolve to the right arch
-#   kernel/lib/            - kernel internal utilities (string.h, stdio.h, etc.)
-INCLUDE	+=  include  \
-            include/arch/$(ARCH) \
-            kernel/lib
+# ==========================================================================
+# Kernel
+# ==========================================================================
+KSRCDIR := kernel              \
+           arch/$(ARCH)/kernel \
+           kernel/debug        \
+           kernel/cons         \
+           kernel/trap         \
+           kernel/drivers      \
+           kernel/block        \
+           kernel/sched        \
+           kernel/mm           \
+           kernel/fs
 
-# Kernel source directories
-KSRCDIR :=	kernel              \
-            kernel/arch/$(ARCH) \
-			kernel/debug        \
-            kernel/cons         \
-            kernel/trap         \
-            kernel/drivers      \
-            kernel/block        \
-            kernel/sched        \
-            kernel/mm           \
-            kernel/fs
-
-
-CFLAGS	+= $(addprefix -I,$(INCLUDE))
-CXXFLAGS	+= $(addprefix -I,$(INCLUDE))
+CFLAGS   += $(addprefix -I,$(INCLUDE))
+CXXFLAGS += $(addprefix -I,$(INCLUDE))
 
 $(call add_packet_files_cc,$(call listf_cc,$(KSRCDIR)),kernel)
 $(call add_packet_files_cxx,$(call listf_cxx,$(KSRCDIR)),kernel)
 
 kernel = $(call totarget,kernel)
+KOBJS  := $(sort $(call read_packet,kernel))
 
-KOBJS := $(sort $(call read_packet,kernel))
-
-# Embedded console font (PSF format -> .o via objcopy)
+# Embedded console font (PSF -> ELF .rodata)
 FONT_PSF := fonts/console.psf
 FONT_OBJ := $(OBJDIR)/fonts/console.psf.o
 
 $(FONT_OBJ): $(FONT_PSF) | $$(dir $$@)
-	$(OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 \
+	$(Q)$(OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 \
 		--rename-section .data=.rodata,alloc,load,readonly,data,contents \
 		$< $@
 
 ALLOBJS += $(FONT_OBJ)
 
-$(kernel): $(KOBJS) $(FONT_OBJ) tools/kernel.ld | $$(dir $$@)
-	$(LD) $(LDFLAGS) -T tools/kernel.ld $(KOBJS) $(FONT_OBJ) -o $@
-	$(OBJDUMP) -D $@ > obj/kernel.asm
-#	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > obj/kernel.sym
-	$(OBJCOPY) -S -O binary $@ $(call tobin,kernel)
-	$(DASM) -b 64 $(call tobin,kernel) > obj/kernel.disasm
+$(kernel): $(KOBJS) $(FONT_OBJ) $(SCRIPTDIR)/kernel.ld | $$(dir $$@)
+	$(Q)$(LD) $(LDFLAGS) -T $(SCRIPTDIR)/kernel.ld $(KOBJS) $(FONT_OBJ) -o $@
+	$(Q)$(OBJCOPY) -S -O binary $@ $(call tobin,kernel)
+	@echo "  LINK    $@"
 
-# MBR build (Master Boot Record) - BIOS mode
-mbr = $(call totarget,mbr)
-MOBJ = $(call toobj,boot/bios/mbr.S)
+# ==========================================================================
+# Boot (BIOS + UEFI) — separate C/ASM 32-bit toolchain
+# ==========================================================================
+include arch/$(ARCH)/boot/Makefile
 
-$(MOBJ): boot/bios/mbr.S | $$(dir $$@)
-	$(CC) $(BOOT_CFLAGS) -I include -I include/arch/$(ARCH) -Os -c $< -o $@
-
-$(mbr): $(MOBJ) tools/mbr.ld | $$(dir $$@)
-	$(LD) $(BOOT_LDFLAGS) -T tools/mbr.ld -o $@ $<
-	$(OBJDUMP) -D $@ > obj/mbr.asm
-	$(OBJCOPY) -S -O binary $@ $(call tobin,mbr)
-	$(DASM) -b 16 $(call tobin,mbr) > obj/mbr.disasm
-	@# Check MBR size must be 512 bytes
-	@if [ `stat -c%s $(call tobin,mbr)` -ne 512 ]; then \
-		echo "Error: MBR size is not 512 bytes"; \
-		exit 1; \
-	fi
-
-# VBR and Bootblock build (exclude mbr.S and bootload.c) - BIOS mode
-bootfiles = $(filter-out boot/bios/mbr.S boot/bios/bootload.c, $(call listf_cc,boot/bios))
-$(eval $(call compiles,$(bootfiles),$(CC),$(BOOT_CFLAGS) -I include -I include/arch/$(ARCH) -Os))
-
-# VBR build (Volume Boot Record, formerly bootblock)
-vbr = $(call totarget,vbr)
-VOBJS = $(call toobj,$(bootfiles))
-
-$(vbr): $(VOBJS) tools/boot.ld | $$(dir $$@)
-	$(LD) $(BOOT_LDFLAGS) -T tools/boot.ld -o $@ $(VOBJS)
-	$(OBJDUMP) -S $@ > obj/vbr.asm
-	$(OBJCOPY) -S -O binary $@ $(call tobin,vbr)
-	$(DASM) -b 16 $(call tobin,vbr) > obj/vbr.disasm
-	@# Check VBR size must be exactly 512 bytes
-	@if [ `stat -c%s $(call tobin,vbr)` -ne 512 ]; then \
-		echo "Error: VBR size is `stat -c%s $(call tobin,vbr)` bytes, must be 512"; \
-		exit 1; \
-	fi
-
-# Bootloader build (ELF loader at 0x7E00) - BIOS mode
-# Can use reserved sectors: sector 1-7 (512 * 7 bytes total)
-bootloader = $(call totarget,bootloader)
-BOOTLOAD_C_OBJ := $(call toobj,boot/bios/bootload.c)
-BOOTLOAD_S_OBJ := $(call toobj,boot/bios/entry.S)
-
-$(BOOTLOAD_C_OBJ): boot/bios/bootload.c | $$(dir $$@)
-	$(CC) $(BOOT_CFLAGS) -I include -I include/arch/$(ARCH) -O2 -g -nostdinc -fno-builtin -fno-stack-protector -c $< -o $@
-
-$(BOOTLOAD_S_OBJ): boot/bios/entry.S | $$(dir $$@)
-	$(CC) $(BOOT_CFLAGS) -I include -I include/arch/$(ARCH) -c $< -o $@
-
-ALLOBJS += $(BOOTLOAD_C_OBJ) $(BOOTLOAD_S_OBJ)
-
-$(bootloader): $(BOOTLOAD_C_OBJ) $(BOOTLOAD_S_OBJ) tools/bootload.ld | $$(dir $$@)
-	$(LD) $(BOOT_LDFLAGS) -T tools/bootload.ld -o $@ $(BOOTLOAD_C_OBJ) $(BOOTLOAD_S_OBJ)
-	$(OBJDUMP) -S $@ > obj/bootloader.asm
-	$(OBJCOPY) -S -O binary $@ $(call tobin,bootloader)
-	$(DASM) -b 32 $(call tobin,bootloader) > obj/bootloader.disasm
-	@# Check bootloader size must be <= 3584 bytes (3 reserved sectors)
-	@if [ `stat -c%s $(call tobin,bootloader)` -gt 3584 ]; then \
-		echo "Error: Bootloader size is `stat -c%s $(call tobin,bootloader)` bytes, must be <= 3584"; \
-		exit 1; \
-	fi
-
-# UEFI Bootloader build (PE32+ format for x86_64 UEFI)
-UEFI_CC := x86_64-w64-mingw32-gcc
-UEFI_LD := ld
-UEFI_OBJDUMP := objdump
-UEFI_OBJCOPY := objcopy
-UEFI_CFLAGS := -I include -I include/arch/$(ARCH) -I /usr/include/efi \
-               -I /usr/include/efi/x86_64 \
-               -nostdlib -ffreestanding -fshort-wchar -mno-red-zone -O2
-
-UEFI_LDFLAGS := -Wl,--entry=efi_main -Wl,--subsystem,10 -Wl,--image-base,0 \
-		    -L/usr/lib -lefi -lgnuefi
-
-bootx64 = $(call totarget,BOOTX64.EFI)
-$(bootx64): boot/uefi/bootload.c | $$(dir $$@)
-	@mkdir -p obj/boot/uefi
-	$(UEFI_CC) $(UEFI_CFLAGS) boot/uefi/bootload.c -o $@ $(UEFI_LDFLAGS)
-	@echo "UEFI bootloader created: $@"
-
-
-# Keep bootblock as compatibility target (points to VBR)
-# boot = $(call totarget,bootblock)
+# VBR compatibility alias
 BOBJS = $(call toobj,$(bootfiles))
 
 $(call make_dir)
 
-# FAT32 test disk image (ata0-slave)
+# ==========================================================================
+# Disk images
+# ==========================================================================
 bin/fat32_test.img:
-	@echo "Creating FAT32 test disk image..."
-	@bash tools/create_fat32_image.sh
+	@echo "  IMG     $@"
+	$(Q)bash $(SCRIPTDIR)/create_fat32_image.sh
 
-# FAT32 disk image with proper filesystem
-# Uses mtools to avoid sudo mount (install with: sudo apt install mtools)
 bin/zonix.img: bin/mbr bin/vbr bin/bootloader bin/kernel | $$(dir $$@)
-	@echo "Creating FAT32 disk image..."
-	@# Create 64MB disk image (FAT32 requires at least 33MB)
-	dd if=/dev/zero of=$@ bs=1M count=64 2>/dev/null
-	@# Write MBR
-	dd if=bin/mbr.bin of=$@ bs=446 count=1 conv=notrunc 2>/dev/null
-	@# Create partition table (partition starts at sector 1)
-	@echo -e "label: dos\nstart=1, size=131071, type=0c, bootable" | sfdisk $@ 2>/dev/null
-	@# Format partition as FAT32
-	mkfs.fat -F 32 -n "ZONIX" -S 512 -s 8 -R 32 -f 2 --offset 1 $@ 2>/dev/null
-	@# Copy kernel using mtools (no sudo required)
-	@# Configure mtools to access the partition at offset 512 (sector 1)
-	@echo "drive z: file=\"$@\" offset=512" > /tmp/mtoolsrc_zonix
-	MTOOLSRC=/tmp/mtoolsrc_zonix mcopy -i $@@@512 bin/kernel ::KERNEL.SYS
-	@rm -f /tmp/mtoolsrc_zonix
-	@# Install custom VBR boot code (preserve BPB)
-	@# For FAT32, BPB is 90 bytes (0x00-0x59)
-	@dd if=$@ of=temp_bpb.bin bs=1 skip=512 count=90 2>/dev/null
-	@dd if=bin/vbr.bin of=temp_bootcode.bin bs=1 skip=90 count=420 2>/dev/null
-	@dd if=bin/vbr.bin of=temp_signature.bin bs=1 skip=510 count=2 2>/dev/null
-	@cat temp_bpb.bin temp_bootcode.bin temp_signature.bin > temp_vbr.bin
-	@dd if=temp_vbr.bin of=$@ bs=1 seek=512 count=512 conv=notrunc 2>/dev/null
-	@rm -f temp_bpb.bin temp_bootcode.bin temp_signature.bin temp_vbr.bin
-	@# Install bootloader (after reserved sectors)
-	@# Place at sector 2 for safety (offset = 1024)
-	@dd if=bin/bootloader.bin of=$@ bs=1 seek=1024 conv=notrunc 2>/dev/null
-	@echo "FAT32 image created: $@"
+	@echo "  IMG     $@"
+	$(Q)bash $(SCRIPTDIR)/create_zonix_image.sh
 
-# UEFI disk image with GPT partition
 bin/zonix-uefi.img: bin/BOOTX64.EFI bin/kernel | $$(dir $$@)
-	@echo "Creating UEFI disk image..."
-	@bash tools/create_uefi_image.sh
-	@echo "UEFI disk image created: $@"
+	@echo "  IMG     $@"
+	$(Q)bash $(SCRIPTDIR)/create_uefi_image.sh
 
-TARGETS: bin/mbr bin/vbr bin/bootloader bin/kernel bin/zonix.img bin/BOOTX64.EFI
+# ==========================================================================
+# Top-level targets
+# ==========================================================================
+.PHONY: all mbr vbr fat32 uefi clean disasm format lint \
+        qemu qemu-ahci qemu-fat32 qemu-uefi \
+        debug-qemu debug-qemu-uefi debug-qemu-ahci \
+        bochs debug-bochs gdb help
 
-# Additional disk images for testing
-DISK_IMAGES := bin/fat32_test.img
+all: bin/mbr bin/vbr bin/bootloader bin/kernel bin/zonix.img bin/BOOTX64.EFI
+.DEFAULT_GOAL := all
 
-# Legacy FAT16 targets (optional, build with 'make fat16')
-FAT32_TARGETS: bin/zonix.img bin/fat32_test.img
-
-# UEFI targets (optional, build with 'make uefi')
-UEFI_TARGETS: bin/BOOTX64.EFI bin/zonix-uefi.img
-
-.DEFAULT_GOAL := TARGETS
-
-mbr: bin/mbr
-
-vbr: bin/vbr
-
+mbr:  bin/mbr
+vbr:  bin/vbr
 fat32: bin/zonix.img
+uefi: bin/BOOTX64.EFI bin/zonix-uefi.img
 
-# Build UEFI bootloader and image
-uefi: $(UEFI_TARGETS)
+# ==========================================================================
+# Disassembly (optional — run `make disasm`)
+# ==========================================================================
+disasm: bin/kernel bin/mbr bin/vbr bin/bootloader
+	$(Q)$(OBJDUMP) -D bin/kernel     > obj/kernel.asm
+	$(Q)$(DASM) -b 64 bin/kernel.bin > obj/kernel.disasm 2>/dev/null || true
+	$(Q)$(OBJDUMP) -D bin/mbr        > obj/mbr.asm
+	$(Q)$(DASM) -b 16 bin/mbr.bin    > obj/mbr.disasm 2>/dev/null || true
+	$(Q)$(OBJDUMP) -S bin/vbr        > obj/vbr.asm
+	$(Q)$(DASM) -b 16 bin/vbr.bin    > obj/vbr.disasm 2>/dev/null || true
+	$(Q)$(OBJDUMP) -S bin/bootloader > obj/bootloader.asm
+	$(Q)$(DASM) -b 32 bin/bootloader.bin > obj/bootloader.disasm 2>/dev/null || true
+	@echo "  DISASM  obj/*.asm obj/*.disasm"
 
+# ==========================================================================
+# Code quality (optional)
+# ==========================================================================
+format:
+	@echo "  FORMAT  kernel/ arch/"
+	$(Q)find kernel/ arch/ -name '*.cpp' -o -name '*.h' -o -name '*.c' | xargs clang-format -i
+
+lint:
+	@echo "  LINT    kernel/ arch/"
+	$(Q)find kernel/ arch/ -name '*.cpp' -o -name '*.h' -o -name '*.c' | \
+		xargs clang-tidy --quiet -p . 2>/dev/null || true
+
+# ==========================================================================
+# QEMU / Bochs / GDB launch targets
+# ==========================================================================
 qemu: bin/zonix.img bin/fat32_test.img
 	$(QEMU) -readconfig qemu.cfg -no-reboot
 
@@ -331,19 +240,16 @@ qemu-fat32: bin/zonix.img
 
 qemu-uefi: bin/zonix-uefi.img bin/fat32_test.img
 	$(QEMU) -bios /usr/share/ovmf/OVMF.fd -readconfig qemu-uefi.cfg
-#	$(QEMU) -bios /usr/share/ovmf/OVMF.fd \
-#	-drive file=bin/zonix-uefi.img,format=raw \
-#	-m 256M -serial null -monitor stdio
-
-debug-qemu-uefi: bin/zonix-uefi.img
-	$(QEMU) -bios /usr/share/ovmf/OVMF.fd -readconfig qemu-uefi.cfg -S -s &
-	sleep 2
-	$(TERMINAL) -e gdb -q -x tools/gdbinit
 
 debug-qemu: bin/zonix.img
 	$(QEMU) -readconfig qemu-debug.cfg -S -s &
 	sleep 2
-	$(TERMINAL) -e "gdb -q -x tools/gdbinit"
+	gdb -q -x $(SCRIPTDIR)/gdbinit
+
+debug-qemu-uefi: bin/zonix-uefi.img
+	$(QEMU) -bios /usr/share/ovmf/OVMF.fd -readconfig qemu-uefi.cfg -S -s &
+	sleep 2
+	gdb -q -x $(SCRIPTDIR)/gdbinit
 
 debug-qemu-ahci: bin/zonix.img
 	$(QEMU) -S -s -parallel stdio \
@@ -353,19 +259,51 @@ debug-qemu-ahci: bin/zonix.img
 		-drive if=ide,index=1,file=bin/fat32_test.img,format=raw \
 		-serial null &
 	sleep 2
-	$(TERMINAL) -e "gdb -q -x tools/gdbinit"
+	gdb -q -x $(SCRIPTDIR)/gdbinit
 
-# New default uses FAT32
-bochs: bin/zonix.img $(DISK_IMAGES)
+bochs: bin/zonix.img bin/fat32_test.img
 	bochs -q -f bochsrc.bxrc
 
-debug-bochs: bin/zonix.img $(DISK_IMAGES)
+debug-bochs: bin/zonix.img bin/fat32_test.img
 	bochs -q -f bochsrc_debug.bxrc -dbg
 
-gdb: bin/zonix.img $(DISK_IMAGES)
-	$(TERMINAL) -e bochs -q -f bochsrc.bxrc
+gdb: bin/zonix.img bin/fat32_test.img
+	bochs -q -f bochsrc.bxrc &
 	sleep 2
-	gdb -q -x tools/gdbinit
+	gdb -q -x $(SCRIPTDIR)/gdbinit
 
+# ==========================================================================
+# Clean
+# ==========================================================================
 clean:
-	rm -f -r obj bin/*.o bin/mbr bin/vbr bin/kernel bin/zonix.img bin/fat32_test.img bin/fat32_test.img bin/disk3.img bin/disk4.img
+	rm -rf obj bin/*.o bin/mbr bin/vbr bin/bootloader bin/kernel \
+	       bin/zonix.img bin/fat32_test.img bin/zonix-uefi.img \
+	       bin/BOOTX64.EFI bin/*.bin
+
+# ==========================================================================
+# Help
+# ==========================================================================
+help:
+	@echo "Zonix OS build system"
+	@echo ""
+	@echo "  make [all]           Build kernel + BIOS bootchain + disk image + UEFI"
+	@echo "  make bin/kernel      Build kernel only"
+	@echo "  make mbr             Build MBR only"
+	@echo "  make vbr             Build VBR only"
+	@echo "  make fat32           Build FAT32 disk image"
+	@echo "  make uefi            Build UEFI bootloader + disk image"
+	@echo "  make disasm          Generate disassembly listings in obj/"
+	@echo "  make format          Run clang-format on all sources"
+	@echo "  make lint            Run clang-tidy on all sources"
+	@echo "  make qemu            Run in QEMU (BIOS)"
+	@echo "  make qemu-uefi       Run in QEMU (UEFI)"
+	@echo "  make debug-qemu      Run in QEMU + GDB"
+	@echo "  make bochs           Run in Bochs"
+	@echo "  make clean           Remove all build artifacts"
+	@echo "  make V=1             Verbose build output"
+	@echo ""
+
+# ==========================================================================
+# Auto-dependency includes (-MMD -MP generated .d files)
+# ==========================================================================
+-include $(shell find $(OBJDIR) -name '*.d' 2>/dev/null)

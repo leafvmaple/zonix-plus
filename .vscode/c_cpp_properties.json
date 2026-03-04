@@ -5,7 +5,9 @@
             "includePath": [
                 "${workspaceFolder}/**",
                 "${workspaceFolder}/include",
-                "${workspaceFolder}/kernel/include"
+                "${workspaceFolder}/arch/x86/include",
+                "${workspaceFolder}/arch/x86/kernel",
+                "${workspaceFolder}/kernel/lib"
             ],
             "defines": [
                 "_DEBUG",

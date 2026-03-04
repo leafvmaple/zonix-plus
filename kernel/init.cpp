@@ -3,7 +3,7 @@
 #include "drivers/pit.h"
 #include "drivers/intr.h"
 #include "drivers/fbcons.h"
-#include "arch/x86/idt.h"
+#include "idt.h"
 #include "cons/cons.h"
 #include "mm/pmm.h"
 #include "mm/vmm.h"

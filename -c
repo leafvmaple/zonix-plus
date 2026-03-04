@@ -1,0 +1,9 @@
+obj/arch/x86/kernel/e820.o: arch/x86/kernel/e820.cpp \
+ arch/x86/kernel/e820.h include/base/types.h \
+ arch/x86/include/asm/segments.h arch/x86/include/asm/seg.h \
+ include/kernel/bootinfo.h
+arch/x86/kernel/e820.h:
+include/base/types.h:
+arch/x86/include/asm/segments.h:
+arch/x86/include/asm/seg.h:
+include/kernel/bootinfo.h:

@@ -1,6 +1,6 @@
 #include "pmm.h"
 #include "../debug/assert.h"
-#include "../arch/x86/e820.h"
+#include "e820.h"
 #include "../drivers/intr.h"
 
 #include "memory.h"
