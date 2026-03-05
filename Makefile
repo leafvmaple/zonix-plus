@@ -191,7 +191,7 @@ bin/zonix-uefi.img: bin/BOOTX64.EFI bin/kernel | $$(dir $$@)
         debug-qemu debug-qemu-uefi debug-qemu-ahci \
         bochs debug-bochs gdb help
 
-all: bin/mbr bin/vbr bin/bootloader bin/kernel bin/zonix.img bin/BOOTX64.EFI
+all: bin/mbr bin/vbr bin/bootloader bin/BOOTX64.EFI bin/kernel bin/zonix.img bin/zonix-uefi.img
 .DEFAULT_GOAL := all
 
 mbr:  bin/mbr

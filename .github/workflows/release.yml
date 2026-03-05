@@ -114,13 +114,4 @@ jobs:
           name: Zonix ${{ steps.version.outputs.version }}
           body_path: release_notes.md
           files: |
-            bin/kernel
-            bin/kernel.bin
-            bin/mbr
-            bin/mbr.bin
-            bin/vbr
-            bin/vbr.bin
-            bin/bootloader
-            bin/bootloader.bin
-            bin/BOOTX64.EFI
-            bin/zonix.img
+            bin/*.img
