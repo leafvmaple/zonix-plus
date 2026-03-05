@@ -1,0 +1,126 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for changelog generation
+
+      # ── Install cross-compilation toolchain ──
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc g++ nasm make binutils \
+            gcc-mingw-w64-x86-64 \
+            gnu-efi \
+            mtools dosfstools \
+            fdisk
+
+      # ── Bump version in version.h ──
+      - name: Bump version
+        id: version
+        run: |
+          VER_FILE="include/kernel/version.h"
+
+          MAJOR=$(grep -oP '(?<=ZONIX_VERSION_MAJOR )\d+' "$VER_FILE")
+          MINOR=$(grep -oP '(?<=ZONIX_VERSION_MINOR )\d+' "$VER_FILE")
+          PATCH=$(grep -oP '(?<=ZONIX_VERSION_PATCH )\d+' "$VER_FILE")
+
+          echo "Old version: $MAJOR.$MINOR.$PATCH"
+
+          case "${{ inputs.bump }}" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+
+          echo "New version: $MAJOR.$MINOR.$PATCH"
+
+          sed -i "s/^#define ZONIX_VERSION_MAJOR.*/#define ZONIX_VERSION_MAJOR $MAJOR/" "$VER_FILE"
+          sed -i "s/^#define ZONIX_VERSION_MINOR.*/#define ZONIX_VERSION_MINOR $MINOR/" "$VER_FILE"
+          sed -i "s/^#define ZONIX_VERSION_PATCH.*/#define ZONIX_VERSION_PATCH $PATCH/" "$VER_FILE"
+
+          VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # ── Update build timestamp ──
+      - name: Update build timestamp
+        run: bash scripts/update_version.sh
+
+      # ── Build ──
+      - name: Build
+        run: make
+
+      # ── Generate changelog from last release ──
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            LOG=$(git log --pretty=format:"- %s (%h)" --no-merges)
+          else
+            LOG=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" --no-merges)
+          fi
+
+          # Write to file (handles multiline safely)
+          {
+            echo "## What's Changed"
+            echo ""
+            echo "$LOG"
+          } > release_notes.md
+
+      # ── Commit version bump ──
+      - name: Commit version changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add include/kernel/version.h
+          git commit -m "release: ${{ steps.version.outputs.version }}"
+          git push
+
+      # ── Create release & upload artifacts ──
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Zonix ${{ steps.version.outputs.version }}
+          body_path: release_notes.md
+          files: |
+            bin/kernel
+            bin/kernel.bin
+            bin/mbr
+            bin/mbr.bin
+            bin/vbr
+            bin/vbr.bin
+            bin/bootloader
+            bin/bootloader.bin
+            bin/BOOTX64.EFI
+            bin/zonix.img
