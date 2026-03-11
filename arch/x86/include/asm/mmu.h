@@ -19,37 +19,86 @@
  *   [11:0]  Page offset (12 bits)
  */
 
-#define ADDR_BITS 48  // canonical address length in bits (48-bit virtual)
+// Page table constants
+inline constexpr int ADDR_BITS = 48;
 
-#define PML4X_SHIFT 39  // offset of PML4 index in a linear address
-#define PDPTX_SHIFT 30  // offset of PDPT index in a linear address
-#define PDX_SHIFT   21  // offset of PD index in a linear address
-#define PTX_SHIFT   12  // offset of PT index in a linear address
+inline constexpr int PML4X_SHIFT = 39;
+inline constexpr int PDPTX_SHIFT = 30;
+inline constexpr int PDX_SHIFT = 21;
+inline constexpr int PTX_SHIFT = 12;
 
-#define ENTRY_NUM  512              // entries per page table level (2^9)
-#define ENTRY_MASK (ENTRY_NUM - 1)  // 0x1FF
+inline constexpr int ENTRY_NUM = 512;
+inline constexpr int ENTRY_MASK = ENTRY_NUM - 1;  // 0x1FF
 
-#define PG_MASK (PG_SIZE - 1)  // page offset mask
+// PML4 entries 0..255 cover user space, 256..511 cover kernel space
+inline constexpr int USER_PML4_ENTRIES = ENTRY_NUM / 2;
 
-#define PT_SIZE   (PG_SIZE * ENTRY_NUM)            // bytes mapped by one PT entry range = 2MB
-#define PD_SIZE   ((uint64_t)PT_SIZE * ENTRY_NUM)  // bytes mapped by one PD entry range = 1GB
-#define PDPT_SIZE ((uint64_t)PD_SIZE * ENTRY_NUM)  // bytes mapped by one PDPT entry = 512GB
+inline constexpr uintptr_t PG_MASK = PG_SIZE - 1;
+
+inline constexpr uint64_t PT_SIZE = (uint64_t)PG_SIZE * ENTRY_NUM;  // 2MB
+inline constexpr uint64_t PD_SIZE = PT_SIZE * ENTRY_NUM;            // 1GB
+inline constexpr uint64_t PDPT_SIZE = PD_SIZE * ENTRY_NUM;          // 512GB
+
+// Compatibility aliases
+inline constexpr int PDE_NUM = ENTRY_NUM;
+inline constexpr int PTE_NUM = ENTRY_NUM;
 
 // Page table level indices from a linear address
-#define PML4X(la) ((((uintptr_t)(la)) >> PML4X_SHIFT) & ENTRY_MASK)
-#define PDPTX(la) ((((uintptr_t)(la)) >> PDPTX_SHIFT) & ENTRY_MASK)
-#define PDX(la)   ((((uintptr_t)(la)) >> PDX_SHIFT) & ENTRY_MASK)
-#define PTX(la)   ((((uintptr_t)(la)) >> PTX_SHIFT) & ENTRY_MASK)
+inline constexpr uintptr_t pml4x(uintptr_t la) {
+    return (la >> PML4X_SHIFT) & ENTRY_MASK;
+}
+inline constexpr uintptr_t pdptx(uintptr_t la) {
+    return (la >> PDPTX_SHIFT) & ENTRY_MASK;
+}
+inline constexpr uintptr_t pdx(uintptr_t la) {
+    return (la >> PDX_SHIFT) & ENTRY_MASK;
+}
+inline constexpr uintptr_t ptx(uintptr_t la) {
+    return (la >> PTX_SHIFT) & ENTRY_MASK;
+}
 
-#define PTE_ADDR(pte) ((uintptr_t)(pte) & 0x000FFFFFFFFFF000ULL)
+// Extract physical page address from page table entry
+inline constexpr uintptr_t pte_addr(uintptr_t pte) {
+    return pte & 0x000FFFFFFFFFF000ULL;
+}
+inline constexpr uintptr_t pde_addr(uintptr_t pde) {
+    return pte_addr(pde);
+}
 
-#define PDE_ADDR(pde) PTE_ADDR(pde)
+// Page offset from a linear address
+inline constexpr uintptr_t pg_off(uintptr_t la) {
+    return la & PG_MASK;
+}
 
-#define PG_OFF(la) ((uintptr_t)(la) & PG_MASK)
+// Convert kernel virtual address to physical address
+inline constexpr uintptr_t virt_to_phys(uintptr_t kva) {
+    return kva - KERNEL_BASE;
+}
 
-// Compatibility aliases (PDE_NUM for old code)
-#define PDE_NUM ENTRY_NUM
-#define PTE_NUM ENTRY_NUM
+template<typename T>
+inline uintptr_t virt_to_phys(T* kva) {
+    return reinterpret_cast<uintptr_t>(kva) - KERNEL_BASE;
+}
 
-#define P_ADDR(kva) ((uintptr_t)(kva) - KERNEL_BASE)          // convert kernel virtual address to physical address
-#define K_ADDR(pa)  ((void*)((uintptr_t)(pa) + KERNEL_BASE))  // convert physical address to kernel virtual address
+// Convert physical address to kernel virtual address
+template<typename T = void>
+inline T* phys_to_virt(uintptr_t pa) {
+    return reinterpret_cast<T*>(pa + KERNEL_BASE);
+}
+
+// Iterate over page-aligned chunks within [va, va+size)
+template<typename TFunc>
+inline void iterate_pages(uintptr_t va, size_t size, TFunc&& func) {
+    while (size > 0) {
+        size_t offset = va & PG_MASK;
+        size_t chunk = PG_SIZE - offset;
+        if (chunk > size) {
+            chunk = size;
+        }
+
+        func(va, chunk);
+
+        va += chunk;
+        size -= chunk;
+    }
+}

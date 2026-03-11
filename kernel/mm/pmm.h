@@ -82,6 +82,9 @@ uintptr_t page2pa(Page* page);
 Page* pa2page(uintptr_t pa);
 Page* kva2page(void* kva);
 
+// Free entire user address space (lower-half page tables + mapped pages + pgdir)
+void free_user_pgdir(pde_t* pgdir);
+
 }  // namespace pmm
 
 // Kernel memory allocation (page-granularity, global library functions)

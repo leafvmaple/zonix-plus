@@ -12,6 +12,7 @@
 #include "lib/string.h"
 #include "lib/math.h"
 #include "mm/pmm.h"
+#include "debug/assert.h"
 
 #include <asm/mmu.h>
 #include <base/elf.h>
@@ -23,9 +24,10 @@ namespace elf {
 // ============================================================================
 
 bool is_elf(const uint8_t* data, size_t size) {
-    if (!data || size < sizeof(elfhdr))
+    if (!data || size < sizeof(elfhdr)) {
         return false;
-    auto* eh = reinterpret_cast<const elfhdr*>(data);
+    }
+    const auto* eh = reinterpret_cast<const elfhdr*>(data);
     return eh->e_magic == ELF_MAGIC;
 }
 
@@ -94,38 +96,33 @@ uintptr_t load(const uint8_t* data, size_t size, pde_t* pgdir) {
             continue;
         }
 
-        // Validate segment file data bounds
         if (ph->p_filesz > 0 && ph->p_offset + ph->p_filesz > size) {
-            cprintf("elf: segment %d file data out of bounds "
-                    "(offset=0x%lx, filesz=0x%lx, elf_size=0x%lx)\n",
-                    i, ph->p_offset, ph->p_filesz, size);
+            cprintf("elf: segment %d file data out of bounds (offset=0x%lx, filesz=0x%lx, elf_size=0x%lx)\n", i,
+                    ph->p_offset, ph->p_filesz, size);
             return 0;
         }
 
-        // Reject kernel-space addresses
         if (ph->p_va >= KERNEL_BASE) {
             cprintf("elf: segment %d maps to kernel space (va=0x%lx)\n", i, ph->p_va);
             return 0;
         }
 
-        // Page permissions
         uint32_t perm = PTE_U;
-        if (ph->p_flags & ELF_PF_W)
+        if (ph->p_flags & ELF_PF_W) {
             perm |= PTE_W;
+        }
 
-        cprintf("elf:   LOAD seg %d: va=0x%lx, filesz=0x%lx, "
-                "memsz=0x%lx, perm=%s%s%s\n",
-                i, ph->p_va, ph->p_filesz, ph->p_memsz, (ph->p_flags & ELF_PF_R) ? "R" : "-",
-                (ph->p_flags & ELF_PF_W) ? "W" : "-", (ph->p_flags & ELF_PF_X) ? "X" : "-");
+        cprintf("elf:   LOAD seg %d: va=0x%lx, filesz=0x%lx, memsz=0x%lx, perm=%s%s%s\n", i, ph->p_va, ph->p_filesz,
+                ph->p_memsz, (ph->p_flags & ELF_PF_R) ? "R" : "-", (ph->p_flags & ELF_PF_W) ? "W" : "-",
+                (ph->p_flags & ELF_PF_X) ? "X" : "-");
 
-        // Allocate and map pages for this segment
         uintptr_t seg_start = round_down(ph->p_va, PG_SIZE);
         uintptr_t seg_end = round_up(ph->p_va + ph->p_memsz, PG_SIZE);
 
         for (uintptr_t va = seg_start; va < seg_end; va += PG_SIZE) {
             pte_t* existing = pmm::get_pte(pgdir, va, false);
             if (existing && (*existing & PTE_P)) {
-                *existing |= (perm | PTE_P);
+                *existing |= perm;
                 continue;
             }
 
@@ -136,39 +133,21 @@ uintptr_t load(const uint8_t* data, size_t size, pde_t* pgdir) {
             }
 
             // Zero fresh page (covers BSS and padding)
-            pte_t* ptep = pmm::get_pte(pgdir, va, false);
-            if (ptep && (*ptep & PTE_P)) {
-                void* kva = K_ADDR(PTE_ADDR(*ptep));
-                memset(kva, 0, PG_SIZE);
-            }
+            memset(phys_to_virt(pmm::page2pa(page)), 0, PG_SIZE);
         }
 
-        // Copy file data into the mapped pages
         if (ph->p_filesz > 0) {
             const uint8_t* src = data + ph->p_offset;
-            size_t remaining = ph->p_filesz;
-            uintptr_t dst_va = ph->p_va;
 
-            while (remaining > 0) {
-                pte_t* ptep = pmm::get_pte(pgdir, dst_va, false);
-                if (!ptep || !(*ptep & PTE_P)) {
-                    cprintf("elf: PTE not present for va=0x%lx\n", dst_va);
-                    return 0;
-                }
+            iterate_pages(ph->p_va, ph->p_filesz, [&](uintptr_t va, size_t chunk) {
+                pte_t* ptep = pmm::get_pte(pgdir, va, false);
+                assert(ptep && (*ptep & PTE_P));
 
-                uintptr_t pa = PTE_ADDR(*ptep);
-                uint8_t* kva = static_cast<uint8_t*>(K_ADDR(pa));
-                size_t page_off = dst_va & PG_MASK;
-                size_t chunk = PG_SIZE - page_off;
-                if (chunk > remaining) {
-                    chunk = remaining;
-                }
+                uint8_t* kva = phys_to_virt<uint8_t>(pte_addr(*ptep));
+                memcpy(kva + (va & PG_MASK), src, chunk);
 
-                memcpy(kva + page_off, src, chunk);
                 src += chunk;
-                dst_va += chunk;
-                remaining -= chunk;
-            }
+            });
         }
     }
 

@@ -74,7 +74,7 @@ Page* pmm::pa2page(uintptr_t pa) {
 
 // Convert kernel virtual address to page descriptor
 Page* pmm::kva2page(void* kva) {
-    return pmm::pa2page(P_ADDR(reinterpret_cast<uintptr_t>(kva)));
+    return pmm::pa2page(virt_to_phys(kva));
 }
 
 static void pmm_mgr_init() {
@@ -99,37 +99,37 @@ pte_t* pmm::get_pte(pde_t* pml4, uintptr_t la, bool create) {
     // Walk 4-level page table: PML4 -> PDPT -> PD -> PT
 
     // Level 4: PML4
-    pde_t* pml4e = pml4 + PML4X(la);
+    pde_t* pml4e = pml4 + pml4x(la);
     if (!(*pml4e & PTE_P)) {
         Page* page{};
         if (!create || (page = alloc_pages(1)) == nullptr)
             return nullptr;
         page->ref = PAGE_REF_INIT;
         pde_t pa = page2pa(page);
-        memset(K_ADDR(pa), 0, PG_SIZE);
+        memset(phys_to_virt(pa), 0, PG_SIZE);
         *pml4e = pa | PTE_USER;
     }
 
     // Level 3: PDPT
-    pde_t* pdpt = reinterpret_cast<pde_t*>(K_ADDR(PTE_ADDR(*pml4e)));
-    pde_t* pdpte = pdpt + PDPTX(la);
+    pde_t* pdpt = phys_to_virt<pde_t>(pte_addr(*pml4e));
+    pde_t* pdpte = pdpt + pdptx(la);
     if (!(*pdpte & PTE_P)) {
         Page* page{};
         if (!create || (page = alloc_pages(1)) == nullptr)
             return nullptr;
         page->ref = PAGE_REF_INIT;
         pde_t pa = page2pa(page);
-        memset(K_ADDR(pa), 0, PG_SIZE);
+        memset(phys_to_virt(pa), 0, PG_SIZE);
         *pdpte = pa | PTE_USER;
     }
 
     // Level 2: PD
-    pde_t* pd = reinterpret_cast<pde_t*>(K_ADDR(PTE_ADDR(*pdpte)));
-    pde_t* pde = pd + PDX(la);
+    pde_t* pd = phys_to_virt<pde_t>(pte_addr(*pdpte));
+    pde_t* pde = pd + pdx(la);
     if (*pde & PTE_PS) {
         // This is a 2MB large page.  Split it into a 4KB page table so that
         // individual 4KB pages within the 2MB region can be managed.
-        uintptr_t large_pa = PTE_ADDR(*pde);         // base phys addr of the 2MB page
+        uintptr_t large_pa = pte_addr(*pde);         // base phys addr of the 2MB page
         uint64_t old_perm = *pde & 0xFFF & ~PTE_PS;  // keep original permissions minus PS
 
         Page* page{};
@@ -137,7 +137,7 @@ pte_t* pmm::get_pte(pde_t* pml4, uintptr_t la, bool create) {
             return nullptr;
         page->ref = PAGE_REF_INIT;
         pde_t pt_pa = page2pa(page);
-        pte_t* pt = reinterpret_cast<pte_t*>(K_ADDR(pt_pa));
+        pte_t* pt = phys_to_virt<pte_t>(pt_pa);
 
         // Fill the new PT: 512 entries covering the same 2MB range
         for (int i = 0; i < 512; i++) {
@@ -152,12 +152,12 @@ pte_t* pmm::get_pte(pde_t* pml4, uintptr_t la, bool create) {
             return nullptr;
         page->ref = PAGE_REF_INIT;
         pde_t pa = page2pa(page);
-        memset(K_ADDR(pa), 0, PG_SIZE);
+        memset(phys_to_virt(pa), 0, PG_SIZE);
         *pde = pa | PTE_USER;
     }
 
     // Level 1: PT
-    return reinterpret_cast<pte_t*>(K_ADDR(PTE_ADDR(*pde))) + PTX(la);
+    return phys_to_virt<pte_t>(pte_addr(*pde)) + ptx(la);
 }
 
 static void page_init() {
@@ -178,7 +178,7 @@ static void page_init() {
         g_pages[i].set_reserved();
     }
 
-    uintptr_t valid_mem = P_ADDR(g_pages + g_num_pages);
+    uintptr_t valid_mem = virt_to_phys(reinterpret_cast<uintptr_t>(g_pages + g_num_pages));
     traverse_boot_mmap([valid_mem](uint64_t addr, uint64_t size, uint32_t type) {
         if (type == BOOT_MEM_AVAILABLE) {
             uint64_t limit = addr + size;
@@ -198,7 +198,7 @@ static void page_init() {
 }
 
 void pmm::tlb_invl(pde_t* pgdir, uintptr_t la) {
-    if (arch_read_cr3() == P_ADDR(pgdir)) {
+    if (arch_read_cr3() == virt_to_phys(pgdir)) {
         arch_invlpg((void*)la);
     }
 }
@@ -222,6 +222,50 @@ int pmm::page_insert(pde_t* pgdir, Page* page, uintptr_t la, uint32_t perm) {
 
     pmm::tlb_invl(pgdir, la);
     return INSERT_SUCCESS;
+}
+
+void pmm::free_user_pgdir(pde_t* pgdir) {
+    // Walk lower-half PML4 entries (0-255) — user space only
+    for (int i = 0; i < USER_PML4_ENTRIES; i++) {
+        if (!(pgdir[i] & PTE_P)) {
+            continue;
+        }
+
+        pde_t* pdpt = phys_to_virt<pde_t>(pte_addr(pgdir[i]));
+        for (int j = 0; j < ENTRY_NUM; j++) {
+            if (!(pdpt[j] & PTE_P))
+                continue;
+
+            pde_t* pd = phys_to_virt<pde_t>(pte_addr(pdpt[j]));
+            for (int k = 0; k < ENTRY_NUM; k++) {
+                if (!(pd[k] & PTE_P))
+                    continue;
+                if (pd[k] & PTE_PS) {
+                    // 2MB large page — skip (kernel identity map)
+                    continue;
+                }
+
+                pte_t* pt = phys_to_virt<pte_t>(pte_addr(pd[k]));
+                for (int l = 0; l < ENTRY_NUM; l++) {
+                    if (pt[l] & PTE_P) {
+                        Page* page = pa2page(pte_addr(pt[l]));
+                        if (page->ref > 0)
+                            page->ref--;
+                        if (page->ref == 0)
+                            free_page(page);
+                    }
+                }
+                // Free the PT page itself
+                free_page(pa2page(pte_addr(pd[k])));
+            }
+            // Free the PD page
+            free_page(pa2page(pte_addr(pdpt[j])));
+        }
+        // Free the PDPT page
+        free_page(pa2page(pte_addr(pgdir[i])));
+    }
+    // Free the PML4 page (pgdir itself, allocated via kmalloc)
+    kfree(pgdir);
 }
 
 // ---------------------------------------------------------------------------

@@ -110,10 +110,10 @@ uintptr_t swap::find_vaddr_for_page(MemoryDesc* mm, Page* page) {
         pde_t pde = mm->pgdir[pde_idx];
         if (pde & PTE_P) {
             // Page table exists, search it
-            pte_t* pt = reinterpret_cast<pte_t*>(K_ADDR(PDE_ADDR(pde)));
+            pte_t* pt = phys_to_virt<pte_t>(pde_addr(pde));
             for (int pte_idx = 0; pte_idx < 1024; pte_idx++) {
                 pte_t pte = pt[pte_idx];
-                if ((pte & PTE_P) && PTE_ADDR(pte) == pa) {
+                if ((pte & PTE_P) && pte_addr(pte) == pa) {
                     // Found it!
                     return (pde_idx << 22) | (pte_idx << 12);
                 }

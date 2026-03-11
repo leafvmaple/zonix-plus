@@ -87,9 +87,9 @@ void AhciDevice::setup_memory() {
     }
 
     // Get physical addresses for hardware registers
-    uintptr_t cmd_phys = P_ADDR(cmd_list);
-    uintptr_t fis_phys = P_ADDR(fis_base);
-    uintptr_t table_phys = P_ADDR(cmd_table);
+    uintptr_t cmd_phys = virt_to_phys(cmd_list);
+    uintptr_t fis_phys = virt_to_phys(fis_base);
+    uintptr_t table_phys = virt_to_phys(cmd_table);
 
     // Zero out the memory
     memset(cmd_list, 0, PG_SIZE);
@@ -341,7 +341,7 @@ int AhciDevice::issue_cmd(uint8_t command, uint32_t lba, uint16_t count, bool wr
     }
 
     // Get physical address of DMA buffer
-    uintptr_t buf_phys = P_ADDR(dma_buf);
+    uintptr_t buf_phys = virt_to_phys(dma_buf);
 
     // Setup command header
     cmd_list[0].cfl = sizeof(FisRegH2D) / 4;  // Command FIS length in DWORDs

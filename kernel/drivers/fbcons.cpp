@@ -7,6 +7,7 @@
 #include <kernel/psf.h>
 #include "mm/vmm.h"
 #include "lib/stdio.h"
+#include "lib/memory.h"
 
 extern struct boot_info __kernel_boot_info;
 
@@ -106,10 +107,7 @@ static void draw_char(uint32_t cx, uint32_t cy, int ch) {
 static void clear_row(uint32_t cy) {
     uint32_t y0 = cy * FONT_H;
     for (int row = 0; row < FONT_H; row++) {
-        uint32_t* pixel = (uint32_t*)((uint8_t*)fb_base + (y0 + row) * fb_pitch);
-        for (uint32_t x = 0; x < fb_width; x++) {
-            pixel[x] = BG_COLOR;
-        }
+        memset((uint8_t*)fb_base + (y0 + row) * fb_pitch, 0, fb_width * 4);
     }
 }
 
@@ -120,10 +118,7 @@ static void scroll_up() {
     uint8_t* src = dst + bytes_per_char_row;
     uint32_t total = bytes_per_char_row * (rows - 1);
 
-    // Copy byte-by-byte (no memcpy available with guaranteed alignment)
-    for (uint32_t i = 0; i < total; i++) {
-        dst[i] = src[i];
-    }
+    memcpy(dst, src, total);
 
     // Clear last row
     clear_row(rows - 1);

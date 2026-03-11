@@ -24,6 +24,7 @@
 #include "mm/vmm.h"
 #include "sched/sched.h"
 #include "drivers/intr.h"
+#include "debug/assert.h"
 
 #include <asm/mmu.h>
 #include <asm/cpu.h>
@@ -54,10 +55,6 @@ struct KernelBuf {
     KernelBuf& operator=(const KernelBuf&) = delete;
 };
 
-// ============================================================================
-// Page directory creation (format-independent)
-// ============================================================================
-
 pde_t* create_user_pgdir() {
     auto* pgdir = static_cast<pde_t*>(kmalloc(PG_SIZE));
     if (!pgdir) {
@@ -66,18 +63,11 @@ pde_t* create_user_pgdir() {
     }
 
     memset(pgdir, 0, PG_SIZE);
-
     // Copy higher-half kernel mappings (PML4 entries 256-511)
-    for (int i = 256; i < 512; i++) {
-        pgdir[i] = boot_pgdir[i];
-    }
+    memcpy(&pgdir[USER_PML4_ENTRIES], &boot_pgdir[USER_PML4_ENTRIES], (ENTRY_NUM - USER_PML4_ENTRIES) * sizeof(pde_t));
 
     return pgdir;
 }
-
-// ============================================================================
-// User stack setup (format-independent)
-// ============================================================================
 
 uintptr_t setup_user_stack(pde_t* pgdir) {
     uintptr_t stack_bottom = USER_STACK_TOP - USER_STACK_SIZE;
@@ -90,19 +80,11 @@ uintptr_t setup_user_stack(pde_t* pgdir) {
         }
 
         // Zero the stack page
-        pte_t* ptep = pmm::get_pte(pgdir, va, 0);
-        if (ptep && (*ptep & PTE_P)) {
-            void* kva = K_ADDR(PTE_ADDR(*ptep));
-            memset(kva, 0, PG_SIZE);
-        }
+        memset(phys_to_virt(pmm::page2pa(page)), 0, PG_SIZE);
     }
 
     return USER_STACK_TOP;
 }
-
-// ============================================================================
-// Format detection + dispatch
-// ============================================================================
 
 /**
  * Attempt to load a binary of unknown format into @p pgdir.
@@ -113,7 +95,6 @@ uintptr_t setup_user_stack(pde_t* pgdir) {
  * @return Entry-point virtual address, or 0 on failure / unknown format
  */
 static uintptr_t load_binary(const uint8_t* data, size_t size, pde_t* pgdir) {
-    // --- ELF64 ---
     if (elf::is_elf(data, size)) {
         return elf::load(data, size, pgdir);
     }
@@ -122,15 +103,10 @@ static uintptr_t load_binary(const uint8_t* data, size_t size, pde_t* pgdir) {
     // if (is_flat_binary(data, size)) { ... }
     // if (is_aout(data, size))        { ... }
 
-    cprintf("exec: unrecognised binary format "
-            "(magic: %02x %02x %02x %02x)\n",
-            size > 0 ? data[0] : 0, size > 1 ? data[1] : 0, size > 2 ? data[2] : 0, size > 3 ? data[3] : 0);
+    cprintf("exec: unrecognised binary format (magic: %02x %02x %02x %02x)\n", size > 0 ? data[0] : 0,
+            size > 1 ? data[1] : 0, size > 2 ? data[2] : 0, size > 3 ? data[3] : 0);
     return 0;
 }
-
-// ============================================================================
-// exec() — the public entry point
-// ============================================================================
 
 int exec(const char* path, FatInfo* fat) {
     if (!fat || !path) {
@@ -138,7 +114,6 @@ int exec(const char* path, FatInfo* fat) {
         return -1;
     }
 
-    // ---- Step 1: Locate file on disk ----
     fat_dir_entry_t dir_entry;
     if (fat->find_file(path, &dir_entry) != 0) {
         cprintf("exec: file not found: %s\n", path);
@@ -160,7 +135,6 @@ int exec(const char* path, FatInfo* fat) {
         return -1;
     }
 
-    // ---- Step 2: Read file into kernel buffer ----
     KernelBuf buf;
     if (!buf.alloc(file_size)) {
         cprintf("exec: out of memory for binary buffer (%d bytes)\n", file_size);
@@ -173,29 +147,26 @@ int exec(const char* path, FatInfo* fat) {
         return -1;
     }
 
-    // ---- Step 3: Create user address space ----
     pde_t* user_pgdir = create_user_pgdir();
     if (!user_pgdir) {
         cprintf("exec: failed to create user page directory\n");
         return -1;
     }
 
-    // ---- Step 4: Detect format and load binary ----
     uintptr_t entry = load_binary(buf.ptr, file_size, user_pgdir);
     if (entry == 0) {
         cprintf("exec: failed to load binary\n");
-        // TODO: free all user pages in user_pgdir
+        pmm::free_user_pgdir(user_pgdir);
         return -1;
     }
 
-    // ---- Step 5: Set up user stack ----
     uintptr_t user_rsp = setup_user_stack(user_pgdir);
     if (user_rsp == 0) {
         cprintf("exec: failed to set up user stack\n");
+        pmm::free_user_pgdir(user_pgdir);
         return -1;
     }
 
-    // ---- Step 6: Create user-mode process ----
     TrapFrame tf{};
     tf.cs = USER_CS;
     tf.ss = USER_DS;

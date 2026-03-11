@@ -9,6 +9,12 @@ struct MemoryDesc {
     pde_t* pgdir{};         // the PDT of these vma
     int map_count{};        // the count of these vma
     ListNode* swap_list{};  // swap list for page replacement
+
+    ~MemoryDesc() {
+        if (pgdir) {
+            pmm::free_user_pgdir(pgdir);
+        }
+    }
 };
 
 namespace vmm {

@@ -126,7 +126,7 @@ void TaskStruct::wakeup() {
 
 uintptr_t TaskStruct::get_cr3() const {
     assert(memory != nullptr && memory->pgdir != nullptr);
-    return P_ADDR(reinterpret_cast<uintptr_t>(memory->pgdir));
+    return virt_to_phys(memory->pgdir);
 }
 
 void TaskStruct::copy_mm(uint32_t clone_flags) {
@@ -183,6 +183,10 @@ void TaskStruct::remove_links() {
 void TaskStruct::destroy() {
     if (kernel_stack != reinterpret_cast<uintptr_t>(user_stack)) {
         free_kstack(this);
+    }
+    // Free user address space if this is not a kernel thread
+    if (memory && memory != &init_mm) {
+        delete memory;
     }
     delete this;
 }

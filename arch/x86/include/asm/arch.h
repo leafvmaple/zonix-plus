@@ -51,7 +51,7 @@ static inline uintptr_t arch_read_cr3(void) {
     return rcr3();
 }
 
-static inline void arch_invlpg(void *addr) {
+static inline void arch_invlpg(void* addr) {
     invlpg(addr);
 }
 
@@ -71,11 +71,11 @@ static inline uint32_t arch_port_inl(uint16_t port) {
     return inl(port);
 }
 
-static inline void arch_port_insw(uint32_t port, void *addr, int cnt) {
+static inline void arch_port_insw(uint32_t port, void* addr, int cnt) {
     insw(port, addr, cnt);
 }
 
-static inline void arch_port_insl(uint32_t port, void *addr, int cnt) {
+static inline void arch_port_insl(uint32_t port, void* addr, int cnt) {
     insl(port, addr, cnt);
 }
 
@@ -91,10 +91,52 @@ static inline void arch_port_outl(uint16_t port, uint32_t data) {
     outl(port, data);
 }
 
-static inline void arch_port_outsw(uint32_t port, const void *addr, int cnt) {
+static inline void arch_port_outsw(uint32_t port, const void* addr, int cnt) {
     outsw(port, addr, cnt);
 }
 
 static inline void arch_io_wait(void) {
     io_wait();
+}
+
+// ============================================================================
+// Optimised memory operations (x86: REP STOSQ / REP MOVSQ)
+// ============================================================================
+
+static inline void* arch_memset(void* s, int c, size_t n) {
+    auto* p = static_cast<char*>(s);
+    // Align to 8-byte boundary
+    while (n > 0 && (reinterpret_cast<uintptr_t>(p) & 7)) {
+        *p++ = static_cast<char>(c);
+        n--;
+    }
+    // Bulk fill 8 bytes at a time
+    if (n >= 8) {
+        uint64_t val = static_cast<uint8_t>(c);
+        val |= val << 8;
+        val |= val << 16;
+        val |= val << 32;
+        size_t qwords = n / 8;
+        __asm__ volatile("rep stosq" : "+D"(p), "+c"(qwords) : "a"(val) : "memory");
+        n &= 7;
+    }
+    while (n-- > 0) {
+        *p++ = static_cast<char>(c);
+    }
+    return s;
+}
+
+static inline void* arch_memcpy(void* dst, const void* src, size_t n) {
+    auto* d = static_cast<char*>(dst);
+    auto const* s = static_cast<const char*>(src);
+    // Bulk copy 8 bytes at a time
+    size_t qwords = n / 8;
+    if (qwords > 0) {
+        __asm__ volatile("rep movsq" : "+D"(d), "+S"(s), "+c"(qwords)::"memory");
+    }
+    n &= 7;
+    while (n-- > 0) {
+        *d++ = *s++;
+    }
+    return dst;
 }

@@ -1,22 +1,14 @@
 #pragma once
 
 #include <base/types.h>
+#include <asm/arch.h>
 
 static inline void* memset(void* s, char c, size_t n) {
-    auto* p = static_cast<char*>(s);
-    while (n-- > 0) {
-        *p++ = c;
-    }
-    return s;
+    return arch_memset(s, c, n);
 }
 
 static inline void* memcpy(void* dst, const void* src, size_t n) {
-    auto* d = static_cast<char*>(dst);
-    const auto* s = static_cast<const char*>(src);
-    while (n-- > 0) {
-        *d++ = *s++;
-    }
-    return dst;
+    return arch_memcpy(dst, src, n);
 }
 
 static inline int memcmp(const void* s1, const void* s2, size_t n) {
