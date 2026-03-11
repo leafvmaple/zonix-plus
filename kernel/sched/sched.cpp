@@ -6,6 +6,7 @@
 #include "lib/string.h"
 #include "drivers/intr.h"
 #include "debug/assert.h"
+#include "tss.h"
 #include <asm/arch.h>
 #include <asm/segments.h>
 #include <asm/mmu.h>
@@ -108,6 +109,10 @@ void TaskStruct::run() {
             arch_load_cr3(next_cr3);
         }
 
+        // Update TSS.RSP0 so the CPU switches to this process's
+        // kernel stack when entering ring 0 from ring 3.
+        tss::set_rsp0(this->kernel_stack + KSTACK_SIZE);
+
         switch_to(&(prev->context), &(context));
     }
 }
@@ -129,10 +134,10 @@ void TaskStruct::copy_mm(uint32_t clone_flags) {
     memory = TaskManager::get_current()->memory;
 }
 
-void TaskStruct::copy_thread(uintptr_t esp, TrapFrame* trap_frame) {
+void TaskStruct::copy_thread(uintptr_t esp, TrapFrame* src_tf) {
     trap_frame = reinterpret_cast<TrapFrame*>(kernel_stack + KSTACK_SIZE) - 1;
 
-    *trap_frame = *trap_frame;
+    *trap_frame = *src_tf;
     trap_frame->regs.rax = 0;  // Return value for child
     if (esp != 0) {
         trap_frame->rsp = esp;
@@ -141,7 +146,11 @@ void TaskStruct::copy_thread(uintptr_t esp, TrapFrame* trap_frame) {
         trap_frame->rsp = reinterpret_cast<uintptr_t>(trap_frame);
     }
     trap_frame->rflags |= 0x200;  // Enable interrupts
-    trap_frame->ss = KERNEL_DS;   // Always set SS for iretq
+    // Only override SS for kernel threads; user-mode TrapFrames
+    // already have the correct SS set by the caller.
+    if (src_tf->cs == KERNEL_CS) {
+        trap_frame->ss = KERNEL_DS;
+    }
 
     // Set up context for context switch
     context.rip = reinterpret_cast<uintptr_t>(forkret);
@@ -425,6 +434,38 @@ namespace sched {
 
 void init() {
     TaskManager::init();
+}
+
+void schedule() {
+    TaskManager::schedule();
+}
+
+int fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* tf) {
+    return TaskManager::fork(clone_flags, stack, tf);
+}
+
+int kernel_thread(int (*fn)(void*), void* arg) {
+    return TaskManager::kernel_thread(fn, arg);
+}
+
+int exit(int error_code) {
+    return TaskManager::exit(error_code);
+}
+
+int wait(int pid, int* code_store) {
+    return TaskManager::wait(pid, code_store);
+}
+
+TaskStruct* current() {
+    return TaskManager::get_current();
+}
+
+TaskStruct* find_proc(int pid) {
+    return TaskManager::find_proc(pid);
+}
+
+void print() {
+    TaskManager::print();
 }
 
 }  // namespace sched

@@ -96,11 +96,12 @@ struct IdeDevice : public BlockDevice {
     DiskInfo info{};            // Disk information
     IdeRequest request{};       // Current I/O request state
 
-    void detect(const IdeConfig* config);
+    void detect(const IdeConfig* cfg);
     void interrupt();
 
     int read(uint32_t block_number, void* buf, size_t block_count) override;
     int write(uint32_t block_number, const void* buf, size_t block_count) override;
+    void print_info() override;
 };
 
 // IDE device manager class

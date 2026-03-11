@@ -5,32 +5,94 @@
 #include "lib/string.h"
 #include <base/mbr.h>
 #include <base/bpb.h>
+#include <base/gpt.h>
 
-int FatInfo::mount(BlockDevice* dev) {
-    if (!dev) {
-        return -1;
-    }
-
+// ---------------------------------------------------------------------------
+// Helper: find partition start LBA from MBR or GPT
+// Returns 0 if BPB is directly at sector 0 (no partition table, e.g. floppy)
+// Returns start LBA > 0 if a FAT partition was found
+// Returns -1 on error (can't read disk)
+// ---------------------------------------------------------------------------
+static int32_t find_partition_start(BlockDevice* dev) {
     mbr_t mbr{};
-    uint32_t partition_start{};
-
     if (dev->read(0, &mbr, 1) != 0) {
         cprintf("fat_mount: failed to read sector 0\n");
         return -1;
     }
 
     if (mbr.signature != 0xAA55) {
-        cprintf("fat_mount: invalid signature: 0x%04x\n", mbr.signature);
+        cprintf("fat_mount: invalid boot signature: 0x%04x\n", mbr.signature);
         return -1;
     }
 
-    if (mbr.partitions[0].type == PART_TYPE_FAT32_LBA || mbr.partitions[0].type == PART_TYPE_FAT32) {
-        partition_start = mbr.partitions[0].start_lba;
-        cprintf("fat_mount: MBR detected, partition starts at LBA %d\n", partition_start);
-    } else {
-        // No MBR, assume sector 0 is VBR
-        partition_start = 0;
+    // Check for GPT protective MBR
+    if (mbr.partitions[0].type == GPT_PROTECTIVE_MBR_TYPE) {
+        // Read GPT header at LBA 1
+        uint8_t buf[512]{};
+        if (dev->read(1, buf, 1) != 0) {
+            cprintf("fat_mount: failed to read GPT header\n");
+            return -1;
+        }
+
+        auto* gpt = reinterpret_cast<GptHeader*>(buf);
+        if (gpt->signature != GPT_HEADER_SIGNATURE) {
+            cprintf("fat_mount: bad GPT signature\n");
+            return -1;
+        }
+
+        cprintf("fat_mount: GPT detected, scanning partition entries...\n");
+
+        // Read partition entries to find the ESP
+        uint64_t entry_lba = gpt->partition_entry_lba;
+        uint32_t num_entries = gpt->num_partition_entries;
+        uint32_t entry_size = gpt->partition_entry_size;
+        uint32_t entries_per_sector = 512 / entry_size;
+
+        for (uint32_t i = 0; i < num_entries; i++) {
+            uint32_t sector = entry_lba + (i / entries_per_sector);
+            uint32_t offset = (i % entries_per_sector) * entry_size;
+
+            if (dev->read(sector, buf, 1) != 0) {
+                break;
+            }
+
+            auto* part = reinterpret_cast<GptPartitionEntry*>(buf + offset);
+
+            // Empty entry — stop scanning
+            if (part->type_guid.data1 == 0 && part->type_guid.data2 == 0 && part->type_guid.data3 == 0)
+                break;
+
+            if (is_esp_guid(&part->type_guid)) {
+                cprintf("fat_mount: found ESP at LBA %d\n", (uint32_t)part->starting_lba);
+                return (int32_t)part->starting_lba;
+            }
+        }
+
+        cprintf("fat_mount: no ESP found in GPT\n");
+        return -1;
     }
+
+    // Traditional MBR — check for FAT32 partition
+    if (mbr.partitions[0].type == PART_TYPE_FAT32_LBA || mbr.partitions[0].type == PART_TYPE_FAT32) {
+        cprintf("fat_mount: MBR detected, partition starts at LBA %d\n", mbr.partitions[0].start_lba);
+        return (int32_t)mbr.partitions[0].start_lba;
+    }
+
+    // No MBR/GPT partition — assume BPB is at sector 0 (e.g. FAT floppy)
+    return 0;
+}
+
+int FatInfo::mount(BlockDevice* dev) {
+    if (!dev) {
+        return -1;
+    }
+
+    int32_t part_start = find_partition_start(dev);
+    if (part_start < 0) {
+        return -1;
+    }
+
+    uint32_t partition_start = (uint32_t)part_start;
 
     struct fat32_boot_sector bs{};
     if (dev->read(partition_start, &bs, 1) != 0) {

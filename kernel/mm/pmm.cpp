@@ -224,18 +224,40 @@ int pmm::page_insert(pde_t* pgdir, Page* page, uintptr_t la, uint32_t perm) {
     return INSERT_SUCCESS;
 }
 
-// Simple kmalloc/kfree using page allocator
-// For now, always allocate full g_pages (4KB)
-// TODO: Implement proper slab allocator
+// ---------------------------------------------------------------------------
+// kmalloc / kfree — general-purpose kernel heap (page-granularity)
+//
+// Allocates the minimum number of contiguous pages that can hold
+// the requested size and records the page count in the first Page's
+// `property` field (unused on allocated pages) so that kfree() can
+// release the right amount without the caller tracking the size.
+//
+// TODO: Add a slab layer for sub-page objects to reduce waste.
+// ---------------------------------------------------------------------------
+
 void* kmalloc(size_t size) {
-    Page* page = pmm::alloc_page();
-    return page ? pmm::page2kva(page) : nullptr;
+    if (size == 0)
+        return nullptr;
+
+    size_t nr = (size + PG_SIZE - 1) / PG_SIZE;  // pages needed
+    Page* page = pmm::alloc_pages(nr);
+    if (!page)
+        return nullptr;
+
+    page->property = nr;  // remember allocation size for kfree
+    return pmm::page2kva(page);
 }
 
 void kfree(void* ptr) {
-    if (ptr) {
-        pmm::free_page(pmm::kva2page(ptr));
-    }
+    if (!ptr)
+        return;
+
+    Page* page = pmm::kva2page(ptr);
+    size_t nr = page->property;
+    if (nr == 0)
+        nr = 1;  // defensive: property unset → assume 1 page
+
+    pmm::free_pages(page, nr);
 }
 
 void pmm::init() {

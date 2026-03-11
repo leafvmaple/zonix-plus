@@ -2,9 +2,12 @@
 #include "pci.h"
 #include "lib/stdio.h"
 #include "lib/string.h"
+#include "lib/memory.h"
 
 #include <asm/arch.h>
 #include <asm/pg.h>
+#include <asm/mmu.h>
+#include <asm/memlayout.h>
 #include <asm/drivers/i8259.h>
 #include "pic.h"
 #include "sched/sched.h"
@@ -24,19 +27,119 @@ AhciPortConfig AhciManager::s_port_configs[ahci::MAX_DEVICES] = {
     {3, IRQ_IDE1, "sdd"},  // AHCI port 3
 };
 
-void AhciDevice::detect(const AhciPortConfig* config, uintptr_t mmio_base) {
-    config = config;
-    port_base = mmio_base + ahci::PORT_BASE_OFFSET + (config->port_num * ahci::PORT_REG_SIZE);
+void AhciDevice::detect(const AhciPortConfig* cfg, uintptr_t mmio_base) {
+    this->config = cfg;
+    port_base = mmio_base + ahci::PORT_BASE_OFFSET + (cfg->port_num * ahci::PORT_REG_SIZE);
 
     type = blk::DeviceType::Disk;
     present = 1;
 
-    info.size = 131072;  // TODO
-    info.serial = config->port_num;
+    info.serial = cfg->port_num;
     info.model = 0;
-    info.valid = 1;
+    info.valid = 0;
 
-    strncpy(name, config->name, sizeof(name));
+    strncpy(name, cfg->name, sizeof(name));
+
+    // Setup DMA memory for this port
+    setup_memory();
+    if (!present)
+        return;  // setup_memory failed
+
+    // Send IDENTIFY to get real disk geometry
+    identify();
+}
+
+void AhciDevice::identify() {
+    memset(dma_buf, 0, ahci::SECTOR_SIZE);
+
+    if (issue_cmd(ahci::ATA_CMD_IDENTIFY, 0, 0, false) != 0) {
+        cprintf("AHCI: %s: IDENTIFY failed to issue\n", name);
+        info.size = 0;
+        return;
+    }
+
+    if (wait_cmd_complete(1000) != 0) {
+        cprintf("AHCI: %s: IDENTIFY timeout\n", name);
+        info.size = 0;
+        return;
+    }
+
+    uint16_t* id = reinterpret_cast<uint16_t*>(dma_buf);
+
+    info.cylinders = id[1];
+    info.heads = id[3];
+    info.sectors = id[6];
+    info.size = *reinterpret_cast<uint32_t*>(&id[60]);  // Total LBA28 sectors
+    info.valid = 1;
+}
+
+void AhciDevice::setup_memory() {
+    // Allocate DMA memory for AHCI structures
+    cmd_list = reinterpret_cast<AhciCmdHeader*>(kmalloc(PG_SIZE));  // Command List (1KB needed, allocate page)
+    fis_base = reinterpret_cast<uint8_t*>(kmalloc(PG_SIZE));        // Received FIS (256B needed)
+    cmd_table = reinterpret_cast<AhciCmdTable*>(kmalloc(PG_SIZE));  // Command Table
+    dma_buf = reinterpret_cast<uint8_t*>(kmalloc(PG_SIZE));         // DMA Buffer
+
+    if (!cmd_list || !fis_base || !cmd_table || !dma_buf) {
+        cprintf("AHCI: Failed to allocate DMA memory for port %d\n", config->port_num);
+        present = 0;
+        return;
+    }
+
+    // Get physical addresses for hardware registers
+    uintptr_t cmd_phys = P_ADDR(cmd_list);
+    uintptr_t fis_phys = P_ADDR(fis_base);
+    uintptr_t table_phys = P_ADDR(cmd_table);
+
+    // Zero out the memory
+    memset(cmd_list, 0, PG_SIZE);
+    memset(fis_base, 0, PG_SIZE);
+    memset(cmd_table, 0, PG_SIZE);
+    memset(dma_buf, 0, PG_SIZE);
+
+    // Stop the port before configuring
+    uint32_t cmd = AhciManager::mmio_read32(port_base, ahci::PORT_CMD_STAT);
+    cmd &= ~(ahci::CMD_ST | ahci::CMD_FRE);
+    AhciManager::mmio_write32(port_base, ahci::PORT_CMD_STAT, cmd);
+
+    // Wait for port to stop
+    for (int i = 0; i < 500000; i++) {
+        cmd = AhciManager::mmio_read32(port_base, ahci::PORT_CMD_STAT);
+        if (!(cmd & (ahci::CMD_CR | ahci::CMD_FR))) {
+            break;
+        }
+    }
+
+    // Set command list base address
+    AhciManager::mmio_write32(port_base, ahci::PORT_CLB, cmd_phys & 0xFFFFFFFF);
+    AhciManager::mmio_write32(port_base, ahci::PORT_CLBU, 0);
+
+    // Set FIS base address
+    AhciManager::mmio_write32(port_base, ahci::PORT_FB, fis_phys & 0xFFFFFFFF);
+    AhciManager::mmio_write32(port_base, ahci::PORT_FBU, 0);
+
+    // Setup command header 0 to point to command table
+    cmd_list[0].ctba = table_phys & 0xFFFFFFFF;
+    cmd_list[0].ctbau = 0;
+
+    // Clear pending interrupts
+    AhciManager::mmio_write32(port_base, ahci::PORT_IS, 0xFFFFFFFF);
+
+    // Start the port
+    cmd = AhciManager::mmio_read32(port_base, ahci::PORT_CMD_STAT);
+    cmd |= ahci::CMD_FRE;
+    AhciManager::mmio_write32(port_base, ahci::PORT_CMD_STAT, cmd);
+
+    // Wait a bit
+    for (int i = 0; i < 100000; i++) {}
+
+    cmd |= ahci::CMD_ST;
+    AhciManager::mmio_write32(port_base, ahci::PORT_CMD_STAT, cmd);
+
+    // Enable port interrupts
+    uint32_t ie = AhciManager::mmio_read32(port_base, ahci::PORT_IE);
+    ie |= (ahci::IS_DHRS | ahci::IS_PSS | ahci::IS_DPS | ahci::IS_UFS);
+    AhciManager::mmio_write32(port_base, ahci::PORT_IE, ie);
 }
 
 void AhciDevice::interrupt() {
@@ -110,27 +213,18 @@ void AhciManager::init(void) {
             continue;
         }
 
-        cprintf("AHCI: Port %d: device detected, enabling...\n", i);
+        cprintf("AHCI: Port %d: device detected, initializing...\n", i);
 
-        if (enable_port(port_base) != 0) {
-            cprintf("AHCI: Port %d: failed to enable\n", i);
-            continue;
-        }
+        // Detect and setup device (setup_memory will configure the port)
+        s_devices[s_devices_count++].detect(&config, s_base);
 
-        if (wait_port_ready(port_base, 5000) != 0) {
-            cprintf("AHCI: Port %d: device not ready\n", i);
+        if (!s_devices[s_devices_count - 1].present) {
+            cprintf("AHCI: Port %d: failed to setup\n", i);
+            s_devices_count--;
             continue;
         }
 
         cprintf("AHCI: Port %d: device ready\n", i);
-
-        // Enable port interrupts
-        uint32_t ie = mmio_read32(port_base, ahci::PORT_IE);
-        ie |= (ahci::IS_DHRS | ahci::IS_PSS | ahci::IS_DPS | ahci::IS_UFS);
-        mmio_write32(port_base, ahci::PORT_IE, ie);
-
-        // Detect device
-        s_devices[s_devices_count++].detect(&config, s_base);
     }
 
     cprintf("AHCI: Found %d device(s)\n", s_devices_count);
@@ -150,6 +244,13 @@ int AhciManager::get_device_count() {
     return s_devices_count;
 }
 
+void AhciDevice::print_info() {
+    cprintf("Device: %s (AHCI port %d)\n", name, config->port_num);
+    cprintf("  Size: %d sectors (%d MB)\n", info.size, info.size / 2048);
+    cprintf("  CHS: %d/%d/%d\n", info.cylinders, info.heads, info.sectors);
+    cprintf("\n");
+}
+
 int AhciDevice::read(uint32_t block_number, void* buf, size_t block_count) {
     if (!present) {
         cprintf("AhciDevice::read: device %s not present\n", name);
@@ -161,41 +262,29 @@ int AhciDevice::read(uint32_t block_number, void* buf, size_t block_count) {
         return -1;
     }
 
-    // Read blocks one by one (interrupt-driven)
-    for (size_t i = 0; i < block_count; i++) {
-        uint32_t lba = block_number + i;
+    // Max sectors per transfer (limited by DMA buffer size: 4KB = 8 sectors)
+    constexpr size_t MAX_SECTORS = PG_SIZE / ahci::SECTOR_SIZE;
+    uint8_t* dest = reinterpret_cast<uint8_t*>(buf);
+    size_t remaining = block_count;
+    uint32_t lba = block_number;
 
-        {
-            intr::Guard guard;
+    while (remaining > 0) {
+        size_t count = (remaining > MAX_SECTORS) ? MAX_SECTORS : remaining;
 
-            request.reset();
-            request.buffer = reinterpret_cast<uint8_t*>(buf) + i * ahci::SECTOR_SIZE;
-            request.op = AhciRequest::Op::Read;
-            request.waiting = TaskManager::get_current();
-
-            // In a real implementation, would set up command list and issue READ_DMA_EXT command
-            // For now, just simulate success
-            request.done = 1;
-        }
-
-        // Wait for interrupt completion (double-checked pattern)
-        while (!request.done) {
-            {
-                intr::Guard guard;
-                if (request.done)
-                    break;
-                TaskManager::get_current()->state = ProcessState::Sleeping;
-            }
-            TaskManager::schedule();
-        }
-
-        if (request.err) {
-            request.reset();
-            cprintf("AhciDevice::read: error reading block %d from %s\n", lba, name);
+        if (issue_cmd(ahci::ATA_CMD_READ_DMA_EXT, lba, count, false) != 0) {
+            cprintf("AhciDevice::read: failed to issue command for LBA %d\n", lba);
             return -1;
         }
 
-        request.reset();
+        if (wait_cmd_complete(1000) != 0) {
+            cprintf("AhciDevice::read: timeout reading LBA %d from %s\n", lba, name);
+            return -1;
+        }
+
+        memcpy(dest, dma_buf, count * ahci::SECTOR_SIZE);
+        dest += count * ahci::SECTOR_SIZE;
+        lba += count;
+        remaining -= count;
     }
 
     return 0;
@@ -212,44 +301,113 @@ int AhciDevice::write(uint32_t block_number, const void* buf, size_t block_count
         return -1;
     }
 
-    // Write blocks one by one (interrupt-driven)
-    for (size_t i = 0; i < block_count; i++) {
-        uint32_t lba = block_number + i;
+    constexpr size_t MAX_SECTORS = PG_SIZE / ahci::SECTOR_SIZE;
+    const uint8_t* src = reinterpret_cast<const uint8_t*>(buf);
+    size_t remaining = block_count;
+    uint32_t lba = block_number;
 
-        {
-            intr::Guard guard;
+    while (remaining > 0) {
+        size_t count = (remaining > MAX_SECTORS) ? MAX_SECTORS : remaining;
 
-            request.reset();
-            request.buffer = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(buf) + i * ahci::SECTOR_SIZE);
-            request.op = AhciRequest::Op::Write;
-            request.waiting = TaskManager::get_current();
+        memcpy(dma_buf, src, count * ahci::SECTOR_SIZE);
 
-            // In a real implementation, would set up command list and issue WRITE_DMA_EXT command
-            // For now, just simulate success
-            request.done = 1;
-        }
-
-        // Wait for interrupt completion (double-checked pattern)
-        while (!request.done) {
-            {
-                intr::Guard guard;
-                if (request.done)
-                    break;
-                TaskManager::get_current()->state = ProcessState::Sleeping;
-            }
-            TaskManager::schedule();
-        }
-
-        if (request.err) {
-            request.reset();
-            cprintf("AhciDevice::write: error writing block %d to %s\n", lba, name);
+        if (issue_cmd(ahci::ATA_CMD_WRITE_DMA_EXT, lba, count, true) != 0) {
+            cprintf("AhciDevice::write: failed to issue command for LBA %d\n", lba);
             return -1;
         }
 
-        request.reset();
+        if (wait_cmd_complete(1000) != 0) {
+            cprintf("AhciDevice::write: timeout writing LBA %d to %s\n", lba, name);
+            return -1;
+        }
+
+        src += count * ahci::SECTOR_SIZE;
+        lba += count;
+        remaining -= count;
     }
 
     return 0;
+}
+
+int AhciDevice::issue_cmd(uint8_t command, uint32_t lba, uint16_t count, bool write) {
+    // Wait for port to be ready
+    uint32_t tfd = AhciManager::mmio_read32(port_base, ahci::PORT_TFD);
+    int timeout = 100000;
+    while ((tfd & (ahci::TFD_STS_BSY | ahci::TFD_STS_DRQ)) && timeout-- > 0) {
+        tfd = AhciManager::mmio_read32(port_base, ahci::PORT_TFD);
+    }
+    if (timeout <= 0) {
+        return -1;
+    }
+
+    // Get physical address of DMA buffer
+    uintptr_t buf_phys = P_ADDR(dma_buf);
+
+    // Setup command header
+    cmd_list[0].cfl = sizeof(FisRegH2D) / 4;  // Command FIS length in DWORDs
+    cmd_list[0].write = write ? 1 : 0;
+    cmd_list[0].prdtl = 1;  // 1 PRDT entry
+    cmd_list[0].prdbc = 0;
+
+    // Setup command table
+    memset(cmd_table, 0, sizeof(AhciCmdTable));
+
+    // Build command FIS (Register H2D)
+    FisRegH2D* fis = reinterpret_cast<FisRegH2D*>(cmd_table->cfis);
+    fis->fis_type = ahci::FIS_TYPE_REG_H2D;
+    fis->c = 1;  // This is a command
+    fis->command = command;
+    fis->device = 0x40;  // LBA mode
+
+    // Set LBA (48-bit)
+    fis->lba0 = lba & 0xFF;
+    fis->lba1 = (lba >> 8) & 0xFF;
+    fis->lba2 = (lba >> 16) & 0xFF;
+    fis->lba3 = (lba >> 24) & 0xFF;
+    fis->lba4 = 0;
+    fis->lba5 = 0;
+
+    // Set sector count
+    fis->countl = count & 0xFF;
+    fis->counth = (count >> 8) & 0xFF;
+
+    // Setup PRDT entry
+    cmd_table->prdt[0].dba = buf_phys & 0xFFFFFFFF;
+    cmd_table->prdt[0].dbau = 0;
+    cmd_table->prdt[0].dbc = (count * ahci::SECTOR_SIZE - 1) | 0;  // Byte count - 1
+
+    // Clear port interrupt status
+    AhciManager::mmio_write32(port_base, ahci::PORT_IS, 0xFFFFFFFF);
+
+    // Issue command (slot 0)
+    AhciManager::mmio_write32(port_base, ahci::PORT_CI, 1);
+
+    return 0;
+}
+
+int AhciDevice::wait_cmd_complete(int timeout_ms) {
+    int timeout = timeout_ms * 10000;  // Rough iteration count
+
+    while (timeout-- > 0) {
+        uint32_t ci = AhciManager::mmio_read32(port_base, ahci::PORT_CI);
+        if ((ci & 1) == 0) {
+            // Command completed
+            uint32_t is = AhciManager::mmio_read32(port_base, ahci::PORT_IS);
+            if (is & ahci::IS_OFS) {
+                // Overflow error
+                return -1;
+            }
+            return 0;
+        }
+
+        // Check for errors
+        uint32_t tfd = AhciManager::mmio_read32(port_base, ahci::PORT_TFD);
+        if (tfd & ahci::TFD_STS_ERR) {
+            return -1;
+        }
+    }
+
+    return -1;  // Timeout
 }
 
 /**

@@ -58,7 +58,7 @@ make debug-qemu-ahci        # AHCI模式调试
   
 # 从磁盘 (hdb)
 [drive]
-  file = "bin/fat32_test.img"
+  file = "bin/userdata.img"
   format = "raw"
   if = "ide"
   index = "1"             # 从盘
@@ -86,7 +86,7 @@ make debug-qemu-ahci        # AHCI模式调试
 
 # IDE从磁盘 (hdb)
 [drive]
-  file = "bin/fat32_test.img"
+  file = "bin/userdata.img"
   format = "raw"
   if = "ide"
   index = "1"
@@ -96,11 +96,11 @@ make debug-qemu-ahci        # AHCI模式调试
 
 ### AHCI 模式
 - `sda` (AHCI port 0) → zonix.img（主系统盘）
-- `hdb` (IDE slave) → fat32_test.img（测试盘）
+- `hdb` (IDE slave) → userdata.img（用户数据盘）
 
 ### IDE 模式（传统）
 - `hda` (IDE master) → zonix.img（主系统盘）
-- `hdb` (IDE slave) → fat32_test.img（测试盘）
+- `hdb` (IDE slave) → userdata.img（用户数据盘）
 
 ## AHCI vs IDE 区别
 

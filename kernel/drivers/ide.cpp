@@ -33,14 +33,14 @@ static int hd_wait_ready_on_base(uint16_t base) {
     return -1;
 }
 
-void IdeDevice::detect(const IdeConfig* config) {
-    config = config;
+void IdeDevice::detect(const IdeConfig* cfg) {
+    this->config = cfg;
 
     type = blk::DeviceType::Disk;
     present = 1;
 
     uint16_t identify_data[256]{};
-    arch_port_insw(config->base + ide::REG_DATA, identify_data, 256);
+    arch_port_insw(cfg->base + ide::REG_DATA, identify_data, 256);
 
     info.cylinders = identify_data[1];
     info.heads = identify_data[3];
@@ -48,7 +48,7 @@ void IdeDevice::detect(const IdeConfig* config) {
     info.size = *reinterpret_cast<uint32_t*>(&identify_data[60]);
     info.valid = 1;
 
-    strncpy(name, config->name, sizeof(name));
+    strncpy(name, cfg->name, sizeof(name));
 }
 
 void IdeDevice::interrupt() {
@@ -142,6 +142,16 @@ IdeDevice* IdeManager::get_device(int device_id) {
 
 int IdeManager::get_device_count() {
     return s_devices_count;
+}
+
+void IdeDevice::print_info() {
+    cprintf("Device: %s (IDE)\n", name);
+    cprintf("  Channel: %s, Drive: %s\n", config->channel == 0 ? "Primary" : "Secondary",
+            config->drive == 0 ? "Master" : "Slave");
+    cprintf("  Base I/O: 0x%x, IRQ: %d\n", config->base, config->irq);
+    cprintf("  Size: %d sectors (%d MB)\n", info.size, info.size / 2048);
+    cprintf("  CHS: %d/%d/%d\n", info.cylinders, info.heads, info.sectors);
+    cprintf("\n");
 }
 
 int IdeDevice::read(uint32_t block_number, void* buf, size_t block_count) {

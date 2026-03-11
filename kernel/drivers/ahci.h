@@ -87,7 +87,84 @@ inline constexpr uint8_t FIS_TYPE_DEV_BITS = 0xA1;   // Set device bits FIS
 
 inline constexpr size_t NAME_LEN = 8;  // Device name length
 
+// Port register offsets (additional)
+inline constexpr uint32_t PORT_CLB = 0x00;   // Command list base address low
+inline constexpr uint32_t PORT_CLBU = 0x04;  // Command list base address high
+inline constexpr uint32_t PORT_FB = 0x08;    // FIS base address low
+inline constexpr uint32_t PORT_FBU = 0x0C;   // FIS base address high
+inline constexpr uint32_t PORT_CI = 0x38;    // Command issue
+
+// Task file data register bits
+inline constexpr uint32_t TFD_STS_BSY = 0x80;  // Busy
+inline constexpr uint32_t TFD_STS_DRQ = 0x08;  // Data transfer requested
+inline constexpr uint32_t TFD_STS_ERR = 0x01;  // Error
+
 }  // namespace ahci
+
+// AHCI Command Header (32 bytes each, 32 slots = 1KB total)
+struct AhciCmdHeader {
+    uint8_t cfl : 5;       // Command FIS length in DWORDs (2-16)
+    uint8_t atapi : 1;     // ATAPI command
+    uint8_t write : 1;     // Write (1) or Read (0)
+    uint8_t prefetch : 1;  // Prefetchable
+
+    uint8_t reset : 1;  // Reset
+    uint8_t bist : 1;   // BIST
+    uint8_t clear : 1;  // Clear busy upon R_OK
+    uint8_t rsv0 : 1;   // Reserved
+    uint8_t pmp : 4;    // Port multiplier port
+
+    uint16_t prdtl;  // Physical region descriptor table length (entries)
+    uint32_t prdbc;  // PRD byte count transferred
+    uint32_t ctba;   // Command table descriptor base address low
+    uint32_t ctbau;  // Command table descriptor base address high
+    uint32_t rsv1[4];
+} __attribute__((packed));
+
+// Physical Region Descriptor Table entry (16 bytes)
+struct AhciPrdt {
+    uint32_t dba;   // Data base address low
+    uint32_t dbau;  // Data base address high
+    uint32_t rsv0;  // Reserved
+    uint32_t dbc;   // Byte count (bit 0 must be 1, max 4MB-1), bit 31 = interrupt on completion
+} __attribute__((packed));
+
+// Host to Device Register FIS (20 bytes)
+struct FisRegH2D {
+    uint8_t fis_type;  // FIS_TYPE_REG_H2D
+    uint8_t pmport : 4;
+    uint8_t rsv0 : 3;
+    uint8_t c : 1;  // Command (1) or Control (0)
+
+    uint8_t command;   // ATA command
+    uint8_t featurel;  // Feature low
+
+    uint8_t lba0;    // LBA 7:0
+    uint8_t lba1;    // LBA 15:8
+    uint8_t lba2;    // LBA 23:16
+    uint8_t device;  // Device register
+
+    uint8_t lba3;      // LBA 31:24
+    uint8_t lba4;      // LBA 39:32
+    uint8_t lba5;      // LBA 47:40
+    uint8_t featureh;  // Feature high
+
+    uint8_t countl;  // Sector count low
+    uint8_t counth;  // Sector count high
+    uint8_t icc;     // Isochronous command completion
+    uint8_t control;
+
+    uint8_t rsv1[4];
+} __attribute__((packed));
+
+// Command Table (variable size, 128 byte aligned)
+// Contains the command FIS, ATAPI command (if applicable), and PRDT entries
+struct AhciCmdTable {
+    uint8_t cfis[64];  // Command FIS
+    uint8_t acmd[16];  // ATAPI command (if needed)
+    uint8_t rsv[48];   // Reserved
+    AhciPrdt prdt[1];  // PRDT entries (variable, at least 1)
+} __attribute__((packed));
 
 struct TaskStruct;
 
@@ -98,10 +175,13 @@ struct AhciPortConfig {
 };
 
 struct AhciDeviceInfo {
-    uint32_t size{};    // Size in sectors
-    uint32_t serial{};  // Serial number
-    uint32_t model{};   // Model number
-    int valid{};        // Device is valid
+    uint32_t size{};       // Size in sectors
+    uint32_t serial{};     // Serial number
+    uint32_t model{};      // Model number
+    uint16_t cylinders{};  // CHS: cylinders
+    uint16_t heads{};      // CHS: heads
+    uint16_t sectors{};    // CHS: sectors per track
+    int valid{};           // Device is valid
 };
 
 struct AhciRequest {
@@ -125,16 +205,30 @@ struct AhciRequest {
 // AHCI device structure (represents a SATA device on an AHCI port)
 struct AhciDevice : public BlockDevice {
     int present{};                   // Device is present
-    const AhciPortConfig* config{};  // Pointer to port configuration
-    AhciDeviceInfo info{};           // Device information
-    AhciRequest request{};           // Current I/O request state
-    uintptr_t port_base{};           // MMIO base address for this port
+    const AhciPortConfig* config{};  // Port configuration
 
-    void detect(const AhciPortConfig* config, uintptr_t mmio_base);
+    AhciDeviceInfo info{};  // Device information
+    AhciRequest request{};  // Current I/O request state
+    uintptr_t port_base{};  // MMIO base address for this port
+
+    // DMA memory (physical addresses)
+    AhciCmdHeader* cmd_list{};  // Command list (32 entries)
+    uint8_t* fis_base{};        // Received FIS area
+    AhciCmdTable* cmd_table{};  // Command table
+    uint8_t* dma_buf{};         // DMA buffer for data transfer
+
+    void detect(const AhciPortConfig* cfg, uintptr_t mmio_base);
+    void setup_memory();
+    void identify();
     void interrupt();
 
     int read(uint32_t block_number, void* buf, size_t block_count) override;
     int write(uint32_t block_number, const void* buf, size_t block_count) override;
+    void print_info() override;
+
+private:
+    int issue_cmd(uint8_t command, uint32_t lba, uint16_t count, bool write);
+    int wait_cmd_complete(int timeout_ms);
 };
 
 class AhciManager {

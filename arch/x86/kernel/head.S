@@ -204,8 +204,8 @@ __gdt:
     GEN_SEG_NULL                    # 0: NULL descriptor
     GEN_SEG_CODE64                  # 1: 64-bit kernel code segment
     GEN_SEG_DATA64                  # 2: kernel data segment
-    GEN_SEG_NULL                    # 3: placeholder (user code)
-    GEN_SEG_NULL                    # 4: placeholder (user data)
+    GEN_SEG_UCODE64                 # 3: 64-bit user code segment (DPL=3)
+    GEN_SEG_UDATA64                 # 4: 64-bit user data segment (DPL=3)
     GEN_SEG_NULL                    # 5: TSS low (set up later in C)
     GEN_SEG_NULL                    # 6: TSS high (16-byte TSS descriptor)
 

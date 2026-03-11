@@ -4,6 +4,7 @@
 #include "drivers/intr.h"
 #include "drivers/fbcons.h"
 #include "idt.h"
+#include "tss.h"
 #include "cons/cons.h"
 #include "mm/pmm.h"
 #include "mm/vmm.h"
@@ -47,6 +48,7 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info* boot_info) 
 
     // arch
     idt::init();
+    tss::init();
 
     pmm::init();
     vmm::init();
@@ -67,7 +69,7 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info* boot_info) 
     // Idle loop: PID 0 halts until an interrupt arrives, then reschedules
     while (true) {
         __asm__ volatile("sti; hlt");  // Enable interrupts + halt atomically
-        TaskManager::schedule();
+        sched::schedule();
     }
 halt:
     while (true)

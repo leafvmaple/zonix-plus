@@ -91,6 +91,12 @@ int BlockManager::get_device_count() {
     return s_device_count;
 }
 
+void BlockDevice::print_info() {
+    cprintf("Device: %s\n", name);
+    cprintf("  Size: %d sectors (%d MB)\n", size, size / 2048);
+    cprintf("\n");
+}
+
 void BlockManager::print() {
     cprintf("NAME   MAJ:MIN RM  SIZE RO TYPE MOUNTPOINTS\n");
 

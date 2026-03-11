@@ -129,7 +129,8 @@ KSRCDIR := kernel              \
            kernel/block        \
            kernel/sched        \
            kernel/mm           \
-           kernel/fs
+           kernel/fs           \
+           kernel/exec
 
 CFLAGS   += $(addprefix -I,$(INCLUDE))
 CXXFLAGS += $(addprefix -I,$(INCLUDE))
@@ -166,14 +167,19 @@ include arch/$(ARCH)/boot/Makefile
 # VBR compatibility alias
 BOBJS = $(call toobj,$(bootfiles))
 
+# ==========================================================================
+# User-mode programs (separate toolchain, lives on second disk)
+# ==========================================================================
+include user/Makefile
+
 $(call make_dir)
 
 # ==========================================================================
 # Disk images
 # ==========================================================================
-bin/fat32_test.img:
+bin/userdata.img: $(USER_ELFS)
 	@echo "  IMG     $@"
-	$(Q)bash $(SCRIPTDIR)/create_fat32_image.sh
+	$(Q)bash $(SCRIPTDIR)/create_userdata_image.sh
 
 bin/zonix.img: bin/mbr bin/vbr bin/bootloader bin/kernel | $$(dir $$@)
 	@echo "  IMG     $@"
@@ -191,7 +197,7 @@ bin/zonix-uefi.img: bin/BOOTX64.EFI bin/kernel | $$(dir $$@)
         debug-qemu debug-qemu-uefi debug-qemu-ahci \
         bochs debug-bochs gdb help
 
-all: bin/mbr bin/vbr bin/bootloader bin/BOOTX64.EFI bin/kernel bin/zonix.img bin/zonix-uefi.img
+all: bin/mbr bin/vbr bin/bootloader bin/BOOTX64.EFI bin/kernel bin/zonix.img bin/zonix-uefi.img user
 .DEFAULT_GOAL := all
 
 mbr:  bin/mbr
@@ -228,7 +234,7 @@ lint:
 # ==========================================================================
 # QEMU / Bochs / GDB launch targets
 # ==========================================================================
-qemu: bin/zonix.img bin/fat32_test.img
+qemu: bin/zonix.img bin/userdata.img
 	$(QEMU) -readconfig qemu.cfg -no-reboot
 
 qemu-ahci: bin/zonix.img
@@ -237,7 +243,7 @@ qemu-ahci: bin/zonix.img
 qemu-fat32: bin/zonix.img
 	$(QEMU) -S -no-reboot -readconfig qemu.cfg
 
-qemu-uefi: bin/zonix-uefi.img bin/fat32_test.img
+qemu-uefi: bin/zonix-uefi.img bin/userdata.img
 	$(QEMU) -bios /usr/share/ovmf/OVMF.fd -readconfig qemu-uefi.cfg
 
 debug-qemu: bin/zonix.img
@@ -255,18 +261,18 @@ debug-qemu-ahci: bin/zonix.img
 		-device ahci,id=ahci0 \
 		-drive if=none,id=sata0,file=$<,format=raw \
 		-device ide-hd,bus=ahci0.0,drive=sata0 \
-		-drive if=ide,index=1,file=bin/fat32_test.img,format=raw \
+		-drive if=ide,index=1,file=bin/userdata.img,format=raw \
 		-serial null &
 	sleep 2
 	gdb -q -x $(SCRIPTDIR)/gdbinit
 
-bochs: bin/zonix.img bin/fat32_test.img
+bochs: bin/zonix.img bin/userdata.img
 	bochs -q -f bochsrc.bxrc
 
-debug-bochs: bin/zonix.img bin/fat32_test.img
+debug-bochs: bin/zonix.img bin/userdata.img
 	bochs -q -f bochsrc_debug.bxrc -dbg
 
-gdb: bin/zonix.img bin/fat32_test.img
+gdb: bin/zonix.img bin/userdata.img
 	bochs -q -f bochsrc.bxrc &
 	sleep 2
 	gdb -q -x $(SCRIPTDIR)/gdbinit
@@ -274,9 +280,9 @@ gdb: bin/zonix.img bin/fat32_test.img
 # ==========================================================================
 # Clean
 # ==========================================================================
-clean:
+clean: user-clean
 	rm -rf obj bin/*.o bin/mbr bin/vbr bin/bootloader bin/kernel \
-	       bin/zonix.img bin/fat32_test.img bin/zonix-uefi.img \
+	       bin/zonix.img bin/userdata.img bin/zonix-uefi.img \
 	       bin/BOOTX64.EFI bin/*.bin
 
 # ==========================================================================
@@ -294,6 +300,7 @@ help:
 	@echo "  make disasm          Generate disassembly listings in obj/"
 	@echo "  make format          Run clang-format on all sources"
 	@echo "  make lint            Run clang-tidy on all sources"
+	@echo "  make user            Build user-mode programs only"
 	@echo "  make qemu            Run in QEMU (BIOS)"
 	@echo "  make qemu-uefi       Run in QEMU (UEFI)"
 	@echo "  make debug-qemu      Run in QEMU + GDB"

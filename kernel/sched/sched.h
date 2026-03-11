@@ -56,7 +56,7 @@ struct TaskStruct {
 
     [[nodiscard]] uintptr_t get_cr3() const;
     void copy_mm(uint32_t clone_flags);
-    void copy_thread(uintptr_t esp, TrapFrame* trap_frame);
+    void copy_thread(uintptr_t esp, TrapFrame* src_tf);
     int setup_kernel_stack();
 
     ListNode* node() { return &list_node; }
@@ -128,5 +128,17 @@ namespace sched {
 
 void init();
 void test();
+
+// Scheduling and process lifecycle
+void schedule();
+int fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* tf);
+int kernel_thread(int (*fn)(void*), void* arg);
+int exit(int error_code);
+int wait(int pid, int* code_store);
+
+// Query
+TaskStruct* current();
+TaskStruct* find_proc(int pid);
+void print();
 
 }  // namespace sched

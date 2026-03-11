@@ -24,6 +24,7 @@ struct BlockDevice {
     // Virtual operations (for C++ subclasses)
     virtual int read(uint32_t block_number, void* buf, size_t block_count) = 0;
     virtual int write(uint32_t block_number, const void* buf, size_t block_count) = 0;
+    virtual void print_info();
 };
 
 // Block device manager

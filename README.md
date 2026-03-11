@@ -70,7 +70,7 @@ make uefi       # Build UEFI bootloader
 
 ```bash
 # Create disk images (first time only)
-./scripts/create_fat32_image.sh
+./scripts/create_userdata_image.sh
 
 # BIOS mode
 bochs -f bochsrc.bxrc

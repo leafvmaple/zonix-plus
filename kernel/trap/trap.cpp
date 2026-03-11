@@ -13,6 +13,7 @@
 #include "drivers/ide.h"
 #include "drivers/fbcons.h"
 #include "cons/cons.h"
+#include "sched/sched.h"
 #include "mm/vmm.h"
 #include "sched/sched.h"
 
@@ -43,7 +44,7 @@ const char* const EXC_NAMES[] = {"Divide error",
 
 constexpr size_t NUM_EXCEPTIONS = array_size(EXC_NAMES);
 
-const char* trap_name(int trapno) {
+static const char* trap_name(int trapno) {
     if (static_cast<size_t>(trapno) < NUM_EXCEPTIONS) {
         return EXC_NAMES[trapno];
     }
@@ -90,7 +91,7 @@ void TrapFrame::print_pgfault() const {
 static void irq_timer(TrapFrame* tf) {
     pit::ticks++;
     if (static_cast<int>(pit::ticks) % TICK_NUM == 0) {
-        // cprintf("%d ticks\n", TICK_NUM);
+        sched::schedule();
     }
     fbcons::tick();
 }
@@ -99,14 +100,32 @@ static void irq_kbd(TrapFrame* tf) {
     kbd::intr();
 }
 
+static void irq_ide(int channel) {
+    IdeManager::interrupt_handler(channel);
+}
+
 static int pg_fault(TrapFrame* tf) {
     tf->print();
     tf->print_pgfault();
 
-    TaskStruct* current = TaskManager::get_current();
+    TaskStruct* current = sched::current();
     vmm::pg_fault(current->memory, tf->err, arch_read_cr2());
 
     return 0;
+}
+
+static void syscall(TrapFrame* tf) {
+    int nr = static_cast<int>(tf->regs.rax);
+    switch (nr) {
+        case NR_EXIT:
+            cprintf("[PID %d] exited with code %ld\n", sched::current()->pid, tf->regs.rdi);
+            sched::exit(static_cast<int>(tf->regs.rdi));
+            break;
+        default:
+            cprintf("unknown syscall %d\n", nr);
+            tf->regs.rax = static_cast<uint64_t>(-1);
+            break;
+    }
 }
 
 void trap(TrapFrame* tf) {
@@ -114,13 +133,9 @@ void trap(TrapFrame* tf) {
         case T_PGFLT: pg_fault(tf); break;
         case IRQ_OFFSET + IRQ_TIMER: irq_timer(tf); break;
         case IRQ_OFFSET + IRQ_KBD: irq_kbd(tf); break;
-        case IRQ_OFFSET + IRQ_IDE1:
-            IdeManager::interrupt_handler(0);  // Primary channel
-            break;
-        case IRQ_OFFSET + IRQ_IDE2:
-            IdeManager::interrupt_handler(1);  // Secondary channel
-            break;
-        case T_SYSCALL:
+        case IRQ_OFFSET + IRQ_IDE1: irq_ide(0); break;
+        case IRQ_OFFSET + IRQ_IDE2: irq_ide(1); break;
+        case T_SYSCALL: syscall(tf); break;
         default: break;
     }
 

@@ -51,7 +51,7 @@ zonix-plus/
 │   ├── kernel.ld, mbr.ld, boot.ld, bootload.ld, uefi.ld  # 链接脚本
 │   ├── create_zonix_image.sh   # FAT32 磁盘镜像
 │   ├── create_uefi_image.sh    # GPT+ESP UEFI 镜像
-│   ├── create_fat32_image.sh   # FAT32 测试盘
+│   ├── create_userdata_image.sh  # 用户数据盘
 │   └── gdbinit                 # GDB 调试脚本
 ├── docs/                       # 文档
 ├── Makefile                    # 顶层构建 (~310 行)

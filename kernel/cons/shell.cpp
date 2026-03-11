@@ -8,6 +8,7 @@
 #include "block/blk.h"
 #include "sched/sched.h"
 #include "fs/fat.h"
+#include "exec/exec.h"
 
 #include <base/types.h>
 #include <kernel/sysinfo.h>
@@ -79,30 +80,19 @@ static void cmd_lsblk(int argc, char** argv) {
 static void cmd_hdparm(int argc, char** argv) {
     (void)argc;
     (void)argv;
-    int devices_count = IdeManager::get_device_count();
 
-    if (devices_count == 0) {
+    int count = BlockManager::get_device_count();
+    if (count == 0) {
         cprintf("No disk devices found\n");
         return;
     }
 
-    cprintf("IDE Disk Information (%d device(s) found):\n\n", devices_count);
-
-    for (int device_id = 0; device_id < 4; device_id++) {
-        IdeDevice* dev = IdeManager::get_device(device_id);
-
-        if (dev == nullptr) {
+    for (int i = 0; i < count; i++) {
+        BlockDevice* dev = BlockManager::get_device(i);
+        if (!dev || dev->type != blk::DeviceType::Disk)
             continue;
-        }
 
-        cprintf("Device: %s (dev_id=%d)\n", dev->name, device_id);
-        cprintf("  Channel: %s, Drive: %s\n", dev->config->channel == 0 ? "Primary" : "Secondary",
-                dev->config->drive == 0 ? "Master" : "Slave");
-        cprintf("  Base I/O: 0x%x, IRQ: %d\n", dev->config->base, dev->config->irq);
-        cprintf("  Size: %d sectors (%d MB)\n", dev->info.size, dev->info.size / 2048);
-        cprintf("  CHS: %d cylinders, %d heads, %d sectors/track\n", dev->info.cylinders, dev->info.heads,
-                dev->info.sectors);
-        cprintf("\n");
+        dev->print_info();
     }
 }
 
@@ -151,7 +141,7 @@ static void cmd_uname(int argc, char** argv) {
 static void cmd_ps(int argc, char** argv) {
     (void)argc;
     (void)argv;
-    TaskManager::print();
+    sched::print();
 }
 
 static void cmd_schedtest(int argc, char** argv) {
@@ -171,27 +161,30 @@ static FatInfo g_mnt_fat{};
 static const char* g_mnt_device{};
 static int g_mnt_mounted{};
 
-// Auto-mount system disk (hda) on first access
+// Auto-mount system disk on first access
+// Tries each block device in order until one successfully mounts as FAT.
+// This handles both BIOS (IDE hda with raw FAT) and UEFI (AHCI sda with GPT+ESP).
 static int ensure_system_mounted(void) {
     if (g_system_mounted) {
         return 0;  // Already mounted
     }
 
-    // Try to mount first disk (system disk)
-    BlockDevice* dev = BlockManager::get_device(blk::DeviceType::Disk);
-    if (!dev) {
-        cprintf("Error: System disk (hda) not found\n");
-        return -1;
+    int count = BlockManager::get_device_count();
+    for (int i = 0; i < count; i++) {
+        BlockDevice* dev = BlockManager::get_device(i);
+        if (!dev || dev->type != blk::DeviceType::Disk) {
+            continue;
+        }
+
+        if (g_system_fat.mount(dev) == 0) {
+            g_system_device = dev->name;
+            g_system_mounted = 1;
+            return 0;
+        }
     }
 
-    if (g_system_fat.mount(dev) == 0) {
-        g_system_device = dev->name;
-        g_system_mounted = 1;
-        return 0;
-    } else {
-        cprintf("Error: Failed to mount system disk\n");
-        return -1;
-    }
+    cprintf("Error: No mountable system disk found\n");
+    return -1;
 }
 
 static void cmd_mount(int argc, char** argv) {
@@ -439,6 +432,47 @@ static void cmd_cat(int argc, char** argv) {
     cprintf("\n--- End of file ---\n");
 }
 
+static void cmd_exec(int argc, char** argv) {
+    if (argc < 2) {
+        cprintf("Usage: exec <filename> [/mnt]\n");
+        cprintf("  exec <filename>      - run ELF from system disk (/)\n");
+        cprintf("  exec <filename> /mnt - run ELF from mounted disk (/mnt)\n");
+        return;
+    }
+
+    const char* filename = argv[1];
+
+    // Check if loading from /mnt
+    int use_mnt = 0;
+    if (argc >= 3 && strcmp(argv[2], "/mnt") == 0) {
+        use_mnt = 1;
+    }
+
+    FatInfo* fat_info;
+
+    if (use_mnt) {
+        if (!g_mnt_mounted) {
+            cprintf("Nothing mounted at /mnt\n");
+            return;
+        }
+        fat_info = &g_mnt_fat;
+    } else {
+        if (ensure_system_mounted() != 0) {
+            return;
+        }
+        fat_info = &g_system_fat;
+    }
+
+    int pid = exec::exec(filename, fat_info);
+    if (pid > 0) {
+        cprintf("Process started (PID %d)\n", pid);
+        // Yield so the new process gets CPU time immediately
+        sched::schedule();
+    } else {
+        cprintf("Failed to execute: %s\n", filename);
+    }
+}
+
 // Command table
 shell_cmd_t commands[] = {
     {"help", "Show this help message", cmd_help},
@@ -458,6 +492,7 @@ shell_cmd_t commands[] = {
     {"info", "Show file system information", cmd_info},
     {"ls", "List files (usage: ls [/mnt])", cmd_ls},
     {"cat", "Display file contents (usage: cat <file> [/mnt])", cmd_cat},
+    {"exec", "Run ELF binary (usage: exec <file> [/mnt])", cmd_exec},
 };
 
 int command_count = array_size(commands);

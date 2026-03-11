@@ -58,6 +58,16 @@
     .word 0xFFFF, 0x0000; \
     .byte 0x00, 0x92, 0xCF, 0x00
 
+/* 64-bit user code segment: L=1, D=0, P=1, DPL=3, S=1, Type=Execute/Read */
+#define GEN_SEG_UCODE64   \
+    .word 0xFFFF, 0x0000; \
+    .byte 0x00, 0xFA, 0xAF, 0x00
+
+/* 64-bit user data segment: P=1, DPL=3, S=1, Type=Read/Write */
+#define GEN_SEG_UDATA64   \
+    .word 0xFFFF, 0x0000; \
+    .byte 0x00, 0xF2, 0xCF, 0x00
+
 /* Legacy 32-bit segment descriptor (for transitional code) */
 #define GEN_SEG_DESC(type, base, lim)                 \
     .word(((lim) >> 12) & 0xffff), ((base) & 0xffff); \
