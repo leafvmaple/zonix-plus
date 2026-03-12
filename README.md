@@ -2,7 +2,7 @@
 
 An x86_64 operating system kernel built from scratch for learning purposes, featuring dual-boot (BIOS + UEFI), process management, virtual memory with swap, interrupt-driven disk I/O, and FAT32 file system support.
 
-**Current Version**: 0.8.0 *"Genesis"*
+**Current Version**: 0.9.2
 
 ## Features
 
@@ -11,6 +11,7 @@ An x86_64 operating system kernel built from scratch for learning purposes, feat
 - **x86_64 Long Mode**: Full 64-bit kernel with higher-half mapping at `0xFFFFFFFF80000000`
 - **Kconfig-style Configuration**: Modular `CONFIG_*` toggles in `include/kernel/config.h`
 - **C++17 Freestanding**: Kernel written in C++17 with global `new`/`delete` operator support
+- **Clang/LLVM Toolchain**: Built with Clang, LLD, and LLVM utilities (UEFI uses MinGW cross-compiler)
 
 ### Process Management
 - **Round-Robin Scheduler**: Cooperative scheduling with `fork()`, `exit()`, `wait()`
@@ -52,11 +53,14 @@ An x86_64 operating system kernel built from scratch for learning purposes, feat
 ## Environment
 
 ```bash
-# BIOS mode
-sudo apt install make gcc g++ nasm bochs-x dosfstools mtools
+# Core build tools
+sudo apt install make clang lld llvm nasm dosfstools mtools
 
-# UEFI mode (additional)
-sudo apt install qemu-system-x86 ovmf
+# UEFI cross-compiler
+sudo apt install gcc-mingw-w64-x86-64 gnu-efi
+
+# Emulators
+sudo apt install qemu-system-x86 ovmf bochs-x
 ```
 
 ## Build

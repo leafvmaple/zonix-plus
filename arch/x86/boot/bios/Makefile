@@ -2,7 +2,7 @@
 # arch/x86/boot/bios/Makefile — BIOS boot build rules
 #
 # Included from arch/x86/boot/Makefile.  Inherits all top-level variables.
-# Toolchain: gcc -m32 (32-bit C / ASM, freestanding)
+# Toolchain: clang -m32 (32-bit C / ASM, freestanding)
 # ==========================================================================
 
 BOOT_BIOS_DIR := arch/$(ARCH)/boot/bios

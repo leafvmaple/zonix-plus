@@ -19,21 +19,21 @@ endif
 # Per-architecture toolchain and flags
 # ==========================================================================
 ifeq ($(ARCH),x86)
-  CC      := gcc
-  CXX     := g++
-  LD      := ld
+  CC      := clang
+  CXX     := clang++
+  LD      := ld.lld
   CFLAGS  := -g -fno-builtin -Wall -ggdb -O0 -m64 -mno-red-zone -mcmodel=kernel \
              -mno-sse -mno-sse2 -mno-mmx -msoft-float -nostdinc \
-             -fno-stack-protector -fno-PIC -gdwarf-2
+             -fno-stack-protector -fno-pic -gdwarf-2
   CXXFLAGS := -g -Wall -ggdb -O0 -m64 -mno-red-zone -mcmodel=kernel \
              -mno-sse -mno-sse2 -mno-mmx -msoft-float -nostdinc -nostdinc++ \
-             -fno-builtin -fno-stack-protector -fno-PIC -fno-exceptions -fno-rtti \
+             -fno-builtin -fno-stack-protector -fno-pic -fno-exceptions -fno-rtti \
              -fno-use-cxa-atexit -fno-threadsafe-statics \
              -fno-asynchronous-unwind-tables -fno-unwind-tables \
              -ffreestanding -std=gnu++17 -gdwarf-2
-  LDFLAGS := -m elf_x86_64 -nostdlib --no-warn-rwx-segments
-  BOOT_CFLAGS  := -g -fno-builtin -Wall -ggdb -O0 -m32 -nostdinc -fno-stack-protector -fno-PIC -gdwarf-2
-  BOOT_LDFLAGS := -m elf_i386 -nostdlib --no-warn-rwx-segments
+  LDFLAGS := -m elf_x86_64 -nostdlib
+  BOOT_CFLAGS  := -g -fno-builtin -Wall -ggdb -O0 -m32 -nostdinc -fno-stack-protector -fno-pic -gdwarf-2
+  BOOT_LDFLAGS := -m elf_i386 -nostdlib
   DASM    := ndisasm
   QEMU    := qemu-system-x86_64
 else ifeq ($(ARCH),aarch64)
@@ -42,12 +42,12 @@ else
   $(error Unsupported ARCH=$(ARCH). Use: x86, aarch64)
 endif
 
-# Auto-dependency generation (gcc/g++ -MMD -MP)
+# Auto-dependency generation (clang/clang++ -MMD -MP)
 # .d files are placed next to .o files automatically
 DEPFLAGS := -MMD -MP
 
-OBJDUMP := objdump
-OBJCOPY := objcopy
+OBJDUMP := llvm-objdump
+OBJCOPY := llvm-objcopy
 MKDIR   := mkdir -p
 
 SLASH   := /

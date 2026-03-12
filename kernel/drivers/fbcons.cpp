@@ -81,13 +81,6 @@ static void erase_cursor() {
     }
 }
 
-// -------------------------------------------------------------------------
-static inline void draw_pixel(uint32_t x, uint32_t y, uint32_t color) {
-    // pitch is in bytes; each pixel is 4 bytes for 32-bpp
-    uint32_t* row = (uint32_t*)((uint8_t*)fb_base + y * fb_pitch);
-    row[x] = color;
-}
-
 static void draw_char(uint32_t cx, uint32_t cy, int ch) {
     const uint8_t* gl = psf::glyph(&font, ch);
 

@@ -5,6 +5,32 @@ All notable changes to the Zonix Operating System project will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-03-12
+
+### Summary
+**Toolchain migration release** — Migrated the entire build system from GCC/GNU ld to Clang/LLD/LLVM (UEFI bootloader remains MinGW cross-compiler). Fixed a latent `switch_to` bug exposed by Clang's different epilogue codegen.
+
+### Changed
+- **Compiler**: `gcc`/`g++` → `clang`/`clang++` for kernel, arch code, and BIOS boot
+- **Linker**: `ld` (GNU) → `ld.lld` (LLVM LLD) for all targets
+- **Utilities**: `objdump`/`objcopy` → `llvm-objdump`/`llvm-objcopy`
+- **Flags**: `-fno-PIC` → `-fno-pic`, removed `--no-warn-rwx-segments` (not needed with LLD)
+- **CI workflow**: Updated `release.yml` to install `clang lld llvm` instead of `gcc g++ binutils`
+- **Documentation**: Updated README.md, DEVELOPMENT.md, docs/TODO.md for new toolchain
+
+### Added
+- `kernel/cxxrt.cpp`: Minimal C/C++ runtime stubs required by Clang freestanding mode
+  - `memset`, `memcpy`, `memcmp` (extern "C", backed by `arch_memset`/`arch_memcpy`)
+  - `__cxa_pure_virtual`, `atexit` stubs
+  - Non-inline `operator new`/`delete` definitions (moved from `memory.h` to fix `-Winline-new-delete`)
+
+### Fixed
+- **`switch_to` RSP save bug**: Saved `RSP` (which includes the `callq`-pushed return address)
+  instead of the caller's RSP. GCC's `leave; ret` epilogue masked this because it restores RSP
+  from RBP. Clang's `addq $N, %rsp; popq %rbp; ret` epilogue is RSP-relative, so the 8-byte
+  offset caused `retq` to jump to the saved frame pointer (a stack address) instead of the
+  return address. Fixed by saving `RSP+8` (the caller's pre-call RSP).
+
 ## [0.9.0] - 2026-03-05
 
 ### Summary

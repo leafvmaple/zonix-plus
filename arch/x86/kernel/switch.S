@@ -7,7 +7,8 @@ switch_to:                      # switch_to(from, to) -> rdi=from, rsi=to
     # Context layout: rip, rsp, rbx, rbp, r12, r13, r14, r15
     movq (%rsp), %rax           # save return address (rip)
     movq %rax, 0(%rdi)          # context->rip = return addr
-    movq %rsp, 8(%rdi)          # context->rsp
+    leaq 8(%rsp), %rax          # compute caller's RSP (before callq pushed ret addr)
+    movq %rax, 8(%rdi)          # context->rsp = caller's RSP
     movq %rbx, 16(%rdi)         # context->rbx
     movq %rbp, 24(%rdi)         # context->rbp
     movq %r12, 32(%rdi)         # context->r12

@@ -1,7 +1,7 @@
 # Zonix OS — Development Notes
 
 > 本文档记录项目当前的架构状态、已完成的优化、遗留问题和后续计划。
-> 最后更新: 2026-03-05 (v0.9.0)
+> 最后更新: 2026-03-12 (v0.9.2)
 
 ---
 
@@ -14,13 +14,13 @@ zonix-plus/
 │   │   ├── Makefile            # 转发到 bios/ 和 uefi/
 │   │   ├── bootlib.h           # boot 共享库 (memcpy/memset)
 │   │   ├── bios/
-│   │   │   ├── Makefile        # gcc -m32: MBR + VBR + Bootloader
+│   │   │   ├── Makefile        # clang -m32: MBR + VBR + Bootloader
 │   │   │   ├── mbr.S           # Master Boot Record (512B, 16-bit)
 │   │   │   ├── vbr.S           # Volume Boot Record (512B, 16-bit)
 │   │   │   ├── entry.S         # 32→64-bit long mode trampoline
 │   │   │   └── bootload.c      # ELF loader (32-bit protected mode)
 │   │   └── uefi/
-│   │       ├── Makefile        # mingw-gcc: PE32+ cross-compile
+│   │       ├── Makefile        # mingw32-gcc: PE32+ cross-compile (UEFI)
 │   │       └── bootload.c      # UEFI bootloader (efi_main)
 │   ├── include/asm/            # <asm/xxx.h> 头文件
 │   │   ├── arch.h, cpu.h, cr.h, io.h, memlayout.h, mmu.h, pg.h, ports.h
@@ -46,7 +46,7 @@ zonix-plus/
 │   ├── base/                   # 基础类型 (types.h, elf.h, bpb.h, mbr.h)
 │   ├── kernel/                 # 内核配置 (config.h, bootinfo.h, version.h, ...)
 │   └── uefi/                   # UEFI 类型定义
-├── fonts/console.psf           # 内嵌控制台字体 (objcopy → .rodata)
+├── fonts/console.psf           # 内嵌控制台字体 (llvm-objcopy → .rodata)
 ├── scripts/                    # 构建辅助
 │   ├── kernel.ld, mbr.ld, boot.ld, bootload.ld, uefi.ld  # 链接脚本
 │   ├── create_zonix_image.sh   # FAT32 磁盘镜像
@@ -64,17 +64,19 @@ zonix-plus/
 
 | 目标 | 编译器 | 位宽 | 语言 |
 |------|--------|------|------|
-| Kernel | `g++` | 64-bit | C++17 freestanding |
-| arch/x86/kernel/ | `g++` | 64-bit | C++17 / ASM |
-| BIOS boot (MBR/VBR/Bootloader) | `gcc -m32` | 32-bit | C / ASM |
+| Kernel | `clang++` | 64-bit | C++17 freestanding |
+| arch/x86/kernel/ | `clang++` | 64-bit | C++17 / ASM |
+| BIOS boot (MBR/VBR/Bootloader) | `clang -m32` | 32-bit | C / ASM |
 | UEFI boot (BOOTX64.EFI) | `x86_64-w64-mingw32-gcc` | 64-bit | C (PE32+) |
+| Linker | `ld.lld` | — | LLVM linker |
+| Utilities | `llvm-objdump`, `llvm-objcopy` | — | LLVM binutils |
 
 ### Makefile 层级
 
 ```
 Makefile                         # 顶层: 变量、宏、kernel、磁盘镜像、运行目标
 └── include arch/x86/boot/Makefile
-    ├── include bios/Makefile    # MBR + VBR + Bootloader (gcc -m32)
+    ├── include bios/Makefile    # MBR + VBR + Bootloader (clang -m32)
     └── include uefi/Makefile    # BOOTX64.EFI (mingw cross-compile)
 ```
 

@@ -13,10 +13,6 @@
 #include "lib/unistd.h"
 #include <kernel/bootinfo.h>
 
-static inline int sys_pause() {
-    return syscall0<int>(NR_PAUSE);
-}
-
 // Call C++ global constructors registered in .init_array
 extern "C" {
 using ctor_func = void (*)();
