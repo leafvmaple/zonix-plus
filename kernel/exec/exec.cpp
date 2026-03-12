@@ -170,9 +170,9 @@ int exec(const char* path, FatInfo* fat) {
     TrapFrame tf{};
     tf.cs = USER_CS;
     tf.ss = USER_DS;
-    tf.rflags = FL_IF | FL_IOPL_3;  // enable interrupts + allow user I/O (temporary)
-    tf.rip = entry;                 // binary entry point
-    tf.rsp = user_rsp;              // user stack pointer
+    tf.rflags = FL_IF;  // enable interrupts
+    tf.rip = entry;     // binary entry point
+    tf.rsp = user_rsp;  // user stack pointer
 
     MemoryDesc* mm = new MemoryDesc();
     mm->mmap_list.init();

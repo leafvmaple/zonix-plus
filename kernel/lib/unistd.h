@@ -3,6 +3,7 @@
 #define T_SYSCALL 0x80
 
 #define NR_EXIT  1
+#define NR_WRITE 4
 #define NR_PAUSE 29
 
 // Syscall wrappers using C++ inline functions

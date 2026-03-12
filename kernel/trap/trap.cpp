@@ -15,7 +15,6 @@
 #include "cons/cons.h"
 #include "sched/sched.h"
 #include "mm/vmm.h"
-#include "sched/sched.h"
 
 namespace {
 
@@ -121,6 +120,24 @@ static void syscall(TrapFrame* tf) {
             cprintf("[PID %d] exited with code %ld\n", sched::current()->pid, tf->regs.rdi);
             sched::exit(static_cast<int>(tf->regs.rdi));
             break;
+        case NR_WRITE: {
+            // sys_write(fd, buf, count) — rdi=fd, rsi=buf, rdx=count
+            // For now, fd is ignored and output goes to the console.
+            const auto* buf = reinterpret_cast<const char*>(tf->regs.rsi);
+            auto count = static_cast<size_t>(tf->regs.rdx);
+            // Validate user pointer range (must be in user-space half)
+            constexpr uintptr_t USER_SPACE_TOP = 0x0000800000000000ULL;
+            if (reinterpret_cast<uintptr_t>(buf) >= USER_SPACE_TOP ||
+                count > USER_SPACE_TOP - reinterpret_cast<uintptr_t>(buf)) {
+                tf->regs.rax = static_cast<uint64_t>(-1);
+                break;
+            }
+            for (size_t i = 0; i < count; i++) {
+                cons::putc(buf[i]);
+            }
+            tf->regs.rax = count;
+            break;
+        }
         default:
             cprintf("unknown syscall %d\n", nr);
             tf->regs.rax = static_cast<uint64_t>(-1);
