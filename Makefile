@@ -40,13 +40,15 @@ else ifeq ($(ARCH),aarch64)
   CC      := clang --target=aarch64-none-elf
   CXX     := clang++ --target=aarch64-none-elf
   LD      := ld.lld
+  CFLAGS  := -g -Wall -O0 -nostdinc -fno-builtin -fno-stack-protector \
+             -fno-pic -ffreestanding -gdwarf-2
   CXXFLAGS := -g -Wall -O0 -nostdinc -nostdinc++ \
              -fno-builtin -fno-stack-protector -fno-pic -fno-exceptions -fno-rtti \
              -fno-use-cxa-atexit -fno-threadsafe-statics \
-             -ffreestanding -std=gnu++17
+             -fno-asynchronous-unwind-tables -fno-unwind-tables \
+             -ffreestanding -std=gnu++17 -gdwarf-2
   LDFLAGS := -m aarch64elf -nostdlib
   QEMU    := qemu-system-aarch64
-  $(warning AArch64 support is work-in-progress)
 else ifeq ($(ARCH),riscv64)
   CC      := clang --target=riscv64-none-elf
   CXX     := clang++ --target=riscv64-none-elf
@@ -141,6 +143,7 @@ INCLUDE := include \
 # ==========================================================================
 # Kernel
 # ==========================================================================
+ifeq ($(ARCH),x86)
 KSRCDIR := kernel              \
            arch/$(ARCH)/kernel \
            kernel/debug        \
@@ -153,6 +156,10 @@ KSRCDIR := kernel              \
            kernel/fs           \
            kernel/exec         \
            kernel/sync
+else ifeq ($(ARCH),aarch64)
+# Minimal boot-only sources for now (full kernel sources added as ported)
+KSRCDIR := arch/$(ARCH)/kernel
+endif
 
 CFLAGS   += $(addprefix -I,$(INCLUDE))
 CXXFLAGS += $(addprefix -I,$(INCLUDE))
@@ -163,7 +170,8 @@ $(call add_packet_files_cxx,$(call listf_cxx,$(KSRCDIR)),kernel)
 kernel = $(call totarget,kernel)
 KOBJS  := $(sort $(call read_packet,kernel))
 
-# Embedded console font (PSF -> ELF .rodata)
+# Embedded console font (PSF -> ELF .rodata) — x86 only for now
+ifeq ($(ARCH),x86)
 FONT_PSF := fonts/console.psf
 FONT_OBJ := $(OBJDIR)/fonts/console.psf.o
 
@@ -175,9 +183,18 @@ $(FONT_OBJ): $(FONT_PSF) | $$(dir $$@)
 		$< $@
 
 ALLOBJS += $(FONT_OBJ)
+KERNEL_EXTRA_OBJS := $(FONT_OBJ)
+KERNEL_LD_SCRIPT  := $(SCRIPTDIR)/kernel.ld
+else ifeq ($(ARCH),aarch64)
+KERNEL_EXTRA_OBJS :=
+KERNEL_LD_SCRIPT  := $(SCRIPTDIR)/kernel-aarch64.ld
+endif
 
-$(kernel): $(KOBJS) $(FONT_OBJ) $(SCRIPTDIR)/kernel.ld | $$(dir $$@)
-	$(Q)$(LD) $(LDFLAGS) -T $(SCRIPTDIR)/kernel.ld $(KOBJS) $(FONT_OBJ) -o $@
+$(kernel): $(KOBJS) $(KERNEL_EXTRA_OBJS) $(KERNEL_LD_SCRIPT) | $$(dir $$@)
+	$(Q)$(LD) $(LDFLAGS) -T $(KERNEL_LD_SCRIPT) $(KOBJS) $(KERNEL_EXTRA_OBJS) -o $@
+ifeq ($(ARCH),aarch64)
+	$(Q)$(OBJCOPY) --set-start=0x40080000 $@
+endif
 	$(Q)$(OBJCOPY) -S -O binary $@ $(call tobin,kernel)
 	@echo "  LINK    $@"
 
@@ -215,11 +232,15 @@ bin/zonix-uefi.img: bin/BOOTX64.EFI bin/kernel | $$(dir $$@)
 # Top-level targets
 # ==========================================================================
 .PHONY: all mbr vbr fat32 uefi clean disasm format lint \
-        qemu qemu-ahci qemu-fat32 qemu-uefi \
+        qemu qemu-ahci qemu-fat32 qemu-uefi qemu-aarch64 \
         debug-qemu debug-qemu-uefi debug-qemu-ahci \
         bochs debug-bochs gdb help
 
+ifeq ($(ARCH),x86)
 all: bin/mbr bin/vbr bin/bootloader bin/BOOTX64.EFI bin/kernel bin/zonix.img bin/zonix-uefi.img user
+else ifeq ($(ARCH),aarch64)
+all: bin/kernel
+endif
 .DEFAULT_GOAL := all
 
 mbr:  bin/mbr
@@ -267,6 +288,10 @@ qemu-fat32: bin/zonix.img
 
 qemu-uefi: bin/zonix-uefi.img bin/userdata.img
 	$(QEMU) -bios /usr/share/ovmf/OVMF.fd -readconfig qemu-uefi.cfg
+
+qemu-aarch64: bin/kernel
+	qemu-system-aarch64 -M virt -cpu cortex-a72 -m 256M \
+		-nographic -kernel bin/kernel -no-reboot
 
 debug-qemu: bin/zonix.img
 	$(QEMU) -readconfig qemu-debug.cfg -S -s &
