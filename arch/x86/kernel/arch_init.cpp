@@ -59,3 +59,11 @@ void arch_fixup_fork_tf(TrapFrame* tf, uintptr_t esp) {
         tf->ss = KERNEL_DS;
     }
 }
+
+void arch_setup_user_tf(TrapFrame* tf, uintptr_t entry, uintptr_t usp) {
+    tf->cs = USER_CS;
+    tf->ss = USER_DS;
+    tf->rflags = FL_IF;
+    tf->rip = entry;
+    tf->rsp = usp;
+}

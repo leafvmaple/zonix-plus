@@ -14,7 +14,7 @@
 #include "mm/pmm.h"
 #include "debug/assert.h"
 
-#include <asm/mmu.h>
+#include <asm/page.h>
 #include <base/elf.h>
 
 namespace elf {
@@ -107,9 +107,9 @@ uintptr_t load(const uint8_t* data, size_t size, pde_t* pgdir) {
             return 0;
         }
 
-        uint32_t perm = PTE_U;
+        uint32_t perm = VM_USER;
         if (ph->p_flags & ELF_PF_W) {
-            perm |= PTE_W;
+            perm |= VM_WRITE;
         }
 
         cprintf("elf:   LOAD seg %d: va=0x%lx, filesz=0x%lx, memsz=0x%lx, perm=%s%s%s\n", i, ph->p_va, ph->p_filesz,
@@ -121,7 +121,7 @@ uintptr_t load(const uint8_t* data, size_t size, pde_t* pgdir) {
 
         for (uintptr_t va = seg_start; va < seg_end; va += PG_SIZE) {
             pte_t* existing = pmm::get_pte(pgdir, va, false);
-            if (existing && (*existing & PTE_P)) {
+            if (existing && (*existing & VM_PRESENT)) {
                 *existing |= perm;
                 continue;
             }
@@ -141,7 +141,7 @@ uintptr_t load(const uint8_t* data, size_t size, pde_t* pgdir) {
 
             iterate_pages(ph->p_va, ph->p_filesz, [&](uintptr_t va, size_t chunk) {
                 pte_t* ptep = pmm::get_pte(pgdir, va, false);
-                assert(ptep && (*ptep & PTE_P));
+                assert(ptep && (*ptep & VM_PRESENT));
 
                 uint8_t* kva = phys_to_virt<uint8_t>(pte_addr(*ptep));
                 memcpy(kva + (va & PG_MASK), src, chunk);

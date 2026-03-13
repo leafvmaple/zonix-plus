@@ -5,9 +5,7 @@
 #include "lib/memory.h"
 
 #include <asm/arch.h>
-#include <asm/pg.h>
-#include <asm/mmu.h>
-#include <asm/memlayout.h>
+#include <asm/page.h>
 #include <asm/drivers/i8259.h>
 #include "pic.h"
 #include "sched/sched.h"
@@ -179,7 +177,7 @@ void AhciManager::init(void) {
         return;
     }
 
-    s_base = vmm::mmio_map(phys_base, ahci::AHCI_BAR_SIZE, PTE_W | PTE_PCD | PTE_PWT);
+    s_base = vmm::mmio_map(phys_base, ahci::AHCI_BAR_SIZE, VM_WRITE | VM_NOCACHE);
     uint32_t version = mmio_read32(s_base, ahci::AHCI_VS);
 
     // If version is 0x00000000 or 0xFFFFFFFF, controller is not present

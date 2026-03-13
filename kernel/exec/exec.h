@@ -10,27 +10,24 @@
  */
 
 #include <base/types.h>
-#include <asm/pg.h>
+#include <asm/page.h>
 #include "mm/pmm.h"
 #include "fs/fat.h"
 
 namespace exec {
 
-// ---- User-space memory layout (format-independent) ----
-inline constexpr uintptr_t USER_STACK_TOP = 0x00007FFFFFFFE000ULL;
-inline constexpr size_t USER_STACK_SIZE = 4 * PG_SIZE;  // 16 KB
 inline constexpr size_t MAX_BINARY_SIZE = 1024 * 1024;  // 1 MB
 
 /**
- * Create a new PML4 page directory with kernel mappings (entries 256-511)
- * copied from boot_pgdir.
- * @return New PML4, or nullptr on failure
+ * Create a new top-level page directory with kernel mappings copied
+ * from boot_pgdir.
+ * @return New pgdir, or nullptr on failure
  */
 pde_t* create_user_pgdir();
 
 /**
  * Map and zero-fill a user-mode stack in @p pgdir.
- * @return Top of user stack (initial RSP), or 0 on failure
+ * @return Top of user stack (initial stack pointer), or 0 on failure
  */
 uintptr_t setup_user_stack(pde_t* pgdir);
 

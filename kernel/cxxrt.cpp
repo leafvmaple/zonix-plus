@@ -9,6 +9,7 @@
 // so they live here as non-inline definitions.
 
 #include <lib/memory.h>
+#include <asm/arch.h>
 
 extern "C" {
 
@@ -35,9 +36,7 @@ int memcmp(const void* s1, const void* s2, size_t n) {
 void __cxa_pure_virtual() {
     // Pure virtual function was called — should never happen.
     // Hang to make the fault visible during debugging.
-    for (;;) {
-        __asm__ volatile("hlt");
-    }
+    arch_halt_forever();
 }
 
 int atexit(void (*)(void)) {

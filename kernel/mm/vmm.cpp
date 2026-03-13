@@ -1,8 +1,7 @@
 
 
 #include <asm/arch.h>
-#include <asm/segments.h>
-#include <asm/mmu.h>
+#include <asm/page.h>
 
 #include "lib/math.h"
 #include "lib/stdio.h"
@@ -12,15 +11,15 @@
 #include "swap.h"
 
 extern pde_t __boot_pml4;
-pde_t* boot_pgdir = &__boot_pml4;  // PML4 is the top-level "page directory" in x86_64
+pde_t* boot_pgdir = &__boot_pml4;
 
 MemoryDesc init_mm;
 
 static const char* perm2str(int perm) {
     static char str[4];
-    str[0] = (perm & PTE_U) ? 'u' : '-';
-    str[1] = (perm & PTE_P) ? 'r' : '-';
-    str[2] = (perm & PTE_W) ? 'w' : '-';
+    str[0] = (perm & VM_USER) ? 'u' : '-';
+    str[1] = (perm & VM_PRESENT) ? 'r' : '-';
+    str[2] = (perm & VM_WRITE) ? 'w' : '-';
     str[3] = '\0';
     return str;
 }
@@ -37,16 +36,16 @@ void print_pgdir() {
     cprintf("-------------------- BEGIN --------------------\n");
     cprintf("PML4 at %p\n", boot_pgdir);
     // Simple dump of PML4 entries that are present
-    for (int i = 0; i < 512; i++) {
-        if (boot_pgdir[i] & PTE_P) {
-            cprintf("  PML4[%03d] = 0x%016lx %s\n", i, boot_pgdir[i], perm2str(boot_pgdir[i] & PTE_USER));
+    for (int i = 0; i < PAGE_TABLE_ENTRIES; i++) {
+        if (boot_pgdir[i] & VM_PRESENT) {
+            cprintf("  PML4[%03d] = 0x%016lx %s\n", i, boot_pgdir[i], perm2str(boot_pgdir[i] & VM_USER_RW));
         }
     }
     cprintf("--------------------- END ---------------------\n");
 }
 
 int pg_fault(MemoryDesc* mm, uint32_t error_code, uintptr_t addr) {
-    uint32_t perm = PTE_U;
+    uint32_t perm = VM_USER;
     Page* page = nullptr;
 
     addr = round_down(addr, PG_SIZE);
@@ -68,7 +67,7 @@ void pgdir_init(pde_t* pgdir, uintptr_t la, size_t size, uintptr_t pa, uint32_t 
     pa = round_down(pa, PG_SIZE);
     for (; n > 0; n--, la += PG_SIZE, pa += PG_SIZE) {
         pte_t* ptep = pmm::get_pte(pgdir, la, 1);
-        *ptep = pa | PTE_P | perm;
+        *ptep = pa | VM_PRESENT | perm;
     }
 }
 
@@ -90,7 +89,7 @@ uintptr_t mmio_map(uintptr_t phys_addr, size_t size, uint32_t perm) {
 void init() {
     cprintf("PML4 (Page Map Level 4): [0x%p]\n", boot_pgdir);
 
-    pgdir_init(boot_pgdir, KERNEL_BASE, KERNEL_MEM_SIZE, 0, PTE_W);
+    pgdir_init(boot_pgdir, KERNEL_BASE, KERNEL_MEM_SIZE, 0, VM_WRITE);
 
     mm_init(&init_mm);
     init_mm.pgdir = boot_pgdir;

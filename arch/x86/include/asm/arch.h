@@ -142,6 +142,13 @@ void arch_switch_rsp0(uintptr_t rsp0);
 void arch_irq_eoi(int irq);
 void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry, uintptr_t fn, uintptr_t arg);
 void arch_fixup_fork_tf(TrapFrame* tf, uintptr_t esp);
+void arch_setup_user_tf(TrapFrame* tf, uintptr_t entry, uintptr_t usp);
+
+// Halt forever — used for unrecoverable faults
+[[noreturn]] static inline void arch_halt_forever(void) {
+    while (true)
+        __asm__ volatile("cli; hlt");
+}
 
 // ============================================================================
 // Optimised memory operations (x86: REP STOSQ / REP MOVSQ)

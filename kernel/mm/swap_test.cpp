@@ -6,7 +6,7 @@
 #include "pmm.h"
 #include "lib/stdio.h"
 
-#include <asm/mmu.h>
+#include <asm/page.h>
 
 // External declarations
 extern pde_t* boot_pgdir;
@@ -232,7 +232,7 @@ void test_swap_in_basic() {
 
         // Check that PTE was updated
         pte_t* new_ptep = pmm::get_pte(mm.pgdir, addr, 0);
-        TEST_ASSERT(new_ptep != nullptr && (*new_ptep & PTE_P), "PTE updated with present bit");
+        TEST_ASSERT(new_ptep != nullptr && (*new_ptep & VM_PRESENT), "PTE updated with present bit");
 
         if (page) {
             pmm::free_pages(page, 1);
@@ -259,7 +259,7 @@ void test_swap_out_basic() {
         pages_arr[i] = pmm::alloc_pages(1);
         if (pages_arr[i]) {
             addrs[i] = 0x200000 + i * PG_SIZE;
-            pmm::page_insert(mm.pgdir, pages_arr[i], addrs[i], PTE_P | PTE_W | PTE_U);
+            pmm::page_insert(mm.pgdir, pages_arr[i], addrs[i], VM_USER_RW);
             swap_mgr_fifo.map_swappable(init_mm, addrs[i], pages_arr[i], 0);
         }
     }
@@ -272,7 +272,7 @@ void test_swap_out_basic() {
     for (int i = 0; i < count; i++) {
         pte_t* ptep = pmm::get_pte(mm.pgdir, addrs[i], 0);
         if (ptep) {
-            TEST_ASSERT(!(*ptep & PTE_P), "PTE present bit cleared after swap out");
+            TEST_ASSERT(!(*ptep & VM_PRESENT), "PTE present bit cleared after swap out");
         }
     }
 
@@ -421,7 +421,7 @@ void test_swap_disk_io() {
     }
 
     // 2. Map the page
-    pmm::page_insert(mm.pgdir, page, test_addr, PTE_P | PTE_W | PTE_U);
+    pmm::page_insert(mm.pgdir, page, test_addr, VM_USER_RW);
     swap_mgr_fifo.map_swappable(init_mm, test_addr, page, 0);
 
     cprintf("  Filled page with test pattern\n");
@@ -432,7 +432,7 @@ void test_swap_disk_io() {
 
     // Verify PTE was updated
     pte_t* ptep = pmm::get_pte(mm.pgdir, test_addr, 0);
-    TEST_ASSERT(ptep != nullptr && !(*ptep & PTE_P), "PTE marked as not present");
+    TEST_ASSERT(ptep != nullptr && !(*ptep & VM_PRESENT), "PTE marked as not present");
 
     uintptr_t swap_entry = *ptep;
     cprintf("  Page swapped to entry 0x%x\n", swap_entry);
@@ -495,7 +495,7 @@ void test_swap_multiple_pages() {
                 kva[j] = static_cast<uint8_t>((i * 17 + j) & 0xFF);
             }
 
-            pmm::page_insert(mm.pgdir, pages_arr[i], addr, PTE_P | PTE_W | PTE_U);
+            pmm::page_insert(mm.pgdir, pages_arr[i], addr, VM_USER_RW);
             swap_mgr_fifo.map_swappable(init_mm, addr, pages_arr[i], 0);
         }
     }
@@ -513,7 +513,7 @@ void test_swap_multiple_pages() {
         uintptr_t addr = base_addr + i * PG_SIZE;
         pte_t* ptep = pmm::get_pte(mm.pgdir, addr, 0);
 
-        if (ptep && !(*ptep & PTE_P)) {
+        if (ptep && !(*ptep & VM_PRESENT)) {
             // This page was swapped out, swap it back in
             Page* page = nullptr;
             int ret = swap::in(init_mm, addr, &page);

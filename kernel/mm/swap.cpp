@@ -4,7 +4,7 @@
 #include "swap.h"
 #include "pmm.h"
 
-#include <asm/mmu.h>
+#include <asm/page.h>
 #include "block/blk.h"
 
 // Global swap manager (can be changed to select different algorithms)
@@ -87,7 +87,7 @@ int in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr) {
     cprintf("swap_in: loaded addr 0x%x from swap entry 0x%x to page %p\n", addr, swap_entry, page);
 
     // Update page table to map the virtual address to the new physical page
-    pmm::page_insert(mm->pgdir, page, addr, PTE_P | PTE_W | PTE_U);
+    pmm::page_insert(mm->pgdir, page, addr, VM_USER_RW);
 
     // Mark page as swappable
     swap_mgr->map_swappable(mm, addr, page, 1);
@@ -108,12 +108,12 @@ uintptr_t swap::find_vaddr_for_page(MemoryDesc* mm, Page* page) {
     // Search through page directory
     for (int pde_idx = 0; pde_idx < 1024; pde_idx++) {
         pde_t pde = mm->pgdir[pde_idx];
-        if (pde & PTE_P) {
+        if (pde & VM_PRESENT) {
             // Page table exists, search it
             pte_t* pt = phys_to_virt<pte_t>(pde_addr(pde));
             for (int pte_idx = 0; pte_idx < 1024; pte_idx++) {
                 pte_t pte = pt[pte_idx];
-                if ((pte & PTE_P) && pte_addr(pte) == pa) {
+                if ((pte & VM_PRESENT) && pte_addr(pte) == pa) {
                     // Found it!
                     return (pde_idx << 22) | (pte_idx << 12);
                 }

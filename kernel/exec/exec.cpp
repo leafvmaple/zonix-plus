@@ -26,9 +26,8 @@
 #include "drivers/intr.h"
 #include "debug/assert.h"
 
-#include <asm/mmu.h>
-#include <asm/cpu.h>
-#include <asm/segments.h>
+#include <asm/page.h>
+#include <asm/arch.h>
 #include <base/bpb.h>
 
 extern pde_t* boot_pgdir;
@@ -63,8 +62,9 @@ pde_t* create_user_pgdir() {
     }
 
     memset(pgdir, 0, PG_SIZE);
-    // Copy higher-half kernel mappings (PML4 entries 256-511)
-    memcpy(&pgdir[USER_PML4_ENTRIES], &boot_pgdir[USER_PML4_ENTRIES], (ENTRY_NUM - USER_PML4_ENTRIES) * sizeof(pde_t));
+    // Copy higher-half kernel mappings (top-level entries USER_TOP_ENTRIES..PAGE_TABLE_ENTRIES-1)
+    memcpy(&pgdir[USER_TOP_ENTRIES], &boot_pgdir[USER_TOP_ENTRIES],
+           (PAGE_TABLE_ENTRIES - USER_TOP_ENTRIES) * sizeof(pde_t));
 
     return pgdir;
 }
@@ -73,7 +73,7 @@ uintptr_t setup_user_stack(pde_t* pgdir) {
     uintptr_t stack_bottom = USER_STACK_TOP - USER_STACK_SIZE;
 
     for (uintptr_t va = stack_bottom; va < USER_STACK_TOP; va += PG_SIZE) {
-        Page* page = pmm::pgdir_alloc_page(pgdir, va, PTE_U | PTE_W);
+        Page* page = pmm::pgdir_alloc_page(pgdir, va, VM_USER_RW);
         if (!page) {
             cprintf("exec: failed to allocate user stack page at 0x%lx\n", va);
             return 0;
@@ -168,11 +168,7 @@ int exec(const char* path, FatInfo* fat) {
     }
 
     TrapFrame tf{};
-    tf.cs = USER_CS;
-    tf.ss = USER_DS;
-    tf.rflags = FL_IF;  // enable interrupts
-    tf.rip = entry;     // binary entry point
-    tf.rsp = user_rsp;  // user stack pointer
+    arch_setup_user_tf(&tf, entry, user_rsp);
 
     MemoryDesc* mm = new MemoryDesc();
     mm->mmap_list.init();

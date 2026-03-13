@@ -5,6 +5,7 @@
 #include "lib/stdio.h"
 
 #include <asm/arch.h>
+#include <asm/page.h>
 #include <asm/trap_numbers.h>
 
 #include "drivers/kbd.h"
@@ -121,7 +122,6 @@ static void syscall(TrapFrame* tf) {
             const auto* buf = reinterpret_cast<const char*>(tf->syscall_arg(1));
             auto count = static_cast<size_t>(tf->syscall_arg(2));
             // Validate user pointer range (must be in user-space half)
-            constexpr uintptr_t USER_SPACE_TOP = 0x0000800000000000ULL;
             if (reinterpret_cast<uintptr_t>(buf) >= USER_SPACE_TOP ||
                 count > USER_SPACE_TOP - reinterpret_cast<uintptr_t>(buf)) {
                 tf->set_return(static_cast<uint64_t>(-1));
