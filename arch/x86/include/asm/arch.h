@@ -1,5 +1,7 @@
 #pragma once
 
+#ifndef __ASSEMBLY__
+
 /**
  * @file arch.h
  * @brief Architecture-neutral hardware abstraction layer
@@ -14,6 +16,9 @@
 
 #include "io.h"
 #include "cpu.h"
+
+// Forward declarations for types defined in other arch headers
+struct TrapFrame;
 
 // ============================================================================
 // Interrupt control
@@ -103,6 +108,41 @@ static inline void arch_spin_hint(void) {
     __asm__ volatile("pause");
 }
 
+static inline bool arch_irq_is_enabled(void) {
+    return (read_eflags() & FL_IF) != 0;
+}
+
+// ============================================================================
+// CPU control
+// ============================================================================
+
+static inline void arch_idle(void) {
+    __asm__ volatile("sti; hlt");
+}
+
+[[noreturn]] static inline void arch_halt(void) {
+    while (true)
+        __asm__ volatile("hlt");
+}
+
+// ============================================================================
+// Fault information
+// ============================================================================
+
+static inline uintptr_t arch_fault_addr(void) {
+    return rcr2();
+}
+
+// ============================================================================
+// Non-inline arch functions (defined in arch_init.cpp)
+// ============================================================================
+
+void arch_early_init(void);
+void arch_switch_rsp0(uintptr_t rsp0);
+void arch_irq_eoi(int irq);
+void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry, uintptr_t fn, uintptr_t arg);
+void arch_fixup_fork_tf(TrapFrame* tf, uintptr_t esp);
+
 // ============================================================================
 // Optimised memory operations (x86: REP STOSQ / REP MOVSQ)
 // ============================================================================
@@ -144,3 +184,5 @@ static inline void* arch_memcpy(void* dst, const void* src, size_t n) {
     }
     return dst;
 }
+
+#endif /* !__ASSEMBLY__ */

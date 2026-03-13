@@ -5,11 +5,10 @@
 #include "lib/stdio.h"
 
 #include <asm/arch.h>
-#include <asm/drivers/i8259.h>
+#include <asm/trap_numbers.h>
 
 #include "drivers/kbd.h"
 #include "drivers/pit.h"
-#include "drivers/pic.h"
 #include "drivers/ide.h"
 #include "drivers/fbcons.h"
 #include "cons/cons.h"
@@ -81,7 +80,7 @@ void TrapFrame::print() const {
 }
 
 void TrapFrame::print_pgfault() const {
-    cprintf("Page Fault at 0x%016lx: %c/%c [%s].\n", arch_read_cr2(), (err & 4) ? 'U' : 'K', (err & 2) ? 'W' : 'R',
+    cprintf("Page Fault at 0x%016lx: %c/%c [%s].\n", arch_fault_addr(), (err & 4) ? 'U' : 'K', (err & 2) ? 'W' : 'R',
             (err & 1) ? "Protection Fault" : "No Page Found");
 }
 
@@ -104,39 +103,39 @@ static int pg_fault(TrapFrame* tf) {
     tf->print_pgfault();
 
     TaskStruct* current = sched::current();
-    vmm::pg_fault(current->memory, tf->err, arch_read_cr2());
+    vmm::pg_fault(current->memory, tf->err, arch_fault_addr());
 
     return 0;
 }
 
 static void syscall(TrapFrame* tf) {
-    int nr = static_cast<int>(tf->regs.rax);
+    int nr = static_cast<int>(tf->syscall_nr());
     switch (nr) {
         case NR_EXIT:
-            cprintf("[PID %d] exited with code %ld\n", sched::current()->pid, tf->regs.rdi);
-            sched::exit(static_cast<int>(tf->regs.rdi));
+            cprintf("[PID %d] exited with code %ld\n", sched::current()->pid, tf->syscall_arg(0));
+            sched::exit(static_cast<int>(tf->syscall_arg(0)));
             break;
         case NR_WRITE: {
-            // sys_write(fd, buf, count) — rdi=fd, rsi=buf, rdx=count
+            // sys_write(fd, buf, count) — arg0=fd, arg1=buf, arg2=count
             // For now, fd is ignored and output goes to the console.
-            const auto* buf = reinterpret_cast<const char*>(tf->regs.rsi);
-            auto count = static_cast<size_t>(tf->regs.rdx);
+            const auto* buf = reinterpret_cast<const char*>(tf->syscall_arg(1));
+            auto count = static_cast<size_t>(tf->syscall_arg(2));
             // Validate user pointer range (must be in user-space half)
             constexpr uintptr_t USER_SPACE_TOP = 0x0000800000000000ULL;
             if (reinterpret_cast<uintptr_t>(buf) >= USER_SPACE_TOP ||
                 count > USER_SPACE_TOP - reinterpret_cast<uintptr_t>(buf)) {
-                tf->regs.rax = static_cast<uint64_t>(-1);
+                tf->set_return(static_cast<uint64_t>(-1));
                 break;
             }
             for (size_t i = 0; i < count; i++) {
                 cons::putc(buf[i]);
             }
-            tf->regs.rax = count;
+            tf->set_return(count);
             break;
         }
         default:
             cprintf("unknown syscall %d\n", nr);
-            tf->regs.rax = static_cast<uint64_t>(-1);
+            tf->set_return(static_cast<uint64_t>(-1));
             break;
     }
 }
@@ -152,9 +151,9 @@ void trap(TrapFrame* tf) {
         default: break;
     }
 
-    // Send EOI for hardware interrupts (IRQ 0-15)
-    if (tf->trapno >= IRQ_OFFSET && tf->trapno < IRQ_OFFSET + 16) {
-        pic::send_eoi(tf->trapno - IRQ_OFFSET);
+    // Send EOI for hardware interrupts
+    if (tf->trapno >= IRQ_OFFSET && tf->trapno < IRQ_OFFSET + IRQ_COUNT) {
+        arch_irq_eoi(tf->trapno - IRQ_OFFSET);
     }
 
     // Check reschedule AFTER EOI — never context-switch with EOI pending,

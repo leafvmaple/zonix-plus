@@ -1,8 +1,10 @@
 #pragma once
 
-#include <base/types.h>
-
 #include "ports.h"
+
+#ifndef __ASSEMBLY__
+
+#include <base/types.h>
 
 static inline uint8_t inb(uint16_t port) __attribute__((always_inline));
 static inline uint8_t inb_p(uint16_t port) __attribute__((always_inline));
@@ -146,3 +148,5 @@ static inline uintptr_t rcr3(void) {
 static inline void invlpg(void* addr) {
     asm volatile("invlpg (%0)" ::"r"(addr) : "memory");
 }
+
+#endif /* !__ASSEMBLY__ */

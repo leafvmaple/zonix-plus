@@ -1,8 +1,8 @@
 .SECONDEXPANSION:
 
 # ==========================================================================
-# Architecture selection (x86 for now, aarch64 in the future)
-# Usage: make ARCH=x86 (default)
+# Architecture selection
+# Usage: make ARCH=x86 (default) | make ARCH=aarch64 | make ARCH=riscv64
 # ==========================================================================
 ARCH ?= x86
 V    ?= 0  # Verbose mode: make V=1
@@ -37,9 +37,29 @@ ifeq ($(ARCH),x86)
   DASM    := ndisasm
   QEMU    := qemu-system-x86_64
 else ifeq ($(ARCH),aarch64)
-  $(error ARM/AArch64 support is not yet implemented)
+  CC      := clang --target=aarch64-none-elf
+  CXX     := clang++ --target=aarch64-none-elf
+  LD      := ld.lld
+  CXXFLAGS := -g -Wall -O0 -nostdinc -nostdinc++ \
+             -fno-builtin -fno-stack-protector -fno-pic -fno-exceptions -fno-rtti \
+             -fno-use-cxa-atexit -fno-threadsafe-statics \
+             -ffreestanding -std=gnu++17
+  LDFLAGS := -m aarch64elf -nostdlib
+  QEMU    := qemu-system-aarch64
+  $(warning AArch64 support is work-in-progress)
+else ifeq ($(ARCH),riscv64)
+  CC      := clang --target=riscv64-none-elf
+  CXX     := clang++ --target=riscv64-none-elf
+  LD      := ld.lld
+  CXXFLAGS := -g -Wall -O0 -nostdinc -nostdinc++ \
+             -fno-builtin -fno-stack-protector -fno-pic -fno-exceptions -fno-rtti \
+             -fno-use-cxa-atexit -fno-threadsafe-statics \
+             -ffreestanding -std=gnu++17 -march=rv64gc -mabi=lp64d
+  LDFLAGS := -m elf64lriscv -nostdlib
+  QEMU    := qemu-system-riscv64
+  $(warning RISC-V 64 support is work-in-progress)
 else
-  $(error Unsupported ARCH=$(ARCH). Use: x86, aarch64)
+  $(error Unsupported ARCH=$(ARCH). Use: x86, aarch64, riscv64)
 endif
 
 # Auto-dependency generation (clang/clang++ -MMD -MP)
@@ -79,9 +99,10 @@ tobin     = $(addprefix $(BINDIR)$(SLASH),$(addsuffix .bin,$(1)))
 ALLOBJS :=
 
 # Single compile rule (with auto-deps via DEPFLAGS)
+# .S files get -D__ASSEMBLY__ so headers can hide C/C++ constructs.
 define compile
 $$(call toobj,$(1)): $(1) | $$$$(dir $$$$@)
-	$(Q)$(2) -I$$(dir $(1)) $(3) $(DEPFLAGS) -c $$< -o $$@
+	$(Q)$(2) -I$$(dir $(1)) $(3) $(if $(filter %.S,$(1)),-D__ASSEMBLY__) $(DEPFLAGS) -c $$< -o $$@
 ALLOBJS += $$(call toobj,$(1))
 endef
 

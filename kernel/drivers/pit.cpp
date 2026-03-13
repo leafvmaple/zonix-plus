@@ -22,7 +22,7 @@ constexpr uint8_t bcd_to_bin(uint8_t val) {
     return (val & 0xF) + (val >> 4) * 10;
 }
 
-} // namespace
+}  // namespace
 
 namespace pit {
 
@@ -32,19 +32,19 @@ void init() {
     struct tm time;
 
     do {
-        time.tm_sec  = cmos_read(0);
-        time.tm_min  = cmos_read(2);
+        time.tm_sec = cmos_read(0);
+        time.tm_min = cmos_read(2);
         time.tm_hour = cmos_read(4);
         time.tm_mday = cmos_read(7);
-        time.tm_mon  = cmos_read(8);
+        time.tm_mon = cmos_read(8);
         time.tm_year = cmos_read(9);
     } while (time.tm_sec != cmos_read(0));
 
-    time.tm_sec  = bcd_to_bin(static_cast<uint8_t>(time.tm_sec));
-    time.tm_min  = bcd_to_bin(static_cast<uint8_t>(time.tm_min));
+    time.tm_sec = bcd_to_bin(static_cast<uint8_t>(time.tm_sec));
+    time.tm_min = bcd_to_bin(static_cast<uint8_t>(time.tm_min));
     time.tm_hour = bcd_to_bin(static_cast<uint8_t>(time.tm_hour));
     time.tm_mday = bcd_to_bin(static_cast<uint8_t>(time.tm_mday));
-    time.tm_mon  = bcd_to_bin(static_cast<uint8_t>(time.tm_mon));
+    time.tm_mon = bcd_to_bin(static_cast<uint8_t>(time.tm_mon));
     time.tm_year = bcd_to_bin(static_cast<uint8_t>(time.tm_year));
 
     arch_port_outb(PIT_CTRL_REG, PIT_SEL_TIMER0 | PIT_RATE_GEN | PIT_16BIT);
@@ -55,4 +55,4 @@ void init() {
     pic::enable(IRQ_TIMER);
 }
 
-} // namespace pit
+}  // namespace pit

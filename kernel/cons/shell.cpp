@@ -466,8 +466,9 @@ static void cmd_exec(int argc, char** argv) {
     int pid = exec::exec(filename, fat_info);
     if (pid > 0) {
         cprintf("Process started (PID %d)\n", pid);
-        // Yield so the new process gets CPU time immediately
-        sched::schedule();
+        // Wait for the child process to exit before returning to the shell prompt
+        int exit_code = 0;
+        sched::wait(pid, &exit_code);
     } else {
         cprintf("Failed to execute: %s\n", filename);
     }

@@ -1,10 +1,6 @@
 #include "block/blk.h"
-#include "drivers/pic.h"
-#include "drivers/pit.h"
 #include "drivers/intr.h"
 #include "drivers/fbcons.h"
-#include "idt.h"
-#include "tss.h"
 #include "cons/cons.h"
 #include "mm/pmm.h"
 #include "mm/vmm.h"
@@ -12,6 +8,7 @@
 #include "sched/sched.h"
 #include "lib/unistd.h"
 #include <kernel/bootinfo.h>
+#include <asm/arch.h>
 
 // Call C++ global constructors registered in .init_array
 extern "C" {
@@ -38,13 +35,8 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info* boot_info) 
     // This must be first to enable cprintf for other modules
     cons::init();
 
-    // drivers
-    pic::init();
-    pit::init();
-
-    // arch
-    idt::init();
-    tss::init();
+    // Architecture-specific early init (interrupt controller, timer, IDT, TSS)
+    arch_early_init();
 
     pmm::init();
     vmm::init();
@@ -64,10 +56,9 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info* boot_info) 
 
     // Idle loop: PID 0 halts until an interrupt arrives, then reschedules
     while (true) {
-        __asm__ volatile("sti; hlt");  // Enable interrupts + halt atomically
+        arch_idle();
         sched::schedule();
     }
 halt:
-    while (true)
-        __asm__ volatile("hlt");
+    arch_halt();
 }

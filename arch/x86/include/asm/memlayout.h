@@ -11,7 +11,11 @@
 // Start of the MMIO virtual address pool, right after the kernel
 // direct-mapped region.  mmio_map() hands out consecutive VAs from here;
 // the VA has NO fixed arithmetic relation to the physical address.
+#ifndef __ASSEMBLY__
 #define KERNEL_DEVIO_BASE (KERNEL_BASE + (uintptr_t)KERNEL_MEM_SIZE)  // 0xFFFFFFFFB8000000
+#else
+#define KERNEL_DEVIO_BASE (KERNEL_BASE + KERNEL_MEM_SIZE)
+#endif
 
 
 // ============================================================================

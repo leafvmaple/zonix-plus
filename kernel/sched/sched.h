@@ -1,6 +1,6 @@
 #pragma once
 
-#include <asm/segments.h>
+#include <asm/context.h>
 #include <base/types.h>
 
 #include "lib/list.h"
@@ -14,18 +14,6 @@ enum class ProcessState : uint8_t {
     Runnable = 2,  // runnable (might be in run queue)
     Running = 3,   // running
     Zombie = 4,    // almost dead (waiting to be cleaned up)
-};
-
-// Context for process switching (x86_64 callee-saved registers)
-struct Context {
-    uint64_t rip{};
-    uint64_t rsp{};
-    uint64_t rbx{};
-    uint64_t rbp{};
-    uint64_t r12{};
-    uint64_t r13{};
-    uint64_t r14{};
-    uint64_t r15{};
 };
 
 // Priority levels (lower value = higher priority)

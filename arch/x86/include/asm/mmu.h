@@ -3,6 +3,8 @@
 #include "pg.h"
 #include "memlayout.h"
 
+#ifndef __ASSEMBLY__
+
 /*
  * x86_64 4-level paging:
  *   PML4 (Page Map Level 4)  -> 512 entries, each covers 512GB
@@ -102,3 +104,5 @@ inline void iterate_pages(uintptr_t va, size_t size, TFunc&& func) {
         size -= chunk;
     }
 }
+
+#endif /* !__ASSEMBLY__ */

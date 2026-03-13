@@ -19,6 +19,10 @@ void init() {
 
 void putc(int c) {
     // Wait for transmit buffer to be empty (bit 5 of LSR)
+    if (c == '\n') {
+        while ((arch_port_inb(COM1_PORT + 5) & 0x20) == 0) {}
+        arch_port_outb(COM1_PORT, '\r');
+    }
     while ((arch_port_inb(COM1_PORT + 5) & 0x20) == 0) {}
     arch_port_outb(COM1_PORT, c);
 }

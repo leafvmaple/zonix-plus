@@ -14,7 +14,7 @@ mbr  = $(call totarget,mbr)
 MOBJ = $(call toobj,$(BOOT_BIOS_DIR)/mbr.S)
 
 $(MOBJ): $(BOOT_BIOS_DIR)/mbr.S | $$(dir $$@)
-	$(Q)$(CC) $(BOOT_CFLAGS) $(BOOT_INC) $(DEPFLAGS) -Os -c $< -o $@
+	$(Q)$(CC) $(BOOT_CFLAGS) $(BOOT_INC) $(DEPFLAGS) -D__ASSEMBLY__ -Os -c $< -o $@
 
 $(mbr): $(MOBJ) $(SCRIPTDIR)/mbr.ld | $$(dir $$@)
 	$(Q)$(LD) $(BOOT_LDFLAGS) -T $(SCRIPTDIR)/mbr.ld -o $@ $<
@@ -52,7 +52,7 @@ $(BOOTLOAD_C_OBJ): $(BOOT_BIOS_DIR)/bootload.c | $$(dir $$@)
 	$(Q)$(CC) $(BOOT_CFLAGS) $(BOOT_INC) $(DEPFLAGS) -O2 -c $< -o $@
 
 $(BOOTLOAD_S_OBJ): $(BOOT_BIOS_DIR)/entry.S | $$(dir $$@)
-	$(Q)$(CC) $(BOOT_CFLAGS) $(BOOT_INC) $(DEPFLAGS) -c $< -o $@
+	$(Q)$(CC) $(BOOT_CFLAGS) $(BOOT_INC) $(DEPFLAGS) -D__ASSEMBLY__ -c $< -o $@
 
 ALLOBJS += $(BOOTLOAD_C_OBJ) $(BOOTLOAD_S_OBJ)
 

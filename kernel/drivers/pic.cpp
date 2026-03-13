@@ -58,4 +58,4 @@ void init(void) {
     enable(IRQ_SLAVE);
 }
 
-} // namespace pic
+}  // namespace pic

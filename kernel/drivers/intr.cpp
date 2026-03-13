@@ -15,7 +15,7 @@ void disable() {
 }
 
 static inline int save_impl() {
-    if (arch_irq_save() & FL_IF) {
+    if (arch_irq_is_enabled()) {
         disable();
         return 1;
     }

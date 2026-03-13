@@ -18,7 +18,7 @@ uint32_t PCILocation::read_bar(uint8_t bar_index) {
     if (bar_index > 5) {
         return 0;
     }
-    
+
     uint8_t offset = 0x10 + (bar_index * 4);
     return read_config32(offset);
 }
@@ -35,7 +35,7 @@ bool PCILocation::find_device_by_class(uint8_t class_code, uint8_t subclass, uin
                 if (vendor == 0xFFFFFFFF) {
                     continue;
                 }
-                
+
                 uint32_t class_reg = pci_loc.read_config32(pci::PCI_CLASS_REVISION);
 
                 if ((class_reg >> 8) == expected_class) {
@@ -45,7 +45,7 @@ bool PCILocation::find_device_by_class(uint8_t class_code, uint8_t subclass, uin
             }
         }
     }
-    
+
     return false;
 }
 

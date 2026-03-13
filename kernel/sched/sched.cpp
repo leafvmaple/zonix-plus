@@ -6,20 +6,13 @@
 #include "lib/string.h"
 #include "drivers/intr.h"
 #include "debug/assert.h"
-#include "tss.h"
 #include <asm/arch.h>
-#include <asm/segments.h>
 #include <asm/mmu.h>
 
 // External symbols
 extern long user_stack[];
 extern pde_t* boot_pgdir;
 extern MemoryDesc init_mm;  // Global kernel MemoryDesc
-
-// Forward declaration
-extern "C" void forkret(void);
-extern "C" void switch_to(struct Context* from, struct Context* to);
-extern void trapret(void);
 
 // Shell process entry point (defined in shell.cpp)
 #include "cons/shell.h"
@@ -109,9 +102,8 @@ void TaskStruct::run() {
             arch_load_cr3(next_cr3);
         }
 
-        // Update TSS.RSP0 so the CPU switches to this process's
-        // kernel stack when entering ring 0 from ring 3.
-        tss::set_rsp0(this->kernel_stack + KSTACK_SIZE);
+        // Update kernel stack pointer for privilege transitions
+        arch_switch_rsp0(this->kernel_stack + KSTACK_SIZE);
 
         switch_to(&(prev->context), &(context));
     }
@@ -138,23 +130,11 @@ void TaskStruct::copy_thread(uintptr_t esp, TrapFrame* src_tf) {
     trap_frame = reinterpret_cast<TrapFrame*>(kernel_stack + KSTACK_SIZE) - 1;
 
     *trap_frame = *src_tf;
-    trap_frame->regs.rax = 0;  // Return value for child
-    if (esp != 0) {
-        trap_frame->rsp = esp;
-    } else {
-        // Kernel thread: use the kernel stack (just below the trap frame)
-        trap_frame->rsp = reinterpret_cast<uintptr_t>(trap_frame);
-    }
-    trap_frame->rflags |= 0x200;  // Enable interrupts
-    // Only override SS for kernel threads; user-mode TrapFrames
-    // already have the correct SS set by the caller.
-    if (src_tf->cs == KERNEL_CS) {
-        trap_frame->ss = KERNEL_DS;
-    }
+    arch_fixup_fork_tf(trap_frame, esp);
 
     // Set up context for context switch
-    context.rip = reinterpret_cast<uintptr_t>(forkret);
-    context.rsp = reinterpret_cast<uintptr_t>(trap_frame);
+    context.set_entry(reinterpret_cast<uintptr_t>(forkret));
+    context.set_stack(reinterpret_cast<uintptr_t>(trap_frame));
 }
 
 int TaskStruct::setup_kernel_stack() {
@@ -381,12 +361,8 @@ int TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_fra
 int TaskManager::kernel_thread(int (*fn)(void*), void* arg) {
     TrapFrame tf{};
 
-    tf.cs = KERNEL_CS;
-    tf.rflags = FL_IF;                                          // Enable interrupts
-    tf.rip = reinterpret_cast<uintptr_t>(kernel_thread_entry);  // Entry wrapper
-    tf.regs.rdi = reinterpret_cast<uintptr_t>(fn);              // 1st argument: function
-    tf.regs.rsi = reinterpret_cast<uintptr_t>(arg);             // 2nd argument: arg
-    tf.rsp = 0;                                                 // Set by copy_thread
+    arch_setup_kthread_tf(&tf, reinterpret_cast<uintptr_t>(kernel_thread_entry), reinterpret_cast<uintptr_t>(fn),
+                          reinterpret_cast<uintptr_t>(arg));
 
     return fork(0, 0, &tf);
 }
@@ -501,10 +477,7 @@ void TaskManager::init_idle() {
 void TaskManager::init_init_proc() {
     TrapFrame trap_frame{};
 
-    trap_frame.cs = KERNEL_CS;
-    trap_frame.rflags = FL_IF;  // Enable interrupts
-    trap_frame.rip = reinterpret_cast<uintptr_t>(init_main);
-    trap_frame.rsp = 0;  // Will be set up by copy_thread
+    arch_setup_kthread_tf(&trap_frame, reinterpret_cast<uintptr_t>(init_main), 0, 0);
 
     int ret = fork(0, 0, &trap_frame);
     s_init_proc = find_proc(ret);

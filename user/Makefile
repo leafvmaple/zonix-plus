@@ -19,7 +19,7 @@ USER_CFLAGS  := -g -Wall -O2 -m64 -mno-red-zone \
                 -mno-sse -mno-sse2 -mno-mmx -msoft-float \
                 -nostdinc -ffreestanding -fno-builtin \
                 -fno-stack-protector -fno-pic -gdwarf-2
-USER_ASFLAGS := $(USER_CFLAGS)
+USER_ASFLAGS := $(USER_CFLAGS) -D__ASSEMBLY__
 USER_LDFLAGS := -m elf_x86_64 -nostdlib -T $(USER_LD)
 
 # ---------- discover programs automatically ----------

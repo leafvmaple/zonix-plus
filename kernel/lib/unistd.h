@@ -1,6 +1,6 @@
 #pragma once
 
-#define T_SYSCALL 0x80
+#include <asm/trap_numbers.h>
 
 #define NR_EXIT  1
 #define NR_WRITE 4
