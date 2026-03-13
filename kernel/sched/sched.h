@@ -28,6 +28,17 @@ struct Context {
     uint64_t r15{};
 };
 
+// Priority levels (lower value = higher priority)
+namespace sched_prio {
+inline constexpr int MAX_PRIO = 0;    // Highest priority
+inline constexpr int DEFAULT = 10;    // Normal processes
+inline constexpr int MIN_PRIO = 20;   // Lowest priority
+inline constexpr int IDLE_PRIO = 31;  // Idle process only
+
+// Base timeslice in ticks (10ms each). Higher priority = more ticks.
+inline constexpr int BASE_TIMESLICE = 10;  // 100ms default
+}  // namespace sched_prio
+
 // Process control block - modeling Linux's task_struct
 struct TaskStruct {
     static constexpr size_t KSTACK_SIZE = 4096;  // 4KB kernel stack
@@ -50,6 +61,11 @@ struct TaskStruct {
 
     TaskStruct* parent{};   // Parent process
     ListNode child_list{};  // Head of child process list
+
+    // Scheduling fields
+    int priority{sched_prio::DEFAULT};  // Static priority (lower = higher)
+    int time_slice{};                   // Remaining ticks in current quantum
+    volatile int need_resched{};        // Set by timer ISR to request reschedule
 
     void run();
     void wakeup();
@@ -109,13 +125,18 @@ public:
 
     // Scheduling and process lifecycle
     static void schedule();
+    static void tick();  // Called from timer ISR each tick
     static int fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_frame);
     static int kernel_thread(int (*fn)(void*), void* arg);
     static int exit(int error_code);
     static int wait(int pid, int* code_store);
 
+    // Compute timeslice from priority
+    static int calc_timeslice(int priority);
+
 private:
     inline static TaskStruct* s_current{};
+    inline static ListNode* s_sched_cursor{};  // Round-robin cursor
 
     static uint32_t pid_hash(int x);
 
@@ -131,6 +152,7 @@ void test();
 
 // Scheduling and process lifecycle
 void schedule();
+void tick();  // Called from timer ISR each tick
 int fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* tf);
 int kernel_thread(int (*fn)(void*), void* arg);
 int exit(int error_code);

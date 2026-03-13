@@ -130,7 +130,8 @@ KSRCDIR := kernel              \
            kernel/sched        \
            kernel/mm           \
            kernel/fs           \
-           kernel/exec
+           kernel/exec         \
+           kernel/sync
 
 CFLAGS   += $(addprefix -I,$(INCLUDE))
 CXXFLAGS += $(addprefix -I,$(INCLUDE))

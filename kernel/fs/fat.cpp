@@ -227,7 +227,7 @@ int FatInfo::write_entry(uint32_t cluster, uint32_t value) {
     return -1;
 }
 
-uint32_t FatInfo::cluster_to_sector(uint32_t cluster) {
+uint32_t FatInfo::cluster_to_sector(uint32_t cluster) const {
     if (cluster < 2) {
         return 0;
     }
@@ -236,15 +236,15 @@ uint32_t FatInfo::cluster_to_sector(uint32_t cluster) {
 }
 
 bool FatInfo::is_valid_entry(fat_dir_entry_t& entry) {
-    if (entry.name[0] == 0x00 || entry.name[0] == 0xE5) {
-        return 0;
+    if (entry.name[0] == 0x00 || entry.name[0] == (char)0xE5) {
+        return false;
     }
 
     if ((entry.attr & FAT_ATTR_VOLUME_ID) || (entry.attr & FAT_ATTR_LFN) == FAT_ATTR_LFN) {
-        return 0;
+        return false;
     }
 
-    return 1;
+    return true;
 }
 
 void FatInfo::get_filename(fat_dir_entry_t* entry, char* buf, int bufsize) {

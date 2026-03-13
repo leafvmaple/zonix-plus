@@ -172,10 +172,12 @@ static uint32_t fat_find_file(const char* filename, uint8_t* dir_buffer, uint32_
     fat_dir_entry_t* entry = (fat_dir_entry_t*)dir_buffer;
 
     for (uint32_t i = 0; i < root_entries; i++) {
-        if (entry[i].name[0] == 0x00)  // No more entries
+        if (entry[i].name[0] == 0x00) {  // No more entries
             break;
-        if (entry[i].name[0] == 0xE5)  // Deleted entry
+        }
+        if (entry[i].name[0] == (char)0xE5) {  // Deleted entry
             continue;
+        }
         // Compare name (8 bytes) and ext (3 bytes) together as 11 bytes
         if (memcmp(&entry[i].name, filename, 11) == 0) {
             // For FAT32, combine hi and lo parts of cluster number

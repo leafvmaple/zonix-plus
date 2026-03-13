@@ -99,6 +99,10 @@ static inline void arch_io_wait(void) {
     io_wait();
 }
 
+static inline void arch_spin_hint(void) {
+    __asm__ volatile("pause");
+}
+
 // ============================================================================
 // Optimised memory operations (x86: REP STOSQ / REP MOVSQ)
 // ============================================================================

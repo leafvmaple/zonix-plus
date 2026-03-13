@@ -1,8 +1,8 @@
 # Zonix OS
 
-An x86_64 operating system kernel built from scratch for learning purposes, featuring dual-boot (BIOS + UEFI), process management, virtual memory with swap, interrupt-driven disk I/O, and FAT32 file system support.
+An x86_64 operating system kernel built from scratch for learning purposes, featuring dual-boot (BIOS + UEFI), process management, virtual memory with swap, synchronization primitives, preemptive scheduling, interrupt-driven disk I/O, and FAT32 file system support.
 
-**Current Version**: 0.9.2
+**Current Version**: 0.9.3
 
 ## Features
 
@@ -14,10 +14,17 @@ An x86_64 operating system kernel built from scratch for learning purposes, feat
 - **Clang/LLVM Toolchain**: Built with Clang, LLD, and LLVM utilities (UEFI uses MinGW cross-compiler)
 
 ### Process Management
-- **Round-Robin Scheduler**: Cooperative scheduling with `fork()`, `exit()`, `wait()`
+- **Preemptive Round-Robin Scheduler**: Priority-aware scheduling with per-tick timeslice decrement
 - **Kernel Threads**: `kernel_thread()` API with full context switch (callee-saved + CR3)
 - **Process Hierarchy**: Parent-child links, zombie reaping, orphan reparenting to init
 - **Process Table**: Hash table (1024 buckets) for O(1) PID lookup
+
+### Synchronization
+- **Spinlock**: Interrupt-safe atomic spinlock with architecture-abstracted spin hint
+- **WaitQueue**: Structured sleep/wakeup mechanism (Linux kernel style `wait_queue_head_t`)
+- **Semaphore**: Counting semaphore built on Spinlock + WaitQueue
+- **Mutex**: Mutual exclusion lock with ownership tracking and assertion
+- **LockGuard\<T\>**: Generic RAII lock guard template for any lockable type
 
 ### Memory Management
 - **Physical Memory**: First-Fit page allocator with reference counting
@@ -44,6 +51,7 @@ An x86_64 operating system kernel built from scratch for learning purposes, feat
 - **IDT**: 256 entries with full x86_64 TrapFrame (all GPRs + hardware-pushed context)
 - **Exceptions**: Named handlers for 20 CPU exceptions including page fault with CR2 output
 - **IRQ Dispatch**: Timer, keyboard, IDE (primary + secondary) with automatic EOI
+- **Architecture Abstraction**: `arch_*()` wrappers for interrupts, I/O, spin hints (portable to other ISAs)
 
 ### Interactive Shell
 - 20+ built-in commands including `ps`, `ls`, `cat`, `mount`, `lsblk`, `hdparm`

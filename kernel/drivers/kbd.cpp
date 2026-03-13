@@ -9,6 +9,7 @@
 #include "pic.h"
 #include "intr.h"
 #include "sched/sched.h"
+#include "lib/waitqueue.h"
 
 // ============================================================================
 // Input ring buffer — filled by IRQ, drained by getc_blocking()
@@ -21,7 +22,7 @@ char kbd_buf[KBD_BUF_SIZE];
 volatile int kbd_read = 0;
 volatile int kbd_write = 0;
 
-TaskStruct* kbd_waiter = nullptr;  // process sleeping on input
+WaitQueue kbd_waitq;  // Replaces ad-hoc kbd_waiter pointer
 
 }  // namespace
 
@@ -91,10 +92,7 @@ void intr(void) {
     kbd_write = next;
 
     // Wake up process sleeping in getc_blocking()
-    if (kbd_waiter) {
-        kbd_waiter->wakeup();
-        kbd_waiter = nullptr;
-    }
+    kbd_waitq.wakeup_one();
 }
 
 // Blocking read — called from process context, sleeps until input available
@@ -107,12 +105,8 @@ char getc_blocking(void) {
                 kbd_read = (kbd_read + 1) % KBD_BUF_SIZE;
                 return c;
             }
-            // Nothing available — sleep
-            TaskStruct* current = TaskManager::get_current();
-            kbd_waiter = current;
-            current->state = ProcessState::Sleeping;
         }
-        TaskManager::schedule();
+        kbd_waitq.sleep();
     }
 }
 

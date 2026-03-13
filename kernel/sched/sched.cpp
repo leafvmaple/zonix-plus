@@ -235,16 +235,16 @@ TaskStruct* TaskManager::find_proc(int pid) {
 
 void TaskManager::print() {
     // Print header (similar to ps aux format)
-    cprintf("PID  STAT  PPID  KSTACK    MM        NAME\n");
-    cprintf("---  ----  ----  --------  --------  ----------------\n");
+    cprintf("PID  STAT  PPID  PRIO  SLICE  KSTACK            MM                NAME\n");
+    cprintf("---  ----  ----  ----  -----  ----------------  ----------------  ----------------\n");
 
     ListNode* le = &s_proc_list;
     while ((le = le->get_prev()) != &s_proc_list) {
         TaskStruct* proc = TaskStruct::from_list_link(le);
 
-        cprintf("%c%-3d %-4s  %-4d  %016lx  %016lx  %s\n", (proc == s_current) ? '*' : ' ', proc->pid,
-                state_str(proc->state), (proc->parent ? proc->parent->pid : -1), proc->kernel_stack,
-                reinterpret_cast<uintptr_t>(proc->memory), proc->name);
+        cprintf("%c%-3d %-4s  %-4d  %-4d  %-5d  %016lx  %016lx  %s\n", (proc == s_current) ? '*' : ' ', proc->pid,
+                state_str(proc->state), (proc->parent ? proc->parent->pid : -1), proc->priority, proc->time_slice,
+                proc->kernel_stack, reinterpret_cast<uintptr_t>(proc->memory), proc->name);
     }
 
     cprintf("\nTotal processes: %d\n", nr_process);
@@ -261,25 +261,97 @@ uint32_t TaskManager::pid_hash(int x) {
 // TaskManager scheduling and process lifecycle (static methods)
 // ============================================================================
 
-// Simple round-robin scheduler
+// Compute timeslice from priority (higher priority = longer slice)
+int TaskManager::calc_timeslice(int priority) {
+    // Priority 0 (highest) -> 2x base, priority 20 (lowest) -> 0.5x base
+    int slice = sched_prio::BASE_TIMESLICE * (sched_prio::MIN_PRIO + 1 - priority) / (sched_prio::DEFAULT + 1);
+    if (slice < 1)
+        slice = 1;
+    return slice;
+}
+
+// Called from timer ISR every tick — decrement timeslice, request reschedule
+void TaskManager::tick() {
+    if (!s_current) {
+        return;
+    }
+    if (s_current == s_idle_proc) {
+        return;  // idle doesn't consume timeslice
+    }
+
+    if (s_current->time_slice > 0) {
+        s_current->time_slice--;
+    }
+    if (s_current->time_slice <= 0) {
+        s_current->need_resched = 1;
+    }
+}
+
+// Priority-aware round-robin scheduler
 void TaskManager::schedule() {
     intr::Guard guard;
 
     TaskStruct* next = s_idle_proc;
+    int best_prio = sched_prio::IDLE_PRIO + 1;  // Worse than idle
     ListNode* head = &s_proc_list;
-    for (auto* le = head->get_next(); le != head; le = le->get_next()) {
-        TaskStruct* proc = TaskStruct::from_list_link(le);
-        if (proc->state == ProcessState::Runnable) {
-            next = proc;
-            break;
+
+    // Start scanning from the round-robin cursor to ensure fairness.
+    // The cursor points to the node AFTER the last scheduled process.
+    if (!s_sched_cursor || s_sched_cursor == head) {
+        s_sched_cursor = head->get_next();
+    }
+
+    // Scan the entire list starting from cursor, wrapping around
+    ListNode* start = s_sched_cursor;
+    ListNode* le = start;
+    bool wrapped = false;
+    while (true) {
+        if (le == head) {
+            le = head->get_next();
+            if (le == head) {
+                break;  // Empty list
+            }
+            if (le == start) {
+                break;  // Full wrap
+            }
+            wrapped = true;
+            continue;
         }
+        if (wrapped && le == start) {
+            break;  // Completed full scan
+        }
+
+        TaskStruct* proc = TaskStruct::from_list_link(le);
+        if (proc->state == ProcessState::Runnable && proc != s_idle_proc) {
+            // Among runnable processes, prefer higher priority (lower number).
+            // For equal priority, pick the first one found (round-robin effect).
+            if (proc->priority < best_prio) {
+                next = proc;
+                best_prio = proc->priority;
+            }
+        }
+        le = le->get_next();
+    }
+
+    // Advance cursor past the chosen process for next time
+    if (next != s_idle_proc) {
+        s_sched_cursor = next->list_node.get_next();
+    }
+
+    // Replenish timeslice for the next process if exhausted
+    if (next->time_slice <= 0) {
+        next->time_slice = calc_timeslice(next->priority);
     }
 
     if (next != s_current) {
         if (s_current->state == ProcessState::Running) {
             s_current->state = ProcessState::Runnable;
         }
+        s_current->need_resched = 0;
         next->run();
+    } else {
+        // Staying on same process — just replenish if needed
+        s_current->need_resched = 0;
     }
 }
 
@@ -291,6 +363,10 @@ int TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_fra
     proc->setup_kernel_stack();
     proc->copy_mm(clone_flags);
     proc->copy_thread(stack, trap_frame);
+
+    // Inherit parent's priority and compute timeslice
+    proc->priority = get_current()->priority;
+    proc->time_slice = calc_timeslice(proc->priority);
 
     {
         intr::Guard guard;
@@ -408,6 +484,8 @@ void TaskManager::init_idle() {
     idle_proc->state = ProcessState::Runnable;
     idle_proc->kernel_stack = reinterpret_cast<uintptr_t>(user_stack);  // Use boot stack
     idle_proc->child_list.init();
+    idle_proc->priority = sched_prio::IDLE_PRIO;
+    idle_proc->time_slice = 0;
 
     // Idle process uses kernel's init_mm (shared by all kernel threads)
     idle_proc->memory = &init_mm;
@@ -442,6 +520,10 @@ void init() {
 
 void schedule() {
     TaskManager::schedule();
+}
+
+void tick() {
+    TaskManager::tick();
 }
 
 int fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* tf) {

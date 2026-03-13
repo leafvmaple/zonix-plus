@@ -18,8 +18,6 @@
 
 namespace {
 
-constexpr int TICK_NUM = 100;
-
 const char* const EXC_NAMES[] = {"Divide error",
                                  "Debug",
                                  "Non-Maskable Interrupt",
@@ -89,9 +87,7 @@ void TrapFrame::print_pgfault() const {
 
 static void irq_timer(TrapFrame* tf) {
     pit::ticks++;
-    if (static_cast<int>(pit::ticks) % TICK_NUM == 0) {
-        sched::schedule();
-    }
+    sched::tick();
     fbcons::tick();
 }
 
@@ -159,5 +155,12 @@ void trap(TrapFrame* tf) {
     // Send EOI for hardware interrupts (IRQ 0-15)
     if (tf->trapno >= IRQ_OFFSET && tf->trapno < IRQ_OFFSET + 16) {
         pic::send_eoi(tf->trapno - IRQ_OFFSET);
+    }
+
+    // Check reschedule AFTER EOI — never context-switch with EOI pending,
+    // otherwise the PIC blocks all further interrupts.
+    TaskStruct* cur = sched::current();
+    if (cur && cur->need_resched) {
+        sched::schedule();
     }
 }

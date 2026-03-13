@@ -87,10 +87,10 @@ public:                               // TODO
     int write_entry(uint32_t cluster, uint32_t value);
 
     int read_root_dir(int (*callback)(fat_dir_entry_t* entry, void* arg), void* arg);
-    int find_file(const char* filename, fat_dir_entry_t* entry);
+    int find_file(const char* filename, fat_dir_entry_t* result);
     int read_file(fat_dir_entry_t* entry, uint8_t* buf, uint32_t offset, uint32_t size);
 
-    uint32_t cluster_to_sector(uint32_t cluster);
+    [[nodiscard]] uint32_t cluster_to_sector(uint32_t cluster) const;
     static void get_filename(fat_dir_entry_t* entry, char* buf, int bufsize);
 
 private:

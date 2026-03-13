@@ -3,6 +3,7 @@
 #include <base/types.h>
 
 #include "block/blk.h"
+#include "lib/waitqueue.h"
 
 // IDE/ATA disk constants
 namespace ide {
@@ -52,8 +53,6 @@ inline constexpr size_t NAME_LEN = 8;  // Device name length
 
 }  // namespace ide
 
-struct TaskStruct;
-
 struct IdeConfig {
     uint8_t channel{};
     uint8_t drive{};
@@ -74,18 +73,17 @@ struct DiskInfo {
 struct IdeRequest {
     enum class Op : uint8_t { None = 0, Read = 1, Write = 2 };
 
-    volatile int done{};    // Set to 1 by ISR when operation completes
-    volatile int err{};     // Error flag set by ISR
-    uint8_t* buffer{};      // Pointer to buffer for current transfer
-    Op op{Op::None};        // Operation type
-    TaskStruct* waiting{};  // Sleeping task waiting for completion
+    volatile int done{};  // Set to 1 by ISR when operation completes
+    volatile int err{};   // Error flag set by ISR
+    uint8_t* buffer{};    // Pointer to buffer for current transfer
+    Op op{Op::None};      // Operation type
+    WaitQueue waitq{};    // Wait queue for I/O completion
 
     void reset() {
         done = 0;
         err = 0;
         buffer = nullptr;
         op = Op::None;
-        waiting = nullptr;
     }
 };
 

@@ -5,7 +5,6 @@
 #include <asm/arch.h>
 #include <asm/drivers/i8259.h>
 #include "pic.h"
-#include "sched/sched.h"
 #include "intr.h"
 
 // Global IDE devices
@@ -70,7 +69,8 @@ void IdeDevice::interrupt() {
                 arch_port_insw(config->base + ide::REG_DATA, request.buffer, ide::SECTOR_SIZE / 2);
             }
             break;
-        } else if (request.op == IdeRequest::Op::Write) {
+        }
+        if (request.op == IdeRequest::Op::Write) {
             if (!(status & ide::STATUS_DRQ)) {
                 break;
             }
@@ -78,12 +78,10 @@ void IdeDevice::interrupt() {
                 arch_port_outsw(config->base + ide::REG_DATA, request.buffer, ide::SECTOR_SIZE / 2);
             }
         }
-    } while (0);
+    } while (false);
 
     request.done = 1;
-    if (request.waiting) {
-        request.waiting->wakeup();
-    }
+    request.waitq.wakeup_one();
 }
 
 void IdeManager::init(void) {
@@ -183,7 +181,6 @@ int IdeDevice::read(uint32_t block_number, void* buf, size_t block_count) {
             request.reset();
             request.buffer = reinterpret_cast<uint8_t*>(buf) + i * ide::SECTOR_SIZE;
             request.op = IdeRequest::Op::Read;
-            request.waiting = TaskManager::get_current();
 
             // Set sector count and LBA address
             arch_port_outb(config->base + ide::REG_SECTOR_COUNT, 1);
@@ -196,16 +193,9 @@ int IdeDevice::read(uint32_t block_number, void* buf, size_t block_count) {
             arch_port_outb(config->base + ide::REG_COMMAND, ide::CMD_READ);
         }
 
-        // Wait for interrupt completion (double-checked pattern)
+        // Wait for interrupt completion
         while (!request.done) {
-            {
-                intr::Guard guard;
-                if (request.done) {
-                    break;
-                }
-                TaskManager::get_current()->state = ProcessState::Sleeping;
-            }
-            TaskManager::schedule();
+            request.waitq.sleep();
         }
 
         if (request.err) {
@@ -249,7 +239,6 @@ int IdeDevice::write(uint32_t block_number, const void* buf, size_t block_count)
             request.reset();
             request.buffer = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(buf) + i * ide::SECTOR_SIZE);
             request.op = IdeRequest::Op::Write;
-            request.waiting = TaskManager::get_current();
 
             arch_port_outb(config->base + ide::REG_SECTOR_COUNT, 1);
             arch_port_outb(config->base + ide::REG_LBA_LOW, lba & 0xFF);
@@ -270,15 +259,9 @@ int IdeDevice::write(uint32_t block_number, const void* buf, size_t block_count)
             arch_port_outsw(config->base + ide::REG_DATA, request.buffer, ide::SECTOR_SIZE / 2);
         }
 
-        // Wait for interrupt completion (double-checked pattern)
+        // Wait for interrupt completion
         while (!request.done) {
-            {
-                intr::Guard guard;
-                if (request.done)
-                    break;  // Re-check with interrupts disabled
-                TaskManager::get_current()->state = ProcessState::Sleeping;
-            }
-            TaskManager::schedule();
+            request.waitq.sleep();
         }
 
         if (request.err) {
