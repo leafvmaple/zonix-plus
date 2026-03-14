@@ -28,10 +28,23 @@
 #define VM_USER      PTE_U               /* page is accessible from user mode   */
 #define VM_NOCACHE   (PTE_PCD | PTE_PWT) /* disable caching (MMIO) */
 #define VM_LARGEPAGE PTE_PS              /* 2MB / section mapping               */
-#define VM_NOEXEC    PTE_NX              /* no-execute                          */
+
+#define VM_NOEXEC PTE_NX /* no-execute                          */
 
 /* Convenience combo: user-accessible read/write */
 #define VM_USER_RW (VM_USER | VM_WRITE | VM_PRESENT)
+
+static inline bool pte_is_block(uintptr_t entry) {
+    return entry & PTE_PS;
+}
+
+/* x86 table/page entry helpers (uniform format on x86) */
+static inline uintptr_t make_pte_table(uintptr_t pa) {
+    return pa | VM_USER_RW;
+}
+static inline uintptr_t make_pte_page(uintptr_t pa, uint32_t perm) {
+    return pa | VM_PRESENT | perm;
+}
 
 #ifndef __ASSEMBLY__
 

@@ -10,8 +10,13 @@
 #include "vmm.h"
 #include "swap.h"
 
+#if defined(__aarch64__)
+extern pde_t __boot_pgd_high;
+pde_t* boot_pgdir = &__boot_pgd_high;
+#else
 extern pde_t __boot_pml4;
 pde_t* boot_pgdir = &__boot_pml4;
+#endif
 
 MemoryDesc init_mm;
 
@@ -67,7 +72,7 @@ void pgdir_init(pde_t* pgdir, uintptr_t la, size_t size, uintptr_t pa, uint32_t 
     pa = round_down(pa, PG_SIZE);
     for (; n > 0; n--, la += PG_SIZE, pa += PG_SIZE) {
         pte_t* ptep = pmm::get_pte(pgdir, la, 1);
-        *ptep = pa | VM_PRESENT | perm;
+        *ptep = make_pte_page(pa, perm);
     }
 }
 

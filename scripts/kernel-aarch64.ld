@@ -5,6 +5,15 @@ ENTRY(_start)
 KERNEL_BASE = 0xFFFF000000000000;
 KERNEL_PHYS = 0x40080000;            /* QEMU virt -kernel load address */
 
+/*
+ * QEMU's aarch64 -kernel ELF loader only loads the first PT_LOAD segment.
+ * Use PHDRS to force everything into a single LOAD segment so that .rodata,
+ * .data, and .bss are all loaded together with .text.
+ */
+PHDRS {
+    all PT_LOAD FLAGS(7);   /* RWX — single loadable segment */
+}
+
 SECTIONS {
     . = KERNEL_BASE + KERNEL_PHYS;
 
@@ -12,7 +21,7 @@ SECTIONS {
 
     .text.boot : AT(KERNEL_PHYS) {
         *(.text.boot)
-    }
+    } :all
 
     .text : {
         *(.text .text.*)

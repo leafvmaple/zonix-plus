@@ -314,6 +314,7 @@ static void test_context_structure() {
 
     Context ctx{};
 
+#if defined(__x86_64__)
     // Verify default initialization
     TEST_ASSERT(ctx.rip == 0, "Context rip initialized to 0");
     TEST_ASSERT(ctx.rsp == 0, "Context rsp initialized to 0");
@@ -325,6 +326,17 @@ static void test_context_structure() {
     ctx.rsp = 0xDEADBEEF;
     TEST_ASSERT(ctx.rip == 0x12345678, "Context rip set correctly");
     TEST_ASSERT(ctx.rsp == 0xDEADBEEF, "Context rsp set correctly");
+#elif defined(__aarch64__)
+    // Verify default initialization
+    TEST_ASSERT(ctx.x30 == 0, "Context x30/LR initialized to 0");
+    TEST_ASSERT(ctx.sp == 0, "Context sp initialized to 0");
+
+    // Set and verify values
+    ctx.x30 = 0x12345678;
+    ctx.sp = 0xDEADBEEF;
+    TEST_ASSERT(ctx.x30 == 0x12345678, "Context x30/LR set correctly");
+    TEST_ASSERT(ctx.sp == 0xDEADBEEF, "Context sp set correctly");
+#endif
 
     TEST_END();
 }

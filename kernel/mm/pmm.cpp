@@ -106,7 +106,7 @@ pte_t* pmm::get_pte(pde_t* pml4, uintptr_t la, bool create) {
         page->ref = PAGE_REF_INIT;
         pde_t pa = page2pa(page);
         memset(phys_to_virt(pa), 0, PG_SIZE);
-        *pml4e = pa | VM_USER_RW;
+        *pml4e = make_pte_table(pa);
     }
 
     // Level 3: PDPT
@@ -119,13 +119,13 @@ pte_t* pmm::get_pte(pde_t* pml4, uintptr_t la, bool create) {
         page->ref = PAGE_REF_INIT;
         pde_t pa = page2pa(page);
         memset(phys_to_virt(pa), 0, PG_SIZE);
-        *pdpte = pa | VM_USER_RW;
+        *pdpte = make_pte_table(pa);
     }
 
     // Level 2: PD
     pde_t* pd = phys_to_virt<pde_t>(pte_addr(*pdpte));
     pde_t* pde = pd + pdx(la);
-    if (*pde & VM_LARGEPAGE) {
+    if (pte_is_block(*pde)) {
         // This is a 2MB large page.  Split it into a 4KB page table so that
         // individual 4KB pages within the 2MB region can be managed.
         uintptr_t large_pa = pte_addr(*pde);
@@ -140,11 +140,11 @@ pte_t* pmm::get_pte(pde_t* pml4, uintptr_t la, bool create) {
 
         // Fill the new PT: entries covering the same 2MB range
         for (int i = 0; i < PAGE_TABLE_ENTRIES; i++) {
-            pt[i] = (large_pa + i * PG_SIZE) | VM_PRESENT | old_perm;
+            pt[i] = make_pte_page(large_pa + i * PG_SIZE, old_perm);
         }
 
         // Replace the large page entry with a pointer to the new PT
-        *pde = pt_pa | VM_PRESENT | (old_perm & (VM_WRITE | VM_USER));
+        *pde = make_pte_table(pt_pa);
     } else if (!(*pde & VM_PRESENT)) {
         Page* page{};
         if (!create || (page = alloc_pages(1)) == nullptr)
@@ -152,7 +152,7 @@ pte_t* pmm::get_pte(pde_t* pml4, uintptr_t la, bool create) {
         page->ref = PAGE_REF_INIT;
         pde_t pa = page2pa(page);
         memset(phys_to_virt(pa), 0, PG_SIZE);
-        *pde = pa | VM_USER_RW;
+        *pde = make_pte_table(pa);
     }
 
     // Level 1: PT
@@ -217,7 +217,7 @@ int pmm::page_insert(pde_t* pgdir, Page* page, uintptr_t la, uint32_t perm) {
         return INSERT_FAILURE;
     }
     page->ref++;
-    *ptep = pmm::page2pa(page) | perm | VM_PRESENT;
+    *ptep = make_pte_page(pmm::page2pa(page), perm);
 
     pmm::tlb_invl(pgdir, la);
     return INSERT_SUCCESS;

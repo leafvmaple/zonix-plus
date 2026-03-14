@@ -1,8 +1,5 @@
 /**
  * AArch64 architecture initialization and runtime abstractions.
- *
- * Minimal stubs so the kernel can link and boot to the serial console.
- * TODO: implement GIC, timer, exception vectors.
  */
 
 #include <asm/arch.h>
@@ -10,52 +7,54 @@
 #include <asm/memlayout.h>
 #include <kernel/bootinfo.h>
 
-// PL011 UART base address (QEMU virt machine)
-static constexpr uintptr_t UART_PHYS = 0x09000000;
-
-static volatile uint32_t* uart() {
-    return phys_to_virt<uint32_t>(UART_PHYS);
-}
-
-// Minimal UART putc (PL011 data register at offset 0)
-static void uart_putc(char c) {
-    if (c == '\n')
-        uart()[0] = '\r';
-    uart()[0] = static_cast<uint32_t>(c);
-}
-
-static void uart_puts(const char* s) {
-    while (*s)
-        uart_putc(*s++);
-}
+// Exception vector table (defined in trapentry.S)
+extern "C" char _vectors[];
 
 // ============================================================================
 // Architecture initialization
 // ============================================================================
 
+static void timer_init() {
+    // ARM Generic Timer: configure virtual timer for ~100 Hz
+    uint64_t freq;
+    __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(freq));
+    uint64_t interval = freq / 100;  // 10ms per tick
+    __asm__ volatile("msr cntv_tval_el0, %0" ::"r"(interval));
+    // Enable the virtual timer, unmask interrupt
+    __asm__ volatile("msr cntv_ctl_el0, %0" ::"r"(1UL));
+}
+
 void arch_early_init() {
-    // TODO: GIC init, timer init, exception vector table
-    uart_puts("arch_early_init: aarch64 stub\n");
+    // Install exception vector table
+    uint64_t vbar = reinterpret_cast<uint64_t>(_vectors);
+    __asm__ volatile("msr vbar_el1, %0" ::"r"(vbar));
+    __asm__ volatile("isb");
+
+    // Initialize timer (GIC configuration is not needed for QEMU virt
+    // because the virtual timer fires as an EL1 IRQ automatically)
+    timer_init();
 }
 
 // ============================================================================
-// Runtime arch helpers (stubs)
+// Runtime arch helpers
 // ============================================================================
 
 void arch_switch_rsp0(uintptr_t) {
-    // TODO: update SP_EL0 or equivalent for current task
+    // AArch64 EL1 uses SP_EL1 implicitly; no TSS equivalent needed.
+    // SP_EL0 is saved/restored by trap entry/exit.
 }
 
 void arch_irq_eoi(int) {
-    // TODO: GIC end-of-interrupt
+    // QEMU virt with virtual timer doesn't require GIC EOI;
+    // the timer interrupt is auto-cleared when we write TVAL.
 }
 
 void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry, uintptr_t fn, uintptr_t arg) {
-    // ELR_EL1 = entry, x0 = fn, x1 = arg
+    // ELR_EL1 = entry (kernel_thread_entry), x0 = fn, x1 = arg
     tf->pc = entry;
     tf->regs[0] = fn;
     tf->regs[1] = arg;
-    tf->pstate = 0x00000005;  // EL1h, IRQ masked
+    tf->pstate = 0x00000005;  // EL1h, IRQ unmasked (DAIF.I=0)
     tf->sp = 0;
 }
 

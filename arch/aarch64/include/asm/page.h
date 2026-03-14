@@ -2,42 +2,15 @@
 
 /**
  * @file page.h
- * @brief Architecture-neutral paging constants and types — AArch64 stub.
+ * @brief Architecture-neutral paging constants and types — AArch64.
  *
  * AArch64 implementation with 4KB granule, 4-level tables (48-bit VA).
- * TODO: implement when bringing up the aarch64 port.
+ * Aggregates pg.h (raw PTE bits), memlayout.h (memory layout), and
+ * mmu.h (address conversion + page table geometry).
  */
 
-/* ===================================================================
- * AArch64 native PTE bits (VMSAv8-64, stage-1, 4KB granule)
- * =================================================================== */
-
-#define PTE_VALID (1UL << 0)
-#define PTE_TABLE (1UL << 1)  /* table descriptor (levels 0-2) */
-#define PTE_BLOCK (0UL << 1)  /* block descriptor (levels 1-2) */
-#define PTE_PAGE  (1UL << 1)  /* page descriptor (level 3)     */
-#define PTE_AF    (1UL << 10) /* access flag                   */
-
-/* AttrIndex[2:0] in bits [4:2] */
-#define PTE_ATTR_NORMAL (0UL << 2) /* use MAIR index 0 (normal)     */
-#define PTE_ATTR_DEVICE (1UL << 2) /* use MAIR index 1 (device)     */
-
-/* AP[2:1] in bits [7:6] */
-#define PTE_AP_RW_EL1 (0UL << 6) /* EL1 read/write, EL0 none      */
-#define PTE_AP_RW_ALL (1UL << 6) /* EL1+EL0 read/write            */
-#define PTE_AP_RO_EL1 (2UL << 6) /* EL1 read-only, EL0 none       */
-#define PTE_AP_RO_ALL (3UL << 6) /* EL1+EL0 read-only             */
-
-#define PTE_UXN (1UL << 54) /* unprivileged execute-never    */
-#define PTE_PXN (1UL << 53) /* privileged execute-never      */
-
-/* ===================================================================
- * Page size
- * =================================================================== */
-
-#define PG_SIZE  4096
-#define PG_SHIFT 12
-#define PG_MASK  (PG_SIZE - 1)
+#include "pg.h"
+#include "memlayout.h"
 
 /* ===================================================================
  * Portable page permission flags  (VM_* — used by kernel/ code)
@@ -95,5 +68,34 @@ static inline int ptx(uintptr_t va) {
 static inline uintptr_t pte_addr(uintptr_t pte) {
     return pte & 0x0000FFFFFFFFF000ULL;
 }
+
+/* Detect 2MB block entry at PMD level: valid=1, table=0 → bits[1:0]=0b01 */
+static inline bool pte_is_block(uintptr_t entry) {
+    return (entry & 3) == 1;
+}
+
+/*
+ * AArch64 descriptor format helpers.
+ *
+ * Table descriptor (levels 0-2, points to next level):  PA | 0b11
+ * Block descriptor (levels 1-2, 1GB/2MB mapping):       PA | attrs | 0b01
+ * Page descriptor  (level 3, 4KB mapping):               PA | attrs | 0b11
+ *
+ * On x86, table entries and page entries share the same format (P + W + U).
+ * On aarch64, they differ: table needs bit[1]=1, page also needs bit[1]=1,
+ * but block has bit[1]=0.
+ */
+
+/* Create a table descriptor pointing to next-level page table */
+static inline uintptr_t make_pte_table(uintptr_t pa) {
+    return pa | PTE_VALID | PTE_TABLE;
+}
+
+/* Create a level-3 page descriptor (4KB page) */
+static inline uintptr_t make_pte_page(uintptr_t pa, uint32_t perm) {
+    return pa | PTE_VALID | PTE_PAGE | PTE_AF | perm;
+}
+
+#include "mmu.h"
 
 #endif /* !__ASSEMBLY__ */

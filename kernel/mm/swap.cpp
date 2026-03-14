@@ -33,6 +33,11 @@ int init() {
     // Initialize swap filesystem (disk-based swap)
     swapfs_init();
 
+    if (!swap_device) {
+        max_swap_offset = 0;
+        return 0;
+    }
+
     // Calculate maximum swap offset based on available disk space
     // Reserve space for swap (use sectors after SWAP_START_SECTOR)
     uint32_t available_sectors = swap_device->size - SWAP_START_SECTOR;

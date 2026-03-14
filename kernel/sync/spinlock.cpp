@@ -15,7 +15,5 @@ void Spinlock::acquire() {
 
 void Spinlock::release() {
     __atomic_clear(&locked_, __ATOMIC_RELEASE);
-    if (saved_flags_ & FL_IF) {
-        arch_irq_enable();
-    }
+    arch_irq_restore(saved_flags_);
 }

@@ -16,26 +16,3 @@
 #else
 #define KERNEL_DEVIO_BASE (KERNEL_BASE + KERNEL_MEM_SIZE)
 #endif
-
-// ============================================================================
-// Physical-to-virtual helpers  (within the kernel direct-map window)
-// ============================================================================
-
-#ifndef __ASSEMBLY__
-
-#include <base/types.h>
-
-static inline void* phys_to_virt(uintptr_t pa) {
-    return reinterpret_cast<void*>(pa + KERNEL_BASE);
-}
-
-template<typename T>
-static inline T* phys_to_virt(uintptr_t pa) {
-    return reinterpret_cast<T*>(pa + KERNEL_BASE);
-}
-
-static inline uintptr_t virt_to_phys(void* va) {
-    return reinterpret_cast<uintptr_t>(va) - KERNEL_BASE;
-}
-
-#endif /* !__ASSEMBLY__ */
