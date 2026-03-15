@@ -10,10 +10,12 @@ extern "C" uintptr_t __vectors[];
 
 namespace idt {
 
-void init() {
+int init() {
     for (int i = 0; i < 256; i++)
         SET_TRAP_GATE(&__idt[i], __vectors[i]);
     SET_SYS_GATE(&__idt[T_SYSCALL], __vectors[T_SYSCALL]);
+
+    return ARCH_INIT_OK;
 }
 
 }  // namespace idt

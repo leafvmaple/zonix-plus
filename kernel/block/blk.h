@@ -25,6 +25,8 @@ struct BlockDevice {
     virtual int read(uint32_t block_number, void* buf, size_t block_count) = 0;
     virtual int write(uint32_t block_number, const void* buf, size_t block_count) = 0;
     virtual void print_info();
+    virtual void test();
+    virtual void test_interrupt();
 };
 
 // Block device manager
@@ -39,6 +41,8 @@ public:
     static BlockDevice* get_device(blk::DeviceType type);
     static int get_device_count();
     static void print();
+    static void test_devices();
+    static void test_interrupts();
 
 private:
     static BlockDevice* s_devices[MAX_DEV];
@@ -48,5 +52,13 @@ private:
 namespace blk {
 
 void init();
+
+// Register architecture/platform-specific block backends
+// (e.g. IDE/AHCI on x86, TF/eMMC on ARM platforms).
+void probe_backends();
+
+// Backend-dispatched diagnostics for block devices.
+void test_devices();
+void test_interrupts();
 
 }  // namespace blk

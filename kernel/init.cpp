@@ -23,6 +23,21 @@ static void cxx_init() {
     }
 }
 
+static void run_arch_early_steps() {
+    size_t count = 0;
+    const ArchEarlyStep* steps = arch_early_steps(&count);
+    if (steps == nullptr) {
+        arch_halt();
+    }
+
+    for (size_t i = 0; i < count; i++) {
+        int rc = steps[i].fn();
+        if (rc != 0 && steps[i].required) {
+            arch_halt();
+        }
+    }
+}
+
 extern "C" __attribute__((noreturn)) int kern_init(struct boot_info* boot_info) {
     if (!boot_info || boot_info->magic != BOOT_INFO_MAGIC) {
         goto halt;
@@ -35,8 +50,8 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info* boot_info) 
     // This must be first to enable cprintf for other modules
     cons::init();
 
-    // Architecture-specific early init (interrupt controller, timer, IDT, TSS)
-    arch_early_init();
+    // Architecture-specific early steps (interrupt controller, timer, IDT, TSS)
+    run_arch_early_steps();
 
     pmm::init();
     vmm::init();

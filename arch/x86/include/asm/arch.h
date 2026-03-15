@@ -137,7 +137,15 @@ static inline uintptr_t arch_fault_addr(void) {
 // Non-inline arch functions (defined in arch_init.cpp)
 // ============================================================================
 
-void arch_early_init(void);
+using ArchEarlyStepFn = int (*)();
+
+struct ArchEarlyStep {
+    const char* name;
+    ArchEarlyStepFn fn;
+    bool required;
+};
+
+const ArchEarlyStep* arch_early_steps(size_t* count);
 void arch_switch_rsp0(uintptr_t rsp0);
 void arch_irq_eoi(int irq);
 void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry, uintptr_t fn, uintptr_t arg);

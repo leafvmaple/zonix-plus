@@ -26,7 +26,7 @@ static TssDesc s_tss;
 
 namespace tss {
 
-void init() {
+int init() {
     memset(&s_tss, 0, sizeof(s_tss));
 
     // I/O permission bitmap offset — point past the end of the TSS
@@ -70,6 +70,8 @@ void init() {
     __asm__ volatile("ltr %0" : : "r"(tss_sel));
 
     cprintf("tss: initialised (base=0x%lx, limit=%d)\n", base, limit);
+
+    return ARCH_INIT_OK;
 }
 
 void set_rsp0(uintptr_t rsp0) {

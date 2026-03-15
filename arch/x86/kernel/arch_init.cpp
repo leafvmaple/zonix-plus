@@ -19,11 +19,22 @@
 // Architecture initialization
 // ============================================================================
 
-void arch_early_init() {
-    pic::init();
-    pit::init();
-    idt::init();
-    tss::init();
+namespace {
+
+const ArchEarlyStep ARCH_STEPS[] = {
+    {"pic", pic::init, true},
+    {"pit", pit::init, true},
+    {"idt", idt::init, true},
+    {"tss", tss::init, true},
+};
+
+}  // namespace
+
+const ArchEarlyStep* arch_early_steps(size_t* count) {
+    if (count != nullptr) {
+        *count = sizeof(ARCH_STEPS) / sizeof(ARCH_STEPS[0]);
+    }
+    return ARCH_STEPS;
 }
 
 // ============================================================================

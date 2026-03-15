@@ -10,29 +10,46 @@
 // Exception vector table (defined in trapentry.S)
 extern "C" char _vectors[];
 
-// ============================================================================
-// Architecture initialization
-// ============================================================================
+namespace {
 
-static void timer_init() {
-    // ARM Generic Timer: configure virtual timer for ~100 Hz
-    uint64_t freq;
-    __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(freq));
-    uint64_t interval = freq / 100;  // 10ms per tick
-    __asm__ volatile("msr cntv_tval_el0, %0" ::"r"(interval));
-    // Enable the virtual timer, unmask interrupt
-    __asm__ volatile("msr cntv_ctl_el0, %0" ::"r"(1UL));
+constexpr int ARCH_INIT_OK = 0;
+constexpr int ARCH_INIT_ERR = -1;
+
+static int vectors_init() {
+    uint64_t vbar = reinterpret_cast<uint64_t>(_vectors);
+    __asm__ volatile("msr vbar_el1, %0" : : "r"(vbar));
+    __asm__ volatile("isb");
+    return ARCH_INIT_OK;
 }
 
-void arch_early_init() {
-    // Install exception vector table
-    uint64_t vbar = reinterpret_cast<uint64_t>(_vectors);
-    __asm__ volatile("msr vbar_el1, %0" ::"r"(vbar));
-    __asm__ volatile("isb");
+static int timer_init() {
+    // ARM Generic Timer: configure virtual timer for ~100 Hz
+    uint64_t freq{};
+    __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(freq));
+    if (freq == 0) {
+        return ARCH_INIT_ERR;
+    }
+    uint64_t interval = freq / 100;  // 10ms per tick
+    if (interval == 0) {
+        return ARCH_INIT_ERR;
+    }
+    __asm__ volatile("msr cntv_tval_el0, %0" ::"r"(interval));
+    __asm__ volatile("msr cntv_ctl_el0, %0" ::"r"(1UL));
+    return ARCH_INIT_OK;
+}
 
-    // Initialize timer (GIC configuration is not needed for QEMU virt
-    // because the virtual timer fires as an EL1 IRQ automatically)
-    timer_init();
+const ArchEarlyStep ARCH_STEPS[] = {
+    {"vectors", vectors_init, true},
+    {"timer", timer_init, true},
+};
+
+}  // namespace
+
+const ArchEarlyStep* arch_early_steps(size_t* count) {
+    if (count != nullptr) {
+        *count = sizeof(ARCH_STEPS) / sizeof(ARCH_STEPS[0]);
+    }
+    return ARCH_STEPS;
 }
 
 // ============================================================================

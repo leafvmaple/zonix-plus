@@ -2,6 +2,7 @@
 
 #include <asm/arch.h>
 #include <asm/drivers/i8259.h>
+#include <base/types.h>
 
 namespace pic {
 // Initial IRQ mask has interrupt 2 enabled (for slave 8259A).
@@ -26,7 +27,7 @@ void send_eoi(unsigned int irq) {
     arch_port_outb(PIC1_CMD, 0x20);
 }
 
-void init(void) {
+int init() {
     // Full PIC initialization (ICW1-ICW4)
     // This must be done in the kernel because UEFI does not go through vbr.S
     // which previously handled PIC init for the BIOS path.
@@ -56,6 +57,8 @@ void init(void) {
 
     // Ensure cascade (slave PIC) is enabled
     enable(IRQ_SLAVE);
+
+    return ARCH_INIT_OK;
 }
 
 }  // namespace pic

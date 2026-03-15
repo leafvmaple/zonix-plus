@@ -28,7 +28,7 @@ namespace pit {
 
 volatile int64_t ticks = 0;
 
-void init() {
+int init() {
     struct tm time;
 
     do {
@@ -53,6 +53,8 @@ void init() {
     arch_port_outb(PIT_TIMER0_REG, timer_div(100) / 256);
 
     pic::enable(IRQ_TIMER);
+
+    return ARCH_INIT_OK;
 }
 
 }  // namespace pit

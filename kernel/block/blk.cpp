@@ -3,12 +3,6 @@
 #include "lib/stdio.h"
 #include "lib/string.h"
 
-#include <asm/drivers/i8259.h>
-
-#include "drivers/pic.h"
-#include "drivers/ide.h"
-#include "drivers/ahci.h"
-
 // Static member definitions
 BlockDevice* BlockManager::s_devices[BlockManager::MAX_DEV] = {};
 int BlockManager::s_device_count = 0;
@@ -16,37 +10,8 @@ int BlockManager::s_device_count = 0;
 void BlockManager::init() {
     cprintf("blk_init: initializing block device layer...\n");
 
-    pic::enable(IRQ_IDE1);
-    pic::enable(IRQ_IDE2);
-
-    IdeManager::init();
-    int hd_count = IdeManager::get_device_count();
-    for (int i = 0; i < hd_count; i++) {
-        IdeDevice* ide_device = IdeManager::get_device(i);
-        if (ide_device) {
-            ide_device->size = ide_device->info.size;
-            register_device(ide_device);
-        }
-    }
-
-    if (hd_count == 0) {
-        cprintf("blk_init: no IDE disk devices found\n");
-    }
-
-    // Initialize AHCI devices
-    AhciManager::init();
-    int ahci_count = AhciManager::get_device_count();
-    for (int i = 0; i < ahci_count; i++) {
-        AhciDevice* ahci_device = AhciManager::get_device(i);
-        if (ahci_device) {
-            ahci_device->size = ahci_device->info.size;
-            register_device(ahci_device);
-        }
-    }
-
-    if (ahci_count == 0) {
-        cprintf("blk_init: no AHCI disk devices found\n");
-    }
+    // Let each architecture/platform register its own block backends.
+    blk::probe_backends();
 }
 
 void BlockManager::register_device(BlockDevice* device) {
@@ -97,6 +62,14 @@ void BlockDevice::print_info() {
     cprintf("\n");
 }
 
+void BlockDevice::test() {
+    cprintf("%s: device test not implemented\n", name);
+}
+
+void BlockDevice::test_interrupt() {
+    cprintf("%s: interrupt test not implemented\n", name);
+}
+
 void BlockManager::print() {
     cprintf("NAME   MAJ:MIN RM  SIZE RO TYPE MOUNTPOINTS\n");
 
@@ -120,10 +93,44 @@ void BlockManager::print() {
     }
 }
 
+void BlockManager::test_devices() {
+    if (s_device_count == 0) {
+        cprintf("No block devices found\n");
+        return;
+    }
+
+    for (int i = 0; i < s_device_count; i++) {
+        if (s_devices[i] != nullptr) {
+            s_devices[i]->test();
+        }
+    }
+}
+
+void BlockManager::test_interrupts() {
+    if (s_device_count == 0) {
+        cprintf("No block devices found\n");
+        return;
+    }
+
+    for (int i = 0; i < s_device_count; i++) {
+        if (s_devices[i] != nullptr) {
+            s_devices[i]->test_interrupt();
+        }
+    }
+}
+
 namespace blk {
 
 void init() {
     BlockManager::init();
+}
+
+void test_devices() {
+    BlockManager::test_devices();
+}
+
+void test_interrupts() {
+    BlockManager::test_interrupts();
 }
 
 }  // namespace blk

@@ -17,35 +17,29 @@ typedef unsigned long long size_t;
 #ifdef __cplusplus
 
 template<typename T, typename M>
-constexpr size_t offset_of(M T::*member) {
+constexpr size_t offset_of(M T::* member) {
     return reinterpret_cast<size_t>(&(static_cast<T*>(nullptr)->*member));
 }
 
 template<typename T, typename M>
-inline T* to_struct(void* ptr, M T::*member) {
+inline T* to_struct(void* ptr, M T::* member) {
     return reinterpret_cast<T*>(reinterpret_cast<char*>(ptr) - offset_of(member));
 }
 
-#define OFFSET_OF(type, member) \
-    reinterpret_cast<size_t>(&(static_cast<type*>(nullptr)->member))
-#define TO_STRUCT(ptr, type, member) \
-    reinterpret_cast<type*>(reinterpret_cast<char*>(ptr) - OFFSET_OF(type, member))
+#define OFFSET_OF(type, member)      reinterpret_cast<size_t>(&(static_cast<type*>(nullptr)->member))
+#define TO_STRUCT(ptr, type, member) reinterpret_cast<type*>(reinterpret_cast<char*>(ptr) - OFFSET_OF(type, member))
 
 template<typename T, size_t N>
 constexpr size_t array_size(const T (&)[N]) noexcept {
     return N;
 }
 
-#ifndef NULL
-#define NULL nullptr
-#endif
+constexpr int ARCH_INIT_OK = 0;
 
 #else /* C */
 
-#define OFFSET_OF(type, member) \
-    ((size_t)&(((type*)0)->member))
-#define TO_STRUCT(ptr, type, member) \
-    ((type*)((char*)(ptr) - OFFSET_OF(type, member)))
+#define OFFSET_OF(type, member)      ((size_t)&(((type*)0)->member))
+#define TO_STRUCT(ptr, type, member) ((type*)((char*)(ptr) - OFFSET_OF(type, member)))
 
 #ifndef NULL
 #define NULL ((void*)0)

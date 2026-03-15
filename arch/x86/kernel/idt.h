@@ -2,6 +2,6 @@
 
 namespace idt {
 
-void init();
+int init();
 
 }  // namespace idt

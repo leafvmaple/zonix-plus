@@ -3,7 +3,6 @@
 #include "lib/stdio.h"
 #include "mm/vmm.h"
 #include "mm/swap_test.h"
-#include "drivers/ide.h"
 #include "drivers/kbd.h"
 #include "block/blk.h"
 #include "sched/sched.h"
@@ -100,14 +99,14 @@ static void cmd_disktest(int argc, char** argv) {
     (void)argc;
     (void)argv;
     cprintf("Running disk test...\n");
-    IdeManager::test();
+    BlockManager::test_devices();
 }
 
 static void cmd_intrtest(int argc, char** argv) {
     (void)argc;
     (void)argv;
     cprintf("Running interrupt test...\n");
-    IdeManager::test_interrupt();
+    BlockManager::test_interrupts();
 }
 
 static void cmd_dd(int argc, char** argv) {
@@ -483,7 +482,7 @@ shell_cmd_t commands[] = {
     {"lsblk", "List block devices", cmd_lsblk},
     {"hdparm", "Show disk information", cmd_hdparm},
     {"disktest", "Test disk read/write", cmd_disktest},
-    {"intrtest", "Test IDE interrupts", cmd_intrtest},
+    {"intrtest", "Test block device interrupts", cmd_intrtest},
     {"dd", "Disk dump/copy (info only)", cmd_dd},
     {"uname", "Print system information (-a for all)", cmd_uname},
     {"ps", "List all processes", cmd_ps},

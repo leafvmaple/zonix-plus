@@ -20,7 +20,7 @@ namespace tss {
  * Initialise the TSS, write its descriptor into GDT slots 5-6,
  * and execute LTR to activate it.
  */
-void init();
+int init();
 
 /**
  * Update TSS.RSP0 — the stack the CPU will switch to when entering
