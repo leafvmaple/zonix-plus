@@ -20,7 +20,7 @@ void init() {
 void late_init() {}
 
 char getc() {
-    int c;
+    int c{};
     while ((c = pl011::getc()) < 0) {}
     return static_cast<char>(c);
 }

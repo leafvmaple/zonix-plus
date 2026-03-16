@@ -4,10 +4,8 @@
 
 namespace cga {
 
-#ifdef CONFIG_CGA
 void init();
 void putc(int c);
 void scrup();
-#endif
 
-} // namespace cga
+}  // namespace cga

@@ -72,42 +72,43 @@ int getc(void) {
     uint8_t data = arch_port_inb(KBD_DATA_REG);
 
     // Ignore key release events (scancode & 0x80)
-    if (data & 0x80)
+    if (data & 0x80) {
         return -1;
 
-    return normal_map[data];
-}
 
-// Called from keyboard IRQ handler — read char from hardware, buffer it
-void intr(void) {
-    int c = getc();
-    if (c <= 0)
-        return;
-
-    int next = (kbd_write + 1) % KBD_BUF_SIZE;
-    if (next == kbd_read)
-        return;  // buffer full, drop
-
-    kbd_buf[kbd_write] = (char)c;
-    kbd_write = next;
-
-    // Wake up process sleeping in getc_blocking()
-    kbd_waitq.wakeup_one();
-}
-
-// Blocking read — called from process context, sleeps until input available
-char getc_blocking(void) {
-    while (true) {
-        {
-            intr::Guard guard;
-            if (kbd_read != kbd_write) {
-                char c = kbd_buf[kbd_read];
-                kbd_read = (kbd_read + 1) % KBD_BUF_SIZE;
-                return c;
-            }
-        }
-        kbd_waitq.sleep();
+        return normal_map[data];
     }
-}
+
+    // Called from keyboard IRQ handler — read char from hardware, buffer it
+    void intr(void) {
+        int c = getc();
+        if (c <= 0)
+            return;
+
+        int next = (kbd_write + 1) % KBD_BUF_SIZE;
+        if (next == kbd_read)
+            return;  // buffer full, drop
+
+        kbd_buf[kbd_write] = (char)c;
+        kbd_write = next;
+
+        // Wake up process sleeping in getc_blocking()
+        kbd_waitq.wakeup_one();
+    }
+
+    // Blocking read — called from process context, sleeps until input available
+    char getc_blocking(void) {
+        while (true) {
+            {
+                intr::Guard guard;
+                if (kbd_read != kbd_write) {
+                    char c = kbd_buf[kbd_read];
+                    kbd_read = (kbd_read + 1) % KBD_BUF_SIZE;
+                    return c;
+                }
+            }
+            kbd_waitq.sleep();
+        }
+    }
 
 }  // namespace i8042

@@ -114,4 +114,4 @@ jobs:
           name: Zonix ${{ steps.version.outputs.version }}
           body_path: release_notes.md
           files: |
-            bin/*.img
+            bin/x86/*.img

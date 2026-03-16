@@ -15,6 +15,6 @@ UEFI_LDFLAGS := -Wl,--entry=efi_main -Wl,--subsystem,10 -Wl,--image-base,0 \
 
 bootx64 = $(call totarget,BOOTX64.EFI)
 $(bootx64): $(BOOT_UEFI_DIR)/bootload.c | $$(dir $$@)
-	$(Q)mkdir -p obj/$(BOOT_UEFI_DIR)
+	$(Q)mkdir -p $(OBJDIR)/$(BOOT_UEFI_DIR)
 	$(Q)$(UEFI_CC) $(UEFI_CFLAGS) $< -o $@ $(UEFI_LDFLAGS)
 	@echo "  UEFI    $@"

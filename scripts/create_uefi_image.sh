@@ -1,9 +1,10 @@
 #!/bin/bash
 set -e
 
-IMAGE="bin/zonix-uefi.img"
-BOOTLOADER="bin/BOOTX64.EFI"
-KERNEL="bin/kernel"
+BINDIR="${BINDIR:-bin}"
+IMAGE="${BINDIR}/zonix-uefi.img"
+BOOTLOADER="${BINDIR}/BOOTX64.EFI"
+KERNEL="${BINDIR}/kernel"
 
 [ -f "$BOOTLOADER" ] || { echo "Error: $BOOTLOADER not found"; exit 1; }
 [ -f "$KERNEL" ] || { echo "Error: $KERNEL not found"; exit 1; }

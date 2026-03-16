@@ -11,13 +11,14 @@
 
 set -e
 
-IMAGE="bin/userdata.img"
-USER_BINDIR="bin/user"
+BINDIR="${BINDIR:-bin}"
+IMAGE="${BINDIR}/userdata.img"
+USER_BINDIR="${BINDIR}/user"
 SIZE_MB=64
 
 echo "=== Creating FAT32 Data Disk ==="
 
-mkdir -p bin
+mkdir -p "$BINDIR"
 
 # 1. Create raw image
 echo "Creating ${SIZE_MB}MB disk image..."

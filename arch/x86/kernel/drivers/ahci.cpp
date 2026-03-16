@@ -40,8 +40,9 @@ void AhciDevice::detect(const AhciPortConfig* cfg, uintptr_t mmio_base) {
 
     // Setup DMA memory for this port
     setup_memory();
-    if (!present)
+    if (!present) {
         return;  // setup_memory failed
+    }
 
     // Send IDENTIFY to get real disk geometry
     identify();

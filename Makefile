@@ -2,7 +2,7 @@
 
 # ==========================================================================
 # Architecture selection
-# Usage: make ARCH=x86 (default) | make ARCH=aarch64 | make ARCH=riscv64
+# Usage: make ARCH=x86 (default) | make ARCH=aarch64
 # ==========================================================================
 ARCH ?= x86
 V    ?= 0  # Verbose mode: make V=1
@@ -15,55 +15,6 @@ else
   Q :=
 endif
 
-# ==========================================================================
-# Per-architecture toolchain and flags
-# ==========================================================================
-ifeq ($(ARCH),x86)
-  CC      := clang
-  CXX     := clang++
-  LD      := ld.lld
-  CFLAGS  := -g -fno-builtin -Wall -ggdb -O0 -m64 -mno-red-zone -mcmodel=kernel \
-             -mno-sse -mno-sse2 -mno-mmx -msoft-float -nostdinc \
-             -fno-stack-protector -fno-pic -gdwarf-2
-  CXXFLAGS := -g -Wall -ggdb -O0 -m64 -mno-red-zone -mcmodel=kernel \
-             -mno-sse -mno-sse2 -mno-mmx -msoft-float -nostdinc -nostdinc++ \
-             -fno-builtin -fno-stack-protector -fno-pic -fno-exceptions -fno-rtti \
-             -fno-use-cxa-atexit -fno-threadsafe-statics \
-             -fno-asynchronous-unwind-tables -fno-unwind-tables \
-             -ffreestanding -std=gnu++17 -gdwarf-2
-  LDFLAGS := -m elf_x86_64 -nostdlib
-  BOOT_CFLAGS  := -g -fno-builtin -Wall -ggdb -O0 -m32 -nostdinc -fno-stack-protector -fno-pic -gdwarf-2
-  BOOT_LDFLAGS := -m elf_i386 -nostdlib
-  DASM    := ndisasm
-  QEMU    := qemu-system-x86_64
-else ifeq ($(ARCH),aarch64)
-  CC      := clang --target=aarch64-none-elf
-  CXX     := clang++ --target=aarch64-none-elf
-  LD      := ld.lld
-  CFLAGS  := -g -Wall -O0 -nostdinc -fno-builtin -fno-stack-protector \
-             -fno-pic -ffreestanding -gdwarf-2
-  CXXFLAGS := -g -Wall -O0 -nostdinc -nostdinc++ \
-             -fno-builtin -fno-stack-protector -fno-pic -fno-exceptions -fno-rtti \
-             -fno-use-cxa-atexit -fno-threadsafe-statics \
-             -fno-asynchronous-unwind-tables -fno-unwind-tables \
-             -ffreestanding -std=gnu++17 -gdwarf-2
-  LDFLAGS := -m aarch64elf -nostdlib
-  QEMU    := qemu-system-aarch64
-else ifeq ($(ARCH),riscv64)
-  CC      := clang --target=riscv64-none-elf
-  CXX     := clang++ --target=riscv64-none-elf
-  LD      := ld.lld
-  CXXFLAGS := -g -Wall -O0 -nostdinc -nostdinc++ \
-             -fno-builtin -fno-stack-protector -fno-pic -fno-exceptions -fno-rtti \
-             -fno-use-cxa-atexit -fno-threadsafe-statics \
-             -ffreestanding -std=gnu++17 -march=rv64gc -mabi=lp64d
-  LDFLAGS := -m elf64lriscv -nostdlib
-  QEMU    := qemu-system-riscv64
-  $(warning RISC-V 64 support is work-in-progress)
-else
-  $(error Unsupported ARCH=$(ARCH). Use: x86, aarch64, riscv64)
-endif
-
 # Auto-dependency generation (clang/clang++ -MMD -MP)
 # .d files are placed next to .o files automatically
 DEPFLAGS := -MMD -MP
@@ -73,13 +24,23 @@ OBJCOPY := llvm-objcopy
 MKDIR   := mkdir -p
 
 SLASH   := /
-OBJDIR  := obj
-BINDIR  := bin
+OBJDIR  := obj/$(ARCH)
+BINDIR  := bin/$(ARCH)
 SCRIPTDIR := scripts
 
 OBJPREFIX := __objs_
 CTYPE     := c S
 CXXTYPE   := cpp cc cxx
+
+ALLOBJS :=
+
+# ==========================================================================
+# Per-architecture toolchain, flags, and source directories
+# ==========================================================================
+ifeq ($(wildcard arch/$(ARCH)/Makefile),)
+  $(error Unsupported ARCH=$(ARCH). Available: $(patsubst arch/%/Makefile,%,$(wildcard arch/*/Makefile)))
+endif
+include arch/$(ARCH)/Makefile
 
 # ==========================================================================
 # Build-system macros
@@ -97,8 +58,6 @@ packetname = $(if $(1),$(addprefix $(OBJPREFIX),$(1)),$(OBJPREFIX))
 toobj     = $(addprefix $(OBJDIR)$(SLASH)$(if $(2),$(2)$(SLASH)),$(addsuffix .o,$(basename $(1))))
 totarget  = $(addprefix $(BINDIR)$(SLASH),$(1))
 tobin     = $(addprefix $(BINDIR)$(SLASH),$(addsuffix .bin,$(1)))
-
-ALLOBJS :=
 
 # Single compile rule (with auto-deps via DEPFLAGS)
 # .S files get -D__ASSEMBLY__ so headers can hide C/C++ constructs.
@@ -143,35 +102,6 @@ INCLUDE := include \
 # ==========================================================================
 # Kernel
 # ==========================================================================
-ifeq ($(ARCH),x86)
-KSRCDIR := kernel              \
-           arch/$(ARCH)/kernel \
-           arch/$(ARCH)/kernel/drivers \
-           kernel/debug        \
-           kernel/cons         \
-           kernel/trap         \
-           kernel/drivers      \
-           kernel/block        \
-           kernel/sched        \
-           kernel/mm           \
-           kernel/fs           \
-           kernel/exec         \
-           kernel/sync
-else ifeq ($(ARCH),aarch64)
-KSRCDIR := kernel              \
-           arch/$(ARCH)/kernel \
-           arch/$(ARCH)/kernel/drivers \
-           kernel/debug        \
-           kernel/cons         \
-           kernel/sched        \
-           kernel/mm           \
-           kernel/sync         \
-           kernel/block        \
-           kernel/fs           \
-           kernel/exec         \
-           kernel/drivers
-endif
-
 CFLAGS   += $(addprefix -I,$(INCLUDE))
 CXXFLAGS += $(addprefix -I,$(INCLUDE))
 
@@ -181,31 +111,9 @@ $(call add_packet_files_cxx,$(call listf_cxx,$(KSRCDIR)),kernel)
 kernel = $(call totarget,kernel)
 KOBJS  := $(sort $(call read_packet,kernel))
 
-# Embedded console font (PSF -> ELF .rodata) — x86 only for now
-ifeq ($(ARCH),x86)
-FONT_PSF := fonts/console.psf
-FONT_OBJ := $(OBJDIR)/fonts/console.psf.o
-
-$(FONT_OBJ): $(FONT_PSF) | $$(dir $$@)
-	$(Q)$(OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 \
-		--rename-section .data=.rodata,alloc,load,readonly,data,contents \
-		--add-section .note.GNU-stack=/dev/null \
-		--set-section-flags .note.GNU-stack=contents,readonly \
-		$< $@
-
-ALLOBJS += $(FONT_OBJ)
-KERNEL_EXTRA_OBJS := $(FONT_OBJ)
-KERNEL_LD_SCRIPT  := $(SCRIPTDIR)/kernel.ld
-else ifeq ($(ARCH),aarch64)
-KERNEL_EXTRA_OBJS :=
-KERNEL_LD_SCRIPT  := $(SCRIPTDIR)/kernel-aarch64.ld
-endif
-
 $(kernel): $(KOBJS) $(KERNEL_EXTRA_OBJS) $(KERNEL_LD_SCRIPT) | $$(dir $$@)
 	$(Q)$(LD) $(LDFLAGS) -T $(KERNEL_LD_SCRIPT) $(KOBJS) $(KERNEL_EXTRA_OBJS) -o $@
-ifeq ($(ARCH),aarch64)
-	$(Q)$(OBJCOPY) --set-start=0x40080000 $@
-endif
+	$(if $(KERNEL_POST_LINK),$(KERNEL_POST_LINK))
 	$(Q)$(OBJCOPY) -S -O binary $@ $(call tobin,kernel)
 	@echo "  LINK    $@"
 
@@ -227,51 +135,25 @@ $(call make_dir)
 # ==========================================================================
 # Disk images
 # ==========================================================================
-bin/userdata.img: $(USER_ELFS)
+$(BINDIR)/userdata.img: $(USER_ELFS)
 	@echo "  IMG     $@"
-	$(Q)bash $(SCRIPTDIR)/create_userdata_image.sh
+	$(Q)BINDIR=$(BINDIR) bash $(SCRIPTDIR)/create_userdata_image.sh
 
-bin/zonix.img: bin/mbr bin/vbr bin/bootloader bin/kernel | $$(dir $$@)
+$(BINDIR)/zonix.img: $(BINDIR)/mbr $(BINDIR)/vbr $(BINDIR)/bootloader $(BINDIR)/kernel | $$(dir $$@)
 	@echo "  IMG     $@"
-	$(Q)bash $(SCRIPTDIR)/create_zonix_image.sh
+	$(Q)BINDIR=$(BINDIR) bash $(SCRIPTDIR)/create_zonix_image.sh
 
-bin/zonix-uefi.img: bin/BOOTX64.EFI bin/kernel | $$(dir $$@)
+$(BINDIR)/zonix-uefi.img: $(BINDIR)/BOOTX64.EFI $(BINDIR)/kernel | $$(dir $$@)
 	@echo "  IMG     $@"
-	$(Q)bash $(SCRIPTDIR)/create_uefi_image.sh
+	$(Q)BINDIR=$(BINDIR) bash $(SCRIPTDIR)/create_uefi_image.sh
 
 # ==========================================================================
 # Top-level targets
 # ==========================================================================
-.PHONY: all mbr vbr fat32 uefi clean disasm format lint \
-        qemu qemu-ahci qemu-fat32 qemu-uefi qemu-aarch64 \
-        debug-qemu debug-qemu-uefi debug-qemu-ahci \
-        bochs debug-bochs gdb help
+.PHONY: all clean format lint help
 
-ifeq ($(ARCH),x86)
-all: bin/mbr bin/vbr bin/bootloader bin/BOOTX64.EFI bin/kernel bin/zonix.img bin/zonix-uefi.img user
-else ifeq ($(ARCH),aarch64)
-all: bin/kernel
-endif
+all: $(ALL_PREREQS)
 .DEFAULT_GOAL := all
-
-mbr:  bin/mbr
-vbr:  bin/vbr
-fat32: bin/zonix.img
-uefi: bin/BOOTX64.EFI bin/zonix-uefi.img
-
-# ==========================================================================
-# Disassembly (optional — run `make disasm`)
-# ==========================================================================
-disasm: bin/kernel bin/mbr bin/vbr bin/bootloader
-	$(Q)$(OBJDUMP) -D bin/kernel     > obj/kernel.asm
-	$(Q)$(DASM) -b 64 bin/kernel.bin > obj/kernel.disasm 2>/dev/null || true
-	$(Q)$(OBJDUMP) -D bin/mbr        > obj/mbr.asm
-	$(Q)$(DASM) -b 16 bin/mbr.bin    > obj/mbr.disasm 2>/dev/null || true
-	$(Q)$(OBJDUMP) -S bin/vbr        > obj/vbr.asm
-	$(Q)$(DASM) -b 16 bin/vbr.bin    > obj/vbr.disasm 2>/dev/null || true
-	$(Q)$(OBJDUMP) -S bin/bootloader > obj/bootloader.asm
-	$(Q)$(DASM) -b 32 bin/bootloader.bin > obj/bootloader.disasm 2>/dev/null || true
-	@echo "  DISASM  obj/*.asm obj/*.disasm"
 
 # ==========================================================================
 # Code quality (optional)
@@ -286,85 +168,42 @@ lint:
 		xargs clang-tidy --quiet -p . 2>/dev/null || true
 
 # ==========================================================================
-# QEMU / Bochs / GDB launch targets
-# ==========================================================================
-qemu: bin/zonix.img bin/userdata.img
-	$(QEMU) -readconfig qemu.cfg -no-reboot
-
-qemu-ahci: bin/zonix.img
-	$(QEMU) -readconfig qemu-ahci.cfg -S -no-reboot
-
-qemu-fat32: bin/zonix.img
-	$(QEMU) -S -no-reboot -readconfig qemu.cfg
-
-qemu-uefi: bin/zonix-uefi.img bin/userdata.img
-	$(QEMU) -bios /usr/share/ovmf/OVMF.fd -readconfig qemu-uefi.cfg
-
-qemu-aarch64: bin/kernel
-	qemu-system-aarch64 -M virt -cpu cortex-a72 -m 256M \
-		-nographic -kernel bin/kernel -no-reboot
-
-debug-qemu: bin/zonix.img
-	$(QEMU) -readconfig qemu-debug.cfg -S -s &
-	sleep 2
-	gdb -q -x $(SCRIPTDIR)/gdbinit
-
-debug-qemu-uefi: bin/zonix-uefi.img
-	$(QEMU) -bios /usr/share/ovmf/OVMF.fd -readconfig qemu-uefi.cfg -S -s &
-	sleep 2
-	gdb -q -x $(SCRIPTDIR)/gdbinit
-
-debug-qemu-ahci: bin/zonix.img
-	$(QEMU) -S -s -parallel stdio \
-		-device ahci,id=ahci0 \
-		-drive if=none,id=sata0,file=$<,format=raw \
-		-device ide-hd,bus=ahci0.0,drive=sata0 \
-		-drive if=ide,index=1,file=bin/userdata.img,format=raw \
-		-serial null &
-	sleep 2
-	gdb -q -x $(SCRIPTDIR)/gdbinit
-
-bochs: bin/zonix.img bin/userdata.img
-	bochs -q -f bochsrc.bxrc
-
-debug-bochs: bin/zonix.img bin/userdata.img
-	bochs -q -f bochsrc_debug.bxrc -dbg
-
-gdb: bin/zonix.img bin/userdata.img
-	bochs -q -f bochsrc.bxrc &
-	sleep 2
-	gdb -q -x $(SCRIPTDIR)/gdbinit
-
-# ==========================================================================
 # Clean
 # ==========================================================================
 clean: user-clean
-	rm -rf obj bin/*.o bin/mbr bin/vbr bin/bootloader bin/kernel \
-	       bin/zonix.img bin/userdata.img bin/zonix-uefi.img \
-	       bin/BOOTX64.EFI bin/*.bin
+	rm -rf obj/$(ARCH) bin/$(ARCH)
 
 # ==========================================================================
 # Help
 # ==========================================================================
 help:
-	@echo "Zonix OS build system"
+	@echo "Zonix OS build system  (ARCH=$(ARCH))"
 	@echo ""
-	@echo "  make [all]           Build kernel + BIOS bootchain + disk image + UEFI"
+	@echo "Build:"
+	@echo "  make [all]           Build everything for current ARCH"
 	@echo "  make bin/kernel      Build kernel only"
-	@echo "  make mbr             Build MBR only"
-	@echo "  make vbr             Build VBR only"
-	@echo "  make fat32           Build FAT32 disk image"
-	@echo "  make uefi            Build UEFI bootloader + disk image"
-	@echo "  make disasm          Generate disassembly listings in obj/"
+	@echo "  make user            Build user-mode programs"
+	@echo "  make disasm          Generate disassembly listings (x86)"
+	@echo "  make clean           Remove all build artifacts"
+	@echo ""
+	@echo "Run (x86):"
+	@echo "  make qemu            UEFI + AHCI (default)"
+	@echo "  make qemu-bios       BIOS + IDE fallback"
+	@echo "  make qemu DISK=ide   Use IDE for user-data disk"
+	@echo "  make debug           UEFI + AHCI + GDB"
+	@echo "  make debug-bios      BIOS + IDE + GDB"
+	@echo ""
+	@echo "Run (aarch64):"
+	@echo "  make qemu ARCH=aarch64"
+	@echo ""
+	@echo "Quality:"
 	@echo "  make format          Run clang-format on all sources"
 	@echo "  make lint            Run clang-tidy on all sources"
-	@echo "  make user            Build user-mode programs only"
-	@echo "  make qemu            Run in QEMU (BIOS)"
-	@echo "  make qemu-uefi       Run in QEMU (UEFI)"
-	@echo "  make debug-qemu      Run in QEMU + GDB"
-	@echo "  make bochs           Run in Bochs"
-	@echo "  make clean           Remove all build artifacts"
-	@echo "  make V=1             Verbose build output"
+	@echo ""
+	@echo "Options:"
+	@echo "  ARCH=x86|aarch64     Target architecture (default: x86)"
+	@echo "  DISK=ahci|ide        User-data disk controller (default: ahci)"
+	@echo "  V=1                  Verbose build output"
 	@echo ""
 
 # ==========================================================================

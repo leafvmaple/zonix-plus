@@ -52,10 +52,11 @@ void putc(int c) {
             }
             break;
         case '\n':
-            crt_pos += CRT_COLS;
-            if (crt_pos / CRT_COLS >= CRT_ROWS)
+            crt_pos += console::COLS;
+            if (crt_pos / console::COLS >= console::ROWS) {
                 scrup();
-        case '\r': crt_pos -= (crt_pos % CRT_COLS); break;
+            }
+        case '\r': crt_pos -= (crt_pos % console::COLS); break;
         default:
             crt_buf[crt_pos++] = c;  // write the character
             break;
@@ -65,20 +66,20 @@ void putc(int c) {
 }
 
 void scrup() {
-    uint16_t* source = crt_buf + CRT_COLS;
-    int count = (CRT_ROWS - 1) * CRT_COLS;
+    uint16_t* source = crt_buf + console::COLS;
+    int count = (console::ROWS - 1) * console::COLS;
 
     for (int i = 0; i < count; i++) {
         crt_buf[i] = source[i];
     }
 
     // 使用 `memset` 模拟 `rep stosw`
-    uint16_t* clear_start = crt_buf + CRT_COLS * (CRT_ROWS - 1);
-    for (int i = 0; i < CRT_COLS; i++) {
+    uint16_t* clear_start = crt_buf + console::COLS * (console::ROWS - 1);
+    for (int i = 0; i < console::COLS; i++) {
         clear_start[i] = CRT_ERASE_CHAR;
     }
 
-    crt_pos -= CRT_COLS;
+    crt_pos -= console::COLS;
 }
 
 }  // namespace cga
