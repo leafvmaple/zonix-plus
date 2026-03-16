@@ -32,23 +32,46 @@ KSRCDIR := kernel              \
            kernel/exec         \
            kernel/drivers
 
+# ---------- embedded console font (PSF -> ELF .rodata) ----------
+FONT_PSF := fonts/console.psf
+FONT_OBJ := $(OBJDIR)/fonts/console.psf.o
+
+$(FONT_OBJ): $(FONT_PSF) | $$(dir $$@)
+	$(Q)$(OBJCOPY) -I binary -O elf64-littleaarch64 -B aarch64 \
+		--rename-section .data=.rodata,alloc,load,readonly,data,contents \
+		$< $@
+
+ALLOBJS += $(FONT_OBJ)
+
 # ---------- kernel link configuration ----------
-KERNEL_EXTRA_OBJS :=
+KERNEL_EXTRA_OBJS := $(FONT_OBJ)
 KERNEL_LD_SCRIPT  := $(SCRIPTDIR)/kernel-aarch64.ld
 KERNEL_POST_LINK   = $(Q)$(OBJCOPY) --set-start=0x40080000 $@
 
 # ---------- top-level "all" prerequisites ----------
-ALL_PREREQS := $(BINDIR)/kernel
+ALL_PREREQS := $(BINDIR)/kernel $(BINDIR)/BOOTAA64.EFI
+
+# ---------- UEFI firmware ----------
+AAVMF ?= /usr/share/qemu-efi-aarch64/QEMU_EFI.fd
+
+# ---------- UEFI disk image ----------
+$(BINDIR)/zonix-uefi.img: $(BINDIR)/BOOTAA64.EFI $(BINDIR)/kernel | $$(dir $$@)
+	@echo "  IMG     $@"
+	$(Q)BINDIR=$(BINDIR) bash $(SCRIPTDIR)/create_uefi_image_aarch64.sh
 
 # ---------- QEMU run / debug targets ----------
 .PHONY: qemu debug
 
-qemu: $(BINDIR)/kernel
+qemu: $(BINDIR)/zonix-uefi.img
 	$(QEMU) -M virt -cpu cortex-a72 -m 256M \
-		-nographic -kernel $(BINDIR)/kernel -no-reboot
+		-bios $(AAVMF) \
+		-readconfig qemu-uefi-aarch64.cfg \
+		-serial stdio -no-reboot
 
-debug: $(BINDIR)/kernel
+debug: $(BINDIR)/zonix-uefi.img
 	$(QEMU) -M virt -cpu cortex-a72 -m 256M \
-		-nographic -kernel $(BINDIR)/kernel -S -s -no-reboot &
+		-bios $(AAVMF) \
+		-readconfig qemu-uefi-aarch64.cfg \
+		-serial stdio -S -s -no-reboot &
 	sleep 2
 	gdb -q -x $(SCRIPTDIR)/gdbinit

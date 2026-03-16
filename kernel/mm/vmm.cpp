@@ -95,6 +95,11 @@ uintptr_t mmio_map(uintptr_t phys_addr, size_t size, uint32_t perm) {
         cprintf("vmm: mmio_map failed for phys=0x%lx size=0x%lx\n", phys_addr, size);
         return 0;
     }
+    // Flush TLB for the newly mapped range so that stale entries
+    // (e.g. from split 2MB blocks) don't interfere.
+#if defined(__aarch64__)
+    __asm__ volatile("dsb ishst; tlbi vmalle1is; dsb ish; isb" ::: "memory");
+#endif
     mmio_next_va += size;
     return va;
 }

@@ -1,10 +1,16 @@
 /**
  * @file head.S
- * @brief AArch64 kernel entry point for QEMU virt machine.
+ * @brief AArch64 kernel entry point for UEFI boot on QEMU virt machine.
  *
- * QEMU '-kernel' loads the ELF at KERNEL_PHYS (0x4008_0000) with:
- *   - CPU in EL1, MMU off, caches off
- *   - x0 = DTB physical address (device tree blob)
+ * The UEFI bootloader (BOOTAA64.EFI) loads the kernel ELF at
+ * KERNEL_PHYS (0x4008_0000), fills a boot_info structure, calls
+ * ExitBootServices, then jumps here with:
+ *   - CPU in EL1, MMU ON (UEFI identity map), caches ON
+ *   - x0 = physical address of boot_info
+ *
+ * We disable the MMU (switching away from UEFI page tables),
+ * build our own page tables, enable the MMU with higher-half
+ * mapping, copy boot_info, clear BSS, and call kern_init.
  *
  * Page table design (4KB granule, 48-bit VA):
  *   PGD (level 0) -> PUD (level 1) with 1GB block entries.
@@ -12,7 +18,7 @@
  *   Higher half (TTBR1): PUD[0]=0..1G, PUD[1]=1G..2G
  *
  * After enabling MMU we jump to the higher-half, remove the
- * identity map, clear BSS, and call kern_init.
+ * identity map, clear BSS, copy boot_info, and call kern_init.
  */
 
 /* ---- Page table descriptor bits ---- */
@@ -44,9 +50,11 @@
 #define TCR_IRGN1       (1 << 24)
 #define TCR_ORGN1       (1 << 26)
 #define TCR_SH1         (3 << 28)
+#define TCR_IPS_40BIT   (2UL << 32) /* 40-bit PA (1TB), needed for ECAM at 0x40_1000_0000 */
 #define TCR_VALUE       (TCR_T0SZ | TCR_T1SZ | TCR_TG0_4K | TCR_TG1_4K | \
                          TCR_IRGN0 | TCR_ORGN0 | TCR_SH0 | \
-                         TCR_IRGN1 | TCR_ORGN1 | TCR_SH1)
+                         TCR_IRGN1 | TCR_ORGN1 | TCR_SH1 | \
+                         TCR_IPS_40BIT)
 
 /* SCTLR bits */
 #define SCTLR_M         (1 << 0)
@@ -64,9 +72,9 @@
 .section .text.boot, "ax"
 .globl _start
 _start:
-    /* ---- Mask all exceptions, save DTB pointer ---- */
+    /* ---- Mask all exceptions, save boot_info pointer ---- */
     msr  daifset, #0xF
-    mov  x19, x0
+    mov  x19, x0               /* x19 = boot_info physical address */
 
     /* ---- Enable FP/SIMD (CPACR_EL1.FPEN = 0b11) ----
      * Without this, variadic C functions (like cprintf) that save
@@ -80,6 +88,21 @@ _start:
     mrs  x0, mpidr_el1
     and  x0, x0, #0xFF
     cbnz x0, .Lpark
+
+    /* ---- Disable MMU if UEFI left it on ---- */
+    mrs  x0, sctlr_el1
+    tst  x0, #SCTLR_M
+    b.eq .Lmmu_was_off
+    bic  x0, x0, #SCTLR_M         /* clear M (MMU) */
+    bic  x0, x0, #SCTLR_C         /* clear C (data cache) */
+    msr  sctlr_el1, x0
+    isb
+    /* Invalidate all TLBs and instruction cache */
+    tlbi vmalle1
+    ic   iallu
+    dsb  sy
+    isb
+.Lmmu_was_off:
 
     /* ---- Zero page tables (6 pages = 24 KB) ---- */
     adrp x0, __boot_pgd_low
@@ -208,90 +231,33 @@ _start:
     b    1b
 2:
 
-    /* ---- Prepare boot_info and call kern_init ---- */
-
-    /* Set up memory map entries for QEMU virt:
-     *   RAM is at 0x4000_0000 .. 0x4000_0000 + mem_size
-     *   QEMU -m 256M gives 0x1000_0000 bytes starting at 0x4000_0000
+    /* ---- Copy boot_info from bootloader to kernel storage ----
+     * x19 = physical address of boot_info (saved at entry).
+     * Now running at higher-half, so access via KERNEL_BASE + phys.
+     * __kernel_boot_info is already a higher-half symbol.
      *
-     * boot_mmap_entry layout (packed):
-     *   uint64_t addr   (+0)
-     *   uint64_t len    (+8)
-     *   uint32_t type   (+16)
-     * Total: 20 bytes per entry
+     * struct boot_info is 102 bytes; copy 128 bytes (16 × stp) to be safe.
      */
-
-    /* Entry 0: Device/Reserved region [0x0, 0x40000000) */
-    ldr  x0, =__boot_mmap
-    mov  x1, xzr                    /* addr = 0 */
-    str  x1, [x0, #0]
-    ldr  x1, =0x40000000            /* len = 1GB */
-    str  x1, [x0, #8]
-    mov  w1, #2                     /* type = BOOT_MEM_RESERVED */
-    str  w1, [x0, #16]
-
-    /* Entry 1: Main RAM [0x40000000, 0x50000000) = 256MB */
-    add  x0, x0, #20
-    ldr  x1, =0x40000000            /* addr */
-    str  x1, [x0, #0]
-    ldr  x1, =0x10000000            /* len = 256MB */
-    str  x1, [x0, #8]
-    mov  w1, #1                     /* type = BOOT_MEM_AVAILABLE */
-    str  w1, [x0, #16]
-
-    /* Fill boot_info struct */
-    ldr  x0, =__kernel_boot_info
-
-    ldr  w1, =0x12345678
-    str  w1, [x0]                   /* magic */
-
-    str  wzr, [x0, #4]             /* mem_lower = 0 */
-
-    ldr  w1, =(256 * 1024)          /* mem_upper = 256MB in KB */
-    str  w1, [x0, #8]
-
-    mov  w1, #2                     /* mmap_length = 2 entries */
-    str  w1, [x0, #12]
-
-    /* mmap_addr: physical address of __boot_mmap
-     * pmm.cpp adds KERNEL_BASE to this, so store the physical address */
-    ldr  x1, =__boot_mmap
-    ldr  x2, =KERNEL_BASE
-    sub  x1, x1, x2                /* convert virt -> phys */
-    str  x1, [x0, #16]             /* mmap_addr (uint64_t at offset 16) */
-
-    /* kernel_start/end (physical addresses) */
-    ldr  x1, =KERNEL_START
-    sub  x1, x1, x2
-    str  w1, [x0, #24]             /* kernel_start */
-    ldr  x1, =KERNEL_END
-    sub  x1, x1, x2
-    str  w1, [x0, #28]             /* kernel_end */
-
-    /* Zero remaining fields */
-    str  wzr, [x0, #32]            /* kernel_entry */
-    strb wzr, [x0, #36]            /* boot_device */
-
-    /* framebuffer: not available */
-    str  xzr, [x0, #48]            /* framebuffer_addr = 0 */
-    str  wzr, [x0, #56]            /* framebuffer_width = 0 */
-    str  wzr, [x0, #60]            /* framebuffer_height = 0 */
-    str  wzr, [x0, #64]            /* framebuffer_pitch = 0 */
-    strb wzr, [x0, #68]            /* framebuffer_bpp = 0 */
-    strb wzr, [x0, #69]            /* framebuffer_type = 0 */
-
-    /* loader_name = "QEMU virt" */
-    ldr  x1, =__kernel_boot_info
-    add  x1, x1, #70               /* offset of loader_name */
-    mov  w2, #'Q'
-    strb w2, [x1, #0]
-    mov  w2, #'E'
-    strb w2, [x1, #1]
-    mov  w2, #'M'
-    strb w2, [x1, #2]
-    mov  w2, #'U'
-    strb w2, [x1, #3]
-    strb wzr, [x1, #4]
+    ldr  x1, =KERNEL_BASE
+    add  x0, x19, x1            /* src = boot_info phys → higher-half VA */
+    ldr  x1, =__kernel_boot_info /* dst */
+    /* Copy 128 bytes (8 pairs of 16 bytes) */
+    ldp  x2, x3, [x0, #0]
+    stp  x2, x3, [x1, #0]
+    ldp  x2, x3, [x0, #16]
+    stp  x2, x3, [x1, #16]
+    ldp  x2, x3, [x0, #32]
+    stp  x2, x3, [x1, #32]
+    ldp  x2, x3, [x0, #48]
+    stp  x2, x3, [x1, #48]
+    ldp  x2, x3, [x0, #64]
+    stp  x2, x3, [x1, #64]
+    ldp  x2, x3, [x0, #80]
+    stp  x2, x3, [x1, #80]
+    ldp  x2, x3, [x0, #96]
+    stp  x2, x3, [x1, #96]
+    ldp  x2, x3, [x0, #112]
+    stp  x2, x3, [x1, #112]
 
     /* Pass boot_info pointer to kern_init */
     ldr  x0, =__kernel_boot_info
@@ -337,11 +303,5 @@ __boot_stack_top:
 .globl __kernel_boot_info
 __kernel_boot_info:
     .space 256
-
-/* Boot memory map entries (for PMM) */
-.balign 8
-.globl __boot_mmap
-__boot_mmap:
-    .space 128   /* room for ~6 entries @ 20 bytes each */
 
 .section .note.GNU-stack,"",@progbits

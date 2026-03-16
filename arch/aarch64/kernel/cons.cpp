@@ -1,10 +1,11 @@
 /**
  * @file cons.cpp
- * @brief AArch64 console implementation using PL011 UART.
+ * @brief AArch64 console implementation using PL011 UART + GOP fbcons.
  */
 
 #include "cons/cons.h"
 #include "drivers/pl011.h"
+#include "drivers/fbcons.h"
 #include "lib/stdio.h"
 #include <base/types.h>
 
@@ -23,6 +24,7 @@ int init() {
 }
 
 int late_init() {
+    fbcons::late_init();
     return 0;
 }
 
@@ -34,6 +36,7 @@ char getc() {
 
 void putc(int c) {
     pl011::putc(c);
+    fbcons::putc(c);
 }
 
 }  // namespace cons

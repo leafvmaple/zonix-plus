@@ -15,6 +15,7 @@
 #include <asm/trap_numbers.h>
 
 #include "cons/cons.h"
+#include "drivers/fbcons.h"
 #include "sched/sched.h"
 #include "mm/vmm.h"
 
@@ -66,6 +67,7 @@ void TrapFrame::print_pgfault() const {
 static void irq_timer(TrapFrame*) {
     timer::ticks++;
     timer_ticks++;
+    fbcons::tick();
     sched::tick();
     timer_set_next();
 }

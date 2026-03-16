@@ -143,9 +143,11 @@ $(BINDIR)/zonix.img: $(BINDIR)/mbr $(BINDIR)/vbr $(BINDIR)/bootloader $(BINDIR)/
 	@echo "  IMG     $@"
 	$(Q)BINDIR=$(BINDIR) bash $(SCRIPTDIR)/create_zonix_image.sh
 
+ifeq ($(ARCH),x86)
 $(BINDIR)/zonix-uefi.img: $(BINDIR)/BOOTX64.EFI $(BINDIR)/kernel | $$(dir $$@)
 	@echo "  IMG     $@"
 	$(Q)BINDIR=$(BINDIR) bash $(SCRIPTDIR)/create_uefi_image.sh
+endif
 
 # ==========================================================================
 # Top-level targets
