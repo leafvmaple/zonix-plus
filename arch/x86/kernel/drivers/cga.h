@@ -4,7 +4,7 @@
 
 namespace cga {
 
-void init();
+int init();
 void putc(int c);
 void scrup();
 

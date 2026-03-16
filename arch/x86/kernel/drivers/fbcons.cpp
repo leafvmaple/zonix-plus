@@ -249,6 +249,10 @@ void late_init() {
 
     // Map framebuffer into kernel virtual address space
     uintptr_t fb_va = vmm::mmio_map(static_cast<uintptr_t>(fb_phys), fb_size, VM_WRITE | VM_NOCACHE);
+    if (fb_va == 0) {
+        cprintf("fbcons: mmio_map failed for phys 0x%lx size 0x%x\n", static_cast<unsigned long>(fb_phys), fb_size);
+        return;
+    }
 
     cprintf("fbcons: phys 0x%lx -> virt 0x%lx (%dx%d)\n", static_cast<unsigned long>(fb_phys),
             static_cast<unsigned long>(fb_va), bi->framebuffer_width, bi->framebuffer_height);

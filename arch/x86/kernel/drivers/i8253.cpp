@@ -1,5 +1,6 @@
 #include "drivers/i8253.h"
 #include "drivers/i8259.h"
+#include "lib/stdio.h"
 
 #include <asm/arch.h>
 #include <asm/drivers/i8254.h>
@@ -33,6 +34,8 @@ namespace i8253 {
 int init() {
     struct tm time;
 
+    int retries = 0;
+    constexpr int MAX_CMOS_RETRIES = 1000;
     do {
         time.tm_sec = cmos_read(0);
         time.tm_min = cmos_read(2);
@@ -40,6 +43,10 @@ int init() {
         time.tm_mday = cmos_read(7);
         time.tm_mon = cmos_read(8);
         time.tm_year = cmos_read(9);
+        if (++retries > MAX_CMOS_RETRIES) {
+            cprintf("i8253: CMOS read unstable after %d retries\n", MAX_CMOS_RETRIES);
+            return -1;
+        }
     } while (time.tm_sec != cmos_read(0));
 
     time.tm_sec = bcd_to_bin(static_cast<uint8_t>(time.tm_sec));

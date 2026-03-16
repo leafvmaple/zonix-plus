@@ -38,14 +38,14 @@ static int timer_init() {
     return ARCH_INIT_OK;
 }
 
-const ArchEarlyStep ARCH_STEPS[] = {
+const InitStep ARCH_STEPS[] = {
     {"vectors", vectors_init, true},
     {"timer", timer_init, true},
 };
 
 }  // namespace
 
-const ArchEarlyStep* arch_early_steps(size_t* count) {
+const InitStep* arch_early_steps(size_t* count) {
     if (count != nullptr) {
         *count = sizeof(ARCH_STEPS) / sizeof(ARCH_STEPS[0]);
     }

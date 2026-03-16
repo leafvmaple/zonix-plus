@@ -27,23 +27,40 @@ constexpr size_t SECTORS_PER_PAGE = PG_SIZE / 512;  // Sectors needed for one pa
 namespace swap {
 
 int init() {
-    swap_mgr = &swap_mgr_fifo;  // Use FIFO swap manager for now
-    swap_mgr->init();
+    swap_mgr = &swap_mgr_fifo;
+    int rc = swap_mgr->init();
+    if (rc != 0) {
+        cprintf("swap: swap manager '%s' init failed (rc=%d)\n", swap_mgr->name, rc);
+        return rc;
+    }
 
-    // Initialize swap filesystem (disk-based swap)
-    swapfs_init();
+    rc = swapfs_init();
+    if (rc != 0) {
+        cprintf("swap: no swap device available (non-fatal)\n");
+    }
 
     if (!swap_device) {
+        max_swap_offset = 0;
+        cprintf("swap: disabled (no swap device)\n");
+        return 0;
+    }
+
+    if (swap_device->size <= SWAP_START_SECTOR) {
+        cprintf("swap: device '%s' too small (%d sectors, need > %d)\n", swap_device->name, swap_device->size,
+                SWAP_START_SECTOR);
         max_swap_offset = 0;
         return 0;
     }
 
-    // Calculate maximum swap offset based on available disk space
-    // Reserve space for swap (use sectors after SWAP_START_SECTOR)
     uint32_t available_sectors = swap_device->size - SWAP_START_SECTOR;
     max_swap_offset = available_sectors / SECTORS_PER_PAGE;
 
-    cprintf("swap: manager = %s, available space = %d pages (%d MB)\n", swap_mgr->name, max_swap_offset,
+    if (max_swap_offset == 0) {
+        cprintf("swap: device '%s' has no usable swap space\n", swap_device->name);
+        return 0;
+    }
+
+    cprintf("swap: manager=%s, device='%s', %d pages (%d MB)\n", swap_mgr->name, swap_device->name, max_swap_offset,
             (max_swap_offset * PG_SIZE) / (1024 * 1024));
 
     return 0;

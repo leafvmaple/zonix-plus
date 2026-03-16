@@ -118,9 +118,18 @@ void BlockManager::test_interrupts() {
 
 namespace blk {
 
-void init() {
+int init() {
     BlockManager::init();
-    probe_backends();
+
+    int rc = probe_backends();
+    if (rc != 0) {
+        cprintf("blk: probe_backends failed (rc=%d)\n", rc);
+        return rc;
+    }
+
+    int count = BlockManager::get_device_count();
+    cprintf("blk: %d device(s) registered\n", count);
+    return 0;
 }
 
 void test_devices() {

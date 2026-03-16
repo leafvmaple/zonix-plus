@@ -88,6 +88,8 @@ void IdeManager::init(void) {
     i8259::enable(IRQ_IDE1);
     i8259::enable(IRQ_IDE2);
 
+    cprintf("ide: probing %d channels (%d possible devices)...\n", ide::MAX_DEVICES / 2, ide::MAX_DEVICES);
+
     // Try to detect all 4 possible devices
     for (int i = 0; i < ide::MAX_DEVICES; i++) {
         auto& config = s_configs[i];
@@ -109,23 +111,29 @@ void IdeManager::init(void) {
 
         // Wait for BSY to clear
         if (hd_wait_ready_on_base(config.base) != 0) {
+            cprintf("ide: %s: device timeout waiting for ready\n", config.name);
             continue;  // Device not ready
         }
 
         // Check that DRQ is set (IDENTIFY data ready) and no error
         status = arch_port_inb(config.base + ide::REG_STATUS);
         if ((status & ide::STATUS_ERR) || !(status & ide::STATUS_DRQ)) {
+            cprintf("ide: %s: IDENTIFY failed (status=0x%02x)\n", config.name, status);
             continue;  // Not an ATA device (could be ATAPI or absent)
         }
 
         s_devices[s_devices_count].detect(&config);
         // Only count the device if it reported a valid size
         if (s_devices[s_devices_count].info.size > 0) {
+            cprintf("ide: %s: detected %d sectors (%d MB)\n", config.name, s_devices[s_devices_count].info.size,
+                    s_devices[s_devices_count].info.size / 2048);
             s_devices_count++;
+        } else {
+            cprintf("ide: %s: device responded but reports 0 sectors\n", config.name);
         }
     }
 
-    cprintf("hd_init: found %d device(s)\n", s_devices_count);
+    cprintf("ide: found %d device(s)\n", s_devices_count);
 }
 
 IdeDevice* IdeManager::get_device(int device_id) {

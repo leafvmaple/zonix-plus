@@ -51,11 +51,11 @@ private:
 
 namespace blk {
 
-void init();
+int init();
 
 // Register architecture/platform-specific block backends
 // (e.g. IDE/AHCI on x86, TF/eMMC on ARM platforms).
-void probe_backends();
+int probe_backends();
 
 // Backend-dispatched diagnostics for block devices.
 void test_devices();

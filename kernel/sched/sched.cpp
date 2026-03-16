@@ -175,16 +175,26 @@ void TaskStruct::destroy() {
 // TaskManager static functions (order matches sched.h)
 // ============================================================================
 
-void TaskManager::init() {
+int TaskManager::init() {
     s_proc_list.init();
     for (size_t i = 0; i < HASH_LIST_SIZE; i++) {
         s_hash_list[i].init();
     }
 
     init_idle();
+    if (!s_idle_proc) {
+        cprintf("sched: failed to create idle process\n");
+        return -1;
+    }
+
     init_init_proc();
+    if (!s_init_proc) {
+        cprintf("sched: failed to create init process\n");
+        return -1;
+    }
 
     cprintf("sched init: idle process PID = 0, init process PID = 1\n");
+    return 0;
 }
 
 void TaskManager::add_process(TaskStruct* proc) {
@@ -337,10 +347,18 @@ void TaskManager::schedule() {
 
 int TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_frame) {
     TaskStruct* proc = new TaskStruct();
+    if (!proc) {
+        cprintf("sched: fork: failed to allocate TaskStruct\n");
+        return -1;
+    }
     proc->parent = get_current();
     proc->child_list.init();
 
-    proc->setup_kernel_stack();
+    if (proc->setup_kernel_stack() != 0) {
+        cprintf("sched: fork: failed to allocate kernel stack\n");
+        delete proc;
+        return -1;
+    }
     proc->copy_mm(clone_flags);
     proc->copy_thread(stack, trap_frame);
 
@@ -457,6 +475,10 @@ int TaskManager::wait(int pid, int* code_store) {
 // Initialize idle process (PID 0)
 void TaskManager::init_idle() {
     TaskStruct* idle_proc = new TaskStruct();
+    if (!idle_proc) {
+        cprintf("sched: init_idle: failed to allocate TaskStruct\n");
+        return;
+    }
     idle_proc->state = ProcessState::Runnable;
     idle_proc->kernel_stack = reinterpret_cast<uintptr_t>(user_stack);  // Use boot stack
     idle_proc->child_list.init();
@@ -480,15 +502,24 @@ void TaskManager::init_init_proc() {
     arch_setup_kthread_tf(&trap_frame, reinterpret_cast<uintptr_t>(init_main), 0, 0);
 
     int ret = fork(0, 0, &trap_frame);
+    if (ret <= 0) {
+        cprintf("sched: init_init_proc: fork failed (ret=%d)\n", ret);
+        return;
+    }
+
     s_init_proc = find_proc(ret);
+    if (!s_init_proc) {
+        cprintf("sched: init_init_proc: find_proc(%d) returned null\n", ret);
+        return;
+    }
 
     strcpy(s_init_proc->name, "init");
 }
 
 namespace sched {
 
-void init() {
-    TaskManager::init();
+int init() {
+    return TaskManager::init();
 }
 
 void schedule() {

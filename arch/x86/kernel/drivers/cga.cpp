@@ -34,11 +34,16 @@ static void cur_update() {
     arch_port_outb(CGA_DATA_REG, crt_pos);
 }
 
-void init() {
+int init() {
     arch_port_outb(CGA_IDX_REG, CRTC_CURSOR_HIGH);
     crt_pos = arch_port_inb(CGA_DATA_REG) << 8;
     arch_port_outb(CGA_IDX_REG, CRTC_CURSOR_LOW);
     crt_pos |= arch_port_inb(CGA_DATA_REG);
+
+    if (crt_pos >= console::ROWS * console::COLS) {
+        crt_pos = 0;  // sanitize bogus position
+    }
+    return 0;
 }
 
 void putc(int c) {

@@ -14,16 +14,28 @@ extern uint8_t KERNEL_START[];
 
 namespace cons {
 
-void init() {
-    cga::init();
-    uart8250::init();
-    i8042::init();
+int init() {
+    int rc;
+
+    rc = cga::init();
+    if (rc != 0)
+        cprintf("cons: cga init failed (rc=%d)\n", rc);
+
+    rc = uart8250::init();
+    if (rc != 0)
+        cprintf("cons: uart8250 init failed (rc=%d), serial output disabled\n", rc);
+
+    rc = i8042::init();
+    if (rc != 0)
+        cprintf("cons: i8042 init failed (rc=%d), keyboard input disabled\n", rc);
 
     cprintf("Zonix OS (x86_64) is Loading at [0x%p]...\n", KERNEL_START);
+    return 0;
 }
 
-void late_init() {
+int late_init() {
     fbcons::late_init();
+    return 0;
 }
 
 char getc() {

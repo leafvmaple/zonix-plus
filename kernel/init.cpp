@@ -5,6 +5,7 @@
 #include "mm/vmm.h"
 #include "mm/swap.h"
 #include "sched/sched.h"
+#include "lib/stdio.h"
 #include "lib/unistd.h"
 #include <kernel/bootinfo.h>
 #include <asm/arch.h>
@@ -22,40 +23,49 @@ static void cxx_init() {
     }
 }
 
-static void run_arch_early_steps() {
-    size_t count = 0;
-    const ArchEarlyStep* steps = arch_early_steps(&count);
-    if (steps == nullptr) {
-        arch_halt();
-    }
+// ============================================================================
+// Unified init step runner
+// ============================================================================
 
+static void run_steps(const InitStep* steps, size_t count) {
     for (size_t i = 0; i < count; i++) {
+        cprintf("  %-12s", steps[i].name);
         int rc = steps[i].fn();
-        if (rc != 0 && steps[i].required) {
-            arch_halt();
+        if (rc != 0) {
+            cprintf(" [FAIL] (rc=%d)\n", rc);
+            if (steps[i].required)
+                arch_halt();
+        } else {
+            cprintf(" [OK]\n");
         }
     }
 }
 
+static const InitStep KERN_STEPS[] = {
+    {"pmm", pmm::init, true}, {"vmm", vmm::init, true},    {"cons_late", cons::late_init, false},
+    {"blk", blk::init, true}, {"swap", swap::init, false}, {"sched", sched::init, true},
+};
+
+// ============================================================================
+// Kernel entry point
+// ============================================================================
+
 extern "C" __attribute__((noreturn)) int kern_init(struct boot_info* boot_info) {
-    if (!boot_info || boot_info->magic != BOOT_INFO_MAGIC) {
-        goto halt;
-    }
+    if (!boot_info || boot_info->magic != BOOT_INFO_MAGIC)
+        arch_halt();
 
     cxx_init();
 
-    cons::init();
+    if (cons::init() != 0)
+        arch_halt();
 
-    run_arch_early_steps();
+    // Phase 1: architecture-specific hardware init
+    size_t arch_count = 0;
+    const InitStep* arch_steps = arch_early_steps(&arch_count);
+    run_steps(arch_steps, arch_count);
 
-    pmm::init();
-    vmm::init();
-
-    cons::late_init();
-    blk::init();
-    swap::init();
-
-    sched::init();
+    // Phase 2: kernel subsystem init
+    run_steps(KERN_STEPS, sizeof(KERN_STEPS) / sizeof(KERN_STEPS[0]));
 
     intr::enable();
 
@@ -63,6 +73,5 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info* boot_info) 
         arch_idle();
         sched::schedule();
     }
-halt:
     arch_halt();
 }

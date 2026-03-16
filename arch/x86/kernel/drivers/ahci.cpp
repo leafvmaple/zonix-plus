@@ -80,7 +80,8 @@ void AhciDevice::setup_memory() {
     dma_buf = reinterpret_cast<uint8_t*>(kmalloc(PG_SIZE));         // DMA Buffer
 
     if (!cmd_list || !fis_base || !cmd_table || !dma_buf) {
-        cprintf("AHCI: Failed to allocate DMA memory for port %d\n", config->port_num);
+        cprintf("ahci: port %d: DMA alloc failed (cl=%p fis=%p ct=%p buf=%p)\n", config->port_num, cmd_list, fis_base,
+                cmd_table, dma_buf);
         present = 0;
         return;
     }
@@ -169,33 +170,39 @@ void AhciDevice::interrupt() {
 }
 
 void AhciManager::init(void) {
-    cprintf("AHCI: Initializing AHCI controller...\n");
+    cprintf("ahci: probing PCI bus for AHCI controller...\n");
 
     uint32_t phys_base = pci_find_bar();
 
     if (phys_base == 0) {
-        cprintf("AHCI: No AHCI controller found on PCI bus\n");
+        cprintf("ahci: no AHCI controller found on PCI bus\n");
         return;
     }
 
     s_base = vmm::mmio_map(phys_base, ahci::AHCI_BAR_SIZE, VM_WRITE | VM_NOCACHE);
+    if (s_base == 0) {
+        cprintf("ahci: failed to map MMIO region at phys=0x%08x\n", phys_base);
+        return;
+    }
+
     uint32_t version = mmio_read32(s_base, ahci::AHCI_VS);
 
     // If version is 0x00000000 or 0xFFFFFFFF, controller is not present
     if (version == 0x00000000 || version == 0xFFFFFFFF) {
-        cprintf("AHCI: No AHCI controller detected (version: 0x%08x)\n", version);
+        cprintf("ahci: controller not responding (version: 0x%08x)\n", version);
         return;
     }
 
     uint32_t cap = mmio_read32(s_base, ahci::AHCI_CAP);
-    cprintf("AHCI: version 0x%08x, CAP 0x%08x\n", version, cap);
+    cprintf("ahci: version %d.%d%d, CAP 0x%08x\n", (version >> 16) & 0xFFFF, (version >> 8) & 0xFF, version & 0xFF,
+            cap);
 
     uint32_t ghc = mmio_read32(s_base, ahci::AHCI_GHC);
     ghc |= ahci::GHC_AHCI_EN | ahci::GHC_IE;  // Enable AHCI and interrupts
     mmio_write32(s_base, ahci::AHCI_GHC, ghc);
 
     uint32_t ports_impl = mmio_read32(s_base, ahci::AHCI_PI);
-    cprintf("AHCI: Ports implemented: 0x%08x\n", ports_impl);
+    cprintf("ahci: ports implemented: 0x%08x\n", ports_impl);
 
     for (int i = 0; i < ahci::MAX_DEVICES; i++) {
         if (!(ports_impl & (1 << i))) {
@@ -208,25 +215,26 @@ void AhciManager::init(void) {
         // Check if device is present
         uint32_t ssts = mmio_read32(port_base, ahci::PORT_SATA_STS);
         if ((ssts & ahci::SATA_STS_DET_MASK) != ahci::SATA_STS_DET_PRESENT) {
-            cprintf("AHCI: Port %d: no device detected\n", i);
+            cprintf("ahci: port %d: no device (SSTS=0x%08x)\n", i, ssts);
             continue;
         }
 
-        cprintf("AHCI: Port %d: device detected, initializing...\n", i);
+        cprintf("ahci: port %d: device detected, initializing...\n", i);
 
         // Detect and setup device (setup_memory will configure the port)
         s_devices[s_devices_count++].detect(&config, s_base);
 
         if (!s_devices[s_devices_count - 1].present) {
-            cprintf("AHCI: Port %d: failed to setup\n", i);
+            cprintf("ahci: port %d: device setup failed\n", i);
             s_devices_count--;
             continue;
         }
 
-        cprintf("AHCI: Port %d: device ready\n", i);
+        cprintf("ahci: port %d: '%s' ready (%d sectors, %d MB)\n", i, s_devices[s_devices_count - 1].name,
+                s_devices[s_devices_count - 1].info.size, s_devices[s_devices_count - 1].info.size / 2048);
     }
 
-    cprintf("AHCI: Found %d device(s)\n", s_devices_count);
+    cprintf("ahci: initialization complete, %d device(s)\n", s_devices_count);
 }
 
 AhciDevice* AhciManager::get_device(int device_id) {

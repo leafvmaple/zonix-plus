@@ -22,8 +22,9 @@ volatile uint32_t* uart_base() {
 
 namespace pl011 {
 
-void init() {
+int init() {
     // PL011 is already initialized by QEMU firmware
+    return 0;
 }
 
 void putc(int c) {

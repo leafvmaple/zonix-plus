@@ -9,10 +9,11 @@
 
 namespace blk {
 
-void probe_backends() {
+int probe_backends() {
     i8259::enable(IRQ_IDE1);
     i8259::enable(IRQ_IDE2);
 
+    cprintf("blk: probing IDE devices...\n");
     IdeManager::init();
     int ide_count = IdeManager::get_device_count();
     for (int i = 0; i < ide_count; i++) {
@@ -20,12 +21,14 @@ void probe_backends() {
         if (dev != nullptr) {
             dev->size = dev->info.size;
             BlockManager::register_device(dev);
+            cprintf("blk: registered IDE device '%s' (%d sectors)\n", dev->name, dev->info.size);
         }
     }
     if (ide_count == 0) {
-        cprintf("blk_init: no IDE disk devices found\n");
+        cprintf("blk: no IDE devices found\n");
     }
 
+    cprintf("blk: probing AHCI devices...\n");
     AhciManager::init();
     int ahci_count = AhciManager::get_device_count();
     for (int i = 0; i < ahci_count; i++) {
@@ -33,11 +36,14 @@ void probe_backends() {
         if (dev != nullptr) {
             dev->size = dev->info.size;
             BlockManager::register_device(dev);
+            cprintf("blk: registered AHCI device '%s' (%d sectors)\n", dev->name, dev->info.size);
         }
     }
     if (ahci_count == 0) {
-        cprintf("blk_init: no AHCI disk devices found\n");
+        cprintf("blk: no AHCI devices found\n");
     }
+
+    return 0;
 }
 
 }  // namespace blk

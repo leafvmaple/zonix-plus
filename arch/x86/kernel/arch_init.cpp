@@ -21,7 +21,7 @@
 
 namespace {
 
-const ArchEarlyStep ARCH_STEPS[] = {
+const InitStep ARCH_STEPS[] = {
     {"i8259", i8259::init, true},
     {"i8253", i8253::init, true},
     {"idt", idt::init, true},
@@ -30,7 +30,7 @@ const ArchEarlyStep ARCH_STEPS[] = {
 
 }  // namespace
 
-const ArchEarlyStep* arch_early_steps(size_t* count) {
+const InitStep* arch_early_steps(size_t* count) {
     if (count != nullptr) {
         *count = sizeof(ARCH_STEPS) / sizeof(ARCH_STEPS[0]);
     }

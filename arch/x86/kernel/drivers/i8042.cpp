@@ -10,6 +10,7 @@
 #include "drivers/intr.h"
 #include "sched/sched.h"
 #include "lib/waitqueue.h"
+#include "lib/stdio.h"
 
 // ============================================================================
 // Input ring buffer — filled by IRQ, drained by getc_blocking()
@@ -59,9 +60,28 @@ static void init_normal_map(void) {
 
 namespace i8042 {
 
-void init(void) {
+int init(void) {
     init_normal_map();
+
+    // PS/2 controller self-test: send 0xAA, expect 0x55
+    arch_port_outb(KBD_STATUS_REG, 0xAA);
+    int timeout = 100000;
+    while (timeout-- > 0) {
+        if (arch_port_inb(KBD_STATUS_REG) & KBD_OBF_FULL)
+            break;
+    }
+    if (timeout <= 0) {
+        cprintf("i8042: PS/2 controller self-test timeout\n");
+        return -1;
+    }
+    uint8_t result = arch_port_inb(KBD_DATA_REG);
+    if (result != 0x55) {
+        cprintf("i8042: PS/2 controller self-test failed (0x%02x)\n", result);
+        return -1;
+    }
+
     i8259::enable(IRQ_KBD);
+    return 0;
 }
 
 int getc(void) {
@@ -74,41 +94,41 @@ int getc(void) {
     // Ignore key release events (scancode & 0x80)
     if (data & 0x80) {
         return -1;
-
-
-        return normal_map[data];
     }
 
-    // Called from keyboard IRQ handler — read char from hardware, buffer it
-    void intr(void) {
-        int c = getc();
-        if (c <= 0)
-            return;
+    return normal_map[data];
+}
 
-        int next = (kbd_write + 1) % KBD_BUF_SIZE;
-        if (next == kbd_read)
-            return;  // buffer full, drop
+// Called from keyboard IRQ handler — read char from hardware, buffer it
+void intr(void) {
+    int c = getc();
+    if (c <= 0)
+        return;
 
-        kbd_buf[kbd_write] = (char)c;
-        kbd_write = next;
+    int next = (kbd_write + 1) % KBD_BUF_SIZE;
+    if (next == kbd_read)
+        return;  // buffer full, drop
 
-        // Wake up process sleeping in getc_blocking()
-        kbd_waitq.wakeup_one();
-    }
+    kbd_buf[kbd_write] = (char)c;
+    kbd_write = next;
 
-    // Blocking read — called from process context, sleeps until input available
-    char getc_blocking(void) {
-        while (true) {
-            {
-                intr::Guard guard;
-                if (kbd_read != kbd_write) {
-                    char c = kbd_buf[kbd_read];
-                    kbd_read = (kbd_read + 1) % KBD_BUF_SIZE;
-                    return c;
-                }
+    // Wake up process sleeping in getc_blocking()
+    kbd_waitq.wakeup_one();
+}
+
+// Blocking read — called from process context, sleeps until input available
+char getc_blocking(void) {
+    while (true) {
+        {
+            intr::Guard guard;
+            if (kbd_read != kbd_write) {
+                char c = kbd_buf[kbd_read];
+                kbd_read = (kbd_read + 1) % KBD_BUF_SIZE;
+                return c;
             }
-            kbd_waitq.sleep();
         }
+        kbd_waitq.sleep();
     }
+}
 
 }  // namespace i8042

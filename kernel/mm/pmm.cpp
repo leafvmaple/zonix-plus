@@ -159,18 +159,41 @@ pte_t* pmm::get_pte(pde_t* pml4, uintptr_t la, bool create) {
     return phys_to_virt<pte_t>(pte_addr(*pde)) + ptx(la);
 }
 
-static void page_init() {
+static int page_init() {
+    struct boot_info* bi = &__kernel_boot_info;
+
+    if (bi->mmap_length == 0) {
+        cprintf("pmm: boot memory map is empty\n");
+        return -1;
+    }
+
     uint64_t max_pa{};
-    traverse_boot_mmap([&max_pa](uint64_t addr, uint64_t size, uint32_t type) {
-        if (type == BOOT_MEM_AVAILABLE && max_pa < addr + size) {
-            max_pa = addr + size;
+    uint32_t usable_regions = 0;
+    traverse_boot_mmap([&max_pa, &usable_regions](uint64_t addr, uint64_t size, uint32_t type) {
+        if (type == BOOT_MEM_AVAILABLE) {
+            usable_regions++;
+            if (max_pa < addr + size) {
+                max_pa = addr + size;
+            }
         }
     });
+
+    if (usable_regions == 0 || max_pa == 0) {
+        cprintf("pmm: no usable memory regions in boot map (%d entries)\n", bi->mmap_length);
+        return -1;
+    }
 
     extern uint8_t KERNEL_END[];
 
     g_num_pages = page_num(max_pa);
+    if (g_num_pages == 0) {
+        cprintf("pmm: max physical address too small (0x%lx)\n", static_cast<uint64_t>(max_pa));
+        return -1;
+    }
+
     g_pages = reinterpret_cast<Page*>(round_up((void*)KERNEL_END, PG_SIZE));
+
+    cprintf("pmm: %d pages, page array at [0x%p], max_pa=0x%lx\n", g_num_pages, g_pages, static_cast<uint64_t>(max_pa));
 
     // Initially mark all g_pages as reserved
     for (uint32_t i = 0; i < g_num_pages; i++) {
@@ -188,12 +211,16 @@ static void page_init() {
                 addr = round_up(addr, PG_SIZE);
                 limit = round_down(limit, PG_SIZE);
 
-                cprintf("Valid Memory: [0x%016lx, 0x%016lx]\n", static_cast<uint64_t>(addr),
-                        static_cast<uint64_t>(limit));
-                g_pmm->init_memmap(pmm::pa2page(addr), page_num(limit - addr));
+                if (addr < limit) {
+                    cprintf("pmm: free region [0x%016lx, 0x%016lx]\n", static_cast<uint64_t>(addr),
+                            static_cast<uint64_t>(limit));
+                    g_pmm->init_memmap(pmm::pa2page(addr), page_num(limit - addr));
+                }
             }
         }
     });
+
+    return 0;
 }
 
 void pmm::tlb_invl(pde_t* pgdir, uintptr_t la) {
@@ -303,7 +330,22 @@ void kfree(void* ptr) {
     pmm::free_pages(page, nr);
 }
 
-void pmm::init() {
+int pmm::init() {
     pmm_mgr_init();
-    page_init();
+
+    int rc = page_init();
+    if (rc != 0) {
+        cprintf("pmm: page_init failed (rc=%d)\n", rc);
+        return rc;
+    }
+
+    size_t free_pages = g_pmm->nr_free_pages();
+    if (free_pages == 0) {
+        cprintf("pmm: no free pages after initialization\n");
+        return FAILURE;
+    }
+
+    cprintf("pmm: initialized, %d free pages (%d MB)\n", static_cast<int>(free_pages),
+            static_cast<int>((free_pages * PG_SIZE) / (1024 * 1024)));
+    return SUCCESS;
 }

@@ -58,7 +58,7 @@ inline constexpr int SUCCESS = 0;
 inline constexpr int FAILURE = -1;
 inline constexpr Page* INVALID_PTR = nullptr;
 
-void init();
+int init();
 
 // TLB and page table operations
 void tlb_invl(pde_t* pgdir, uintptr_t la);

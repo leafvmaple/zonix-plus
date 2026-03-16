@@ -12,12 +12,19 @@ extern uint8_t KERNEL_START[];
 
 namespace cons {
 
-void init() {
-    pl011::init();
+int init() {
+    int rc = pl011::init();
+    if (rc != 0) {
+        // Can't print — UART failed
+        return rc;
+    }
     cprintf("Zonix OS (aarch64) is Loading at [0x%p]...\n", KERNEL_START);
+    return 0;
 }
 
-void late_init() {}
+int late_init() {
+    return 0;
+}
 
 char getc() {
     int c{};

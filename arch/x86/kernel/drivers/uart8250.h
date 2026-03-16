@@ -4,7 +4,7 @@
 
 namespace uart8250 {
 
-void init();
+int init();
 void putc(int c);
 
 }  // namespace uart8250

@@ -2,8 +2,8 @@
 
 namespace cons {
 
-void init();
-void late_init();
+int init();
+int late_init();
 char getc();
 void putc(int c);
 

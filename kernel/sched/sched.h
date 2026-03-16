@@ -96,7 +96,7 @@ public:
     inline static TaskStruct* s_init_proc{};  // Init process (PID 1)
     inline static int nr_process{};           // Number of processes
 
-    static void init();
+    static int init();
 
     static inline ListNode& get_hash_node(int pid) { return s_hash_list[pid_hash(pid)]; }
 
@@ -135,7 +135,7 @@ private:
 
 namespace sched {
 
-void init();
+int init();
 void test();
 
 // Scheduling and process lifecycle

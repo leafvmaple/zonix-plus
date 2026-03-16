@@ -2,7 +2,7 @@
 
 namespace pl011 {
 
-void init();
+int init();
 void putc(int c);
 int getc();
 

@@ -5,7 +5,7 @@
 
 namespace i8042 {
 
-void init(void);
+int init(void);
 int getc(void);
 void intr(void);
 char getc_blocking(void);
