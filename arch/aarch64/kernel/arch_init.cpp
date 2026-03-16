@@ -7,40 +7,25 @@
 #include <asm/memlayout.h>
 #include <kernel/bootinfo.h>
 
+#include "drivers/gic.h"
+#include "drivers/timer.h"
+
 // Exception vector table (defined in trapentry.S)
 extern "C" char _vectors[];
 
 namespace {
 
-constexpr int ARCH_INIT_OK = 0;
-constexpr int ARCH_INIT_ERR = -1;
-
 static int vectors_init() {
     uint64_t vbar = reinterpret_cast<uint64_t>(_vectors);
     __asm__ volatile("msr vbar_el1, %0" : : "r"(vbar));
     __asm__ volatile("isb");
-    return ARCH_INIT_OK;
-}
-
-static int timer_init() {
-    // ARM Generic Timer: configure virtual timer for ~100 Hz
-    uint64_t freq{};
-    __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(freq));
-    if (freq == 0) {
-        return ARCH_INIT_ERR;
-    }
-    uint64_t interval = freq / 100;  // 10ms per tick
-    if (interval == 0) {
-        return ARCH_INIT_ERR;
-    }
-    __asm__ volatile("msr cntv_tval_el0, %0" ::"r"(interval));
-    __asm__ volatile("msr cntv_ctl_el0, %0" ::"r"(1UL));
-    return ARCH_INIT_OK;
+    return 0;
 }
 
 const InitStep ARCH_STEPS[] = {
     {"vectors", vectors_init, true},
-    {"timer", timer_init, true},
+    {"gic", gic::init, true},
+    {"timer", timer::init, true},
 };
 
 }  // namespace
@@ -61,9 +46,8 @@ void arch_switch_rsp0(uintptr_t) {
     // SP_EL0 is saved/restored by trap entry/exit.
 }
 
-void arch_irq_eoi(int) {
-    // QEMU virt with virtual timer doesn't require GIC EOI;
-    // the timer interrupt is auto-cleared when we write TVAL.
+void arch_irq_eoi(int irq) {
+    gic::send_eoi(static_cast<uint32_t>(irq));
 }
 
 void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry, uintptr_t fn, uintptr_t arg) {
@@ -76,7 +60,11 @@ void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry, uintptr_t fn, uintptr
 }
 
 void arch_fixup_fork_tf(TrapFrame* tf, uintptr_t sp) {
-    tf->set_return(0);
+    // For user fork (EL0): child returns 0 in x0
+    // For kernel thread (EL1): x0 holds fn pointer, must not overwrite
+    if ((tf->pstate & 0x4) == 0) {
+        tf->set_return(0);
+    }
     if (sp != 0) {
         tf->sp = sp;
     } else {

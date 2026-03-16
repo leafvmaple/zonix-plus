@@ -9,8 +9,8 @@ KERNEL="${BINDIR}/kernel"
 [ -f "$BOOTLOADER" ] || { echo "Error: $BOOTLOADER not found"; exit 1; }
 [ -f "$KERNEL" ] || { echo "Error: $KERNEL not found"; exit 1; }
 
-echo "[1] Creating 100MB image..."
-dd if=/dev/zero of="$IMAGE" bs=1M count=100 2>/dev/null
+echo "[1] Creating 128MB image..."
+dd if=/dev/zero of="$IMAGE" bs=1M count=128 2>/dev/null
 
 echo "[2] Creating GPT partition table..."
 parted -s "$IMAGE" mklabel gpt

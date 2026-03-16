@@ -16,30 +16,12 @@
 
 #include "cons/cons.h"
 #include "drivers/fbcons.h"
+#include "drivers/gic.h"
+#include "drivers/pl011.h"
+#include "drivers/timer.h"
+#include "drivers/virtio_kbd.h"
 #include "sched/sched.h"
 #include "mm/vmm.h"
-
-// ARM Generic Timer: CNTV (virtual timer) frequency and state
-namespace {
-
-volatile int64_t timer_ticks = 0;
-
-void timer_set_next() {
-    // Set the virtual timer to fire after ~10ms (approximate)
-    uint64_t freq;
-    __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(freq));
-    uint64_t interval = freq / 100;  // 100 Hz = 10ms
-    __asm__ volatile("msr cntv_tval_el0, %0" ::"r"(interval));
-    // Enable the virtual timer
-    __asm__ volatile("msr cntv_ctl_el0, %0" ::"r"(1UL));
-}
-
-}  // namespace
-
-// Provide timer ticks for scheduler
-namespace timer {
-volatile int64_t ticks = 0;
-}  // namespace timer
 
 void TrapFrame::print() const {
     cprintf("trapframe at %p\n", this);
@@ -66,10 +48,9 @@ void TrapFrame::print_pgfault() const {
 
 static void irq_timer(TrapFrame*) {
     timer::ticks++;
-    timer_ticks++;
     fbcons::tick();
     sched::tick();
-    timer_set_next();
+    timer::set_next();
 }
 
 static int pg_fault(TrapFrame* tf) {
@@ -126,27 +107,33 @@ static void syscall(TrapFrame* tf) {
  *
  * AArch64 exceptions are classified by ESR_EL1 EC field (bits [31:26]).
  * IRQs don't set ESR — they arrive via the IRQ vector.
- * We distinguish sync vs IRQ by checking the vector offset encoded
- * in the SPSR's exception class.
+ * We distinguish sync vs IRQ by checking EC == 0.
  */
+
+static constexpr uint32_t VTIMER_INTID = 27;
+static constexpr uint32_t UART0_INTID = 33;
+static constexpr uint32_t GIC_SPURIOUS = 1023;
+
 extern "C" void trap(TrapFrame* tf) {
     uint32_t ec = (tf->esr >> 26) & 0x3F;  // Exception Class
 
-    // Check if this is an IRQ (ESR is 0 or irrelevant for IRQs)
-    // IRQs arrive via vectors at offset 0x080/0x280/0x480 (IRQ vectors).
-    // For synchronous exceptions, EC != 0. For IRQs, EC is typically 0
-    // because ESR is not updated on IRQ entry.
-    // We use a simple heuristic: if EC == 0 and this looks like a timer,
-    // handle as IRQ. The vector table could also pass type info.
-    //
-    // Better approach: check if the virtual timer fired.
-    uint64_t cntv_ctl;
-    __asm__ volatile("mrs %0, cntv_ctl_el0" : "=r"(cntv_ctl));
-    bool timer_pending = (cntv_ctl & 0x5) == 0x5;  // ENABLE=1, ISTATUS=1
+    if (ec == 0) {
+        // IRQ path: acknowledge via GIC
+        uint32_t iar = gic::ack();
+        uint32_t intid = iar & 0x3FF;
 
-    if (ec == 0 && timer_pending) {
-        // This is a timer IRQ
-        irq_timer(tf);
+        if (intid == VTIMER_INTID) {
+            irq_timer(tf);
+            gic::send_eoi(iar);
+        } else if (intid == UART0_INTID) {
+            pl011::intr();
+            gic::send_eoi(iar);
+        } else if (intid == virtio_kbd::gic_intid()) {
+            virtio_kbd::intr();
+            gic::send_eoi(iar);
+        } else if (intid != GIC_SPURIOUS) {
+            gic::send_eoi(iar);
+        }
     } else {
         switch (ec) {
             case T_SVC64: syscall(tf); break;
@@ -155,13 +142,9 @@ extern "C" void trap(TrapFrame* tf) {
             case T_IABT_EL0:
             case T_IABT_EL1: pg_fault(tf); break;
             default:
-                if (ec == 0 && !timer_pending) {
-                    // Unknown IRQ or spurious — ignore for now
-                } else {
-                    cprintf("Unhandled exception: EC=0x%x ESR=0x%lx ELR=0x%lx\n", ec, tf->esr, tf->pc);
-                    tf->print();
-                    arch_halt_forever();
-                }
+                cprintf("Unhandled exception: EC=0x%x ESR=0x%lx ELR=0x%lx\n", ec, tf->esr, tf->pc);
+                tf->print();
+                arch_halt_forever();
                 break;
         }
     }

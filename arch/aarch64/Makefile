@@ -59,10 +59,15 @@ $(BINDIR)/zonix-uefi.img: $(BINDIR)/BOOTAA64.EFI $(BINDIR)/kernel | $$(dir $$@)
 	@echo "  IMG     $@"
 	$(Q)BINDIR=$(BINDIR) bash $(SCRIPTDIR)/create_uefi_image_aarch64.sh
 
+# ---------- SD card image (128 MB, power-of-2 required by QEMU) ----------
+$(BINDIR)/sdcard.img: $(BINDIR)/zonix-uefi.img
+	@echo "  IMG     $@"
+	$(Q)cp $< $@
+
 # ---------- QEMU run / debug targets ----------
 .PHONY: qemu debug
 
-qemu: $(BINDIR)/zonix-uefi.img
+qemu: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img
 	$(QEMU) -M virt -cpu cortex-a72 -m 256M \
 		-bios $(AAVMF) \
 		-readconfig qemu-uefi-aarch64.cfg \

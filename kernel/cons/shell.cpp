@@ -496,13 +496,10 @@ shell_cmd_t commands[] = {
 
 int command_count = array_size(commands);
 
-// Parse command line into arguments
-// Returns number of arguments parsed
 static int parse_args(const char* cmd, char** argv) {
     static char arg_buf[CMD_BUF_SIZE];
     int argc = 0;
 
-    // Copy to buffer for manipulation
     size_t i = 0;
     while (cmd[i] && i < CMD_BUF_SIZE - 1) {
         arg_buf[i] = cmd[i];
@@ -514,18 +511,19 @@ static int parse_args(const char* cmd, char** argv) {
     char* p = arg_buf;
     while (*p && argc < MAX_ARGS) {
         // Skip leading spaces
-        while (*p == ' ')
+        while (*p == ' ') {
             p++;
+        }
 
-        if (*p == '\0')
+        if (*p == '\0') {
             break;
+        }
 
-        // Start of argument
         argv[argc++] = p;
 
-        // Find end of argument
-        while (*p && *p != ' ')
+        while (*p && *p != ' ') {
             p++;
+        }
 
         // Null-terminate if not end of string
         if (*p) {
@@ -540,11 +538,10 @@ static int parse_args(const char* cmd, char** argv) {
 static void execute_command(const char* cmd) {
     char* argv[MAX_ARGS];
 
-    // Skip leading spaces
-    while (*cmd == ' ')
+    while (*cmd == ' ') {
         cmd++;
+    }
 
-    // Empty command
     if (*cmd == '\0') {
         return;
     }
