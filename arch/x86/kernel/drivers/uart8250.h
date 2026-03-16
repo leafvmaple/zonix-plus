@@ -2,9 +2,9 @@
 
 #include <kernel/config.h>
 
-namespace serial {
+namespace uart8250 {
 
 void init();
 void putc(int c);
 
-}  // namespace serial
+}  // namespace uart8250

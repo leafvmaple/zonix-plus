@@ -14,10 +14,14 @@ struct tm {
     int tm_isdst;
 };
 
-namespace pit {
-
-extern volatile int64_t ticks;
+namespace i8253 {
 
 int init();
 
-}  // namespace pit
+}  // namespace i8253
+
+namespace timer {
+
+extern volatile int64_t ticks;
+
+}  // namespace timer

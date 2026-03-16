@@ -1,4 +1,4 @@
-#include "fbcons.h"
+#include "drivers/fbcons.h"
 
 #include <kernel/config.h>
 #include <base/types.h>

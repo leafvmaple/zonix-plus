@@ -3,7 +3,6 @@
 #include "lib/stdio.h"
 #include "mm/vmm.h"
 #include "mm/swap_test.h"
-#include "drivers/kbd.h"
 #include "block/blk.h"
 #include "sched/sched.h"
 #include "fs/fat.h"
@@ -637,9 +636,9 @@ int shell::main(void* arg) {
     shell::init();
     shell::prompt();
 
-    // Main loop: read characters from keyboard driver (blocking)
+    // Main loop: read characters from console (blocking)
     while (true) {
-        char c = kbd::getc_blocking();
+        char c = cons::getc();
         if (c > 0) {
             shell::handle_char(c);
         }

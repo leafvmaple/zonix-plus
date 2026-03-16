@@ -1,7 +1,7 @@
 #include "block/blk.h"
 #include "drivers/ide.h"
 #include "drivers/ahci.h"
-#include "drivers/pic.h"
+#include "drivers/i8259.h"
 
 #include <asm/drivers/i8259.h>
 
@@ -10,8 +10,8 @@
 namespace blk {
 
 void probe_backends() {
-    pic::enable(IRQ_IDE1);
-    pic::enable(IRQ_IDE2);
+    i8259::enable(IRQ_IDE1);
+    i8259::enable(IRQ_IDE2);
 
     IdeManager::init();
     int ide_count = IdeManager::get_device_count();

@@ -12,8 +12,8 @@
 
 #include "idt.h"
 #include "tss.h"
-#include "drivers/pic.h"
-#include "drivers/pit.h"
+#include "drivers/i8259.h"
+#include "drivers/i8253.h"
 
 // ============================================================================
 // Architecture initialization
@@ -22,8 +22,8 @@
 namespace {
 
 const ArchEarlyStep ARCH_STEPS[] = {
-    {"pic", pic::init, true},
-    {"pit", pit::init, true},
+    {"i8259", i8259::init, true},
+    {"i8253", i8253::init, true},
     {"idt", idt::init, true},
     {"tss", tss::init, true},
 };
@@ -46,7 +46,7 @@ void arch_switch_rsp0(uintptr_t rsp0) {
 }
 
 void arch_irq_eoi(int irq) {
-    pic::send_eoi(irq);
+    i8259::send_eoi(irq);
 }
 
 void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry, uintptr_t fn, uintptr_t arg) {

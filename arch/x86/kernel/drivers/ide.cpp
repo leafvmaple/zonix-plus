@@ -4,8 +4,8 @@
 
 #include <asm/arch.h>
 #include <asm/drivers/i8259.h>
-#include "pic.h"
-#include "intr.h"
+#include "drivers/i8259.h"
+#include "drivers/intr.h"
 
 // Global IDE devices
 IdeDevice IdeManager::s_devices[ide::MAX_DEVICES] = {};
@@ -85,8 +85,8 @@ void IdeDevice::interrupt() {
 }
 
 void IdeManager::init(void) {
-    pic::enable(IRQ_IDE1);
-    pic::enable(IRQ_IDE2);
+    i8259::enable(IRQ_IDE1);
+    i8259::enable(IRQ_IDE2);
 
     // Try to detect all 4 possible devices
     for (int i = 0; i < ide::MAX_DEVICES; i++) {

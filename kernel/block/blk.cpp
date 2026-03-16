@@ -9,9 +9,6 @@ int BlockManager::s_device_count = 0;
 
 void BlockManager::init() {
     cprintf("blk_init: initializing block device layer...\n");
-
-    // Let each architecture/platform register its own block backends.
-    blk::probe_backends();
 }
 
 void BlockManager::register_device(BlockDevice* device) {
@@ -123,6 +120,7 @@ namespace blk {
 
 void init() {
     BlockManager::init();
+    probe_backends();
 }
 
 void test_devices() {

@@ -7,9 +7,9 @@
 #include <asm/arch.h>
 #include <asm/page.h>
 #include <asm/drivers/i8259.h>
-#include "pic.h"
+#include "drivers/i8259.h"
 #include "sched/sched.h"
-#include "intr.h"
+#include "drivers/intr.h"
 #include "mm/vmm.h"
 #include "mm/pmm.h"
 

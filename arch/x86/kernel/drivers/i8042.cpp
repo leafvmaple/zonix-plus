@@ -1,4 +1,4 @@
-#include "kbd.h"
+#include "drivers/i8042.h"
 
 #include <asm/drivers/i8042.h>
 #include <asm/drivers/i8259.h>
@@ -6,8 +6,8 @@
 #include <base/types.h>
 #include <asm/arch.h>
 
-#include "pic.h"
-#include "intr.h"
+#include "drivers/i8259.h"
+#include "drivers/intr.h"
 #include "sched/sched.h"
 #include "lib/waitqueue.h"
 
@@ -57,11 +57,11 @@ static void init_normal_map(void) {
     normal_map[0xD3] = KEY_DEL;
 }
 
-namespace kbd {
+namespace i8042 {
 
 void init(void) {
     init_normal_map();
-    pic::enable(IRQ_KBD);
+    i8259::enable(IRQ_KBD);
 }
 
 int getc(void) {
@@ -110,4 +110,4 @@ char getc_blocking(void) {
     }
 }
 
-}  // namespace kbd
+}  // namespace i8042

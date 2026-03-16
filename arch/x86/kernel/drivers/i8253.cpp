@@ -1,5 +1,5 @@
-#include "pit.h"
-#include "pic.h"
+#include "drivers/i8253.h"
+#include "drivers/i8259.h"
 
 #include <asm/arch.h>
 #include <asm/drivers/i8254.h>
@@ -24,9 +24,11 @@ constexpr uint8_t bcd_to_bin(uint8_t val) {
 
 }  // namespace
 
-namespace pit {
-
+namespace timer {
 volatile int64_t ticks = 0;
+}  // namespace timer
+
+namespace i8253 {
 
 int init() {
     struct tm time;
@@ -52,9 +54,9 @@ int init() {
     arch_port_outb(PIT_TIMER0_REG, timer_div(100) % 256);
     arch_port_outb(PIT_TIMER0_REG, timer_div(100) / 256);
 
-    pic::enable(IRQ_TIMER);
+    i8259::enable(IRQ_TIMER);
 
     return ARCH_INIT_OK;
 }
 
-}  // namespace pit
+}  // namespace i8253

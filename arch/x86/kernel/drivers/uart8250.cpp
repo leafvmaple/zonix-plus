@@ -1,11 +1,11 @@
-#include "serial.h"
+#include "drivers/uart8250.h"
 
 #include <kernel/config.h>
 #include <asm/arch.h>
 
 #define COM1_PORT 0x3F8
 
-namespace serial {
+namespace uart8250 {
 
 void init() {
     arch_port_outb(COM1_PORT + 1, 0x00);  // Disable interrupts
@@ -27,4 +27,4 @@ void putc(int c) {
     arch_port_outb(COM1_PORT, c);
 }
 
-}  // namespace serial
+}  // namespace uart8250

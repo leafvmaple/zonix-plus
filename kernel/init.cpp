@@ -1,6 +1,5 @@
 #include "block/blk.h"
 #include "drivers/intr.h"
-#include "drivers/fbcons.h"
 #include "cons/cons.h"
 #include "mm/pmm.h"
 #include "mm/vmm.h"
@@ -43,33 +42,23 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info* boot_info) 
         goto halt;
     }
 
-    // C++ global constructors (must run before any other init)
     cxx_init();
 
-    // Console initialization first (basic driver: CGA + keyboard)
-    // This must be first to enable cprintf for other modules
     cons::init();
 
-    // Architecture-specific early steps (interrupt controller, timer, IDT, TSS)
     run_arch_early_steps();
 
     pmm::init();
     vmm::init();
 
-    // Initialize framebuffer console now that VMM can map MMIO
-    fbcons::late_init();
-
-    // Block device initialization (requires VMM for MMIO access)
+    cons::late_init();
     blk::init();
-
-    // Swap initialization (requires block devices)
     swap::init();
 
     sched::init();
 
     intr::enable();
 
-    // Idle loop: PID 0 halts until an interrupt arrives, then reschedules
     while (true) {
         arch_idle();
         sched::schedule();

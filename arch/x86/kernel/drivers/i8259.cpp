@@ -1,10 +1,10 @@
-#include "pic.h"
+#include "drivers/i8259.h"
 
 #include <asm/arch.h>
 #include <asm/drivers/i8259.h>
 #include <base/types.h>
 
-namespace pic {
+namespace i8259 {
 // Initial IRQ mask has interrupt 2 enabled (for slave 8259A).
 static uint16_t irq_mask = 0xFFFF;
 
@@ -61,4 +61,4 @@ int init() {
     return ARCH_INIT_OK;
 }
 
-}  // namespace pic
+}  // namespace i8259

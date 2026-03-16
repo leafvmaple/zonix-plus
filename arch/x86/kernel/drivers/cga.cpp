@@ -1,4 +1,4 @@
-#include "cga.h"
+#include "drivers/cga.h"
 
 #include <kernel/config.h>
 #include <base/types.h>

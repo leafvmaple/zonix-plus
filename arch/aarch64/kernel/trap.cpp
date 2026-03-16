@@ -36,9 +36,9 @@ void timer_set_next() {
 }  // namespace
 
 // Provide timer ticks for scheduler
-namespace pit {
+namespace timer {
 volatile int64_t ticks = 0;
-}
+}  // namespace timer
 
 void TrapFrame::print() const {
     cprintf("trapframe at %p\n", this);
@@ -64,7 +64,7 @@ void TrapFrame::print_pgfault() const {
 }
 
 static void irq_timer(TrapFrame*) {
-    pit::ticks++;
+    timer::ticks++;
     timer_ticks++;
     sched::tick();
     timer_set_next();

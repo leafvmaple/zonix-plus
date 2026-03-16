@@ -1,4 +1,4 @@
-#include "trap.h"
+#include "trap/trap.h"
 
 #include "lib/unistd.h"
 #include <base/types.h>
@@ -8,8 +8,8 @@
 #include <asm/page.h>
 #include <asm/trap_numbers.h>
 
-#include "drivers/kbd.h"
-#include "drivers/pit.h"
+#include "drivers/i8042.h"
+#include "drivers/i8253.h"
 #include "drivers/ide.h"
 #include "drivers/fbcons.h"
 #include "cons/cons.h"
@@ -86,13 +86,13 @@ void TrapFrame::print_pgfault() const {
 }
 
 static void irq_timer(TrapFrame* tf) {
-    pit::ticks++;
+    timer::ticks++;
     sched::tick();
     fbcons::tick();
 }
 
 static void irq_kbd(TrapFrame* tf) {
-    kbd::intr();
+    i8042::intr();
 }
 
 static void irq_ide(int channel) {

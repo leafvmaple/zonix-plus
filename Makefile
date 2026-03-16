@@ -146,6 +146,7 @@ INCLUDE := include \
 ifeq ($(ARCH),x86)
 KSRCDIR := kernel              \
            arch/$(ARCH)/kernel \
+           arch/$(ARCH)/kernel/drivers \
            kernel/debug        \
            kernel/cons         \
            kernel/trap         \
@@ -157,13 +158,9 @@ KSRCDIR := kernel              \
            kernel/exec         \
            kernel/sync
 else ifeq ($(ARCH),aarch64)
-# AArch64: shared kernel modules + arch-specific replacements.
-# arch/aarch64/kernel/ provides: cons.cpp, trap.cpp, drivers.cpp
-# that replace x86-specific versions in kernel/cons/, kernel/trap/, kernel/drivers/.
-# We include kernel/cons/ and kernel/drivers/ for shared files (shell, stdio, intr)
-# but filter out the x86-specific .cpp files in the link step.
 KSRCDIR := kernel              \
            arch/$(ARCH)/kernel \
+           arch/$(ARCH)/kernel/drivers \
            kernel/debug        \
            kernel/cons         \
            kernel/sched        \
@@ -173,20 +170,6 @@ KSRCDIR := kernel              \
            kernel/fs           \
            kernel/exec         \
            kernel/drivers
-
-# Files to exclude from aarch64 build (x86-specific implementations)
-AARCH64_EXCLUDE := kernel/cons/cons.cpp   \
-                   kernel/trap/trap.cpp   \
-                   kernel/drivers/cga.cpp \
-                   kernel/drivers/kbd.cpp \
-                   kernel/drivers/pic.cpp \
-                   kernel/drivers/pit.cpp \
-                   kernel/drivers/serial.cpp \
-                   kernel/drivers/ide.cpp \
-                   kernel/drivers/ide_test.cpp \
-                   kernel/drivers/ahci.cpp \
-                   kernel/drivers/pci.cpp \
-                   kernel/drivers/fbcons.cpp
 endif
 
 CFLAGS   += $(addprefix -I,$(INCLUDE))
@@ -197,11 +180,6 @@ $(call add_packet_files_cxx,$(call listf_cxx,$(KSRCDIR)),kernel)
 
 kernel = $(call totarget,kernel)
 KOBJS  := $(sort $(call read_packet,kernel))
-
-# Filter out architecture-excluded files (aarch64 replaces some x86 modules)
-ifdef AARCH64_EXCLUDE
-  KOBJS := $(filter-out $(call toobj,$(AARCH64_EXCLUDE)),$(KOBJS))
-endif
 
 # Embedded console font (PSF -> ELF .rodata) — x86 only for now
 ifeq ($(ARCH),x86)
