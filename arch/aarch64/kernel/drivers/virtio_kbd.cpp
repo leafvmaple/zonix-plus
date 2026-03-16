@@ -18,7 +18,7 @@
  */
 
 #include "virtio_kbd.h"
-#include "pci.h"
+#include "drivers/pci.h"
 #include "gic.h"
 #include "cons/cons.h"
 #include "lib/stdio.h"

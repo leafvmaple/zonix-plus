@@ -1,6 +1,16 @@
+/**
+ * @file fbcons.cpp
+ * @brief Framebuffer console — renders text via a 32-bit linear framebuffer.
+ *
+ * Architecture-independent: the framebuffer physical address comes from
+ * boot_info (set by both x86 and aarch64 UEFI bootloaders) and is mapped
+ * into virtual memory via vmm::mmio_map() during late_init().
+ *
+ * Uses an embedded PSF bitmap font (linked via objcopy from fonts/console.psf).
+ */
+
 #include "drivers/fbcons.h"
 
-#include <kernel/config.h>
 #include <base/types.h>
 #include <asm/page.h>
 #include <kernel/bootinfo.h>
@@ -9,22 +19,21 @@
 #include "lib/stdio.h"
 #include "lib/memory.h"
 
-extern struct boot_info __kernel_boot_info;
-
 // Embedded PSF font (linked via objcopy from fonts/console.psf)
 extern "C" const uint8_t _binary_fonts_console_psf_start[];
 extern "C" const uint8_t _binary_fonts_console_psf_end[];
+
+extern struct boot_info __kernel_boot_info;
 
 namespace fbcons {
 
 // =========================================================================
 // PSF bitmap font — parsed at init() from the embedded .psf blob.
-// Replaces the old hardcoded font8x16[] array.
-// To change the font, simply swap fonts/console.psf and rebuild.
 // =========================================================================
 static psf::Font font;
 static int FONT_W = 8;
 static int FONT_H = 16;
+
 // Framebuffer state
 static uint32_t* fb_base = nullptr;
 static uint32_t fb_width = 0;
@@ -32,12 +41,12 @@ static uint32_t fb_height = 0;
 static uint32_t fb_pitch = 0;  // bytes per scanline
 
 // Text cursor
-static uint32_t cols = 0;  // characters per row
-static uint32_t rows = 0;  // characters per column
+static uint32_t cols = 0;
+static uint32_t rows = 0;
 static uint32_t cur_x = 0;
 static uint32_t cur_y = 0;
 
-// Colors (32-bit ARGB/XRGB)
+// Colors (32-bit XRGB)
 static constexpr uint32_t FG_COLOR = 0x00AAAAAA;  // light grey
 static constexpr uint32_t BG_COLOR = 0x00000000;  // black
 
@@ -57,14 +66,12 @@ static constexpr uint32_t CURSOR_COLOR = 0x00AAAAAA;  // same as FG_COLOR
 static void draw_cursor() {
     if (!active)
         return;
-    // Draw underscore cursor: fill bottom 2 rows of the character cell
     uint32_t x0 = cur_x * FONT_W;
-    uint32_t y0 = cur_y * FONT_H + (FONT_H - 2);  // last 2 pixel rows
+    uint32_t y0 = cur_y * FONT_H + (FONT_H - 2);
     for (int row = 0; row < 2; row++) {
-        uint32_t* pixel = (uint32_t*)((uint8_t*)fb_base + (y0 + row) * fb_pitch) + x0;
-        for (int col = 0; col < FONT_W; col++) {
+        uint32_t* pixel = reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(fb_base) + (y0 + row) * fb_pitch) + x0;
+        for (int col = 0; col < FONT_W; col++)
             pixel[col] = CURSOR_COLOR;
-        }
     }
 }
 
@@ -74,22 +81,19 @@ static void erase_cursor() {
     uint32_t x0 = cur_x * FONT_W;
     uint32_t y0 = cur_y * FONT_H + (FONT_H - 2);
     for (int row = 0; row < 2; row++) {
-        uint32_t* pixel = (uint32_t*)((uint8_t*)fb_base + (y0 + row) * fb_pitch) + x0;
-        for (int col = 0; col < FONT_W; col++) {
+        uint32_t* pixel = reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(fb_base) + (y0 + row) * fb_pitch) + x0;
+        for (int col = 0; col < FONT_W; col++)
             pixel[col] = BG_COLOR;
-        }
     }
 }
 
 static void draw_char(uint32_t cx, uint32_t cy, int ch) {
     const uint8_t* gl = psf::glyph(&font, ch);
-
     uint32_t x0 = cx * FONT_W;
     uint32_t y0 = cy * FONT_H;
-
     for (int row = 0; row < FONT_H; row++) {
         uint8_t bits = gl[row];
-        uint32_t* pixel = (uint32_t*)((uint8_t*)fb_base + (y0 + row) * fb_pitch) + x0;
+        uint32_t* pixel = reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(fb_base) + (y0 + row) * fb_pitch) + x0;
         for (int col = 0; col < FONT_W; col++) {
             *pixel++ = (bits & 0x80) ? FG_COLOR : BG_COLOR;
             bits <<= 1;
@@ -99,21 +103,16 @@ static void draw_char(uint32_t cx, uint32_t cy, int ch) {
 
 static void clear_row(uint32_t cy) {
     uint32_t y0 = cy * FONT_H;
-    for (int row = 0; row < FONT_H; row++) {
-        memset((uint8_t*)fb_base + (y0 + row) * fb_pitch, 0, fb_width * 4);
-    }
+    for (int row = 0; row < FONT_H; row++)
+        memset(reinterpret_cast<uint8_t*>(fb_base) + (y0 + row) * fb_pitch, 0, fb_width * 4);
 }
 
 static void scroll_up() {
-    // Move all rows up by one character row (FONT_H pixels)
     uint32_t bytes_per_char_row = fb_pitch * FONT_H;
-    uint8_t* dst = (uint8_t*)fb_base;
+    uint8_t* dst = reinterpret_cast<uint8_t*>(fb_base);
     uint8_t* src = dst + bytes_per_char_row;
     uint32_t total = bytes_per_char_row * (rows - 1);
-
     memcpy(dst, src, total);
-
-    // Clear last row
     clear_row(rows - 1);
 }
 
@@ -125,13 +124,12 @@ void init(uintptr_t fb_vaddr, uint32_t width, uint32_t height, uint32_t pitch, u
     if (bpp != 32 || fb_vaddr == 0 || width == 0 || height == 0)
         return;
 
-    // Parse the embedded PSF font
     if (!psf::parse(_binary_fonts_console_psf_start, &font))
         return;
     FONT_W = font.width;
     FONT_H = font.height;
 
-    fb_base = (uint32_t*)fb_vaddr;
+    fb_base = reinterpret_cast<uint32_t*>(fb_vaddr);
     fb_width = width;
     fb_height = height;
     fb_pitch = pitch;
@@ -143,30 +141,26 @@ void init(uintptr_t fb_vaddr, uint32_t width, uint32_t height, uint32_t pitch, u
 
     // Clear screen
     for (uint32_t y = 0; y < height; y++) {
-        uint32_t* pixel = (uint32_t*)((uint8_t*)fb_base + y * fb_pitch);
-        for (uint32_t x = 0; x < width; x++) {
+        uint32_t* pixel = reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(fb_base) + y * fb_pitch);
+        for (uint32_t x = 0; x < width; x++)
             pixel[x] = BG_COLOR;
-        }
     }
 
     active = true;
 
     // Replay buffered early boot output
-    for (int i = 0; i < early_log_pos; i++) {
+    for (int i = 0; i < early_log_pos; i++)
         putc(early_log[i]);
-    }
     early_log_pos = 0;
 }
 
 void putc(int c) {
     if (!active) {
-        // Buffer output until framebuffer is ready
         if (early_log_pos < EARLY_LOG_SIZE)
-            early_log[early_log_pos++] = (char)c;
+            early_log[early_log_pos++] = static_cast<char>(c);
         return;
     }
 
-    // Erase old cursor before updating position
     if (cursor_visible)
         erase_cursor();
 
@@ -183,8 +177,7 @@ void putc(int c) {
             }
             break;
         case '\t':
-            // Advance to next 8-column tab stop
-            cur_x = (cur_x + 8) & ~7;
+            cur_x = (cur_x + 8) & ~7u;
             if (cur_x >= cols) {
                 cur_x = 0;
                 cur_y++;
@@ -200,13 +193,11 @@ void putc(int c) {
             break;
     }
 
-    // Scroll if needed
     if (cur_y >= rows) {
         scroll_up();
         cur_y = rows - 1;
     }
 
-    // Redraw cursor at new position
     cursor_visible = true;
     cursor_tick = 0;
     draw_cursor();
@@ -247,7 +238,6 @@ void late_init() {
     uint64_t fb_phys = bi->framebuffer_addr;
     uint32_t fb_size = bi->framebuffer_pitch * bi->framebuffer_height;
 
-    // Map framebuffer into kernel virtual address space
     uintptr_t fb_va = vmm::mmio_map(static_cast<uintptr_t>(fb_phys), fb_size, VM_WRITE | VM_NOCACHE);
     if (fb_va == 0) {
         cprintf("fbcons: mmio_map failed for phys 0x%lx size 0x%x\n", static_cast<unsigned long>(fb_phys), fb_size);

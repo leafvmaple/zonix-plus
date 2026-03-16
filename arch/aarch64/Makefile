@@ -57,7 +57,7 @@ AAVMF ?= /usr/share/qemu-efi-aarch64/QEMU_EFI.fd
 # ---------- UEFI disk image ----------
 $(BINDIR)/zonix-uefi.img: $(BINDIR)/BOOTAA64.EFI $(BINDIR)/kernel | $$(dir $$@)
 	@echo "  IMG     $@"
-	$(Q)BINDIR=$(BINDIR) bash $(SCRIPTDIR)/create_uefi_image_aarch64.sh
+	$(Q)BINDIR=$(BINDIR) ARCH=aarch64 bash $(SCRIPTDIR)/create_uefi_image.sh
 
 # ---------- SD card image (128 MB, power-of-2 required by QEMU) ----------
 $(BINDIR)/sdcard.img: $(BINDIR)/zonix-uefi.img

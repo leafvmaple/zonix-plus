@@ -4,7 +4,7 @@
 
 namespace fbcons {
 
-// Late initialization: map GOP framebuffer and activate console (requires VMM).
+// Late initialization: map framebuffer MMIO and activate console (requires VMM).
 void late_init();
 
 // Initialize framebuffer console with mapped virtual address.

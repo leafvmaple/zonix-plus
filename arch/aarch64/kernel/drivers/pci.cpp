@@ -1,14 +1,26 @@
-#include "pci.h"
+/**
+ * @file pci.cpp
+ * @brief AArch64 PCI config-space transport — ECAM (memory-mapped).
+ *
+ * Provides the three arch-specific primitives declared in <drivers/pci.h>:
+ *   pci::init(), pci::config_read32(), pci::config_write32(), pci::bus_count()
+ * Generic PCI functions live in kernel/drivers/pci.cpp.
+ */
+
+#include "drivers/pci.h"
 #include "lib/stdio.h"
 #include "mm/vmm.h"
 #include <asm/page.h>
 
+// QEMU virt machine ECAM PCI configuration base (from DTB).
+// Bus 0 only — sufficient for QEMU virt topology.
+static constexpr uintptr_t PCI_ECAM_PHYS = 0x4010000000ULL;
+static constexpr size_t PCI_ECAM_SIZE = 0x00100000;  // 1 MB (bus 0)
+
 namespace {
 
-// Kernel virtual address of the ECAM window (set by pci::init)
 volatile uint8_t* ecam_base = nullptr;
 
-// ECAM address for a given BDF + register offset
 volatile uint32_t* ecam_addr(int bus, int dev, int func, int offset) {
     uintptr_t off = (static_cast<uintptr_t>(bus) << 20) | (static_cast<uintptr_t>(dev) << 15) |
                     (static_cast<uintptr_t>(func) << 12) | (offset & 0xFFC);
@@ -27,7 +39,6 @@ int init() {
     }
     ecam_base = reinterpret_cast<volatile uint8_t*>(va);
 
-    // Sanity: read device 0 vendor ID (should be the host bridge)
     uint32_t id0 = *reinterpret_cast<volatile uint32_t*>(ecam_base);
     if (id0 == 0xFFFFFFFF || (id0 & 0xFFFF) == 0xFFFF) {
         cprintf("pci: no devices on bus 0\n");
@@ -46,53 +57,8 @@ void config_write32(int bus, int dev, int func, int offset, uint32_t val) {
     *ecam_addr(bus, dev, func, offset) = val;
 }
 
-uint32_t read_bar(int bus, int dev, int func, int bar_index) {
-    return config_read32(bus, dev, func, pci::BAR0 + bar_index * 4);
-}
-
-void enable_bus_master(int bus, int dev, int func) {
-    uint32_t cmd = config_read32(bus, dev, func, pci::COMMAND);
-    cmd |= CMD_BUS_MASTER | CMD_MEMORY_SPACE;
-    config_write32(bus, dev, func, pci::COMMAND, cmd);
-}
-
-bool find_by_class(uint8_t cls, uint8_t sub, uint8_t iface, int* out_bus, int* out_dev, int* out_func) {
-    uint32_t expected = (static_cast<uint32_t>(cls) << 16) | (static_cast<uint32_t>(sub) << 8) | iface;
-    for (int dev = 0; dev < 32; dev++) {
-        for (int func = 0; func < 8; func++) {
-            uint32_t id = config_read32(0, dev, func, VENDOR_ID);
-            if (id == 0xFFFFFFFF || (id & 0xFFFF) == 0xFFFF)
-                continue;
-            uint32_t cr = config_read32(0, dev, func, CLASS_REVISION);
-            if ((cr >> 8) == expected) {
-                *out_bus = 0;
-                *out_dev = dev;
-                *out_func = func;
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-bool find_by_id(uint16_t vendor, uint16_t device, int* out_bus, int* out_dev, int* out_func) {
-    uint32_t expected = static_cast<uint32_t>(vendor) | (static_cast<uint32_t>(device) << 16);
-    for (int dev = 0; dev < 32; dev++) {
-        for (int func = 0; func < 8; func++) {
-            uint32_t id = config_read32(0, dev, func, VENDOR_ID);
-            if (id == expected) {
-                *out_bus = 0;
-                *out_dev = dev;
-                *out_func = func;
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-uint8_t read_interrupt_line(int bus, int dev, int func) {
-    return static_cast<uint8_t>(config_read32(bus, dev, func, 0x3C) & 0xFF);
-}
+int bus_count() {
+    return 1;
+}  // ECAM maps bus 0 only
 
 }  // namespace pci

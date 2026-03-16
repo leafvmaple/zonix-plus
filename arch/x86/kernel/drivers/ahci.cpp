@@ -1,5 +1,5 @@
 #include "ahci.h"
-#include "pci.h"
+#include "drivers/pci.h"
 #include "lib/stdio.h"
 #include "lib/string.h"
 #include "lib/memory.h"
@@ -462,18 +462,18 @@ void AhciManager::test() {
 }
 
 uint32_t AhciManager::pci_find_bar() {
-    PCILocation loc{};
+    int bus, dev, func;
 
-    if (!PCILocation::find_device_by_class(pci::CLASS_MASS_STORAGE, pci::SUBCLASS_SATA, pci::INTERFACE_AHCI, &loc)) {
+    if (!pci::find_by_class(pci::CLASS_MASS_STORAGE, pci::SUBCLASS_SATA, pci::INTERFACE_AHCI, &bus, &dev, &func)) {
         cprintf("AHCI: No AHCI controller found on PCI bus\n");
         return 0;
     }
 
-    uint32_t bar5 = loc.read_bar(5);
-    loc.enable_bus_master();
+    uint32_t bar5 = pci::read_bar(bus, dev, func, 5);
+    pci::enable_bus_master(bus, dev, func);
     uint32_t abar = bar5 & 0xFFFFFFF0;
 
-    cprintf("AHCI: Found controller at PCI %02x:%02x.%x, ABAR=0x%08x\n", loc.bus, loc.device, loc.function, abar);
+    cprintf("AHCI: Found controller at PCI %02x:%02x.%x, ABAR=0x%08x\n", bus, dev, func, abar);
 
     return abar;
 }

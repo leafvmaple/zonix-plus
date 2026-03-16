@@ -1,5 +1,5 @@
 #include "sdhci.h"
-#include "pci.h"
+#include "drivers/pci.h"
 #include "lib/stdio.h"
 #include "lib/string.h"
 #include "mm/vmm.h"
