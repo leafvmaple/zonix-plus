@@ -1,0 +1,57 @@
+CompileFlags:
+  Add:
+    - -ffreestanding
+    - -fno-builtin
+    - -Wall
+    - -nostdinc
+    - -nostdinc++
+    - -fno-stack-protector
+    - -fno-pic
+    - -fno-exceptions
+    - -fno-rtti
+    - -fno-use-cxa-atexit
+    - -fno-threadsafe-statics
+    - -fno-asynchronous-unwind-tables
+    - -fno-unwind-tables
+    - -std=gnu++17
+    - -Iinclude
+    - -Ikernel
+
+---
+If:
+  PathMatch: ^arch/aarch64/.*\.(c|cc|cpp|cxx|h|hpp)$
+CompileFlags:
+  Add:
+    - --target=aarch64-none-elf
+    - -Iarch/aarch64/include
+    - -Iarch/aarch64/kernel
+  Remove:
+    - --target=.*
+    - -Iarch/x86/include
+    - -Iarch/x86/kernel
+    - -m64
+    - -mno-red-zone
+    - -mcmodel=kernel
+    - -mno-sse
+    - -mno-sse2
+    - -mno-mmx
+    - -msoft-float
+
+---
+If:
+  PathMatch: ^arch/x86/.*\.(c|cc|cpp|cxx|h|hpp)$
+CompileFlags:
+  Add:
+    - -m64
+    - -mno-red-zone
+    - -mcmodel=kernel
+    - -mno-sse
+    - -mno-sse2
+    - -mno-mmx
+    - -msoft-float
+    - -Iarch/x86/include
+    - -Iarch/x86/kernel
+  Remove:
+    - --target=.*
+    - -Iarch/aarch64/include
+    - -Iarch/aarch64/kernel

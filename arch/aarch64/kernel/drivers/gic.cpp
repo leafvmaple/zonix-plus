@@ -1,11 +1,6 @@
-/**
- * @file gic.cpp
- * @brief GICv2 driver for QEMU virt machine.
- *
- * GICD (distributor) at phys 0x08000000, GICC (CPU interface) at phys 0x08010000.
- */
+// GICv2 driver for QEMU virt machine.
 
-#include "drivers/gic.h"
+#include "gic.h"
 
 #include <asm/memlayout.h>
 

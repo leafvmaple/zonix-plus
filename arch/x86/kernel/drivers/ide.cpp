@@ -123,14 +123,17 @@ void IdeManager::init(void) {
         }
 
         s_devices[s_devices_count].detect(&config);
-        // Only count the device if it reported a valid size
-        if (s_devices[s_devices_count].info.size > 0) {
-            cprintf("ide: %s: detected %d sectors (%d MB)\n", config.name, s_devices[s_devices_count].info.size,
-                    s_devices[s_devices_count].info.size / 2048);
-            s_devices_count++;
-        } else {
-            cprintf("ide: %s: device responded but reports 0 sectors\n", config.name);
+
+        if (s_devices[s_devices_count].info.size == 0) {
+            cprintf("ide: %s: device reports 0 sectors, skipping\n", config.name);
+            continue;
         }
+
+        cprintf("ide: %s: detected %d sectors (%d MB)\n", config.name, s_devices[s_devices_count].info.size,
+                s_devices[s_devices_count].info.size / 2048);
+
+        blk::register_device(&s_devices[s_devices_count]);
+        s_devices_count++;
     }
 
     cprintf("ide: found %d device(s)\n", s_devices_count);

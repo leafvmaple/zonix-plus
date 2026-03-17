@@ -44,8 +44,9 @@ int late_init() {
 
 void push_input(char c) {
     int next = (input_write + 1) % INPUT_BUF_SIZE;
-    if (next == input_read)
+    if (next == input_read) {
         return;  // buffer full
+    }
     input_buf[input_write] = c;
     input_write = next;
     input_waitq.wakeup_one();

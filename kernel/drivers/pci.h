@@ -31,31 +31,55 @@ constexpr uint8_t CLASS_MASS_STORAGE = 0x01;
 constexpr uint8_t SUBCLASS_SATA = 0x06;
 constexpr uint8_t INTERFACE_AHCI = 0x01;
 
-// ================================================================
-// Arch-specific functions (implemented per platform)
-// ================================================================
+constexpr uint8_t CLASS_SYSTEM_PERIPHERAL = 0x08;
+constexpr uint8_t SUBCLASS_SD_HOST = 0x05;
+constexpr uint8_t INTERFACE_SDHCI = 0x00;
+constexpr uint8_t INTERFACE_SDHCI_DMA = 0x01;
 
 // Platform init (e.g. aarch64 maps ECAM; x86 can be a no-op).
 // Must be called before any other pci:: function.
 int init();
 
-// Raw 32-bit config-space read/write.
 uint32_t config_read32(int bus, int dev, int func, int offset);
 void config_write32(int bus, int dev, int func, int offset, uint32_t val);
-
-// Number of PCI buses the platform can enumerate.
 int bus_count();
 
-// ================================================================
-// Generic functions (shared implementation in kernel/drivers/pci.cpp)
-// ================================================================
+struct DeviceInfo {
+    uint8_t bus;
+    uint8_t dev;
+    uint8_t func;
+    uint16_t vendor;
+    uint16_t device;
+    uint8_t cls;
+    uint8_t subcls;
+    uint8_t iface;
+    uint8_t header_type;
+};
+
+constexpr uint16_t ANY_ID = 0xFFFF;
+constexpr uint8_t ANY_CLASS = 0xFF;
+
+struct DriverId {
+    uint16_t vendor;
+    uint16_t device;
+    uint8_t cls;
+    uint8_t subcls;
+    uint8_t iface;
+};
+
+using ProbeFn = int (*)(const DeviceInfo* dev, const DriverId* id);
+
+struct Driver {
+    const char* name;
+    const DriverId* id_table;
+    int id_count;
+    ProbeFn probe;
+};
+
+int register_driver(const Driver* driver);
+int probe_drivers();
 
 uint32_t read_bar(int bus, int dev, int func, int bar_index);
 void enable_bus_master(int bus, int dev, int func);
-
-bool find_by_class(uint8_t cls, uint8_t sub, uint8_t iface, int* out_bus, int* out_dev, int* out_func);
-bool find_by_id(uint16_t vendor, uint16_t device, int* out_bus, int* out_dev, int* out_func);
-
-uint8_t read_interrupt_line(int bus, int dev, int func);
 
 }  // namespace pci

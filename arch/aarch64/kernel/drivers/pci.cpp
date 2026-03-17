@@ -1,12 +1,3 @@
-/**
- * @file pci.cpp
- * @brief AArch64 PCI config-space transport — ECAM (memory-mapped).
- *
- * Provides the three arch-specific primitives declared in <drivers/pci.h>:
- *   pci::init(), pci::config_read32(), pci::config_write32(), pci::bus_count()
- * Generic PCI functions live in kernel/drivers/pci.cpp.
- */
-
 #include "drivers/pci.h"
 #include "lib/stdio.h"
 #include "mm/vmm.h"

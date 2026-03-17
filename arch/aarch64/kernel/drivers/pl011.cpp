@@ -1,5 +1,4 @@
 #include "pl011.h"
-
 #include <asm/page.h>
 #include <base/types.h>
 
@@ -37,8 +36,6 @@ namespace pl011 {
 int init() {
     // Enable receive interrupt in PL011
     *uart_reg(UARTIMSC) |= UARTIMSC_RXIM;
-
-    // Enable UART IRQ in GIC
     gic::enable(UART_INTID);
 
     return 0;

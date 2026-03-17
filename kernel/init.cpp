@@ -1,5 +1,6 @@
 #include "block/blk.h"
 #include "drivers/intr.h"
+#include "drivers/pci.h"
 #include "cons/cons.h"
 #include "mm/pmm.h"
 #include "mm/vmm.h"
@@ -23,14 +24,10 @@ static void cxx_init() {
     }
 }
 
-// ============================================================================
-// Unified init step runner
-// ============================================================================
-
 static void run_steps(const InitStep* steps, size_t count) {
     for (size_t i = 0; i < count; i++) {
-        cprintf("  %-12s", steps[i].name);
         int rc = steps[i].fn();
+        cprintf("  %-12s", steps[i].name);
         if (rc != 0) {
             cprintf(" [FAIL] (rc=%d)\n", rc);
             if (steps[i].required)
@@ -41,9 +38,28 @@ static void run_steps(const InitStep* steps, size_t count) {
     }
 }
 
+static int early_init() {
+    size_t arch_count = 0;
+    const InitStep* arch_steps = arch_early_steps(&arch_count);
+    run_steps(arch_steps, arch_count);
+
+    return 0;
+}
+
+static int pci_registers() {
+    size_t arch_count = 0;
+    const InitStep* arch_steps = arch_pci_steps(&arch_count);
+    run_steps(arch_steps, arch_count);
+
+    return 0;
+}
+
 static const InitStep KERN_STEPS[] = {
-    {"pmm", pmm::init, true}, {"vmm", vmm::init, true},    {"cons_late", cons::late_init, false},
-    {"blk", blk::init, true}, {"swap", swap::init, false}, {"sched", sched::init, true},
+    {"early_init", early_init, true},  {"pmm", pmm::init, true},
+    {"vmm", vmm::init, true},          {"cons_late", cons::late_init, false},
+    {"pci_init", pci::init, false},    {"blk", blk::init, true},
+    {"pci_reg", pci_registers, false}, {"pci_probe", pci::probe_drivers, false},
+    {"swap", swap::init, false},       {"sched", sched::init, true},
 };
 
 // ============================================================================
@@ -51,20 +67,16 @@ static const InitStep KERN_STEPS[] = {
 // ============================================================================
 
 extern "C" __attribute__((noreturn)) int kern_init(struct boot_info* boot_info) {
-    if (!boot_info || boot_info->magic != BOOT_INFO_MAGIC)
+    if (!boot_info || boot_info->magic != BOOT_INFO_MAGIC) {
         arch_halt();
+    }
 
     cxx_init();
 
-    if (cons::init() != 0)
+    if (cons::init() != 0) {
         arch_halt();
+    }
 
-    // Phase 1: architecture-specific hardware init
-    size_t arch_count = 0;
-    const InitStep* arch_steps = arch_early_steps(&arch_count);
-    run_steps(arch_steps, arch_count);
-
-    // Phase 2: kernel subsystem init
     run_steps(KERN_STEPS, sizeof(KERN_STEPS) / sizeof(KERN_STEPS[0]));
 
     intr::enable();
@@ -73,5 +85,6 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info* boot_info) 
         arch_idle();
         sched::schedule();
     }
+
     arch_halt();
 }

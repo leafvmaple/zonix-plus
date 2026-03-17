@@ -15,13 +15,12 @@ enum class DeviceType : uint8_t {
 }  // namespace blk
 
 struct BlockDevice {
-    static constexpr size_t SIZE = 512;  // Standard block size (sector size)
+    static constexpr size_t SIZE = 512;
 
     blk::DeviceType type{};  // Device type
     uint32_t size{};         // Size in blocks
     char name[8]{};          // Device name
 
-    // Virtual operations (for C++ subclasses)
     virtual int read(uint32_t block_number, void* buf, size_t block_count) = 0;
     virtual int write(uint32_t block_number, const void* buf, size_t block_count) = 0;
     virtual void print_info();
@@ -54,10 +53,9 @@ namespace blk {
 int init();
 
 // Register architecture/platform-specific block backends
-// (e.g. IDE/AHCI on x86, TF/eMMC on ARM platforms).
 int probe_backends();
+int register_device(BlockDevice* device);
 
-// Backend-dispatched diagnostics for block devices.
 void test_devices();
 void test_interrupts();
 

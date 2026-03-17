@@ -1,25 +1,93 @@
 {
+    "version": 4,
     "configurations": [
         {
-            "name": "GCC",
+            "name": "Zonix AArch64",
+            "compilerPath": "/usr/bin/clang",
+            "intelliSenseMode": "linux-clang-arm64",
+            "cStandard": "gnu17",
+            "cppStandard": "gnu++17",
             "includePath": [
-                "${workspaceFolder}/**",
                 "${workspaceFolder}/include",
-                "${workspaceFolder}/arch/x86/include",
-                "${workspaceFolder}/arch/x86/kernel",
-                "${workspaceFolder}/kernel/lib"
+                "${workspaceFolder}/kernel",
+                "${workspaceFolder}/arch/aarch64/include",
+                "${workspaceFolder}/arch/aarch64/kernel"
             ],
             "defines": [
-                "_DEBUG",
-                "UNICODE",
-                "_UNICODE"
+                "__aarch64__",
+                "__ELF__"
             ],
-            "compilerPath": "/usr/bin/gcc",
-            "cStandard": "gnu23",
-            "cppStandard": "c++17",
-            "intelliSenseMode": "linux-gcc-x64",
-            "configurationProvider": "ms-vscode.makefile-tools"
+            "compilerArgs": [
+                "--target=aarch64-none-elf",
+                "-ffreestanding",
+                "-nostdinc",
+                "-nostdinc++",
+                "-fno-builtin",
+                "-fno-stack-protector",
+                "-fno-pic",
+                "-fno-exceptions",
+                "-fno-rtti",
+                "-fno-use-cxa-atexit",
+                "-fno-threadsafe-statics",
+                "-fno-asynchronous-unwind-tables",
+                "-fno-unwind-tables"
+            ],
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/include",
+                    "${workspaceFolder}/kernel",
+                    "${workspaceFolder}/arch/aarch64/include",
+                    "${workspaceFolder}/arch/aarch64/kernel"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            }
+        },
+        {
+            "name": "Zonix x86_64",
+            "compilerPath": "/usr/bin/clang",
+            "intelliSenseMode": "linux-clang-x64",
+            "cStandard": "gnu17",
+            "cppStandard": "gnu++17",
+            "includePath": [
+                "${workspaceFolder}/include",
+                "${workspaceFolder}/kernel",
+                "${workspaceFolder}/arch/x86/include",
+                "${workspaceFolder}/arch/x86/kernel"
+            ],
+            "defines": [
+                "__x86_64__",
+                "__ELF__"
+            ],
+            "compilerArgs": [
+                "-m64",
+                "-mno-red-zone",
+                "-mcmodel=kernel",
+                "-mno-sse",
+                "-mno-sse2",
+                "-mno-mmx",
+                "-msoft-float",
+                "-ffreestanding",
+                "-nostdinc",
+                "-nostdinc++",
+                "-fno-builtin",
+                "-fno-stack-protector",
+                "-fno-pic",
+                "-fno-exceptions",
+                "-fno-rtti",
+                "-fno-use-cxa-atexit",
+                "-fno-threadsafe-statics",
+                "-fno-asynchronous-unwind-tables",
+                "-fno-unwind-tables"
+            ],
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/include",
+                    "${workspaceFolder}/kernel",
+                    "${workspaceFolder}/arch/x86/include",
+                    "${workspaceFolder}/arch/x86/kernel"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            }
         }
-    ],
-    "version": 4
+    ]
 }

@@ -36,12 +36,13 @@ struct TrapFrame {
     // ---- Portable accessors for generic kernel code ----
 
     // Syscall number (AArch64: x8)
-    uint64_t syscall_nr() const { return regs[8]; }
+    [[nodiscard]] uint64_t syscall_nr() const { return regs[8]; }
 
     // Syscall arguments (AArch64: x0-x5)
-    uint64_t syscall_arg(int n) const {
-        if (n >= 0 && n <= 5)
+    [[nodiscard]] uint64_t syscall_arg(int n) const {
+        if (n >= 0 && n <= 5) {
             return regs[n];
+        }
         return 0;
     }
 

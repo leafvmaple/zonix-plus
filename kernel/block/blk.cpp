@@ -128,7 +128,15 @@ int init() {
     }
 
     int count = BlockManager::get_device_count();
-    cprintf("blk: %d device(s) registered\n", count);
+    cprintf("blk: %d device(s) registered (before PCI probe)\n", count);
+    return 0;
+}
+
+int register_device(BlockDevice* device) {
+    if (!device) {
+        return -1;
+    }
+    BlockManager::register_device(device);
     return 0;
 }
 

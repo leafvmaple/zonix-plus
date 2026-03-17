@@ -1,18 +1,5 @@
-/**
- * @file bootload.c
- * @brief Zonix UEFI bootloader — x86_64 platform layer.
- *
- * Common UEFI boot logic lives in <boot/uefi_boot.h>.
- * This file provides only x86_64-specific constants and the kernel jump.
- */
-
 #include <uefi/uefi.h>
-
-/* Global UEFI state (referenced by uefi_boot.h helpers) */
-static EFI_SYSTEM_TABLE* ST;
-static EFI_BOOT_SERVICES* BS;
-
-/* ---- Platform configuration ---- */
+#include <boot/uefi_boot.h>
 
 #define KERNEL_VIRT_BASE 0xFFFFFFFF80000000ULL
 
@@ -29,53 +16,53 @@ static EFI_BOOT_SERVICES* BS;
 #define PLATFORM_MEM_LOWER     640
 #define PLATFORM_MEM_UPPER_MIN 0x100000
 
-/* ---- Shared UEFI helpers ---- */
-#include <boot/uefi_boot.h>
-
-/* ---- Entry point ---- */
-
 EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_table) {
-    ST = system_table;
-    BS = system_table->BootServices;
+    EFI_SYSTEM_TABLE* st = system_table;
+    EFI_BOOT_SERVICES* bs = system_table->BootServices;
 
-    ST->ConOut->ClearScreen(ST->ConOut);
-    uefi_print(L"\r\nZonix UEFI Bootloader (x86_64) v1.0\r\n\r\n");
-    BS->SetWatchdogTimer(0, 0, 0, NULL);
+    st->ConOut->ClearScreen(st->ConOut);
+    uefi_print(st, L"\r\nZonix UEFI Bootloader (x86_64) v1.0\r\n\r\n");
+    bs->SetWatchdogTimer(0, 0, 0, NULL);
 
     struct boot_info* bi = (struct boot_info*)(UINTN)SAFE_BOOT_INFO_ADDR;
     memset(bi, 0, sizeof(struct boot_info));
     bi->magic = BOOT_INFO_MAGIC;
     bi->mmap_addr = SAFE_MMAP_ADDR;
 
-    uefi_print(L"Getting memory map...\r\n");
-    EFI_STATUS status = uefi_get_memory_map(bi);
-    if (EFI_ERROR(status))
+    uefi_print(st, L"Getting memory map...\r\n");
+    EFI_STATUS status =
+        uefi_get_memory_map(bs, bi, SAFE_MMAP_ADDR, SAFE_MMAP_MAX_ENTRIES, PLATFORM_MEM_LOWER, PLATFORM_MEM_UPPER_MIN);
+    if (EFI_ERROR(status)) {
         return status;
+    }
 
-    uefi_print(L"Loading kernel...\r\n");
+    uefi_print(st, L"Loading kernel...\r\n");
     VOID* kernel_buf = NULL;
     UINTN kernel_size = 0;
-    status = uefi_load_kernel_file(image_handle, &kernel_buf, &kernel_size);
-    if (EFI_ERROR(status))
+    status = uefi_load_kernel_file(bs, image_handle, &kernel_buf, &kernel_size);
+    if (EFI_ERROR(status)) {
         return status;
+    }
 
-    uefi_print(L"Parsing ELF kernel...\r\n");
-    if (uefi_load_elf(kernel_buf, bi) != 0)
+    uefi_print(st, L"Parsing ELF kernel...\r\n");
+    if (uefi_load_elf(kernel_buf, bi, KERNEL_VIRT_BASE) != 0) {
         return EFI_LOAD_ERROR;
+    }
 
-    uefi_get_graphics_info(bi);
+    uefi_get_graphics_info(bs, bi);
 
     const char* name = "Zonix UEFI";
     for (int i = 0; name[i] && i < 31; i++)
         bi->loader_name[i] = name[i];
 
-    uefi_print(L"Kernel entry (phys): ");
-    uefi_print_hex(bi->kernel_entry);
+    uefi_print(st, L"Kernel entry (phys): ");
+    uefi_print_hex(st, bi->kernel_entry);
 
-    uefi_print(L"Exiting Boot Services...\r\n");
-    status = uefi_exit_boot_services(image_handle);
-    if (EFI_ERROR(status))
+    uefi_print(st, L"Exiting Boot Services...\r\n");
+    status = uefi_exit_boot_services(bs, image_handle);
+    if (EFI_ERROR(status)) {
         return status;
+    }
 
     /*
      * Jump to kernel entry.

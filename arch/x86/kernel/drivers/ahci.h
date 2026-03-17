@@ -3,6 +3,11 @@
 #include <base/types.h>
 #include "block/blk.h"
 
+namespace pci {
+struct DeviceInfo;
+struct DriverId;
+}  // namespace pci
+
 // AHCI (Advanced Host Controller Interface) constants and definitions
 namespace ahci {
 
@@ -235,14 +240,13 @@ private:
 
 class AhciManager {
 public:
-    static void init();
+    static int init();
+    static int probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*);
 
     static AhciDevice* get_device(int device_id);
     static int get_device_count();
 
     static void interrupt_handler(int port);
-
-    static uint32_t pci_find_bar();
     static void mmio_write32(uintptr_t base, uint32_t offset, uint32_t value);
     static uint32_t mmio_read32(uintptr_t base, uint32_t offset);
 

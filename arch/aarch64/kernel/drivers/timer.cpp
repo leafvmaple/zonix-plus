@@ -1,10 +1,4 @@
-/**
- * @file timer.cpp
- * @brief ARM Generic Timer driver (virtual timer, CNTV).
- *
- * Configures the virtual timer at ~100 Hz and provides timer_set_next()
- * for rearming after each interrupt.
- */
+// ARM Generic Timer driver (virtual timer, CNTV).
 
 #include "drivers/timer.h"
 #include "drivers/gic.h"
@@ -31,10 +25,8 @@ int init() {
     if (cached_interval == 0)
         return -1;
 
-    // Enable virtual timer PPI in GIC
     gic::enable(VTIMER_INTID);
 
-    // Arm the timer
     __asm__ volatile("msr cntv_tval_el0, %0" ::"r"(cached_interval));
     __asm__ volatile("msr cntv_ctl_el0, %0" ::"r"(1UL));
 

@@ -111,6 +111,8 @@ VirtioInputEvent event_bufs[MAX_QUEUE_SIZE];
 volatile uint16_t* vq_notify_addr = nullptr;
 
 uint32_t s_gic_intid = 0;
+bool s_initialized = false;
+bool s_registered = false;
 
 // ============================================================================
 // Common config register accessors (VirtIO 1.x §4.1.4.3)
@@ -272,28 +274,13 @@ void fill_eventq() {
     __asm__ volatile("dmb ishst" ::: "memory");
 }
 
-}  // namespace
-
-// ============================================================================
-// Public API
-// ============================================================================
-
-namespace virtio_kbd {
-
-int init() {
-    int bus, dev, func;
-
-    if (!pci::find_by_id(VIRTIO_VENDOR, VIRTIO_INPUT_DEV, &bus, &dev, &func)) {
-        cprintf("virtio_kbd: device not found\n");
-        return -1;
-    }
-
+int init_from_pci_device(int bus, int dev, int func) {
     cprintf("virtio_kbd: found at PCI %d:%d.%d\n", bus, dev, func);
     pci::enable_bus_master(bus, dev, func);
 
     // Ensure PCI INTx is not disabled (bit 10 of Command register)
     uint32_t cmd = pci::config_read32(bus, dev, func, pci::COMMAND);
-    cmd &= ~(1u << 10);  // clear Interrupt Disable
+    cmd &= ~(1U << 10);  // clear Interrupt Disable
     pci::config_write32(bus, dev, func, pci::COMMAND, cmd);
 
     // Walk PCI capabilities to find modern config regions
@@ -393,7 +380,8 @@ int init() {
     // Cache notify address and kick the device
     select_queue(0);
     uint16_t q_notify_off = read_queue_notify_off();
-    vq_notify_addr = reinterpret_cast<volatile uint16_t*>(notify_base + q_notify_off * notify_off_multiplier);
+    size_t notify_off = static_cast<size_t>(q_notify_off) * static_cast<size_t>(notify_off_multiplier);
+    vq_notify_addr = reinterpret_cast<volatile uint16_t*>(notify_base + notify_off);
     *vq_notify_addr = 0;
 
     // Set up GIC interrupt
@@ -408,6 +396,51 @@ int init() {
     gic::enable(s_gic_intid);
 
     cprintf("virtio_kbd: ready, eventq=%d, GIC IntID=%d\n", qsz, s_gic_intid);
+    return 0;
+}
+
+int probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*) {
+    if (s_initialized) {
+        return -1;
+    }
+
+    int rc = init_from_pci_device(pdev->bus, pdev->dev, pdev->func);
+    if (rc == 0) {
+        s_initialized = true;
+    }
+    return rc;
+}
+
+const pci::DriverId VIRTIO_KBD_IDS[] = {
+    {VIRTIO_VENDOR, VIRTIO_INPUT_DEV, pci::ANY_CLASS, pci::ANY_CLASS, pci::ANY_CLASS},
+};
+
+const pci::Driver VIRTIO_KBD_DRIVER = {
+    "virtio_kbd",
+    VIRTIO_KBD_IDS,
+    static_cast<int>(array_size(VIRTIO_KBD_IDS)),
+    probe_callback,
+};
+
+}  // namespace
+
+// ============================================================================
+// Public API
+// ============================================================================
+
+namespace virtio_kbd {
+
+int init() {
+    if (s_initialized || s_registered) {
+        return 0;
+    }
+
+    if (pci::register_driver(&VIRTIO_KBD_DRIVER) != 0) {
+        cprintf("virtio_kbd: failed to register PCI driver\n");
+        return -1;
+    }
+
+    s_registered = true;
     return 0;
 }
 

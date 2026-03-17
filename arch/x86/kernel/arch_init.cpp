@@ -9,9 +9,11 @@
 #include <asm/trapframe.h>
 #include <asm/seg.h>
 #include <asm/cpu.h>
+#include <base/types.h>
 
 #include "idt.h"
 #include "tss.h"
+#include "drivers/ahci.h"
 #include "drivers/i8259.h"
 #include "drivers/i8253.h"
 
@@ -28,13 +30,24 @@ const InitStep ARCH_STEPS[] = {
     {"tss", tss::init, true},
 };
 
+const InitStep PCI_STEPS[] = {
+    {"ahci", AhciManager::init, false},
+};
+
 }  // namespace
 
 const InitStep* arch_early_steps(size_t* count) {
     if (count != nullptr) {
-        *count = sizeof(ARCH_STEPS) / sizeof(ARCH_STEPS[0]);
+        *count = array_size(ARCH_STEPS);
     }
     return ARCH_STEPS;
+}
+
+const InitStep* arch_pci_steps(size_t* count) {
+    if (count != nullptr) {
+        *count = array_size(PCI_STEPS);
+    }
+    return PCI_STEPS;
 }
 
 // ============================================================================
