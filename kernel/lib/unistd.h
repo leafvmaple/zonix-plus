@@ -3,7 +3,10 @@
 #include <asm/trap_numbers.h>
 
 #define NR_EXIT  1
+#define NR_READ  3
 #define NR_WRITE 4
+#define NR_OPEN  5
+#define NR_CLOSE 6
 #define NR_PAUSE 29
 
 // Syscall wrappers using C++ inline functions

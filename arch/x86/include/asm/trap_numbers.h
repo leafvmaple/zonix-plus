@@ -54,3 +54,15 @@
 #define IRQ_IDE2  15
 
 #define IRQ_COUNT 16
+
+// ============================================================================
+// Semantic trap role aliases used by common trap dispatch logic
+// ============================================================================
+
+#define TRAP_VECTOR_PGFAULT T_PGFLT
+#define TRAP_VECTOR_SYSCALL T_SYSCALL
+
+#define TRAP_VECTOR_IRQ_TIMER (IRQ_OFFSET + IRQ_TIMER)
+#define TRAP_VECTOR_IRQ_KBD   (IRQ_OFFSET + IRQ_KBD)
+#define TRAP_VECTOR_IRQ_IDE1  (IRQ_OFFSET + IRQ_IDE1)
+#define TRAP_VECTOR_IRQ_IDE2  (IRQ_OFFSET + IRQ_IDE2)

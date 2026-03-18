@@ -45,6 +45,7 @@ void IdeDevice::detect(const IdeConfig* cfg) {
     info.heads = identify_data[3];
     info.sectors = identify_data[6];
     info.size = *reinterpret_cast<uint32_t*>(&identify_data[60]);
+    size = info.size;
     info.valid = 1;
 
     strncpy(name, cfg->name, sizeof(name));

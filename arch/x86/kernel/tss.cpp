@@ -1,6 +1,4 @@
 /**
- * x86_64 TSS initialisation and runtime RSP0 updates.
- *
  * GDT layout (from head.S):
  *   Slot 0  = NULL
  *   Slot 1  = KERNEL_CS   (64-bit code, DPL 0)
@@ -13,7 +11,6 @@
 
 #include "tss.h"
 
-#include <asm/seg.h>
 #include <asm/segments.h>
 #include "lib/memory.h"
 #include "lib/stdio.h"
@@ -34,36 +31,10 @@ int init() {
     s_tss.iopb_offset = sizeof(TssDesc);
 
     // --- Build the 16-byte TSS descriptor in GDT slots 5 and 6 ---
-    uint64_t base = reinterpret_cast<uint64_t>(&s_tss);
+    uintptr_t base = reinterpret_cast<uintptr_t>(&s_tss);
     uint32_t limit = sizeof(TssDesc) - 1;
 
-    // Low 8 bytes (slot 5):
-    //   bits  0-15  limit[15:0]
-    //   bits 16-31  base[15:0]
-    //   bits 32-39  base[23:16]
-    //   bits 40-43  type = 0x9 (Available 64-bit TSS)
-    //   bit  44     S = 0 (system descriptor)
-    //   bits 45-46  DPL = 0
-    //   bit  47     P = 1
-    //   bits 48-51  limit[19:16]
-    //   bits 52-55  AVL=0, L=0, D/B=0, G=0
-    //   bits 56-63  base[31:24]
-    uint64_t low = 0;
-    low |= (uint64_t)(limit & 0xFFFF);             // limit[15:0]
-    low |= (uint64_t)(base & 0xFFFF) << 16;        // base[15:0]
-    low |= (uint64_t)((base >> 16) & 0xFF) << 32;  // base[23:16]
-    low |= (uint64_t)(STS_T32A) << 40;             // type = Available TSS
-    low |= (uint64_t)(1) << 47;                    // P = 1
-    low |= (uint64_t)((limit >> 16) & 0xF) << 48;  // limit[19:16]
-    low |= (uint64_t)((base >> 24) & 0xFF) << 56;  // base[31:24]
-
-    // High 8 bytes (slot 6):
-    //   bits  0-31  base[63:32]
-    //   bits 32-63  reserved (zero)
-    uint64_t high = (base >> 32) & 0xFFFFFFFF;
-
-    __gdt[SEG_TSS] = low;
-    __gdt[SEG_TSS + 1] = high;
+    set_tss(__gdt, SEG_TSS, base, limit);
 
     // Load the Task Register
     uint16_t tss_sel = GD_TSS;

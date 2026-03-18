@@ -1,4 +1,5 @@
 #include "fat.h"
+#include "vfs.h"
 #include "lib/stdio.h"
 #include "lib/math.h"
 #include "lib/memory.h"
@@ -6,6 +7,40 @@
 #include <base/mbr.h>
 #include <base/bpb.h>
 #include <base/gpt.h>
+
+namespace {
+
+constexpr uint32_t FAT_INVALID_SECTOR = static_cast<uint32_t>(-1);
+
+void init_fat32_mount_state(FatInfo& fat, BlockDevice* dev, uint32_t partition_start, const fat32_boot_sector& bs) {
+    fat.dev_ = dev;
+    fat.partition_start_ = partition_start;
+    fat.total_sectors_ = bs.total_sectors_32;
+    fat.bytes_per_sector_ = bs.bytes_per_sector;
+    fat.sectors_per_cluster_ = bs.sectors_per_cluster;
+    fat.bytes_per_cluster_ = fat.bytes_per_sector_ * fat.sectors_per_cluster_;
+
+    fat.reserved_sectors_ = bs.reserved_sectors;
+    fat.num_fats_ = bs.num_fats;
+    fat.fat_size_ = bs.fat_size_32;
+    fat.root_entries_ = 0;
+    fat.root_cluster_ = bs.root_cluster;
+
+    // FAT32 has root directory in data area, so root_start/root_sectors are unused.
+    fat.root_start_ = 0;
+    fat.root_sectors_ = 0;
+    fat.fat_start_ = fat.reserved_sectors_;
+    fat.data_start_ = fat.fat_start_ + (fat.num_fats_ * fat.fat_size_);
+
+    uint32_t data_sectors = fat.total_sectors_ - fat.data_start_;
+    fat.cluster_count_ = data_sectors / fat.sectors_per_cluster_;
+    fat.fat_type_ = FAT_TYPE_FAT32;
+
+    fat.buffer_sector_ = FAT_INVALID_SECTOR;
+    fat.buffer_dirty_ = false;
+}
+
+}  // namespace
 
 // ---------------------------------------------------------------------------
 // Helper: find partition start LBA from MBR or GPT
@@ -92,7 +127,7 @@ int FatInfo::mount(BlockDevice* dev) {
         return -1;
     }
 
-    uint32_t partition_start = (uint32_t)part_start;
+    uint32_t partition_start = static_cast<uint32_t>(part_start);
 
     struct fat32_boot_sector bs{};
     if (dev->read(partition_start, &bs, 1) != 0) {
@@ -110,33 +145,7 @@ int FatInfo::mount(BlockDevice* dev) {
         return -1;
     }
 
-    dev_ = dev;
-    partition_start_ = partition_start;
-    total_sectors_ = bs.total_sectors_32;
-    bytes_per_sector_ = bs.bytes_per_sector;
-    sectors_per_cluster_ = bs.sectors_per_cluster;
-    bytes_per_cluster_ = bs.bytes_per_sector * bs.sectors_per_cluster;
-
-    reserved_sectors_ = bs.reserved_sectors;
-    num_fats_ = bs.num_fats;
-    fat_size_ = bs.fat_size_32;
-    root_entries_ = 0;
-    root_cluster_ = bs.root_cluster;
-
-    // Calculate FAT start sector (relative to partition)
-    root_start_ = 0;
-    root_sectors_ = 0;
-    fat_start_ = reserved_sectors_;
-    data_start_ = fat_start_ + (num_fats_ * fat_size_);
-
-    // Calculate cluster count
-    uint32_t data_sectors = total_sectors_ - data_start_;
-    cluster_count_ = data_sectors / sectors_per_cluster_;
-    fat_type_ = FAT_TYPE_FAT32;
-
-    // Initialize FAT cache
-    buffer_sector_ = (uint32_t)-1;  // Invalid sector
-    buffer_dirty_ = false;
+    init_fat32_mount_state(*this, dev, partition_start, bs);
 
     // Print file system information
     char oem[9]{};
@@ -155,7 +164,7 @@ int FatInfo::mount(BlockDevice* dev) {
 
 void FatInfo::unmount() {
     // Flush FAT buffer if dirty
-    if (buffer_dirty_ && buffer_sector_ != (uint32_t)-1) {
+    if (buffer_dirty_ && buffer_sector_ != FAT_INVALID_SECTOR) {
         for (uint32_t i = 0; i < num_fats_; i++) {
             uint32_t fat_sector = fat_start_ + (i * fat_size_) + (buffer_sector_ - fat_start_);
             if (dev_->write(partition_start_ + fat_sector, buffer_, 1) != 0) {
@@ -167,8 +176,8 @@ void FatInfo::unmount() {
 
     // Clear info
     dev_ = nullptr;
-    buffer_sector_ = (uint32_t)-1;
-    buffer_dirty_ = 0;
+    buffer_sector_ = FAT_INVALID_SECTOR;
+    buffer_dirty_ = false;
 }
 
 void FatInfo::print_info() {
@@ -453,3 +462,167 @@ int FatInfo::read_file(fat_dir_entry_t* entry, uint8_t* buf, uint32_t offset, ui
 
     return bytes_read;
 }
+
+namespace fat {
+
+namespace {
+
+bool contains_slash(const char* path) {
+    if (!path) {
+        return false;
+    }
+
+    while (*path) {
+        if (*path == '/') {
+            return true;
+        }
+        path++;
+    }
+
+    return false;
+}
+
+void fill_stat_from_entry(const fat_dir_entry_t& entry, vfs::Stat* st) {
+    st->attrs = entry.attr;
+    st->size = entry.file_size;
+    st->type = (entry.attr & FAT_ATTR_DIRECTORY) ? vfs::NodeType::Directory : vfs::NodeType::File;
+}
+
+struct ReadDirBridge {
+    vfs::ReadDirFn cb{};
+    void* arg{};
+};
+
+int fat_readdir_bridge(fat_dir_entry_t* entry, void* arg) {
+    auto* bridge = static_cast<ReadDirBridge*>(arg);
+    if (!bridge || !bridge->cb) {
+        return -1;
+    }
+
+    vfs::DirEntry dir{};
+    FatInfo::get_filename(entry, dir.name, sizeof(dir.name));
+    dir.attrs = entry->attr;
+    dir.size = entry->file_size;
+    dir.type = (entry->attr & FAT_ATTR_DIRECTORY) ? vfs::NodeType::Directory : vfs::NodeType::File;
+
+    return bridge->cb(&dir, bridge->arg);
+}
+
+class FatFile : public vfs::File {
+public:
+    FatFile(FatInfo* fat, const fat_dir_entry_t& entry) : fat_(fat), entry_(entry) {}
+
+    int read(void* buf, size_t size, size_t offset) override {
+        if (!fat_ || !buf) {
+            return -1;
+        }
+
+        if (size > 0xFFFFFFFFU || offset > 0xFFFFFFFFU) {
+            return -1;
+        }
+
+        return fat_->read_file(&entry_, static_cast<uint8_t*>(buf), static_cast<uint32_t>(offset),
+                               static_cast<uint32_t>(size));
+    }
+
+    int stat(vfs::Stat* st) override {
+        if (!st) {
+            return -1;
+        }
+
+        fill_stat_from_entry(entry_, st);
+        return 0;
+    }
+
+private:
+    FatInfo* fat_{};
+    fat_dir_entry_t entry_{};
+};
+
+class FatFileSystem : public vfs::FileSystem {
+public:
+    int mount(BlockDevice* dev) override { return fat_.mount(dev); }
+
+    void unmount() override { fat_.unmount(); }
+
+    int open(const char* relpath, vfs::File** out_file) override {
+        if (!relpath || !out_file || relpath[0] == '\0') {
+            return -1;
+        }
+
+        if (contains_slash(relpath)) {
+            return -1;
+        }
+
+        fat_dir_entry_t entry{};
+        if (fat_.find_file(relpath, &entry) != 0) {
+            return -1;
+        }
+
+        if (entry.attr & FAT_ATTR_DIRECTORY) {
+            return -1;
+        }
+
+        auto* file = new (std::nothrow) FatFile(&fat_, entry);
+        if (!file) {
+            return -1;
+        }
+
+        *out_file = file;
+        return 0;
+    }
+
+    int stat(const char* relpath, vfs::Stat* st) override {
+        if (!relpath || !st) {
+            return -1;
+        }
+
+        if (relpath[0] == '\0') {
+            st->type = vfs::NodeType::Directory;
+            st->size = 0;
+            st->attrs = FAT_ATTR_DIRECTORY;
+            return 0;
+        }
+
+        if (contains_slash(relpath)) {
+            return -1;
+        }
+
+        fat_dir_entry_t entry{};
+        if (fat_.find_file(relpath, &entry) != 0) {
+            return -1;
+        }
+
+        fill_stat_from_entry(entry, st);
+        return 0;
+    }
+
+    int readdir(const char* relpath, vfs::ReadDirFn cb, void* arg) override {
+        if (!relpath || !cb) {
+            return -1;
+        }
+
+        if (relpath[0] != '\0') {
+            return -1;
+        }
+
+        ReadDirBridge bridge{};
+        bridge.cb = cb;
+        bridge.arg = arg;
+
+        return fat_.read_root_dir(fat_readdir_bridge, &bridge);
+    }
+
+    void print_info() override { fat_.print_info(); }
+
+private:
+    FatInfo fat_{};
+};
+
+}  // namespace
+
+vfs::FileSystem* create_vfs_filesystem() {
+    return new (std::nothrow) FatFileSystem();
+}
+
+}  // namespace fat

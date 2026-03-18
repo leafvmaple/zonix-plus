@@ -1,12 +1,14 @@
 #include "shell.h"
 #include "cons.h"
 #include "lib/stdio.h"
+#include "lib/memory.h"
 #include "mm/vmm.h"
 #include "block/blk.h"
 #include "sched/sched.h"
-#include "fs/fat.h"
+#include "fs/vfs.h"
 #include "exec/exec.h"
 
+#include <base/bpb.h>
 #include <base/types.h>
 #include <kernel/sysinfo.h>
 #include "lib/cons_defs.h"
@@ -40,6 +42,7 @@ int command_count = 0;
 
 // Forward declarations
 static int strcmp(const char* s1, const char* s2);
+static size_t str_len(const char* s);
 static int parse_args(const char* cmd, char** argv);
 
 // Command implementations
@@ -126,14 +129,11 @@ static void cmd_ps(int argc, char** argv) {
     sched::print();
 }
 
-// Global FAT file system info
-// System disk (boot disk, always mounted)
-static FatInfo g_system_fat{};
+// Global mounted filesystem info
 static const char* g_system_device{};
 static int g_system_mounted{};
 
 // /mnt mounted disk (optional)
-static FatInfo g_mnt_fat{};
 static const char* g_mnt_device{};
 static int g_mnt_mounted{};
 
@@ -141,9 +141,12 @@ static int g_mnt_mounted{};
 // Tries each block device in order until one successfully mounts as FAT.
 // This handles both BIOS (IDE hda with raw FAT) and UEFI (AHCI sda with GPT+ESP).
 static int ensure_system_mounted(void) {
-    if (g_system_mounted) {
+    if (g_system_mounted && vfs::is_mounted("/")) {
         return 0;  // Already mounted
     }
+
+    g_system_mounted = 0;
+    g_system_device = nullptr;
 
     int count = BlockManager::get_device_count();
     for (int i = 0; i < count; i++) {
@@ -152,7 +155,7 @@ static int ensure_system_mounted(void) {
             continue;
         }
 
-        if (g_system_fat.mount(dev) == 0) {
+        if (vfs::mount("/", dev, "fat") == 0) {
             g_system_device = dev->name;
             g_system_mounted = 1;
             return 0;
@@ -165,8 +168,9 @@ static int ensure_system_mounted(void) {
 
 static void cmd_mount(int argc, char** argv) {
     // Check if /mnt already has something mounted
-    if (g_mnt_mounted) {
-        cprintf("Device already mounted at /mnt: %s\n", g_mnt_device);
+    if (g_mnt_mounted || vfs::is_mounted("/mnt")) {
+        const char* mounted = g_mnt_device ? g_mnt_device : vfs::mounted_device("/mnt");
+        cprintf("Device already mounted at /mnt: %s\n", mounted ? mounted : "(unknown)");
         cprintf("Use 'umount' to unmount first\n");
         return;
     }
@@ -181,8 +185,8 @@ static void cmd_mount(int argc, char** argv) {
     const char* dev_name = argv[1];
 
     // Don't allow mounting system disk to /mnt
-    if (strcmp(dev_name, "hda") == 0) {
-        cprintf("Error: hda is the system disk and already mounted at /\n");
+    if (g_system_mounted && g_system_device && strcmp(dev_name, g_system_device) == 0) {
+        cprintf("Error: %s is the system disk and already mounted at /\n", dev_name);
         return;
     }
 
@@ -195,12 +199,12 @@ static void cmd_mount(int argc, char** argv) {
 
     cprintf("Mounting %s at /mnt...\n", dev->name);
 
-    if (g_mnt_fat.mount(dev) == 0) {
+    if (vfs::mount("/mnt", dev, "fat") == 0) {
         g_mnt_device = dev->name;
         g_mnt_mounted = 1;
         cprintf("Successfully mounted %s at /mnt\n", dev->name);
     } else {
-        cprintf("Failed to mount FAT file system\n");
+        cprintf("Failed to mount file system\n");
         cprintf("Make sure the device contains a valid FAT12/FAT16/FAT32 file system\n");
     }
 }
@@ -209,13 +213,19 @@ static void cmd_umount(int argc, char** argv) {
     (void)argc;
     (void)argv;
 
-    if (!g_mnt_mounted) {
+    if (!g_mnt_mounted || !vfs::is_mounted("/mnt")) {
         cprintf("Nothing mounted at /mnt\n");
+        g_mnt_mounted = 0;
+        g_mnt_device = nullptr;
+        return;
+    }
+
+    if (vfs::umount("/mnt") != 0) {
+        cprintf("Failed to unmount /mnt\n");
         return;
     }
 
     cprintf("Unmounting %s from /mnt...\n", g_mnt_device);
-    g_mnt_fat.unmount();
     g_mnt_device = nullptr;
     g_mnt_mounted = 0;
     cprintf("Successfully unmounted /mnt\n");
@@ -233,40 +243,36 @@ static void cmd_info(int argc, char** argv) {
     cprintf("System Disk Information:\n");
     cprintf("  Device: %s\n", g_system_device);
     cprintf("  Mount Point: /\n");
-    g_system_fat.print_info();
+    vfs::print_mount_info("/");
 
     if (g_mnt_mounted) {
         cprintf("\n/mnt Information:\n");
         cprintf("  Device: %s\n", g_mnt_device);
         cprintf("  Mount Point: /mnt\n");
-        cprintf("  Type: FAT%d\n", g_mnt_fat.fat_type_);
-        cprintf("  Total Size: %d MB\n", (g_mnt_fat.total_sectors_ * g_mnt_fat.bytes_per_sector_) / (1024 * 1024));
+        vfs::print_mount_info("/mnt");
     }
 }
 
-static int ls_callback(fat_dir_entry_t* entry, void* arg) {
+static int ls_callback(const vfs::DirEntry* entry, void* arg) {
     (void)arg;
-
-    char filename[13];
-    FatInfo::get_filename(entry, filename, sizeof(filename));
 
     // Get file attributes
     char attr_str[6] = "-----";
-    if (entry->attr & FAT_ATTR_DIRECTORY)
+    if (entry->attrs & FAT_ATTR_DIRECTORY)
         attr_str[0] = 'd';
-    if (entry->attr & FAT_ATTR_READ_ONLY)
+    if (entry->attrs & FAT_ATTR_READ_ONLY)
         attr_str[1] = 'r';
-    if (entry->attr & FAT_ATTR_HIDDEN)
+    if (entry->attrs & FAT_ATTR_HIDDEN)
         attr_str[2] = 'h';
-    if (entry->attr & FAT_ATTR_SYSTEM)
+    if (entry->attrs & FAT_ATTR_SYSTEM)
         attr_str[3] = 's';
-    if (entry->attr & FAT_ATTR_ARCHIVE)
+    if (entry->attrs & FAT_ATTR_ARCHIVE)
         attr_str[4] = 'a';
 
     // Format file size
-    uint32_t size = entry->file_size;
+    uint32_t size = entry->size;
 
-    cprintf("%s %8d  %s\n", attr_str, size, filename);
+    cprintf("%s %8d  %s\n", attr_str, size, entry->name);
 
     return 0;  // Continue
 }
@@ -278,7 +284,6 @@ static void cmd_ls(int argc, char** argv) {
         use_mnt = 1;
     }
 
-    FatInfo* fat_info = nullptr;
     const char* path = nullptr;
 
     if (use_mnt) {
@@ -287,14 +292,12 @@ static void cmd_ls(int argc, char** argv) {
             cprintf("Use 'mount <device>' to mount a device\n");
             return;
         }
-        fat_info = &g_mnt_fat;
         path = "/mnt";
     } else {
         // Auto-mount system disk if needed
         if (ensure_system_mounted() != 0) {
             return;
         }
-        fat_info = &g_system_fat;
         path = "/";
     }
 
@@ -302,13 +305,32 @@ static void cmd_ls(int argc, char** argv) {
     cprintf("ATTR     SIZE     NAME\n");
     cprintf("-------- -------- ------------\n");
 
-    int count = fat_info->read_root_dir(ls_callback, nullptr);
+    int count = vfs::readdir(path, ls_callback, nullptr);
 
     if (count < 0) {
         cprintf("Failed to read directory\n");
     } else {
         cprintf("\nTotal: %d file(s)\n", count);
     }
+}
+
+static int build_path(const char* filename, int use_mnt, char* out, size_t out_size) {
+    if (!filename || !out || out_size == 0) {
+        return -1;
+    }
+
+    const char* prefix = use_mnt ? "/mnt/" : "";
+    size_t prefix_len = str_len(prefix);
+    size_t file_len = str_len(filename);
+
+    if (prefix_len + file_len + 1 > out_size) {
+        return -1;
+    }
+
+    memcpy(out, prefix, prefix_len);
+    memcpy(out + prefix_len, filename, file_len + 1);
+
+    return 0;
 }
 
 static void cmd_cat(int argc, char** argv) {
@@ -327,45 +349,53 @@ static void cmd_cat(int argc, char** argv) {
         use_mnt = 1;
     }
 
-    FatInfo* fat_info = nullptr;
-
     if (use_mnt) {
         if (!g_mnt_mounted) {
             cprintf("Nothing mounted at /mnt\n");
             return;
         }
-        fat_info = &g_mnt_fat;
     } else {
         // Auto-mount system disk if needed
         if (ensure_system_mounted() != 0) {
             return;
         }
-        fat_info = &g_system_fat;
     }
 
-    fat_dir_entry_t entry;
+    char path_buf[CMD_BUF_SIZE]{};
+    if (build_path(filename, use_mnt, path_buf, sizeof(path_buf)) != 0) {
+        cprintf("Path too long: %s\n", filename);
+        return;
+    }
 
-    // Find file
-    if (fat_info->find_file(filename, &entry) != 0) {
+    vfs::File* file = nullptr;
+    if (vfs::open(path_buf, &file) != 0 || !file) {
         cprintf("File not found: %s\n", filename);
         return;
     }
 
-    // Check if it's a directory
-    if (entry.attr & FAT_ATTR_DIRECTORY) {
+    vfs::Stat st{};
+    if (file->stat(&st) != 0) {
+        vfs::close(file);
+        cprintf("Failed to stat file: %s\n", filename);
+        return;
+    }
+
+    if (st.type != vfs::NodeType::File) {
+        vfs::close(file);
         cprintf("Cannot cat a directory\n");
         return;
     }
 
     // Allocate buffer for file contents (max 64KB for now)
     uint32_t max_size = 65536;
-    uint32_t size = entry.file_size;
+    uint32_t size = st.size;
     if (size > max_size) {
         cprintf("File too large (max %d bytes)\n", max_size);
         size = max_size;
     }
 
     if (size == 0) {
+        vfs::close(file);
         cprintf("(empty file)\n");
         return;
     }
@@ -374,7 +404,7 @@ static void cmd_cat(int argc, char** argv) {
     static uint8_t file_buf[4096];
     uint32_t offset = 0;
 
-    cprintf("--- File: %s (%d bytes) ---\n", filename, entry.file_size);
+    cprintf("--- File: %s (%d bytes) ---\n", filename, st.size);
 
     while (offset < size) {
         uint32_t chunk_size = size - offset;
@@ -382,7 +412,7 @@ static void cmd_cat(int argc, char** argv) {
             chunk_size = sizeof(file_buf);
         }
 
-        int read = fat_info->read_file(&entry, file_buf, offset, chunk_size);
+        int read = vfs::read(file, file_buf, chunk_size, offset);
         if (read <= 0) {
             cprintf("\nError reading file at offset %d\n", offset);
             break;
@@ -405,6 +435,8 @@ static void cmd_cat(int argc, char** argv) {
         offset += read;
     }
 
+    vfs::close(file);
+
     cprintf("\n--- End of file ---\n");
 }
 
@@ -424,22 +456,24 @@ static void cmd_exec(int argc, char** argv) {
         use_mnt = 1;
     }
 
-    FatInfo* fat_info = nullptr;
-
     if (use_mnt) {
         if (!g_mnt_mounted) {
             cprintf("Nothing mounted at /mnt\n");
             return;
         }
-        fat_info = &g_mnt_fat;
     } else {
         if (ensure_system_mounted() != 0) {
             return;
         }
-        fat_info = &g_system_fat;
     }
 
-    int pid = exec::exec(filename, fat_info);
+    char path_buf[CMD_BUF_SIZE]{};
+    if (build_path(filename, use_mnt, path_buf, sizeof(path_buf)) != 0) {
+        cprintf("Path too long: %s\n", filename);
+        return;
+    }
+
+    int pid = exec::exec(path_buf);
     if (pid > 0) {
         cprintf("Process started (PID %d)\n", pid);
         // Wait for the child process to exit before returning to the shell prompt
@@ -550,6 +584,14 @@ static int strcmp(const char* s1, const char* s2) {
         s2++;
     }
     return (static_cast<unsigned char>(*s1) - static_cast<unsigned char>(*s2));
+}
+
+static size_t str_len(const char* s) {
+    size_t len = 0;
+    while (s && s[len]) {
+        len++;
+    }
+    return len;
 }
 
 int shell::register_command(const char* name, const char* desc, command_func_t func) {

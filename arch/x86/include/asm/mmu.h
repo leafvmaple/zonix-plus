@@ -1,6 +1,6 @@
 #pragma once
 
-#include "pg.h"
+#include "page.h"
 #include "memlayout.h"
 
 #ifndef __ASSEMBLY__
@@ -41,11 +41,9 @@ inline constexpr uint64_t PT_SIZE = (uint64_t)PG_SIZE * ENTRY_NUM;  // 2MB
 inline constexpr uint64_t PD_SIZE = PT_SIZE * ENTRY_NUM;            // 1GB
 inline constexpr uint64_t PDPT_SIZE = PD_SIZE * ENTRY_NUM;          // 512GB
 
-// Compatibility aliases
 inline constexpr int PDE_NUM = ENTRY_NUM;
 inline constexpr int PTE_NUM = ENTRY_NUM;
 
-// Page table level indices from a linear address
 inline constexpr uintptr_t pml4x(uintptr_t la) {
     return (la >> PML4X_SHIFT) & ENTRY_MASK;
 }
@@ -59,7 +57,6 @@ inline constexpr uintptr_t ptx(uintptr_t la) {
     return (la >> PTX_SHIFT) & ENTRY_MASK;
 }
 
-// Extract physical page address from page table entry
 inline constexpr uintptr_t pte_addr(uintptr_t pte) {
     return pte & 0x000FFFFFFFFFF000ULL;
 }
@@ -67,12 +64,10 @@ inline constexpr uintptr_t pde_addr(uintptr_t pde) {
     return pte_addr(pde);
 }
 
-// Page offset from a linear address
 inline constexpr uintptr_t pg_off(uintptr_t la) {
     return la & PG_MASK;
 }
 
-// Convert kernel virtual address to physical address
 inline constexpr uintptr_t virt_to_phys(uintptr_t kva) {
     return kva - KERNEL_BASE;
 }
@@ -82,13 +77,11 @@ inline uintptr_t virt_to_phys(T* kva) {
     return reinterpret_cast<uintptr_t>(kva) - KERNEL_BASE;
 }
 
-// Convert physical address to kernel virtual address
 template<typename T = void>
 inline T* phys_to_virt(uintptr_t pa) {
     return reinterpret_cast<T*>(pa + KERNEL_BASE);
 }
 
-// Iterate over page-aligned chunks within [va, va+size)
 template<typename TFunc>
 inline void iterate_pages(uintptr_t va, size_t size, TFunc&& func) {
     while (size > 0) {

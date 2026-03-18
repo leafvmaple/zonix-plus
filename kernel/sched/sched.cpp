@@ -6,6 +6,7 @@
 #include "lib/string.h"
 #include "drivers/intr.h"
 #include "debug/assert.h"
+#include "fs/vfs.h"
 #include <asm/arch.h>
 #include <asm/mmu.h>
 
@@ -147,6 +148,68 @@ int TaskStruct::setup_kernel_stack() {
     return 0;
 }
 
+void TaskStruct::init_fd_table() {
+    for (int i = 0; i < MAX_FD; i++) {
+        fd_table[i].file = nullptr;
+        fd_table[i].offset = 0;
+        fd_table[i].used = false;
+    }
+}
+
+int TaskStruct::alloc_fd(vfs::File* file) {
+    if (!file) {
+        return -1;
+    }
+
+    for (int i = 0; i < MAX_FD; i++) {
+        if (!fd_table[i].used) {
+            fd_table[i].file = file;
+            fd_table[i].offset = 0;
+            fd_table[i].used = true;
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+TaskStruct::FdEntry* TaskStruct::get_fd(int fd) {
+    if (fd < 0 || fd >= MAX_FD) {
+        return nullptr;
+    }
+
+    if (!fd_table[fd].used || !fd_table[fd].file) {
+        return nullptr;
+    }
+
+    return &fd_table[fd];
+}
+
+int TaskStruct::close_fd(int fd) {
+    FdEntry* entry = get_fd(fd);
+    if (!entry) {
+        return -1;
+    }
+
+    vfs::close(entry->file);
+    entry->file = nullptr;
+    entry->offset = 0;
+    entry->used = false;
+
+    return 0;
+}
+
+void TaskStruct::close_all_fds() {
+    for (int i = 0; i < MAX_FD; i++) {
+        if (fd_table[i].used && fd_table[i].file) {
+            vfs::close(fd_table[i].file);
+        }
+        fd_table[i].file = nullptr;
+        fd_table[i].offset = 0;
+        fd_table[i].used = false;
+    }
+}
+
 // Set process relationships (parent-child)
 void TaskStruct::set_links() {
     TaskManager::add_process(this);
@@ -161,6 +224,8 @@ void TaskStruct::remove_links() {
 }
 
 void TaskStruct::destroy() {
+    close_all_fds();
+
     if (kernel_stack != reinterpret_cast<uintptr_t>(user_stack)) {
         free_kstack(this);
     }
@@ -353,6 +418,7 @@ int TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_fra
     }
     proc->parent = get_current();
     proc->child_list.init();
+    proc->init_fd_table();
 
     if (proc->setup_kernel_stack() != 0) {
         cprintf("sched: fork: failed to allocate kernel stack\n");
@@ -482,6 +548,7 @@ void TaskManager::init_idle() {
     idle_proc->state = ProcessState::Runnable;
     idle_proc->kernel_stack = reinterpret_cast<uintptr_t>(user_stack);  // Use boot stack
     idle_proc->child_list.init();
+    idle_proc->init_fd_table();
     idle_proc->priority = sched_prio::IDLE_PRIO;
     idle_proc->time_slice = 0;
 

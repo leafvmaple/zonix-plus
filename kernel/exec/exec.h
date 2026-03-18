@@ -12,11 +12,11 @@
 #include <base/types.h>
 #include <asm/page.h>
 #include "mm/pmm.h"
-#include "fs/fat.h"
+#include "fs/vfs.h"
 
 namespace exec {
 
-inline constexpr size_t MAX_BINARY_SIZE = 1024 * 1024;  // 1 MB
+inline constexpr size_t MAX_BINARY_SIZE = 1024ULL * 1024ULL;  // 1 MB
 
 /**
  * Create a new top-level page directory with kernel mappings copied
@@ -32,15 +32,14 @@ pde_t* create_user_pgdir();
 uintptr_t setup_user_stack(pde_t* pgdir);
 
 /**
- * Execute a binary from a FAT filesystem.
+ * Execute a binary from VFS.
  *
  * Reads the file, auto-detects the format (currently ELF64; extensible),
  * builds a user address space, and forks a new user-mode process.
  *
- * @param path  Filename to look up in the FAT root directory
- * @param fat   Mounted FAT filesystem to read from
+ * @param path  Absolute or root-relative path
  * @return PID of the new process on success, negative on error
  */
-int exec(const char* path, FatInfo* fat);
+int exec(const char* path);
 
 }  // namespace exec

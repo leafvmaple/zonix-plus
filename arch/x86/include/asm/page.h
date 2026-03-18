@@ -1,27 +1,19 @@
 #pragma once
 
-/**
- * @file page.h
- * @brief Architecture-neutral paging constants and types.
- *
- * Each architecture provides this header defining:
- *   - Page size, PTE flag names, page table geometry
- *   - Portable PTE flag aliases so kernel/ code never uses raw x86 names
- *   - User/kernel address space boundary constants
- *   - Page table walking helpers
- *
- * x86_64 implementation — delegates to pg.h and mmu.h.
- */
-
-#include "pg.h"
 #include "memlayout.h"
 
-/* ===================================================================
- * Portable page permission flags
- *
- * kernel/ code should use these VM_* names exclusively.
- * Each arch maps them to native PTE bits.
- * =================================================================== */
+#define PTE_P   0x001         // Present
+#define PTE_W   0x002         // Writeable
+#define PTE_U   0x004         // User
+#define PTE_PWT 0x008         // Write-Through (disable write-back cache for this page)
+#define PTE_PCD 0x010         // Cache Disable (disable caching for this page, important for MMIO)
+#define PTE_PS  0x080         // Page Size (2MB page when set in PDE)
+#define PTE_NX  (1ULL << 63)  // No-Execute (requires EFER.NXE)
+
+#define PTE_USER (PTE_U | PTE_W | PTE_P)
+
+#define PG_SIZE  4096
+#define PG_SHIFT 12  // 2^12 = 4096
 
 #define VM_PRESENT   PTE_P               /* page is present / valid             */
 #define VM_WRITE     PTE_W               /* page is writable                    */
@@ -31,47 +23,32 @@
 
 #define VM_NOEXEC PTE_NX /* no-execute                          */
 
-/* Convenience combo: user-accessible read/write */
 #define VM_USER_RW (VM_USER | VM_WRITE | VM_PRESENT)
 
+#ifndef __ASSEMBLY__
+
+#include <base/types.h>
+
 static inline bool pte_is_block(uintptr_t entry) {
-    return entry & PTE_PS;
+    return (entry & PTE_PS) != 0;
 }
 
-/* x86 table/page entry helpers (uniform format on x86) */
 static inline uintptr_t make_pte_table(uintptr_t pa) {
     return pa | VM_USER_RW;
 }
+
 static inline uintptr_t make_pte_page(uintptr_t pa, uint32_t perm) {
     return pa | VM_PRESENT | perm;
 }
 
-#ifndef __ASSEMBLY__
-
-#include "mmu.h"
-
-/* ===================================================================
- * Portable page table geometry
- * =================================================================== */
-
-/* Number of page table levels */
 inline constexpr int PAGE_LEVELS = 4;
-
-/* Number of entries per table (9-bit index) */
-inline constexpr int PAGE_TABLE_ENTRIES = ENTRY_NUM; /* 512 */
-
-/* User/kernel split: lower-half entries in top-level table */
-inline constexpr int USER_TOP_ENTRIES = USER_PML4_ENTRIES; /* 256 */
-
-/* Page table entry type (same as uintptr_t on both x86 and ARM) */
-using pgd_t = uintptr_t; /* top-level page directory entry */
-
-/* ===================================================================
- * User-space address space layout
- * =================================================================== */
+inline constexpr int PAGE_TABLE_ENTRIES = 512;
+inline constexpr int USER_TOP_ENTRIES = 256;
 
 inline constexpr uintptr_t USER_SPACE_TOP = 0x0000800000000000ULL;
 inline constexpr uintptr_t USER_STACK_TOP = 0x00007FFFFFFFE000ULL;
-inline constexpr size_t USER_STACK_SIZE = 4 * PG_SIZE; /* 16 KB */
+inline constexpr size_t USER_STACK_SIZE = 4ULL * PG_SIZE; /* 16 KB */
+
+#include "mmu.h"
 
 #endif /* !__ASSEMBLY__ */

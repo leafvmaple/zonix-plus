@@ -53,6 +53,7 @@ void AhciDevice::detect(const AhciPortConfig* cfg, uintptr_t mmio_base) {
     info.serial = cfg->port_num;
     info.model = 0;
     info.valid = 0;
+    size = 0;
 
     strncpy(name, cfg->name, sizeof(name));
 
@@ -72,12 +73,14 @@ void AhciDevice::identify() {
     if (issue_cmd(ahci::ATA_CMD_IDENTIFY, 0, 0, false) != 0) {
         cprintf("AHCI: %s: IDENTIFY failed to issue\n", name);
         info.size = 0;
+        size = 0;
         return;
     }
 
     if (wait_cmd_complete(1000) != 0) {
         cprintf("AHCI: %s: IDENTIFY timeout\n", name);
         info.size = 0;
+        size = 0;
         return;
     }
 
@@ -87,6 +90,7 @@ void AhciDevice::identify() {
     info.heads = id[3];
     info.sectors = id[6];
     info.size = *reinterpret_cast<uint32_t*>(&id[60]);  // Total LBA28 sectors
+    size = info.size;
     info.valid = 1;
 }
 

@@ -12,8 +12,8 @@ namespace idt {
 
 int init() {
     for (int i = 0; i < 256; i++)
-        SET_TRAP_GATE(&__idt[i], __vectors[i]);
-    SET_SYS_GATE(&__idt[T_SYSCALL], __vectors[T_SYSCALL]);
+        set_trap_gate(&__idt[i], __vectors[i]);
+    set_sys_gate(&__idt[T_SYSCALL], __vectors[T_SYSCALL]);
 
     return ARCH_INIT_OK;
 }

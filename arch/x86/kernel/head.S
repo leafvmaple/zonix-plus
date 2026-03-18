@@ -1,5 +1,5 @@
-#include <asm/pg.h>
-#include <asm/seg.h>
+#include <asm/page.h>
+#include <asm/segments.h>
 #include <asm/memlayout.h>
 #include <asm/cr.h>
 

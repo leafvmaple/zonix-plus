@@ -5,7 +5,8 @@
 // Simple string functions
 static inline size_t strlen(const char* s) {
     size_t len = 0;
-    while (s[len]) len++;
+    while (s[len])
+        len++;
     return len;
 }
 
@@ -23,7 +24,8 @@ static inline char* strncpy(char* dst, const char* src, size_t n) {
 
 static inline char* strcpy(char* dst, const char* src) {
     char* d = dst;
-    while ((*d++ = *src++));
+    while ((*d++ = *src++))
+        ;
     return dst;
 }
 
@@ -37,8 +39,37 @@ static inline int strcmp(const char* s1, const char* s2) {
 
 static inline const char* strchr(const char* s, int c) {
     while (*s) {
-        if (*s == static_cast<char>(c)) return s;
+        if (*s == static_cast<char>(c))
+            return s;
         s++;
     }
     return nullptr;
+}
+
+static inline bool str_starts_with(const char* str, const char* prefix) {
+    if (!str || !prefix) {
+        return false;
+    }
+
+    while (*prefix) {
+        if (*str != *prefix) {
+            return false;
+        }
+        str++;
+        prefix++;
+    }
+
+    return true;
+}
+
+static inline const char* str_skip_char(const char* str, char ch) {
+    if (!str) {
+        return nullptr;
+    }
+
+    while (*str == ch) {
+        str++;
+    }
+
+    return str;
 }

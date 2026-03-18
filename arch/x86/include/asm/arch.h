@@ -2,27 +2,11 @@
 
 #ifndef __ASSEMBLY__
 
-/**
- * @file arch.h
- * @brief Architecture-neutral hardware abstraction layer
- *
- * Provides arch_*() wrappers around platform-specific primitives.
- * Kernel code should use these instead of raw x86 intrinsics (inb, outb,
- * cli, sti, lcr3, etc.) so that an ARM (or other) port only needs to
- * supply an alternative <asm/arch.h>.
- *
- * x86_64 implementation — delegates to the existing helpers in io.h / cpu.h.
- */
-
 #include "io.h"
 #include "cpu.h"
 
 // Forward declarations for types defined in other arch headers
 struct TrapFrame;
-
-// ============================================================================
-// Interrupt control
-// ============================================================================
 
 static inline void arch_irq_enable(void) {
     sti();
@@ -40,10 +24,6 @@ static inline void arch_irq_restore(uint64_t flags) {
     write_eflags(flags);
 }
 
-// ============================================================================
-// Control registers / TLB
-// ============================================================================
-
 static inline void arch_load_cr3(uintptr_t cr3) {
     lcr3(cr3);
 }
@@ -59,10 +39,6 @@ static inline uintptr_t arch_read_cr3(void) {
 static inline void arch_invlpg(void* addr) {
     invlpg(addr);
 }
-
-// ============================================================================
-// Port I/O  (x86-specific concept; on ARM these would become MMIO helpers)
-// ============================================================================
 
 static inline uint8_t arch_port_inb(uint16_t port) {
     return inb(port);
@@ -112,10 +88,6 @@ static inline bool arch_irq_is_enabled(void) {
     return (read_eflags() & FL_IF) != 0;
 }
 
-// ============================================================================
-// CPU control
-// ============================================================================
-
 static inline void arch_idle(void) {
     __asm__ volatile("sti; hlt");
 }
@@ -125,17 +97,9 @@ static inline void arch_idle(void) {
         __asm__ volatile("hlt");
 }
 
-// ============================================================================
-// Fault information
-// ============================================================================
-
 static inline uintptr_t arch_fault_addr(void) {
     return rcr2();
 }
-
-// ============================================================================
-// Non-inline arch functions (defined in arch_init.cpp)
-// ============================================================================
 
 using InitStepFn = int (*)();
 
@@ -153,24 +117,17 @@ void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry, uintptr_t fn, uintptr
 void arch_fixup_fork_tf(TrapFrame* tf, uintptr_t esp);
 void arch_setup_user_tf(TrapFrame* tf, uintptr_t entry, uintptr_t usp);
 
-// Halt forever — used for unrecoverable faults
 [[noreturn]] static inline void arch_halt_forever(void) {
     while (true)
         __asm__ volatile("cli; hlt");
 }
 
-// ============================================================================
-// Optimised memory operations (x86: REP STOSQ / REP MOVSQ)
-// ============================================================================
-
 static inline void* arch_memset(void* s, int c, size_t n) {
     auto* p = static_cast<char*>(s);
-    // Align to 8-byte boundary
     while (n > 0 && (reinterpret_cast<uintptr_t>(p) & 7)) {
         *p++ = static_cast<char>(c);
         n--;
     }
-    // Bulk fill 8 bytes at a time
     if (n >= 8) {
         uint64_t val = static_cast<uint8_t>(c);
         val |= val << 8;
@@ -189,7 +146,6 @@ static inline void* arch_memset(void* s, int c, size_t n) {
 static inline void* arch_memcpy(void* dst, const void* src, size_t n) {
     auto* d = static_cast<char*>(dst);
     auto const* s = static_cast<const char*>(src);
-    // Bulk copy 8 bytes at a time
     size_t qwords = n / 8;
     if (qwords > 0) {
         __asm__ volatile("rep movsq" : "+D"(d), "+S"(s), "+c"(qwords)::"memory");

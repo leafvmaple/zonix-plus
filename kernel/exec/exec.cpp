@@ -1,20 +1,6 @@
-/**
- * Generic binary execution framework.
- *
- * Format detection strategy
- * -------------------------
- *   1. Read file into a kernel buffer.
- *   2. Inspect the first few bytes (magic numbers) to identify the format.
- *   3. Dispatch to the matching loader which maps segments into pgdir
- *      and returns an entry-point address.
- *
- * Adding a new format (e.g. flat binary, a.out):
- *   - Write a loader: uintptr_t load_xxx(data, size, pgdir);
- *   - Add a magic check + dispatch in load_binary() below.
- */
-
 #include "exec.h"
 #include "elf_loader.h"
+#include "fs/vfs.h"
 
 #include "lib/stdio.h"
 #include "lib/memory.h"
@@ -28,15 +14,10 @@
 
 #include <asm/page.h>
 #include <asm/arch.h>
-#include <base/bpb.h>
 
 extern pde_t* boot_pgdir;
 
 namespace exec {
-
-// ============================================================================
-// Helpers — RAII buffer wrapper to avoid repeated free logic
-// ============================================================================
 
 struct KernelBuf {
     uint8_t* ptr = nullptr;
@@ -52,6 +33,21 @@ struct KernelBuf {
     // Non-copyable
     KernelBuf(const KernelBuf&) = delete;
     KernelBuf& operator=(const KernelBuf&) = delete;
+};
+
+struct OpenFile {
+    vfs::File* handle = nullptr;
+
+    OpenFile() = default;
+
+    ~OpenFile() {
+        if (handle != nullptr) {
+            vfs::close(handle);
+        }
+    }
+
+    OpenFile(const OpenFile&) = delete;
+    OpenFile& operator=(const OpenFile&) = delete;
 };
 
 pde_t* create_user_pgdir() {
@@ -86,14 +82,6 @@ uintptr_t setup_user_stack(pde_t* pgdir) {
     return USER_STACK_TOP;
 }
 
-/**
- * Attempt to load a binary of unknown format into @p pgdir.
- *
- * Currently supported formats:
- *   - ELF64 (detected by "\x7fELF" magic)
- *
- * @return Entry-point virtual address, or 0 on failure / unknown format
- */
 static uintptr_t load_binary(const uint8_t* data, size_t size, pde_t* pgdir) {
     if (elf::is_elf(data, size)) {
         return elf::load(data, size, pgdir);
@@ -108,24 +96,30 @@ static uintptr_t load_binary(const uint8_t* data, size_t size, pde_t* pgdir) {
     return 0;
 }
 
-int exec(const char* path, FatInfo* fat) {
-    if (!fat || !path) {
+int exec(const char* path) {
+    if (!path) {
         cprintf("exec: invalid arguments\n");
         return -1;
     }
 
-    fat_dir_entry_t dir_entry;
-    if (fat->find_file(path, &dir_entry) != 0) {
+    OpenFile file;
+    if (vfs::open(path, &file.handle) != 0 || file.handle == nullptr) {
         cprintf("exec: file not found: %s\n", path);
         return -1;
     }
 
-    if (dir_entry.attr & FAT_ATTR_DIRECTORY) {
+    vfs::Stat st{};
+    if (file.handle->stat(&st) != 0) {
+        cprintf("exec: failed to stat file: %s\n", path);
+        return -1;
+    }
+
+    if (st.type != vfs::NodeType::File) {
         cprintf("exec: cannot execute directory: %s\n", path);
         return -1;
     }
 
-    uint32_t file_size = dir_entry.file_size;
+    uint32_t file_size = st.size;
     if (file_size == 0) {
         cprintf("exec: empty file: %s\n", path);
         return -1;
@@ -141,7 +135,7 @@ int exec(const char* path, FatInfo* fat) {
         return -1;
     }
 
-    int bytes_read = fat->read_file(&dir_entry, buf.ptr, 0, file_size);
+    int bytes_read = vfs::read(file.handle, buf.ptr, file_size, 0);
     if (bytes_read < static_cast<int>(file_size)) {
         cprintf("exec: failed to read file (%d/%d bytes)\n", bytes_read, file_size);
         return -1;

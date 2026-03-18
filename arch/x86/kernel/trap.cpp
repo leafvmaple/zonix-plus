@@ -1,20 +1,13 @@
 #include "trap/trap.h"
 
-#include "lib/unistd.h"
 #include <base/types.h>
 #include "lib/stdio.h"
 
 #include <asm/arch.h>
-#include <asm/page.h>
 #include <asm/trap_numbers.h>
 
 #include "drivers/i8042.h"
-#include "drivers/i8253.h"
 #include "drivers/ide.h"
-#include "drivers/fbcons.h"
-#include "cons/cons.h"
-#include "sched/sched.h"
-#include "mm/vmm.h"
 
 namespace {
 
@@ -85,81 +78,61 @@ void TrapFrame::print_pgfault() const {
             (err & 1) ? "Protection Fault" : "No Page Found");
 }
 
-static void irq_timer(TrapFrame* tf) {
-    timer::ticks++;
-    sched::tick();
-    fbcons::tick();
-}
+namespace trap {
 
-static void irq_kbd(TrapFrame* tf) {
-    i8042::intr();
-}
-
-static void irq_ide(int channel) {
-    IdeManager::interrupt_handler(channel);
-}
-
-static int pg_fault(TrapFrame* tf) {
-    tf->print();
-    tf->print_pgfault();
-
-    TaskStruct* current = sched::current();
-    vmm::pg_fault(current->memory, tf->err, arch_fault_addr());
-
-    return 0;
-}
-
-static void syscall(TrapFrame* tf) {
-    int nr = static_cast<int>(tf->syscall_nr());
-    switch (nr) {
-        case NR_EXIT:
-            cprintf("[PID %d] exited with code %ld\n", sched::current()->pid, tf->syscall_arg(0));
-            sched::exit(static_cast<int>(tf->syscall_arg(0)));
-            break;
-        case NR_WRITE: {
-            // sys_write(fd, buf, count) — arg0=fd, arg1=buf, arg2=count
-            // For now, fd is ignored and output goes to the console.
-            const auto* buf = reinterpret_cast<const char*>(tf->syscall_arg(1));
-            auto count = static_cast<size_t>(tf->syscall_arg(2));
-            // Validate user pointer range (must be in user-space half)
-            if (reinterpret_cast<uintptr_t>(buf) >= USER_SPACE_TOP ||
-                count > USER_SPACE_TOP - reinterpret_cast<uintptr_t>(buf)) {
-                tf->set_return(static_cast<uint64_t>(-1));
-                break;
-            }
-            for (size_t i = 0; i < count; i++) {
-                cons::putc(buf[i]);
-            }
-            tf->set_return(count);
-            break;
-        }
-        default:
-            cprintf("unknown syscall %d\n", nr);
-            tf->set_return(static_cast<uint64_t>(-1));
-            break;
+bool arch_try_handle_irq(TrapFrame* tf) {
+    if (!tf) {
+        return false;
     }
-}
 
-void trap(TrapFrame* tf) {
+    if (tf->trapno < IRQ_OFFSET || tf->trapno >= IRQ_OFFSET + IRQ_COUNT) {
+        return false;
+    }
+
     switch (tf->trapno) {
-        case T_PGFLT: pg_fault(tf); break;
-        case IRQ_OFFSET + IRQ_TIMER: irq_timer(tf); break;
-        case IRQ_OFFSET + IRQ_KBD: irq_kbd(tf); break;
-        case IRQ_OFFSET + IRQ_IDE1: irq_ide(0); break;
-        case IRQ_OFFSET + IRQ_IDE2: irq_ide(1); break;
-        case T_SYSCALL: syscall(tf); break;
+        case TRAP_VECTOR_IRQ_TIMER: trap::handle_timer_tick(); break;
+        case TRAP_VECTOR_IRQ_KBD: i8042::intr(); break;
+        case TRAP_VECTOR_IRQ_IDE1: IdeManager::interrupt_handler(0); break;
+        case TRAP_VECTOR_IRQ_IDE2: IdeManager::interrupt_handler(1); break;
         default: break;
     }
 
-    // Send EOI for hardware interrupts
+    return true;
+}
+
+bool arch_is_page_fault(const TrapFrame* tf) {
+    return (tf != nullptr) && (tf->trapno == TRAP_VECTOR_PGFAULT);
+}
+
+uint32_t arch_page_fault_error(const TrapFrame* tf) {
+    return tf ? static_cast<uint32_t>(tf->err) : 0;
+}
+
+uintptr_t arch_page_fault_addr(const TrapFrame* tf) {
+    (void)tf;
+    return arch_fault_addr();
+}
+
+bool arch_is_syscall(const TrapFrame* tf) {
+    return (tf != nullptr) && (tf->trapno == TRAP_VECTOR_SYSCALL);
+}
+
+void arch_on_syscall_entry(TrapFrame* tf) {
+    (void)tf;
+}
+
+void arch_on_unhandled(TrapFrame* tf) {
+    (void)tf;
+}
+
+void arch_post_dispatch(TrapFrame* tf) {
+    if (!tf) {
+        return;
+    }
+
     if (tf->trapno >= IRQ_OFFSET && tf->trapno < IRQ_OFFSET + IRQ_COUNT) {
         arch_irq_eoi(tf->trapno - IRQ_OFFSET);
     }
-
-    // Check reschedule AFTER EOI — never context-switch with EOI pending,
-    // otherwise the PIC blocks all further interrupts.
-    TaskStruct* cur = sched::current();
-    if (cur && cur->need_resched) {
-        sched::schedule();
-    }
 }
+
+}  // namespace trap

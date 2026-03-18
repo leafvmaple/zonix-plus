@@ -12,13 +12,13 @@
 
 #include <base/elf.h>
 #include <base/types.h>
-#include <asm/pg.h>
+#include <asm/page.h>
 #include "mm/pmm.h"
 
 namespace elf {
 
 // Maximum ELF file size we are willing to load
-inline constexpr size_t ELF_MAX_SIZE = 1024 * 1024;  // 1 MB
+inline constexpr size_t ELF_MAX_SIZE = 1024ULL * 1024ULL;  // 1 MB
 
 /**
  * Check whether a buffer starts with the ELF magic number.

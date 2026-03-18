@@ -2,22 +2,8 @@
 
 #ifndef __ASSEMBLY__
 
-/**
- * @file trapframe.h
- * @brief Architecture-specific trap/interrupt frame layout.
- *
- * Each architecture must provide this header defining:
- *   - struct TrapFrame — register state saved on trap/interrupt entry
- *   - Portable accessors: syscall_nr(), syscall_arg(), set_return()
- *   - trap() / trapret() declarations
- */
-
 #include <base/types.h>
 
-/*
- * x86_64 TrapRegisters - saved by pushq in trapentry.S
- * Order must match the push/pop sequence in _trap_entry.
- */
 struct TrapRegisters {
     uint64_t r15{};
     uint64_t r14{};
@@ -38,23 +24,11 @@ struct TrapRegisters {
     void print() const;
 };
 
-/*
- * x86_64 TrapFrame - pushed by hardware + software
- * Layout (from high address to low):
- *   [hardware push on interrupt]
- *     SS, RSP, RFLAGS, CS, RIP, (error code if any)
- *   [software push in vectors.S]
- *     error_code (or 0), trapno
- *   [software push in trapentry.S]
- *     all general-purpose registers (TrapRegisters)
- */
 struct TrapFrame {
     TrapRegisters regs{};
 
     uint64_t trapno{};
     uint64_t err{};
-
-    // Pushed by hardware
     uint64_t rip{};
     uint64_t cs{};
     uint64_t rflags{};
@@ -64,13 +38,8 @@ struct TrapFrame {
     void print() const;
     void print_pgfault() const;
 
-    // ---- Portable accessors for generic kernel code ----
-
-    // Syscall number (x86-64: RAX)
-    uint64_t syscall_nr() const { return regs.rax; }
-
-    // Syscall arguments (x86-64 ABI: RDI, RSI, RDX, R10, R8, R9)
-    uint64_t syscall_arg(int n) const {
+    [[nodiscard]] uint64_t syscall_nr() const { return regs.rax; }
+    [[nodiscard]] uint64_t syscall_arg(int n) const {
         switch (n) {
             case 0: return regs.rdi;
             case 1: return regs.rsi;
@@ -82,12 +51,11 @@ struct TrapFrame {
         }
     }
 
-    // Set return value from syscall/trap (x86-64: RAX)
     void set_return(uint64_t val) { regs.rax = val; }
 };
 
 // Trap handling functions
-extern "C" void trap(TrapFrame* tf);
-extern "C" void trapret(void);  // Assembly function to return from trap
+extern "C" void trap_dispatch(TrapFrame* tf);
+extern "C" void trapret(void);
 
 #endif /* !__ASSEMBLY__ */

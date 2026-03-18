@@ -7,6 +7,10 @@
 #include "trap/trap.h"
 #include "mm/vmm.h"
 
+namespace vfs {
+class File;
+}
+
 // Process states - modeling Linux's approach
 enum class ProcessState : uint8_t {
     Uninit = 0,    // uninitialized
@@ -30,6 +34,13 @@ inline constexpr int BASE_TIMESLICE = 10;  // 100ms default
 // Process control block - modeling Linux's task_struct
 struct TaskStruct {
     static constexpr size_t KSTACK_SIZE = 4096;  // 4KB kernel stack
+    static constexpr int MAX_FD = 16;
+
+    struct FdEntry {
+        vfs::File* file{};
+        size_t offset{};
+        bool used{};
+    };
 
     char name[32]{};  // Process name
     int pid{};        // Process ID
@@ -55,6 +66,8 @@ struct TaskStruct {
     int time_slice{};                   // Remaining ticks in current quantum
     volatile int need_resched{};        // Set by timer ISR to request reschedule
 
+    FdEntry fd_table[MAX_FD]{};
+
     void run();
     void wakeup();
 
@@ -62,6 +75,11 @@ struct TaskStruct {
     void copy_mm(uint32_t clone_flags);
     void copy_thread(uintptr_t esp, TrapFrame* src_tf);
     int setup_kernel_stack();
+    void init_fd_table();
+    int alloc_fd(vfs::File* file);
+    FdEntry* get_fd(int fd);
+    int close_fd(int fd);
+    void close_all_fds();
 
     ListNode* node() { return &list_node; }
 

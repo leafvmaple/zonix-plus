@@ -1,14 +1,5 @@
 #pragma once
 
-/**
- * @file cpu.h
- * @brief AArch64 CPU-specific definitions.
- *
- * AArch64 equivalent of the x86 cpu.h (EFLAGS, control registers, etc.).
- * Provides PSTATE/DAIF bit definitions used by kernel code.
- */
-
-/* PSTATE / SPSR_ELx bits */
 #define PSTATE_N (1 << 31) /* Negative */
 #define PSTATE_Z (1 << 30) /* Zero */
 #define PSTATE_C (1 << 29) /* Carry */

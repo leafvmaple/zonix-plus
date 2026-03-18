@@ -14,7 +14,7 @@
 #   7. Jump to kernel at 0x10000
 
 #include <asm/cr.h>
-#include <asm/seg.h>
+#include <asm/segments.h>
 #include <asm/memlayout.h>
 #include <asm/ports.h>
 

@@ -2,10 +2,8 @@
 
 #include <base/types.h>
 
-// Block device constants
 namespace blk {
 
-// Block device types
 enum class DeviceType : uint8_t {
     None = 0,
     Disk = 1,  // Hard disk
@@ -26,7 +24,6 @@ struct BlockDevice {
     virtual void print_info();
 };
 
-// Block device manager
 class BlockManager {
 public:
     static constexpr int MAX_DEV = 4;

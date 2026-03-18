@@ -19,10 +19,6 @@
 
 namespace elf {
 
-// ============================================================================
-// Quick magic check
-// ============================================================================
-
 bool is_elf(const uint8_t* data, size_t size) {
     if (!data || size < sizeof(elfhdr)) {
         return false;
@@ -30,10 +26,6 @@ bool is_elf(const uint8_t* data, size_t size) {
     const auto* eh = reinterpret_cast<const elfhdr*>(data);
     return eh->e_magic == ELF_MAGIC;
 }
-
-// ============================================================================
-// Full ELF header validation
-// ============================================================================
 
 int validate(const elfhdr* eh, size_t file_size) {
     if (file_size < sizeof(elfhdr)) {
@@ -74,10 +66,6 @@ int validate(const elfhdr* eh, size_t file_size) {
 
     return 0;
 }
-
-// ============================================================================
-// Segment loading
-// ============================================================================
 
 uintptr_t load(const uint8_t* data, size_t size, pde_t* pgdir) {
     const auto* eh = reinterpret_cast<const elfhdr*>(data);

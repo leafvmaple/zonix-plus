@@ -22,7 +22,7 @@ _trap_entry:
     # First argument (rdi) = pointer to TrapFrame = current rsp
     movq %rsp, %rdi
 
-    call trap
+    call trap_dispatch
 
     # Restore all general-purpose registers
     popq %r15

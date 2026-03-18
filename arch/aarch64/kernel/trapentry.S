@@ -82,28 +82,28 @@ _vectors:
 /* 0x000: Synchronous */
     SAVE_ALL
     mov  x0, sp
-    bl   trap
+    bl   trap_dispatch
     b    trapret
 .balign 0x80
 
 /* 0x080: IRQ */
     SAVE_ALL
     mov  x0, sp
-    bl   trap
+    bl   trap_dispatch
     b    trapret
 .balign 0x80
 
 /* 0x100: FIQ */
     SAVE_ALL
     mov  x0, sp
-    bl   trap
+    bl   trap_dispatch
     b    trapret
 .balign 0x80
 
 /* 0x180: SError */
     SAVE_ALL
     mov  x0, sp
-    bl   trap
+    bl   trap_dispatch
     b    trapret
 .balign 0x80
 
@@ -111,28 +111,28 @@ _vectors:
 /* 0x200: Synchronous */
     SAVE_ALL
     mov  x0, sp
-    bl   trap
+    bl   trap_dispatch
     b    trapret
 .balign 0x80
 
 /* 0x280: IRQ */
     SAVE_ALL
     mov  x0, sp
-    bl   trap
+    bl   trap_dispatch
     b    trapret
 .balign 0x80
 
 /* 0x300: FIQ */
     SAVE_ALL
     mov  x0, sp
-    bl   trap
+    bl   trap_dispatch
     b    trapret
 .balign 0x80
 
 /* 0x380: SError */
     SAVE_ALL
     mov  x0, sp
-    bl   trap
+    bl   trap_dispatch
     b    trapret
 .balign 0x80
 
@@ -140,28 +140,28 @@ _vectors:
 /* 0x400: Synchronous */
     SAVE_ALL
     mov  x0, sp
-    bl   trap
+    bl   trap_dispatch
     b    trapret
 .balign 0x80
 
 /* 0x480: IRQ */
     SAVE_ALL
     mov  x0, sp
-    bl   trap
+    bl   trap_dispatch
     b    trapret
 .balign 0x80
 
 /* 0x500: FIQ */
     SAVE_ALL
     mov  x0, sp
-    bl   trap
+    bl   trap_dispatch
     b    trapret
 .balign 0x80
 
 /* 0x580: SError */
     SAVE_ALL
     mov  x0, sp
-    bl   trap
+    bl   trap_dispatch
     b    trapret
 .balign 0x80
 
@@ -169,28 +169,28 @@ _vectors:
 /* 0x600: Synchronous */
     SAVE_ALL
     mov  x0, sp
-    bl   trap
+    bl   trap_dispatch
     b    trapret
 .balign 0x80
 
 /* 0x680: IRQ */
     SAVE_ALL
     mov  x0, sp
-    bl   trap
+    bl   trap_dispatch
     b    trapret
 .balign 0x80
 
 /* 0x700: FIQ */
     SAVE_ALL
     mov  x0, sp
-    bl   trap
+    bl   trap_dispatch
     b    trapret
 .balign 0x80
 
 /* 0x780: SError */
     SAVE_ALL
     mov  x0, sp
-    bl   trap
+    bl   trap_dispatch
     b    trapret
 .balign 0x80
 

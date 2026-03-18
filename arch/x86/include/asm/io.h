@@ -110,7 +110,6 @@ static inline void outb_p(uint16_t port, uint8_t data) {
                  "d"(port));
 }
 
-// Short delay using port 0x80 (POST diagnostic port)
 static inline void io_wait(void) {
     inb(0x80);
 }

@@ -7,7 +7,7 @@
 
 #include <asm/arch.h>
 #include <asm/trapframe.h>
-#include <asm/seg.h>
+#include <asm/segments.h>
 #include <asm/cpu.h>
 #include <base/types.h>
 

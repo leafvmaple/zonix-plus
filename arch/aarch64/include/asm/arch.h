@@ -55,11 +55,6 @@ static inline void arch_invlpg(void* addr) {
                      : "memory");
 }
 
-// ============================================================================
-// Port I/O — not applicable on AArch64 (use MMIO instead)
-// Stubs are provided so that shared headers compile.
-// ============================================================================
-
 static inline uint8_t arch_port_inb(uint16_t) {
     return 0;
 }
