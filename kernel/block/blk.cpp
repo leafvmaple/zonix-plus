@@ -59,14 +59,6 @@ void BlockDevice::print_info() {
     cprintf("\n");
 }
 
-void BlockDevice::test() {
-    cprintf("%s: device test not implemented\n", name);
-}
-
-void BlockDevice::test_interrupt() {
-    cprintf("%s: interrupt test not implemented\n", name);
-}
-
 void BlockManager::print() {
     cprintf("NAME   MAJ:MIN RM  SIZE RO TYPE MOUNTPOINTS\n");
 
@@ -86,32 +78,6 @@ void BlockManager::print() {
 
             cprintf("%-6s %3d:%-3d %-2d %2d.%dM %-2d %-4s %s\n", s_devices[i]->name, 8, i * 16, 0, size_mb, decimal, 0,
                     type_string, mount_string);
-        }
-    }
-}
-
-void BlockManager::test_devices() {
-    if (s_device_count == 0) {
-        cprintf("No block devices found\n");
-        return;
-    }
-
-    for (int i = 0; i < s_device_count; i++) {
-        if (s_devices[i] != nullptr) {
-            s_devices[i]->test();
-        }
-    }
-}
-
-void BlockManager::test_interrupts() {
-    if (s_device_count == 0) {
-        cprintf("No block devices found\n");
-        return;
-    }
-
-    for (int i = 0; i < s_device_count; i++) {
-        if (s_devices[i] != nullptr) {
-            s_devices[i]->test_interrupt();
         }
     }
 }
@@ -138,14 +104,6 @@ int register_device(BlockDevice* device) {
     }
     BlockManager::register_device(device);
     return 0;
-}
-
-void test_devices() {
-    BlockManager::test_devices();
-}
-
-void test_interrupts() {
-    BlockManager::test_interrupts();
 }
 
 }  // namespace blk

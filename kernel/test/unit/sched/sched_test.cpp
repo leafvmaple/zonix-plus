@@ -1,4 +1,4 @@
-#include "sched.h"
+#include "sched/sched.h"
 #include "mm/pmm.h"
 #include "lib/stdio.h"
 #include "lib/memory.h"

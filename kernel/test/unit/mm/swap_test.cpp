@@ -1,9 +1,10 @@
-#include "swap.h"
-#include "swap_fifo.h"
+#include "test/unit/mm/swap_test.h"
+#include "mm/swap.h"
+#include "mm/swap_fifo.h"
 // Note: swap_clock and swap_lru are archived in kern/mm/archived/
 // #include "swap_clock.h"
 // #include "swap_lru.h"
-#include "pmm.h"
+#include "mm/pmm.h"
 #include "lib/stdio.h"
 
 #include <asm/page.h>

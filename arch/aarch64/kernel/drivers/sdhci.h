@@ -16,7 +16,6 @@ public:
     int read(uint32_t block_number, void* buf, size_t block_count) override;
     int write(uint32_t block_number, const void* buf, size_t block_count) override;
     void print_info() override;
-    void test() override;
 
 private:
     volatile uint8_t* base_{};

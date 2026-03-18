@@ -1,12 +1,9 @@
-#include "ide.h"
+#include "drivers/ide.h"
 #include "lib/stdio.h"
 
 #include <asm/arch.h>
 
-/**
- * Test disk read/write for all devices
- */
-void IdeManager::test(void) {
+void driver_test_disktest(void) {
     cprintf("\n=== Multi-Disk Test ===\n");
     cprintf("Testing %d disk device(s)\n\n", IdeManager::get_device_count());
 
@@ -31,13 +28,24 @@ void IdeManager::test(void) {
         cprintf("--- Testing %s (dev_id=%d) ---\n", dev->name, i);
         cprintf("  Size: %d sectors (%d MB)\n", dev->info.size, dev->info.size / 2048);
 
+        uint32_t test_sector = (dev->info.size > 200) ? 100 : (dev->info.size > 1 ? dev->info.size - 1 : 0);
+        if (test_sector == 0 && dev->info.size <= 1) {
+            cprintf("  SKIP: device too small for write test\n\n");
+            continue;
+        }
+
+        // Keep test non-destructive by restoring original sector after verification.
+        static uint8_t backup_buff[ide::SECTOR_SIZE]{};
+        if (dev->read(test_sector, backup_buff, 1) != 0) {
+            cprintf("  SKIP: failed to read backup sector %d\n\n", test_sector);
+            continue;
+        }
+
         // Fill write buffer with test pattern (unique per device)
         for (size_t j = 0; j < ide::SECTOR_SIZE; j++) {
             write_buff[j] = (uint8_t)((j + j * 17) & 0xFF);
         }
 
-        // Use sector 100 for testing
-        uint32_t test_sector = 100;
         cprintf("  Test 1: Write sector %d...\n", test_sector);
         if (dev->write(test_sector, write_buff, 1) != 0) {
             cprintf("    FAILED: write error\n");
@@ -69,16 +77,20 @@ void IdeManager::test(void) {
             cprintf("    OK\n");
         }
 
+        cprintf("  Test 4: Restore original sector...\n");
+        if (dev->write(test_sector, backup_buff, 1) != 0) {
+            cprintf("    WARNING: failed to restore sector %d\n", test_sector);
+        } else {
+            cprintf("    OK\n");
+        }
+
         cprintf("  %s test %s\n\n", dev->name, errors == 0 ? "PASSED" : "FAILED");
     }
 
     cprintf("=== Multi-Disk Test Complete ===\n\n");
 }
 
-/**
- * Simple interrupt test - read one sector using polling first
- */
-void IdeManager::test_interrupt(void) {
+void driver_test_intrtest(void) {
     cprintf("\n=== IDE Interrupt Test ===\n");
 
     if (IdeManager::get_device_count() == 0) {

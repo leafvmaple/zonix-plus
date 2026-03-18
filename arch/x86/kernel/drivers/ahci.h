@@ -230,8 +230,6 @@ struct AhciDevice : public BlockDevice {
     int read(uint32_t block_number, void* buf, size_t block_count) override;
     int write(uint32_t block_number, const void* buf, size_t block_count) override;
     void print_info() override;
-    void test() override;
-    void test_interrupt() override;
 
 private:
     int issue_cmd(uint8_t command, uint32_t lba, uint16_t count, bool write);
@@ -252,9 +250,6 @@ public:
 
     static int wait_port_ready(uintptr_t port_base, int timeout_ms);
     static int enable_port(uintptr_t port_base);
-
-    // Test
-    static void test();
 
 private:
     static AhciDevice s_devices[ahci::MAX_DEVICES];

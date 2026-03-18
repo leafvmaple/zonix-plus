@@ -2,7 +2,6 @@
 #include "cons.h"
 #include "lib/stdio.h"
 #include "mm/vmm.h"
-#include "mm/swap_test.h"
 #include "block/blk.h"
 #include "sched/sched.h"
 #include "fs/fat.h"
@@ -17,6 +16,7 @@ namespace {
 
 constexpr size_t CMD_BUF_SIZE = 128;
 constexpr int MAX_ARGS = 16;
+constexpr int MAX_COMMANDS = 64;
 
 char cmd_buffer[CMD_BUF_SIZE];
 size_t cmd_pos = 0;
@@ -31,6 +31,13 @@ struct ShellCommand {
 
 using shell_cmd_t = ShellCommand;
 
+namespace {
+
+shell_cmd_t commands[MAX_COMMANDS]{};
+int command_count = 0;
+
+}  // namespace
+
 // Forward declarations
 static int strcmp(const char* s1, const char* s2);
 static int parse_args(const char* cmd, char** argv);
@@ -39,8 +46,6 @@ static int parse_args(const char* cmd, char** argv);
 static void cmd_help(int argc, char** argv) {
     (void)argc;
     (void)argv;
-    extern ShellCommand commands[];
-    extern int command_count;
 
     cprintf("Available commands:\n");
     for (int i = 0; i < command_count; i++) {
@@ -61,12 +66,6 @@ static void cmd_clear(int argc, char** argv) {
     for (int i = 0; i < SCREEN_ROWS; i++) {
         cprintf("\n");
     }
-}
-
-static void cmd_swap_test(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
-    run_swap_tests();
 }
 
 static void cmd_lsblk(int argc, char** argv) {
@@ -94,25 +93,10 @@ static void cmd_hdparm(int argc, char** argv) {
     }
 }
 
-static void cmd_disktest(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
-    cprintf("Running disk test...\n");
-    BlockManager::test_devices();
-}
-
-static void cmd_intrtest(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
-    cprintf("Running interrupt test...\n");
-    BlockManager::test_interrupts();
-}
-
 static void cmd_dd(int argc, char** argv) {
     (void)argc;
     (void)argv;
     cprintf("dd - disk read/write utility\n");
-    cprintf("Usage: Use disktest for basic disk I/O testing\n");
     cprintf("Note: Full dd command with parameters not yet implemented\n");
 }
 
@@ -140,12 +124,6 @@ static void cmd_ps(int argc, char** argv) {
     (void)argc;
     (void)argv;
     sched::print();
-}
-
-static void cmd_schedtest(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
-    sched::test();
 }
 
 // Global FAT file system info
@@ -300,8 +278,8 @@ static void cmd_ls(int argc, char** argv) {
         use_mnt = 1;
     }
 
-    FatInfo* fat_info;
-    const char* path;
+    FatInfo* fat_info = nullptr;
+    const char* path = nullptr;
 
     if (use_mnt) {
         if (!g_mnt_mounted) {
@@ -349,7 +327,7 @@ static void cmd_cat(int argc, char** argv) {
         use_mnt = 1;
     }
 
-    FatInfo* fat_info;
+    FatInfo* fat_info = nullptr;
 
     if (use_mnt) {
         if (!g_mnt_mounted) {
@@ -446,7 +424,7 @@ static void cmd_exec(int argc, char** argv) {
         use_mnt = 1;
     }
 
-    FatInfo* fat_info;
+    FatInfo* fat_info = nullptr;
 
     if (use_mnt) {
         if (!g_mnt_mounted) {
@@ -472,29 +450,30 @@ static void cmd_exec(int argc, char** argv) {
     }
 }
 
-// Command table
-shell_cmd_t commands[] = {
-    {"help", "Show this help message", cmd_help},
-    {"pgdir", "Print page directory", cmd_pgdir},
-    {"clear", "Clear the screen", cmd_clear},
-    {"swaptest", "Run swap system tests", cmd_swap_test},
-    {"lsblk", "List block devices", cmd_lsblk},
-    {"hdparm", "Show disk information", cmd_hdparm},
-    {"disktest", "Test disk read/write", cmd_disktest},
-    {"intrtest", "Test block device interrupts", cmd_intrtest},
-    {"dd", "Disk dump/copy (info only)", cmd_dd},
-    {"uname", "Print system information (-a for all)", cmd_uname},
-    {"ps", "List all processes", cmd_ps},
-    {"schedtest", "Run scheduler unit tests", cmd_schedtest},
-    {"mount", "Mount device to /mnt (usage: mount <device>)", cmd_mount},
-    {"umount", "Unmount /mnt", cmd_umount},
-    {"info", "Show file system information", cmd_info},
-    {"ls", "List files (usage: ls [/mnt])", cmd_ls},
-    {"cat", "Display file contents (usage: cat <file> [/mnt])", cmd_cat},
-    {"exec", "Run ELF binary (usage: exec <file> [/mnt])", cmd_exec},
-};
+extern void shell_register_extensions(void) __attribute__((weak));
 
-int command_count = array_size(commands);
+static void register_builtin_command(const char* name, const char* desc, shell::command_func_t func) {
+    if (shell::register_command(name, desc, func) != 0) {
+        cprintf("shell: failed to register command '%s'\n", name);
+    }
+}
+
+static void register_builtin_commands() {
+    register_builtin_command("help", "Show this help message", cmd_help);
+    register_builtin_command("pgdir", "Print page directory", cmd_pgdir);
+    register_builtin_command("clear", "Clear the screen", cmd_clear);
+    register_builtin_command("lsblk", "List block devices", cmd_lsblk);
+    register_builtin_command("hdparm", "Show disk information", cmd_hdparm);
+    register_builtin_command("dd", "Disk dump/copy (info only)", cmd_dd);
+    register_builtin_command("uname", "Print system information (-a for all)", cmd_uname);
+    register_builtin_command("ps", "List all processes", cmd_ps);
+    register_builtin_command("mount", "Mount device to /mnt (usage: mount <device>)", cmd_mount);
+    register_builtin_command("umount", "Unmount /mnt", cmd_umount);
+    register_builtin_command("info", "Show file system information", cmd_info);
+    register_builtin_command("ls", "List files (usage: ls [/mnt])", cmd_ls);
+    register_builtin_command("cat", "Display file contents (usage: cat <file> [/mnt])", cmd_cat);
+    register_builtin_command("exec", "Run ELF binary (usage: exec <file> [/mnt])", cmd_exec);
+}
 
 static int parse_args(const char* cmd, char** argv) {
     static char arg_buf[CMD_BUF_SIZE];
@@ -570,7 +549,29 @@ static int strcmp(const char* s1, const char* s2) {
         s1++;
         s2++;
     }
-    return (*(unsigned char*)s1 - *(unsigned char*)s2);
+    return (static_cast<unsigned char>(*s1) - static_cast<unsigned char>(*s2));
+}
+
+int shell::register_command(const char* name, const char* desc, command_func_t func) {
+    if (name == nullptr || desc == nullptr || func == nullptr) {
+        return -1;
+    }
+
+    for (int i = 0; i < command_count; i++) {
+        if (strcmp(name, commands[i].name) == 0) {
+            return -1;
+        }
+    }
+
+    if (command_count >= MAX_COMMANDS) {
+        return -1;
+    }
+
+    commands[command_count].name = name;
+    commands[command_count].desc = desc;
+    commands[command_count].func = func;
+    command_count++;
+    return 0;
 }
 
 void shell::prompt(void) {
@@ -580,6 +581,12 @@ void shell::prompt(void) {
 void shell::init(void) {
     cmd_pos = 0;
     cmd_buffer[0] = '\0';
+    command_count = 0;
+    register_builtin_commands();
+    if (shell_register_extensions) {
+        shell_register_extensions();
+    }
+
     cprintf("\n");
     cprintf("=============================================\n");
     cprintf("  Welcome to Zonix OS Interactive Console\n");

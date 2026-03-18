@@ -301,21 +301,6 @@ void AhciDevice::print_info() {
     cprintf("\n");
 }
 
-void AhciDevice::test() {
-    if (!present) {
-        cprintf("AhciDevice::test: %s not present\n", name);
-        return;
-    }
-
-    uint8_t buf[ahci::SECTOR_SIZE] = {};
-    int rc = read(0, buf, 1);
-    cprintf("AhciDevice::test: %s %s\n", name, rc == 0 ? "ok" : "failed");
-}
-
-void AhciDevice::test_interrupt() {
-    cprintf("AhciDevice::test_interrupt: %s not implemented\n", name);
-}
-
 int AhciDevice::read(uint32_t block_number, void* buf, size_t block_count) {
     if (!present) {
         cprintf("AhciDevice::read: device %s not present\n", name);
@@ -491,16 +476,6 @@ void AhciManager::interrupt_handler(int port) {
         }
 
         dev.interrupt();
-    }
-}
-
-void AhciManager::test() {
-    cprintf("AHCI: test() - AHCI controller initialized with %d device(s)\n", s_devices_count);
-    for (int i = 0; i < s_devices_count; i++) {
-        AhciDevice* dev = get_device(i);
-        if (dev) {
-            cprintf("AHCI: test() - Device %d: %s (%d sectors)\n", i, dev->name, dev->info.size);
-        }
     }
 }
 

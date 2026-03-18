@@ -452,22 +452,6 @@ void SdDevice::print_info() {
     cprintf("SD Card '%s': %s, RCA=0x%x, %d sectors (%d MB)\n", name, sdhc_ ? "SDHC" : "SDSC", rca_, size, size / 2048);
 }
 
-void SdDevice::test() {
-    cprintf("sdhci: read test — reading sector 0\n");
-
-    uint8_t buf[512];
-    if (read(0, buf, 1) != 0) {
-        cprintf("sdhci: read test FAILED\n");
-        return;
-    }
-
-    cprintf("sdhci: sector 0 data: ");
-    for (int i = 0; i < 16; i++)
-        cprintf("%02x ", buf[i]);
-    cprintf("...\n");
-    cprintf("sdhci: read test PASSED\n");
-}
-
 namespace sdhci {
 
 namespace {

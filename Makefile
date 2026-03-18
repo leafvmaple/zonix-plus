@@ -6,6 +6,8 @@
 # ==========================================================================
 ARCH ?= x86
 V    ?= 0  # Verbose mode: make V=1
+# Build kernel test suites: make TEST=1
+TEST ?= 0
 
 # Quiet / verbose output
 ifeq ($(V),0)
@@ -41,6 +43,13 @@ ifeq ($(wildcard arch/$(ARCH)/Makefile),)
   $(error Unsupported ARCH=$(ARCH). Available: $(patsubst arch/%/Makefile,%,$(wildcard arch/*/Makefile)))
 endif
 include arch/$(ARCH)/Makefile
+
+ifeq ($(TEST),1)
+	KSRCDIR += kernel/test/unit/sched kernel/test/unit/mm kernel/test/shell
+	ifeq ($(ARCH),x86)
+		KSRCDIR += kernel/test/unit/drivers
+	endif
+endif
 
 # ==========================================================================
 # Build-system macros
@@ -110,8 +119,14 @@ $(call add_packet_files_cxx,$(call listf_cxx,$(KSRCDIR)),kernel)
 
 kernel = $(call totarget,kernel)
 KOBJS  := $(sort $(call read_packet,kernel))
+TEST_MODE_STAMP := $(OBJDIR)/.test_mode
 
-$(kernel): $(KOBJS) $(KERNEL_EXTRA_OBJS) $(KERNEL_LD_SCRIPT) | $$(dir $$@)
+FORCE:
+
+$(TEST_MODE_STAMP): FORCE | $(OBJDIR)/
+	$(Q)if [ ! -f $@ ] || [ "$$(cat $@)" != "$(TEST)" ]; then echo "$(TEST)" > $@; fi
+
+$(kernel): $(KOBJS) $(KERNEL_EXTRA_OBJS) $(KERNEL_LD_SCRIPT) $(TEST_MODE_STAMP) | $$(dir $$@)
 	$(Q)$(LD) $(LDFLAGS) -T $(KERNEL_LD_SCRIPT) $(KOBJS) $(KERNEL_EXTRA_OBJS) -o $@
 	$(if $(KERNEL_POST_LINK),$(KERNEL_POST_LINK))
 	$(Q)$(OBJCOPY) -S -O binary $@ $(call tobin,kernel)
@@ -152,7 +167,7 @@ endif
 # ==========================================================================
 # Top-level targets
 # ==========================================================================
-.PHONY: all clean format lint help
+.PHONY: all clean format lint help FORCE
 
 all: $(ALL_PREREQS)
 .DEFAULT_GOAL := all
@@ -205,6 +220,7 @@ help:
 	@echo "Options:"
 	@echo "  ARCH=x86|aarch64     Target architecture (default: x86)"
 	@echo "  DISK=ahci|ide        User-data disk controller (default: ahci)"
+	@echo "  TEST=0|1             Include kernel test suites (default: 0)"
 	@echo "  V=1                  Verbose build output"
 	@echo ""
 

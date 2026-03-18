@@ -163,30 +163,6 @@ void IdeDevice::print_info() {
     cprintf("\n");
 }
 
-void IdeDevice::test() {
-    if (!present) {
-        cprintf("IdeDevice::test: %s not present\n", name);
-        return;
-    }
-
-    uint8_t buf[ide::SECTOR_SIZE] = {};
-    int rc = read(0, buf, 1);
-    cprintf("IdeDevice::test: %s %s\n", name, rc == 0 ? "ok" : "failed");
-}
-
-void IdeDevice::test_interrupt() {
-    if (!present) {
-        cprintf("IdeDevice::test_interrupt: %s not present\n", name);
-        return;
-    }
-
-    IdeDevice* first = IdeManager::get_device(0);
-    if (first != this) {
-        return;
-    }
-    IdeManager::test_interrupt();
-}
-
 int IdeDevice::read(uint32_t block_number, void* buf, size_t block_count) {
     if (!present) {
         cprintf("IdeDevice::read: device %s not present\n", name);

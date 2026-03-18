@@ -136,7 +136,6 @@ private:
 namespace sched {
 
 int init();
-void test();
 
 // Scheduling and process lifecycle
 void schedule();

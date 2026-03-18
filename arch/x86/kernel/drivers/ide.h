@@ -100,8 +100,6 @@ struct IdeDevice : public BlockDevice {
     int read(uint32_t block_number, void* buf, size_t block_count) override;
     int write(uint32_t block_number, const void* buf, size_t block_count) override;
     void print_info() override;
-    void test() override;
-    void test_interrupt() override;
 };
 
 // IDE device manager class
@@ -113,10 +111,6 @@ public:
     static int get_device_count();
 
     static void interrupt_handler(int channel);
-
-    // Test
-    static void test();
-    static void test_interrupt();
 
 private:
     static IdeConfig s_configs[ide::MAX_DEVICES];
