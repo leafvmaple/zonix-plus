@@ -356,9 +356,9 @@ int init_from_pci_device(int bus, int dev, int func) {
         return -1;
     }
 
-    vq_desc = static_cast<VringDesc*>(pmm::page2kva(dp));
-    vq_avail = static_cast<VringAvail*>(pmm::page2kva(ap));
-    vq_used = static_cast<VringUsed*>(pmm::page2kva(up));
+    vq_desc = static_cast<VringDesc*>(pmm::page_to_kva(dp));
+    vq_avail = static_cast<VringAvail*>(pmm::page_to_kva(ap));
+    vq_used = static_cast<VringUsed*>(pmm::page_to_kva(up));
 
     memset(vq_desc, 0, desc_pages * PG_SIZE);
     memset(vq_avail, 0, avail_pages * PG_SIZE);

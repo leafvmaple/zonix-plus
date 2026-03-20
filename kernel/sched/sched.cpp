@@ -42,7 +42,7 @@ static int get_pid(void) {
 
 // Free kernel stack
 static void free_kstack(TaskStruct* proc) {
-    pmm::free_page(pmm::kva2page(reinterpret_cast<void*>(proc->kernel_stack)));
+    pmm::free_pages(pmm::kva_to_page(reinterpret_cast<void*>(proc->kernel_stack)));
 }
 
 // Wrapper called by new kernel threads via iretq.
@@ -139,12 +139,12 @@ void TaskStruct::copy_thread(uintptr_t esp, TrapFrame* src_tf) {
 }
 
 int TaskStruct::setup_kernel_stack() {
-    Page* page = pmm::alloc_page();
+    Page* page = pmm::alloc_pages();
     if (!page) {
         return -1;
     }
 
-    kernel_stack = reinterpret_cast<uintptr_t>(pmm::page2kva(page));
+    kernel_stack = reinterpret_cast<uintptr_t>(pmm::page_to_kva(page));
     return 0;
 }
 

@@ -16,6 +16,15 @@ CompileFlags:
     - -std=gnu++17
     - -Iinclude
     - -Ikernel
+    - -Iarch/x86/include
+    - -Iarch/x86/kernel
+    - -m64
+    - -mno-red-zone
+    - -mcmodel=kernel
+    - -mno-sse
+    - -mno-sse2
+    - -mno-mmx
+    - -msoft-float
 
 ---
 If:
@@ -41,16 +50,6 @@ CompileFlags:
 If:
   PathMatch: ^arch/x86/.*\.(c|cc|cpp|cxx|h|hpp)$
 CompileFlags:
-  Add:
-    - -m64
-    - -mno-red-zone
-    - -mcmodel=kernel
-    - -mno-sse
-    - -mno-sse2
-    - -mno-mmx
-    - -msoft-float
-    - -Iarch/x86/include
-    - -Iarch/x86/kernel
   Remove:
     - --target=.*
     - -Iarch/aarch64/include

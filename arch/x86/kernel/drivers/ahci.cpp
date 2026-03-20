@@ -203,7 +203,7 @@ int AhciManager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId
 
     pci::enable_bus_master(pdev->bus, pdev->dev, pdev->func);
     uint32_t phys_base = bar5 & 0xFFFFFFF0;
-    cprintf("AHCI: Found controller at PCI %02x:%02x.%x, ABAR=0x%08x\n", pdev->bus, pdev->dev, pdev->func, phys_base);
+    cprintf("ahci: Found controller at PCI %02x:%02x.%x, ABAR=0x%08x\n", pdev->bus, pdev->dev, pdev->func, phys_base);
 
     s_base_ = vmm::mmio_map(phys_base, ahci::AHCI_BAR_SIZE, VM_WRITE | VM_NOCACHE);
     if (s_base_ == 0) {

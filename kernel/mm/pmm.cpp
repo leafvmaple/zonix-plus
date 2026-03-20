@@ -77,54 +77,64 @@ constexpr int PAGE_REF_INIT = 1;
 constexpr int USER_PT_LEVEL_PDPT = 2;
 constexpr int USER_PT_LEVEL_PD = 1;
 constexpr int USER_PT_LEVEL_PT = 0;
+constexpr uintptr_t INVALID_TABLE_PA = static_cast<uintptr_t>(-1);
+
+static uintptr_t alloc_table_page(bool create) {
+    if (!create)
+        return INVALID_TABLE_PA;
+
+    Page* page = pmm::alloc_pages();
+    if (page == nullptr)
+        return INVALID_TABLE_PA;
+
+    page->ref = PAGE_REF_INIT;
+    uintptr_t pa = pmm::page_to_phys(page);
+    memset(phys_to_virt(pa), 0, PG_SIZE);
+    return pa;
+}
+
+static inline void link_table_entry(pde_t* entry, uintptr_t pa) {
+    *entry = make_pte_table(pa);
+}
 
 static pde_t* ensure_table_entry(pde_t* entry, bool create) {
     if (!(*entry & VM_PRESENT)) {
-        Page* page{};
-        if (!create || (page = pmm::alloc_pages(1)) == nullptr) {
+        uintptr_t pa = alloc_table_page(create);
+        if (pa == INVALID_TABLE_PA)
             return nullptr;
-        }
-
-        page->ref = PAGE_REF_INIT;
-        pde_t pa = pmm::page2pa(page);
-        memset(phys_to_virt(pa), 0, PG_SIZE);
-        *entry = make_pte_table(pa);
+        link_table_entry(entry, pa);
     }
 
     return phys_to_virt<pde_t>(pte_addr(*entry));
 }
 
-static pte_t* ensure_pt_from_pd_entry(pde_t* pde, bool create) {
-    if (pte_is_block(*pde)) {
-        uintptr_t large_pa = pte_addr(*pde);
-        uint64_t old_perm = *pde & 0xFFF & ~VM_LARGEPAGE;
+static pte_t* ensure_pt_from_pd_entry(pde_t* entry, bool create) {
+    if (pte_is_block(*entry)) {  // 2MB Large Page
+        uintptr_t large_pa = pte_addr(*entry);
+        uint64_t old_perm = *entry & 0xFFF & ~VM_LARGEPAGE;
+        uintptr_t pa = alloc_table_page(create);
 
-        Page* page{};
-        if (!create || (page = pmm::alloc_pages(1)) == nullptr)
+        if (pa == INVALID_TABLE_PA)
             return nullptr;
 
-        page->ref = PAGE_REF_INIT;
-        pde_t pt_pa = pmm::page2pa(page);
-        pte_t* pt = phys_to_virt<pte_t>(pt_pa);
-
-        // Split one large mapping entry into a normal page table.
+        auto* pt = phys_to_virt<pte_t>(pa);
         for (int i = 0; i < PAGE_TABLE_ENTRIES; i++) {
             pt[i] = make_pte_page(large_pa + static_cast<uintptr_t>(i) * PG_SIZE, old_perm);
         }
 
-        *pde = make_pte_table(pt_pa);
-    } else if (!(*pde & VM_PRESENT)) {
-        Page* page{};
-        if (!create || (page = pmm::alloc_pages(1)) == nullptr)
-            return nullptr;
+        link_table_entry(entry, pa);
 
-        page->ref = PAGE_REF_INIT;
-        pde_t pa = pmm::page2pa(page);
-        memset(phys_to_virt(pa), 0, PG_SIZE);
-        *pde = make_pte_table(pa);
+        return pt;
     }
 
-    return phys_to_virt<pte_t>(pte_addr(*pde));
+    if (!(*entry & VM_PRESENT)) {
+        uintptr_t pa = alloc_table_page(create);
+        if (pa == INVALID_TABLE_PA)
+            return nullptr;
+        link_table_entry(entry, pa);
+    }
+
+    return phys_to_virt<pte_t>(pte_addr(*entry));
 }
 
 static void free_user_pt_subtree(pde_t* table, int level) {
@@ -134,11 +144,11 @@ static void free_user_pt_subtree(pde_t* table, int level) {
             continue;
 
         if (level == USER_PT_LEVEL_PT) {
-            Page* page = pmm::pa2page(pte_addr(entry));
+            Page* page = pmm::phys_to_page(pte_addr(entry));
             if (page->ref > 0)
                 page->ref--;
             if (page->ref == 0)
-                pmm::free_page(page);
+                pmm::free_pages(page);
             continue;
         }
 
@@ -149,7 +159,7 @@ static void free_user_pt_subtree(pde_t* table, int level) {
 
         pde_t* child = phys_to_virt<pde_t>(pte_addr(entry));
         free_user_pt_subtree(child, level - 1);
-        pmm::free_page(pmm::pa2page(pte_addr(entry)));
+        pmm::free_pages(pmm::phys_to_page(pte_addr(entry)));
     }
 }
 
@@ -162,49 +172,43 @@ inline size_t page_num(uintptr_t addr) {
     return addr >> PG_SHIFT;
 }
 
-uintptr_t pmm::page2pa(Page* page) {
+uintptr_t pmm::page_to_phys(Page* page) {
     return static_cast<uintptr_t>((page - Factory::s_pages) << PG_SHIFT);
 }
 
-void* pmm::page2kva(Page* page) {
-    return reinterpret_cast<void*>(KERNEL_BASE + pmm::page2pa(page));
+void* pmm::page_to_kva(Page* page) {
+    return reinterpret_cast<void*>(KERNEL_BASE + pmm::page_to_phys(page));
 }
 
-Page* pmm::pa2page(uintptr_t pa) {
+Page* pmm::phys_to_page(uintptr_t pa) {
     return Factory::s_pages + page_num(pa);
 }
 
-Page* pmm::kva2page(void* kva) {
-    return pmm::pa2page(virt_to_phys(kva));
+Page* pmm::kva_to_page(void* kva) {
+    return pmm::phys_to_page(virt_to_phys(kva));
 }
 
-Page* pmm::alloc_pages(size_t n) {
+Page* pmm::alloc_pages(size_t n /*= 1*/) {
     intr::Guard guard;
     return Factory::s_allocator->alloc(n);
 }
 
-void pmm::free_pages(Page* base, size_t n) {
+void pmm::free_pages(Page* base, size_t n /*= 1*/) {
     intr::Guard guard;
     Factory::s_allocator->free(base, n);
 }
 
 pte_t* pmm::get_pte(pde_t* pml4, uintptr_t la, bool create) {
     pde_t* pdpt = ensure_table_entry(pml4 + pml4_index(la), create);
-    if (!pdpt) {
+    if (!pdpt)
         return nullptr;
-    }
 
     pde_t* pd = ensure_table_entry(pdpt + pdpt_index(la), create);
-    if (!pd) {
+    if (!pd)
         return nullptr;
-    }
 
     pte_t* pt = ensure_pt_from_pd_entry(pd + pd_index(la), create);
-    if (!pt) {
-        return nullptr;
-    }
-
-    return pt + pt_index(la);
+    return pt ? pt + pt_index(la) : nullptr;
 }
 
 static int page_init() {
@@ -244,7 +248,6 @@ static int page_init() {
     cprintf("pmm: %d pages, page array at [0x%p], max_pa=0x%lx\n", Factory::s_num_pages, Factory::s_pages,
             static_cast<uint64_t>(max_pa));
 
-    // Initially mark all page descriptors as reserved
     for (uint32_t i = 0; i < Factory::s_num_pages; i++) {
         Factory::s_pages[i].set_reserved();
     }
@@ -263,7 +266,7 @@ static int page_init() {
                 if (addr < limit) {
                     cprintf("pmm: free region [0x%016lx, 0x%016lx]\n", static_cast<uint64_t>(addr),
                             static_cast<uint64_t>(limit));
-                    Factory::s_allocator->init_memmap(pmm::pa2page(addr), page_num(limit - addr));
+                    Factory::s_allocator->init_memmap(pmm::phys_to_page(addr), page_num(limit - addr));
                 }
             }
         }
@@ -293,7 +296,7 @@ int pmm::page_insert(pde_t* pgdir, Page* page, uintptr_t la, uint32_t perm) {
         return -1;
     }
     page->ref++;
-    *ptep = make_pte_page(pmm::page2pa(page), perm);
+    *ptep = make_pte_page(pmm::page_to_phys(page), perm);
 
     pmm::tlb_invl(pgdir, la);
     return 0;
@@ -307,7 +310,7 @@ void pmm::free_user_pgdir(pde_t* pgdir) {
 
         pde_t* pdpt = phys_to_virt<pde_t>(pte_addr(entry));
         free_user_pt_subtree(pdpt, USER_PT_LEVEL_PDPT);
-        pmm::free_page(pa2page(pte_addr(entry)));
+        pmm::free_pages(phys_to_page(pte_addr(entry)));
     }
 
     kfree(pgdir);
@@ -325,14 +328,14 @@ void* kmalloc(size_t size) {
         return nullptr;
 
     page->property = nr;  // remember allocation size for kfree
-    return pmm::page2kva(page);
+    return pmm::page_to_kva(page);
 }
 
 void kfree(void* ptr) {
     if (!ptr)
         return;
 
-    Page* page = pmm::kva2page(ptr);
+    Page* page = pmm::kva_to_page(ptr);
     size_t nr = page->property;
     if (nr == 0)
         nr = 1;  // defensive: property unset → assume 1 page

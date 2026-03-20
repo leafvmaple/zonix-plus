@@ -62,25 +62,18 @@ int init();
 
 // TLB and page table operations
 void tlb_invl(pde_t* pgdir, uintptr_t la);
+
 Page* pgdir_alloc_page(pde_t* pgdir, uintptr_t la, uint32_t perm);
 pte_t* get_pte(pde_t* pml4, uintptr_t la, bool create);
 int page_insert(pde_t* pgdir, Page* page, uintptr_t la, uint32_t perm);
 
-// Page allocation
-Page* alloc_pages(size_t n);
-void free_pages(Page* base, size_t n);
-inline Page* alloc_page() {
-    return alloc_pages(1);
-}
-inline void free_page(Page* page) {
-    free_pages(page, 1);
-}
+Page* alloc_pages(size_t n = 1);
+void free_pages(Page* base, size_t n = 1);
 
-// Page address conversion helpers
-void* page2kva(Page* page);
-uintptr_t page2pa(Page* page);
-Page* pa2page(uintptr_t pa);
-Page* kva2page(void* kva);
+void* page_to_kva(Page* page);
+uintptr_t page_to_phys(Page* page);
+Page* phys_to_page(uintptr_t pa);
+Page* kva_to_page(void* kva);
 
 // Free entire user address space (lower-half page tables + mapped pages + pgdir)
 void free_user_pgdir(pde_t* pgdir);

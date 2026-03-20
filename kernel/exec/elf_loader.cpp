@@ -115,7 +115,7 @@ uintptr_t load(const uint8_t* data, size_t size, pde_t* pgdir) {
             }
 
             // Zero fresh page (covers BSS and padding)
-            memset(phys_to_virt(pmm::page2pa(page)), 0, PG_SIZE);
+            memset(phys_to_virt(pmm::page_to_phys(page)), 0, PG_SIZE);
         }
 
         if (ph->p_filesz > 0) {

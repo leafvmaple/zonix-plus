@@ -76,7 +76,7 @@ uintptr_t setup_user_stack(pde_t* pgdir) {
             return 0;
         }
 
-        memset(phys_to_virt(pmm::page2pa(page)), 0, PG_SIZE);
+        memset(phys_to_virt(pmm::page_to_phys(page)), 0, PG_SIZE);
     }
 
     return USER_STACK_TOP;

@@ -121,30 +121,49 @@ int in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr) {
 
 }  // namespace swap
 
-/**
- * Helper function to find virtual address for a page
- * Searches the page table to find the virtual address mapped to this page
- */
-uintptr_t swap::find_vaddr_for_page(MemoryDesc* mm, Page* page) {
-    uintptr_t pa = pmm::page2pa(page);
+namespace {
 
-    // Search through page directory
-    for (int pde_idx = 0; pde_idx < 1024; pde_idx++) {
-        pde_t pde = mm->pgdir[pde_idx];
-        if (pde & VM_PRESENT) {
-            // Page table exists, search it
-            pte_t* pt = phys_to_virt<pte_t>(pde_addr(pde));
-            for (int pte_idx = 0; pte_idx < 1024; pte_idx++) {
-                pte_t pte = pt[pte_idx];
-                if ((pte & VM_PRESENT) && pte_addr(pte) == pa) {
-                    // Found it!
-                    return (pde_idx << 22) | (pte_idx << 12);
-                }
-            }
+constexpr int LEVEL_SHIFTS[PAGE_LEVELS] = {PML4X_SHIFT, PDPTX_SHIFT, PDX_SHIFT, PTX_SHIFT};
+
+// Recursively walk the page table tree looking for a mapping to target_pa.
+// depth: 0 = PML4, 1 = PDPT, 2 = PD, 3 = PT (leaf)
+uintptr_t scan_pt_for_pa(pde_t* table, int depth, uintptr_t va_base, uintptr_t target_pa) {
+    int shift = LEVEL_SHIFTS[depth];
+    bool is_leaf = (depth == PAGE_LEVELS - 1);
+
+    for (int i = 0; i < PAGE_TABLE_ENTRIES; i++) {
+        pde_t entry = table[i];
+        if (!(entry & VM_PRESENT))
+            continue;
+
+        uintptr_t va = va_base | (static_cast<uintptr_t>(i) << shift);
+
+        if (is_leaf) {
+            if (pte_addr(entry) == target_pa)
+                return va;
+            continue;
         }
+
+        if (pte_is_block(entry)) {
+            uintptr_t block_pa = pte_addr(entry);
+            uintptr_t block_size = 1UL << shift;
+            if (target_pa >= block_pa && target_pa < block_pa + block_size)
+                return va | (target_pa - block_pa);
+            continue;
+        }
+
+        uintptr_t result = scan_pt_for_pa(phys_to_virt<pde_t>(pte_addr(entry)), depth + 1, va, target_pa);
+        if (result != 0)
+            return result;
     }
 
-    return 0;  // Not found
+    return 0;
+}
+
+}  // namespace
+
+uintptr_t swap::find_vaddr_for_page(MemoryDesc* mm, Page* page) {
+    return scan_pt_for_pa(mm->pgdir, 0, 0, pmm::page_to_phys(page));
 }
 
 /**
@@ -253,7 +272,7 @@ int swap::swapfs_read(uintptr_t entry, Page* page) {
     uint32_t sector = SWAP_START_SECTOR + (offset * SECTORS_PER_PAGE);
 
     // Get kernel virtual address for the page
-    void* kva = pmm::page2kva(page);
+    void* kva = pmm::page_to_kva(page);
 
     // Read from disk
     if (swap_device->read(sector, kva, SECTORS_PER_PAGE) != 0) {
@@ -276,7 +295,7 @@ int swap::swapfs_write(uintptr_t entry, Page* page) {
     uint32_t sector = SWAP_START_SECTOR + (offset * SECTORS_PER_PAGE);
 
     // Get kernel virtual address for the page
-    void* kva = pmm::page2kva(page);
+    void* kva = pmm::page_to_kva(page);
 
     // Write to disk
     if (swap_device->write(sector, kva, SECTORS_PER_PAGE) != 0) {

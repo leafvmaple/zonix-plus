@@ -416,7 +416,7 @@ void test_swap_disk_io() {
     }
 
     // Fill page with test pattern
-    auto* kva = static_cast<uint8_t*>(pmm::page2kva(page));
+    auto* kva = static_cast<uint8_t*>(pmm::page_to_kva(page));
     for (int i = 0; i < PG_SIZE; i++) {
         kva[i] = static_cast<uint8_t>(i & 0xFF);
     }
@@ -446,7 +446,7 @@ void test_swap_disk_io() {
 
     // 5. Verify data integrity
     if (new_page) {
-        auto* new_kva = static_cast<uint8_t*>(pmm::page2kva(new_page));
+        auto* new_kva = static_cast<uint8_t*>(pmm::page_to_kva(new_page));
         int errors = 0;
 
         for (int i = 0; i < PG_SIZE; i++) {
@@ -491,7 +491,7 @@ void test_swap_multiple_pages() {
             uintptr_t addr = base_addr + i * PG_SIZE;
 
             // Fill with unique pattern (page number repeated)
-            auto* kva = static_cast<uint8_t*>(pmm::page2kva(pages_arr[i]));
+            auto* kva = static_cast<uint8_t*>(pmm::page_to_kva(pages_arr[i]));
             for (int j = 0; j < PG_SIZE; j++) {
                 kva[j] = static_cast<uint8_t>((i * 17 + j) & 0xFF);
             }
@@ -521,7 +521,7 @@ void test_swap_multiple_pages() {
 
             if (ret == 0 && page) {
                 // Verify data
-                void* kva = pmm::page2kva(page);
+                void* kva = pmm::page_to_kva(page);
                 int errors = 0;
 
                 for (int j = 0; j < 256; j++) {  // Check first 256 bytes

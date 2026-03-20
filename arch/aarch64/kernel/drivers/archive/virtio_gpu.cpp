@@ -270,9 +270,9 @@ int vq_alloc(Virtqueue* vq, uint16_t qsize) {
         return -1;
     }
 
-    vq->desc = static_cast<VringDesc*>(pmm::page2kva(dp));
-    vq->avail = static_cast<VringAvail*>(pmm::page2kva(ap));
-    vq->used = static_cast<VringUsed*>(pmm::page2kva(up));
+    vq->desc = static_cast<VringDesc*>(pmm::page_to_kva(dp));
+    vq->avail = static_cast<VringAvail*>(pmm::page_to_kva(ap));
+    vq->used = static_cast<VringUsed*>(pmm::page_to_kva(up));
 
     vq->desc_phys = virt_to_phys(reinterpret_cast<uintptr_t>(vq->desc));
     vq->avail_phys = virt_to_phys(reinterpret_cast<uintptr_t>(vq->avail));
@@ -548,7 +548,7 @@ int init() {
         cprintf("virtio_gpu: failed to allocate %lu framebuffer pages\n", static_cast<unsigned long>(fb_pages));
         return -1;
     }
-    fb_virt = reinterpret_cast<uintptr_t>(pmm::page2kva(fb_page));
+    fb_virt = reinterpret_cast<uintptr_t>(pmm::page_to_kva(fb_page));
     fb_phys = virt_to_phys(fb_virt);
     memset(reinterpret_cast<void*>(fb_virt), 0, fb_pages * PG_SIZE);
 
