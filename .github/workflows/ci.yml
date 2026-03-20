@@ -112,7 +112,7 @@ jobs:
             qemu-system-x86
 
       - name: Build with tests
-        run: make ARCH=x86 TEST=1
+        run: make ARCH=x86 TEST=1 bin/x86/zonix.img
 
       - name: Run BIOS boot tests
         run: |
@@ -143,7 +143,7 @@ jobs:
             ovmf
 
       - name: Build with tests
-        run: make ARCH=x86 TEST=1
+        run: make ARCH=x86 TEST=1 bin/x86/zonix-uefi.img
 
       - name: Run UEFI boot tests
         run: |
@@ -151,7 +151,38 @@ jobs:
           bash scripts/ci_qemu_test.sh uefi
 
   # ======================================================================
-  # Job 6: Static analysis (clang-tidy, non-blocking)
+  # Job 6: Integration tests in QEMU (AArch64 UEFI boot)
+  # ======================================================================
+  test-aarch64-uefi:
+    name: Test aarch64 (UEFI)
+    runs-on: ubuntu-latest
+    needs: build-aarch64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang lld llvm nasm make \
+            gcc-mingw-w64-x86-64 \
+            gnu-efi \
+            mtools dosfstools \
+            fdisk parted \
+            qemu-system-arm \
+            qemu-efi-aarch64
+
+      - name: Build with tests
+        run: make ARCH=aarch64 TEST=1 bin/aarch64/sdcard.img
+
+      - name: Run aarch64 UEFI boot tests
+        run: |
+          chmod +x scripts/ci_qemu_test_aarch64.sh
+          bash scripts/ci_qemu_test_aarch64.sh
+
+  # ======================================================================
+  # Job 7: Static analysis (clang-tidy, non-blocking)
   # ======================================================================
   static-analysis:
     name: Static Analysis
