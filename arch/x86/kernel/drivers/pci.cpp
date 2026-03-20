@@ -1,12 +1,3 @@
-/**
- * @file pci.cpp
- * @brief x86_64 PCI config-space transport — legacy port I/O (CF8h/CFCh).
- *
- * Provides the three arch-specific primitives declared in <drivers/pci.h>:
- *   pci::init(), pci::config_read32(), pci::config_write32(), pci::bus_count()
- * Generic PCI functions live in kernel/drivers/pci.cpp.
- */
-
 #include "drivers/pci.h"
 #include <asm/arch.h>
 #include "lib/stdio.h"

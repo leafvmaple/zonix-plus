@@ -1,10 +1,13 @@
 #include "sched/sched.h"
 #include "mm/pmm.h"
+#include "mm/vmm.h"
+#include "drivers/intr.h"
 #include "lib/stdio.h"
 #include "lib/memory.h"
 
 // External symbols
 extern long user_stack[];
+extern MemoryDesc init_mm;
 
 // Test statistics
 static int tests_passed = 0;
@@ -30,6 +33,17 @@ static int tests_failed = 0;
         cprintf("  [FAILED]\n"); \
         tests_failed++;          \
     }
+
+// Helper: set up a test TaskStruct so it won't crash the scheduler.
+// The real scheduler calls get_cr3() which asserts memory->pgdir != nullptr.
+// Without this, a timer interrupt during the test would panic the kernel.
+static void init_test_proc(TaskStruct* proc, int pid) {
+    proc->pid = pid;
+    proc->child_list.init();
+    proc->memory = &init_mm;
+    proc->priority = sched_prio::IDLE_PRIO;
+    proc->time_slice = 0;
+}
 
 // ============================================================================
 // Unit Tests - Process Creation
@@ -106,13 +120,9 @@ static void test_process_list_management() {
     TaskStruct* proc2 = new TaskStruct();
     TaskStruct* proc3 = new TaskStruct();
 
-    proc1->pid = 100;
-    proc2->pid = 101;
-    proc3->pid = 102;
-
-    proc1->child_list.init();
-    proc2->child_list.init();
-    proc3->child_list.init();
+    init_test_proc(proc1, 100);
+    init_test_proc(proc2, 101);
+    init_test_proc(proc3, 102);
 
     // Add processes
     TaskManager::add_process(proc1);
@@ -173,8 +183,7 @@ static void test_hash_table() {
     TaskStruct* procs[10];
     for (int i = 0; i < 10; i++) {
         procs[i] = new TaskStruct();
-        procs[i]->pid = 1000 + i * 17;  // Spread PIDs across hash buckets
-        procs[i]->child_list.init();
+        init_test_proc(procs[i], 1000 + i * 17);
         TaskManager::add_process(procs[i]);
     }
 
@@ -224,18 +233,15 @@ static void test_parent_child_relationships() {
 
     // Create parent process
     TaskStruct* parent = new TaskStruct();
-    parent->pid = 200;
-    parent->child_list.init();
+    init_test_proc(parent, 200);
     TaskManager::add_process(parent);
 
     // Create child processes
     TaskStruct* child1 = new TaskStruct();
     TaskStruct* child2 = new TaskStruct();
 
-    child1->pid = 201;
-    child2->pid = 202;
-    child1->child_list.init();
-    child2->child_list.init();
+    init_test_proc(child1, 201);
+    init_test_proc(child2, 202);
 
     child1->parent = parent;
     child2->parent = parent;
@@ -352,8 +358,7 @@ static void test_process_destruction() {
 
     // Create a process with kernel stack
     TaskStruct* proc = new TaskStruct();
-    proc->pid = 300;
-    proc->child_list.init();
+    init_test_proc(proc, 300);
 
     int ret = proc->setup_kernel_stack();
     TEST_ASSERT(ret == 0, "Kernel stack allocated for destruction test");
@@ -385,18 +390,14 @@ static void test_scheduler_selection() {
 
     int initial_count = TaskManager::nr_process;
 
-    // Create multiple runnable processes
+    // Create multiple processes with different states
     TaskStruct* proc1 = new TaskStruct();
     TaskStruct* proc2 = new TaskStruct();
     TaskStruct* proc3 = new TaskStruct();
 
-    proc1->pid = 500;
-    proc2->pid = 501;
-    proc3->pid = 502;
-
-    proc1->child_list.init();
-    proc2->child_list.init();
-    proc3->child_list.init();
+    init_test_proc(proc1, 500);
+    init_test_proc(proc2, 501);
+    init_test_proc(proc3, 502);
 
     // Set different states
     proc1->state = ProcessState::Sleeping;  // Should NOT be selected
@@ -482,8 +483,7 @@ static void test_runnable_queue() {
 
     for (int i = 0; i < NUM_PROCS; i++) {
         procs[i] = new TaskStruct();
-        procs[i]->pid = 600 + i;
-        procs[i]->child_list.init();
+        init_test_proc(procs[i], 600 + i);
         procs[i]->state = ProcessState::Runnable;
         TaskManager::add_process(procs[i]);
     }
@@ -538,8 +538,7 @@ static void test_sleep_wakeup() {
     int initial_count = TaskManager::nr_process;
 
     TaskStruct* proc = new TaskStruct();
-    proc->pid = 700;
-    proc->child_list.init();
+    init_test_proc(proc, 700);
     proc->state = ProcessState::Runnable;
     TaskManager::add_process(proc);
 
@@ -594,16 +593,14 @@ static void test_wait_state() {
 
     // Create parent
     TaskStruct* parent = new TaskStruct();
-    parent->pid = 800;
-    parent->child_list.init();
+    init_test_proc(parent, 800);
     parent->state = ProcessState::Runnable;
     parent->wait_state = 0;
     TaskManager::add_process(parent);
 
     // Create child
     TaskStruct* child = new TaskStruct();
-    child->pid = 801;
-    child->child_list.init();
+    init_test_proc(child, 801);
     child->parent = parent;
     child->state = ProcessState::Runnable;
     TaskManager::add_process(child);
@@ -663,8 +660,7 @@ static void test_round_robin_simulation() {
 
     for (int i = 0; i < NUM_PROCS; i++) {
         procs[i] = new TaskStruct();
-        procs[i]->pid = 900 + i;
-        procs[i]->child_list.init();
+        init_test_proc(procs[i], 900 + i);
         procs[i]->state = ProcessState::Runnable;
         TaskManager::add_process(procs[i]);
     }
@@ -735,6 +731,12 @@ static void test_round_robin_simulation() {
 namespace sched {
 
 void test() {
+    // Disable interrupts for the entire test suite.
+    // Tests add fake TaskStruct objects (no valid context/stack) to the process
+    // list with state = Runnable.  If a timer interrupt fires, the real
+    // scheduler could select one and crash on context-switch.
+    intr::Guard guard;
+
     cprintf("\n========================================\n");
     cprintf("       TaskManager Unit Tests\n");
     cprintf("========================================\n");

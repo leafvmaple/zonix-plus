@@ -11,6 +11,10 @@
 #include <kernel/bootinfo.h>
 #include <asm/arch.h>
 
+#ifdef TEST_MODE
+extern int test_run_all(void*);
+#endif
+
 // Call C++ global constructors registered in .init_array
 extern "C" {
 using ctor_func = void (*)();
@@ -78,6 +82,10 @@ extern "C" __attribute__((noreturn)) int kern_init(struct boot_info* boot_info) 
     }
 
     run_steps(KERN_STEPS, sizeof(KERN_STEPS) / sizeof(KERN_STEPS[0]));
+
+#ifdef TEST_MODE
+    sched::kernel_thread(test_run_all, nullptr);
+#endif
 
     intr::enable();
 
