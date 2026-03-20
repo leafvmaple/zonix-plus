@@ -1,5 +1,7 @@
 #include "pl011.h"
+#include "drivers/mmio.h"
 #include <asm/page.h>
+#include <asm/mmu.h>
 #include <base/types.h>
 
 #include "cons/cons.h"
@@ -24,9 +26,8 @@ constexpr uint32_t UARTIMSC_RXIM = (1 << 4);  // Receive interrupt mask
 // QEMU virt: PL011 UART0 = SPI #1 = GIC IntID 33
 constexpr uint32_t UART_INTID = 33;
 
-volatile uint32_t* uart_reg(uint32_t off) {
-    return reinterpret_cast<volatile uint32_t*>(reinterpret_cast<volatile uint8_t*>(phys_to_virt<uint32_t>(UART_PHYS)) +
-                                                off);
+inline uintptr_t uart_base() {
+    return reinterpret_cast<uintptr_t>(phys_to_virt<void>(UART_PHYS));
 }
 
 }  // namespace
@@ -35,7 +36,8 @@ namespace pl011 {
 
 int init() {
     // Enable receive interrupt in PL011
-    *uart_reg(UARTIMSC) |= UARTIMSC_RXIM;
+    uint32_t imsc = mmio::read32(uart_base(), UARTIMSC);
+    mmio::write32(uart_base(), UARTIMSC, imsc | UARTIMSC_RXIM);
     gic::enable(UART_INTID);
 
     return 0;
@@ -43,26 +45,26 @@ int init() {
 
 void putc(int c) {
     if (c == '\n') {
-        while (*uart_reg(UARTFR) & UARTFR_TXFF) {}
-        *uart_reg(UARTDR) = '\r';
+        while (mmio::read32(uart_base(), UARTFR) & UARTFR_TXFF) {}
+        mmio::write32(uart_base(), UARTDR, '\r');
     }
-    while (*uart_reg(UARTFR) & UARTFR_TXFF) {}
-    *uart_reg(UARTDR) = static_cast<uint32_t>(c);
+    while (mmio::read32(uart_base(), UARTFR) & UARTFR_TXFF) {}
+    mmio::write32(uart_base(), UARTDR, static_cast<uint32_t>(c));
 }
 
 int getc() {
-    if (*uart_reg(UARTFR) & UARTFR_RXFE)
+    if (mmio::read32(uart_base(), UARTFR) & UARTFR_RXFE)
         return -1;
-    return *uart_reg(UARTDR) & 0xFF;
+    return mmio::read32(uart_base(), UARTDR) & 0xFF;
 }
 
 void intr() {
     // Clear the receive interrupt
-    *uart_reg(UARTICR) = UARTIMSC_RXIM;
+    mmio::write32(uart_base(), UARTICR, UARTIMSC_RXIM);
 
     // Drain the hardware FIFO into unified console input buffer
-    while (!(*uart_reg(UARTFR) & UARTFR_RXFE)) {
-        char c = static_cast<char>(*uart_reg(UARTDR) & 0xFF);
+    while (!(mmio::read32(uart_base(), UARTFR) & UARTFR_RXFE)) {
+        char c = static_cast<char>(mmio::read32(uart_base(), UARTDR) & 0xFF);
         cons::push_input(c);
     }
 }

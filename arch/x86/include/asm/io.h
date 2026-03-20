@@ -1,7 +1,5 @@
 #pragma once
 
-#include "ports.h"
-
 #ifndef __ASSEMBLY__
 
 #include <base/types.h>

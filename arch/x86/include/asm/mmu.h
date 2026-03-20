@@ -21,42 +21,6 @@
  *   [11:0]  Page offset (12 bits)
  */
 
-// Page table constants
-inline constexpr int ADDR_BITS = 48;
-
-inline constexpr int PML4X_SHIFT = 39;
-inline constexpr int PDPTX_SHIFT = 30;
-inline constexpr int PDX_SHIFT = 21;
-inline constexpr int PTX_SHIFT = 12;
-
-inline constexpr int ENTRY_NUM = 512;
-inline constexpr int ENTRY_MASK = ENTRY_NUM - 1;  // 0x1FF
-
-// PML4 entries 0..255 cover user space, 256..511 cover kernel space
-inline constexpr int USER_PML4_ENTRIES = ENTRY_NUM / 2;
-
-inline constexpr uintptr_t PG_MASK = PG_SIZE - 1;
-
-inline constexpr uint64_t PT_SIZE = (uint64_t)PG_SIZE * ENTRY_NUM;  // 2MB
-inline constexpr uint64_t PD_SIZE = PT_SIZE * ENTRY_NUM;            // 1GB
-inline constexpr uint64_t PDPT_SIZE = PD_SIZE * ENTRY_NUM;          // 512GB
-
-inline constexpr int PDE_NUM = ENTRY_NUM;
-inline constexpr int PTE_NUM = ENTRY_NUM;
-
-inline constexpr uintptr_t pml4x(uintptr_t la) {
-    return (la >> PML4X_SHIFT) & ENTRY_MASK;
-}
-inline constexpr uintptr_t pdptx(uintptr_t la) {
-    return (la >> PDPTX_SHIFT) & ENTRY_MASK;
-}
-inline constexpr uintptr_t pdx(uintptr_t la) {
-    return (la >> PDX_SHIFT) & ENTRY_MASK;
-}
-inline constexpr uintptr_t ptx(uintptr_t la) {
-    return (la >> PTX_SHIFT) & ENTRY_MASK;
-}
-
 inline constexpr uintptr_t pte_addr(uintptr_t pte) {
     return pte & 0x000FFFFFFFFFF000ULL;
 }

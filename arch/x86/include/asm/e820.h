@@ -1,0 +1,7 @@
+#pragma once
+
+#define E820_BIOS_INT_VECTOR      0x15
+#define E820_QUERY_FUNC           0xE820
+#define E820_SMAP_SIGNATURE       0x534D4150  // 'SMAP'
+#define E820_DESCRIPTOR_SIZE      20
+#define E820_COUNT_ERROR_SENTINEL 0xFFFF

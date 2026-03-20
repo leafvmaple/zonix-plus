@@ -5,6 +5,7 @@
 #include "pmm.h"
 
 #include <asm/page.h>
+#include <asm/mmu.h>
 #include "block/blk.h"
 
 // Global swap manager (can be changed to select different algorithms)

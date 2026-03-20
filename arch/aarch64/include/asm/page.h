@@ -47,16 +47,16 @@ inline constexpr uintptr_t USER_SPACE_TOP = 0x0000800000000000ULL;
 inline constexpr uintptr_t USER_STACK_TOP = 0x00007FFFFFFFE000ULL;
 inline constexpr size_t USER_STACK_SIZE = 4 * PG_SIZE; /* 16 KB */
 
-static inline int pml4x(uintptr_t va) {
+static inline int pml4_index(uintptr_t va) {
     return (va >> 39) & 0x1FF;
 } /* L0 */
-static inline int pdptx(uintptr_t va) {
+static inline int pdpt_index(uintptr_t va) {
     return (va >> 30) & 0x1FF;
 } /* L1 */
-static inline int pdx(uintptr_t va) {
+static inline int pd_index(uintptr_t va) {
     return (va >> 21) & 0x1FF;
 } /* L2 */
-static inline int ptx(uintptr_t va) {
+static inline int pt_index(uintptr_t va) {
     return (va >> 12) & 0x1FF;
 } /* L3 */
 
@@ -76,7 +76,5 @@ static inline uintptr_t make_pte_table(uintptr_t pa) {
 static inline uintptr_t make_pte_page(uintptr_t pa, uint32_t perm) {
     return pa | PTE_VALID | PTE_PAGE | PTE_AF | perm;
 }
-
-#include "mmu.h"
 
 #endif /* !__ASSEMBLY__ */

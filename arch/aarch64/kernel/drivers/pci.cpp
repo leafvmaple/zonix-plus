@@ -1,4 +1,5 @@
 #include "drivers/pci.h"
+#include "drivers/mmio.h"
 #include "lib/stdio.h"
 #include "mm/vmm.h"
 #include <asm/page.h>
@@ -12,10 +13,10 @@ namespace {
 
 volatile uint8_t* ecam_base = nullptr;
 
-volatile uint32_t* ecam_addr(int bus, int dev, int func, int offset) {
+uintptr_t ecam_offset(int bus, int dev, int func, int offset) {
     uintptr_t off = (static_cast<uintptr_t>(bus) << 20) | (static_cast<uintptr_t>(dev) << 15) |
                     (static_cast<uintptr_t>(func) << 12) | (offset & 0xFFC);
-    return reinterpret_cast<volatile uint32_t*>(ecam_base + off);
+    return off;
 }
 
 }  // namespace
@@ -30,7 +31,7 @@ int init() {
     }
     ecam_base = reinterpret_cast<volatile uint8_t*>(va);
 
-    uint32_t id0 = *reinterpret_cast<volatile uint32_t*>(ecam_base);
+    uint32_t id0 = mmio::read32(ecam_base, 0);
     if (id0 == 0xFFFFFFFF || (id0 & 0xFFFF) == 0xFFFF) {
         cprintf("pci: no devices on bus 0\n");
         return -1;
@@ -41,11 +42,11 @@ int init() {
 }
 
 uint32_t config_read32(int bus, int dev, int func, int offset) {
-    return *ecam_addr(bus, dev, func, offset);
+    return mmio::read32(ecam_base, ecam_offset(bus, dev, func, offset));
 }
 
 void config_write32(int bus, int dev, int func, int offset, uint32_t val) {
-    *ecam_addr(bus, dev, func, offset) = val;
+    mmio::write32(ecam_base, ecam_offset(bus, dev, func, offset), val);
 }
 
 int bus_count() {

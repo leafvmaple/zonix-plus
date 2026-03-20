@@ -1,6 +1,5 @@
 #pragma once
 
-/* Control Register flags */
 #define CR0_PE 0x00000001  // Protection Enable
 #define CR0_MP 0x00000002  // Monitor coProcessor
 #define CR0_EM 0x00000004  // Emulation
@@ -13,7 +12,6 @@
 #define CR0_CD 0x40000000  // Cache Disable
 #define CR0_PG 0x80000000  // Paging
 
-/* CR4 flags */
 #define CR4_PSE 0x00000010  // Page Size Extension
 #define CR4_PAE 0x00000020  // Physical Address Extension
 #define CR4_PGE 0x00000080  // Page Global Enable

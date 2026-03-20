@@ -18,6 +18,7 @@
  */
 
 #include "virtio_kbd.h"
+#include "drivers/mmio.h"
 #include "drivers/pci.h"
 #include "gic.h"
 #include "cons/cons.h"
@@ -119,45 +120,45 @@ bool s_registered = false;
 // ============================================================================
 
 uint8_t read_status() {
-    return *reinterpret_cast<volatile uint8_t*>(common_cfg + 0x14);
+    return mmio::read8(common_cfg, 0x14);
 }
 void write_status(uint8_t v) {
-    *reinterpret_cast<volatile uint8_t*>(common_cfg + 0x14) = v;
+    mmio::write8(common_cfg, 0x14, v);
 }
 void select_queue(uint16_t q) {
-    *reinterpret_cast<volatile uint16_t*>(common_cfg + 0x16) = q;
+    mmio::write16(common_cfg, 0x16, q);
 }
 uint16_t read_queue_size() {
-    return *reinterpret_cast<volatile uint16_t*>(common_cfg + 0x18);
+    return mmio::read16(common_cfg, 0x18);
 }
 void write_queue_size(uint16_t v) {
-    *reinterpret_cast<volatile uint16_t*>(common_cfg + 0x18) = v;
+    mmio::write16(common_cfg, 0x18, v);
 }
 void write_queue_enable(uint16_t v) {
-    *reinterpret_cast<volatile uint16_t*>(common_cfg + 0x1C) = v;
+    mmio::write16(common_cfg, 0x1C, v);
 }
 uint16_t read_queue_notify_off() {
-    return *reinterpret_cast<volatile uint16_t*>(common_cfg + 0x1E);
+    return mmio::read16(common_cfg, 0x1E);
 }
 
 void write_queue_desc(uint64_t v) {
-    *reinterpret_cast<volatile uint32_t*>(common_cfg + 0x20) = static_cast<uint32_t>(v);
-    *reinterpret_cast<volatile uint32_t*>(common_cfg + 0x24) = static_cast<uint32_t>(v >> 32);
+    mmio::write32(common_cfg, 0x20, static_cast<uint32_t>(v));
+    mmio::write32(common_cfg, 0x24, static_cast<uint32_t>(v >> 32));
 }
 void write_queue_avail(uint64_t v) {
-    *reinterpret_cast<volatile uint32_t*>(common_cfg + 0x28) = static_cast<uint32_t>(v);
-    *reinterpret_cast<volatile uint32_t*>(common_cfg + 0x2C) = static_cast<uint32_t>(v >> 32);
+    mmio::write32(common_cfg, 0x28, static_cast<uint32_t>(v));
+    mmio::write32(common_cfg, 0x2C, static_cast<uint32_t>(v >> 32));
 }
 void write_queue_used(uint64_t v) {
-    *reinterpret_cast<volatile uint32_t*>(common_cfg + 0x30) = static_cast<uint32_t>(v);
-    *reinterpret_cast<volatile uint32_t*>(common_cfg + 0x34) = static_cast<uint32_t>(v >> 32);
+    mmio::write32(common_cfg, 0x30, static_cast<uint32_t>(v));
+    mmio::write32(common_cfg, 0x34, static_cast<uint32_t>(v >> 32));
 }
 
 void write_driver_features(uint64_t v) {
-    *reinterpret_cast<volatile uint32_t*>(common_cfg + 0x08) = 0;
-    *reinterpret_cast<volatile uint32_t*>(common_cfg + 0x0C) = static_cast<uint32_t>(v);
-    *reinterpret_cast<volatile uint32_t*>(common_cfg + 0x08) = 1;
-    *reinterpret_cast<volatile uint32_t*>(common_cfg + 0x0C) = static_cast<uint32_t>(v >> 32);
+    mmio::write32(common_cfg, 0x08, 0);
+    mmio::write32(common_cfg, 0x0C, static_cast<uint32_t>(v));
+    mmio::write32(common_cfg, 0x08, 1);
+    mmio::write32(common_cfg, 0x0C, static_cast<uint32_t>(v >> 32));
 }
 
 // ============================================================================
@@ -447,7 +448,7 @@ int init() {
 void intr() {
     // Read ISR to acknowledge interrupt (modern: via ISR cap region)
     if (isr_cfg) {
-        (void)*reinterpret_cast<volatile uint8_t*>(isr_cfg);
+        (void)mmio::read8(isr_cfg, 0);
     }
 
     // Process used ring entries

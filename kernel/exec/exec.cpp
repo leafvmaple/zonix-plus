@@ -13,6 +13,7 @@
 #include "debug/assert.h"
 
 #include <asm/page.h>
+#include <asm/mmu.h>
 #include <asm/arch.h>
 
 extern pde_t* boot_pgdir;
@@ -75,7 +76,6 @@ uintptr_t setup_user_stack(pde_t* pgdir) {
             return 0;
         }
 
-        // Zero the stack page
         memset(phys_to_virt(pmm::page2pa(page)), 0, PG_SIZE);
     }
 
@@ -86,10 +86,6 @@ static uintptr_t load_binary(const uint8_t* data, size_t size, pde_t* pgdir) {
     if (elf::is_elf(data, size)) {
         return elf::load(data, size, pgdir);
     }
-
-    // --- future formats go here ---
-    // if (is_flat_binary(data, size)) { ... }
-    // if (is_aout(data, size))        { ... }
 
     cprintf("exec: unrecognised binary format (magic: %02x %02x %02x %02x)\n", size > 0 ? data[0] : 0,
             size > 1 ? data[1] : 0, size > 2 ? data[2] : 0, size > 3 ? data[3] : 0);

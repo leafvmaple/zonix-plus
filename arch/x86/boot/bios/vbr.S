@@ -16,7 +16,7 @@
 #include <asm/cr.h>
 #include <asm/segments.h>
 #include <asm/memlayout.h>
-#include <asm/ports.h>
+#include <asm/e820.h>
 
 #include <asm/drivers/i8042.h>
 #include <asm/drivers/i8259.h>
@@ -77,15 +77,15 @@ boot_start:
     xorl %ebx, %ebx
     movw $E820_MEM_DATA, %di
 start_probe:
-    movl $0xE820, %eax
-    movl $INT_ESI_DESC_SIZE, %ecx
-    movl $SMAP, %edx
-    int  $0x15
+    movl $E820_QUERY_FUNC, %eax
+    movl $E820_DESCRIPTOR_SIZE, %ecx
+    movl $E820_SMAP_SIGNATURE, %edx
+    int  $E820_BIOS_INT_VECTOR
     jnc  cont                                 # If the CF bit of eflags is 0, it means there are still memory segments to be probed
-    movw $0xFFFF, (E820_MEM_BASE)             # Probe has a error, finish
+    movw $E820_COUNT_ERROR_SENTINEL, (E820_MEM_BASE) # Probe has a error, finish
     jmp  finish_probe
 cont:
-    addw $INT_ESI_DESC_SIZE, %di              # Set the starting address of the mapping address descriptor returned by the next BIOS
+    addw $E820_DESCRIPTOR_SIZE, %di           # Set the starting address of the mapping address descriptor returned by the next BIOS
     incl (E820_MEM_BASE)                      # Increment the member variable nr_map of struct e820map
     cmpl $0, %ebx                             # If the ebx returned by INT0x15 is zero, it means the detection is over, otherwise continue to detect
     jnz  start_probe

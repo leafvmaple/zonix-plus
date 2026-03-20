@@ -22,13 +22,6 @@ private:
     uint16_t rca_{};
     bool sdhc_{};
 
-    uint32_t read32(uint32_t off);
-    void write32(uint32_t off, uint32_t val);
-    uint16_t read16(uint32_t off);
-    void write16(uint32_t off, uint16_t val);
-    uint8_t read8(uint32_t off);
-    void write8(uint32_t off, uint8_t val);
-
     int reset();
     int clock_setup();
     int power_on();

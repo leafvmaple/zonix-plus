@@ -14,6 +14,7 @@
 
 #define PG_SIZE  4096
 #define PG_SHIFT 12  // 2^12 = 4096
+#define PG_MASK  (PG_SIZE - 1)
 
 #define VM_PRESENT   PTE_P               /* page is present / valid             */
 #define VM_WRITE     PTE_W               /* page is writable                    */
@@ -28,6 +29,39 @@
 #ifndef __ASSEMBLY__
 
 #include <base/types.h>
+
+inline constexpr int ADDR_BITS = 48;
+
+inline constexpr int PML4X_SHIFT = 39;
+inline constexpr int PDPTX_SHIFT = 30;
+inline constexpr int PDX_SHIFT = 21;
+inline constexpr int PTX_SHIFT = 12;
+
+inline constexpr int ENTRY_NUM = 512;
+inline constexpr int ENTRY_MASK = ENTRY_NUM - 1;  // 0x1FF
+
+// PML4 entries 0..255 cover user space, 256..511 cover kernel space
+inline constexpr int USER_PML4_ENTRIES = ENTRY_NUM / 2;
+
+inline constexpr uint64_t PT_SIZE = (uint64_t)PG_SIZE * ENTRY_NUM;  // 2MB
+inline constexpr uint64_t PD_SIZE = PT_SIZE * ENTRY_NUM;            // 1GB
+inline constexpr uint64_t PDPT_SIZE = PD_SIZE * ENTRY_NUM;          // 512GB
+
+inline constexpr int PDE_NUM = ENTRY_NUM;
+inline constexpr int PTE_NUM = ENTRY_NUM;
+
+inline constexpr uintptr_t pml4_index(uintptr_t la) {
+    return (la >> PML4X_SHIFT) & ENTRY_MASK;
+}
+inline constexpr uintptr_t pdpt_index(uintptr_t la) {
+    return (la >> PDPTX_SHIFT) & ENTRY_MASK;
+}
+inline constexpr uintptr_t pd_index(uintptr_t la) {
+    return (la >> PDX_SHIFT) & ENTRY_MASK;
+}
+inline constexpr uintptr_t pt_index(uintptr_t la) {
+    return (la >> PTX_SHIFT) & ENTRY_MASK;
+}
 
 static inline bool pte_is_block(uintptr_t entry) {
     return (entry & PTE_PS) != 0;
@@ -48,7 +82,5 @@ inline constexpr int USER_TOP_ENTRIES = 256;
 inline constexpr uintptr_t USER_SPACE_TOP = 0x0000800000000000ULL;
 inline constexpr uintptr_t USER_STACK_TOP = 0x00007FFFFFFFE000ULL;
 inline constexpr size_t USER_STACK_SIZE = 4ULL * PG_SIZE; /* 16 KB */
-
-#include "mmu.h"
 
 #endif /* !__ASSEMBLY__ */

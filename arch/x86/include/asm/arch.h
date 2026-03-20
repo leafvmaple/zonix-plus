@@ -5,7 +5,6 @@
 #include "io.h"
 #include "cpu.h"
 
-// Forward declarations for types defined in other arch headers
 struct TrapFrame;
 
 static inline void arch_irq_enable(void) {

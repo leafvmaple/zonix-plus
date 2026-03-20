@@ -31,7 +31,7 @@ struct Page {
     static constexpr size_t node_offset() { return offset_of(&Page::list_node); }
 };
 
-class PMMManager {
+class PageAllocator {
 public:
     virtual void init() = 0;
     virtual void init_memmap(Page* base, size_t n) = 0;
@@ -40,11 +40,11 @@ public:
     virtual size_t nr_free_pages() = 0;
     virtual void check() = 0;
 
-    PMMManager() = default;
-    PMMManager(const PMMManager&) = delete;
-    // Non-virtual destructor - PMM managers are never deleted via base pointer
-    ~PMMManager() = default;
-    PMMManager& operator=(const PMMManager&) = delete;
+    PageAllocator() = default;
+    PageAllocator(const PageAllocator&) = delete;
+    // Non-virtual destructor - page allocators are never deleted via base pointer
+    ~PageAllocator() = default;
+    PageAllocator& operator=(const PageAllocator&) = delete;
 
     [[nodiscard]] const char* get_name() const { return name_; }
 

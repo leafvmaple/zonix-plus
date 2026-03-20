@@ -1,20 +1,5 @@
 #pragma once
 
-/**
- * @file trap_numbers.h
- * @brief Architecture-specific exception and IRQ number definitions.
- *
- * Each architecture must provide this header defining:
- *   - CPU exception/trap vector numbers (T_*)
- *   - Software trap numbers (T_SYSCALL)
- *   - Hardware IRQ offset and line assignments (IRQ_*)
- *   - Total IRQ count (IRQ_COUNT)
- */
-
-// ============================================================================
-// x86 CPU Exception vectors (0-31)
-// ============================================================================
-
 #define T_DIVIDE  0   // Divide error
 #define T_DEBUG   1   // Debug
 #define T_NMI     2   // Non-Maskable Interrupt
@@ -34,15 +19,7 @@
 #define T_MCHK    18  // Machine-Check
 #define T_SIMDERR 19  // SIMD Floating-Point Exception
 
-// ============================================================================
-// Software trap
-// ============================================================================
-
 #define T_SYSCALL 0x80
-
-// ============================================================================
-// Hardware IRQ definitions (x86 PIC/APIC platform)
-// ============================================================================
 
 #define IRQ_OFFSET 0x20  // PIC remaps IRQ 0 to vector 0x20
 
@@ -54,10 +31,6 @@
 #define IRQ_IDE2  15
 
 #define IRQ_COUNT 16
-
-// ============================================================================
-// Semantic trap role aliases used by common trap dispatch logic
-// ============================================================================
 
 #define TRAP_VECTOR_PGFAULT T_PGFLT
 #define TRAP_VECTOR_SYSCALL T_SYSCALL

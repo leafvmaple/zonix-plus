@@ -17,19 +17,18 @@
 //
 // Space Complexity: O(1) auxiliary space
 
-// Constants for page management
 #define PMM_SUCCESS      0
 #define PMM_INVALID_PTR  nullptr
 #define PAGE_INIT_VALUE  0
 #define TEST_ALLOC_PAGES 5
 
-FirstFitPMMManager::FirstFitPMMManager() {
-    name_ = "First-Fit PMM Manager";
+FirstFitPageAllocator::FirstFitPageAllocator() {
+    name_ = "First-Fit Page Allocator";
 }
 
-void FirstFitPMMManager::init() {}
+void FirstFitPageAllocator::init() {}
 
-void FirstFitPMMManager::init_memmap(Page* base, size_t n) {
+void FirstFitPageAllocator::init_memmap(Page* base, size_t n) {
     for (Page* p = base; p != base + n; p++) {
         new (p) Page();
     }
@@ -41,7 +40,7 @@ void FirstFitPMMManager::init_memmap(Page* base, size_t n) {
     free_.free_list.add_before(base->node());
 }
 
-Page* FirstFitPMMManager::alloc(size_t n) {
+Page* FirstFitPageAllocator::alloc(size_t n) {
     if (n > free_.nr_free) {
         return nullptr;
     }
@@ -72,7 +71,7 @@ Page* FirstFitPMMManager::alloc(size_t n) {
     return page;
 }
 
-void FirstFitPMMManager::free(Page* base, size_t n) {
+void FirstFitPageAllocator::free(Page* base, size_t n) {
     for (Page* p = base; p != base + n; p++) {
         p->flags = PAGE_INIT_VALUE;
     }
@@ -106,11 +105,11 @@ void FirstFitPMMManager::free(Page* base, size_t n) {
     prev->add_after(base->node());
 }
 
-size_t FirstFitPMMManager::nr_free_pages() {
+size_t FirstFitPageAllocator::nr_free_pages() {
     return free_.nr_free;
 }
 
-void FirstFitPMMManager::check() {
+void FirstFitPageAllocator::check() {
     size_t total_free{};
 
     // Count total free pages

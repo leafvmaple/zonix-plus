@@ -61,7 +61,6 @@ inline T* phys_to_virt(uintptr_t pa) {
     return reinterpret_cast<T*>(pa + KERNEL_BASE);
 }
 
-// Iterate over page-aligned chunks within [va, va+size)
 template<typename TFunc>
 inline void iterate_pages(uintptr_t va, size_t size, TFunc&& func) {
     while (size > 0) {

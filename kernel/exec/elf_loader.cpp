@@ -1,10 +1,3 @@
-/**
- * ELF64 loader — pure parsing and segment loading.
- *
- * No process creation, no filesystem access, no scheduling.
- * See exec.cpp for the generic execution framework.
- */
-
 #include "elf_loader.h"
 
 #include "lib/stdio.h"
@@ -15,6 +8,7 @@
 #include "debug/assert.h"
 
 #include <asm/page.h>
+#include <asm/mmu.h>
 #include <base/elf.h>
 
 namespace elf {

@@ -258,16 +258,13 @@ int IdeDevice::write(uint32_t block_number, const void* buf, size_t block_count)
             arch_port_outb(config->base + ide::REG_LBA_HIGH, (lba >> 16) & 0xFF);
             arch_port_outb(config->base + ide::REG_DEVICE, drive_sel | ((lba >> 24) & 0x0F));
 
-            // Send write command
             arch_port_outb(config->base + ide::REG_COMMAND, ide::CMD_WRITE);
 
-            // Wait for device ready to receive data (within critical section)
             if (hd_wait_ready_on_base(config->base) != 0) {
                 request.reset();
                 return -1;  // guard destructor will restore interrupts
             }
 
-            // Write the data
             arch_port_outsw(config->base + ide::REG_DATA, request.buffer, ide::SECTOR_SIZE / 2);
         }
 
@@ -288,10 +285,6 @@ int IdeDevice::write(uint32_t block_number, const void* buf, size_t block_count)
     return 0;
 }
 
-/**
- * Handle IDE interrupt for specified channel
- * @param channel IDE channel (0 = primary, 1 = secondary)
- */
 void IdeManager::interrupt_handler(int channel) {
     for (int i = 0; i < s_devices_count; i++) {
         IdeDevice& dev = s_devices[i];

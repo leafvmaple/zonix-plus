@@ -2,9 +2,9 @@
 
 #include "pmm.h"
 
-class FirstFitPMMManager : public PMMManager {
+class FirstFitPageAllocator : public PageAllocator {
 public:
-    FirstFitPMMManager();
+    FirstFitPageAllocator();
 
     void init() override;
     void init_memmap(Page* base, size_t n) override;
