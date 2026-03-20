@@ -129,7 +129,7 @@ int FatInfo::mount(BlockDevice* dev) {
 
     uint32_t partition_start = static_cast<uint32_t>(part_start);
 
-    struct fat32_boot_sector bs{};
+    struct fat32_boot_sector bs {};
     if (dev->read(partition_start, &bs, 1) != 0) {
         cprintf("fat_mount: failed to read boot sector at LBA %d\n", partition_start);
         return -1;

@@ -46,14 +46,10 @@ struct TestSuite {
 };
 
 static const TestSuite suites[] = {
-    {"String Library", string_test::test},
-    {"Linked List", list_test::test},
-    {"PMM Allocator", pmm_test::test},
-    {"Scheduler", sched::test},
-    {"Swap (FIFO)", run_swap_suite},
-    {"Block Manager", blk_test::test},
-    {"ELF Loader", elf_test::test},
-    {"Shell", shell_test::test},
+    {"String Library", string_test::test}, {"Linked List", list_test::test},
+    {"PMM Allocator", pmm_test::test},     {"Scheduler", sched::test},
+    {"Swap (FIFO)", run_swap_suite},       {"Block Manager", blk_test::test},
+    {"ELF Loader", elf_test::test},        {"Shell", shell_test::test},
 };
 
 int test_run_all(void*) {

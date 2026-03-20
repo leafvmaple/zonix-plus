@@ -14,7 +14,7 @@ int FifoSwapManager::init() {
     return 0;
 }
 
-int FifoSwapManager::init_mm(MemoryDesc *mm) {
+int FifoSwapManager::init_mm(MemoryDesc* mm) {
     pra_list_head.init();
     mm->swap_list = &pra_list_head;
 
@@ -28,10 +28,10 @@ int FifoSwapManager::init_mm(MemoryDesc *mm) {
  * @param page: page descriptor
  * @param swap_in: 1 if swapping in, 0 if newly mapped
  */
-int FifoSwapManager::map_swappable(MemoryDesc *mm, uintptr_t addr, Page *page, int swap_in) {
-    auto *head = static_cast<ListNode*>(mm->swap_list);
+int FifoSwapManager::map_swappable(MemoryDesc* mm, uintptr_t addr, Page* page, int swap_in) {
+    auto* head = static_cast<ListNode*>(mm->swap_list);
     head->add_before(page->node());
-    
+
     return 0;
 }
 
@@ -41,20 +41,20 @@ int FifoSwapManager::map_swappable(MemoryDesc *mm, uintptr_t addr, Page *page, i
  * @param page_ptr: output pointer to victim page
  * @param in_tick: not used in FIFO
  */
-int FifoSwapManager::swap_out_victim(MemoryDesc *mm, Page **page_ptr, int in_tick) {
-    auto *head = static_cast<ListNode*>(mm->swap_list);
-    
+int FifoSwapManager::swap_out_victim(MemoryDesc* mm, Page** page_ptr, int in_tick) {
+    auto* head = static_cast<ListNode*>(mm->swap_list);
+
     // Select the first page (oldest) in the FIFO queue
-    ListNode *victim = head->get_next();
-    
+    ListNode* victim = head->get_next();
+
     if (victim == head) {
         *page_ptr = nullptr;
         return -1;  // No page available
     }
-    
+
     // Remove from list
     victim->unlink();
-    
+
     *page_ptr = victim->container<Page>();
     return 0;
 }

@@ -1,9 +1,8 @@
 #pragma once
 
-void __panic(const char *file, int line, const char *fmt, ...);
+void __panic(const char* file, int line, const char* fmt, ...);
 
-#define panic(...) \
-    __panic(__FILE__, __LINE__, __VA_ARGS__)
+#define panic(...) __panic(__FILE__, __LINE__, __VA_ARGS__)
 
 #define assert(x)                              \
     do {                                       \

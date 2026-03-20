@@ -19,9 +19,9 @@ static int tests_failed = 0;
 static void make_valid_elf64(elfhdr* eh) {
     memset(eh, 0, sizeof(*eh));
     eh->e_magic = ELF_MAGIC;
-    eh->e_elf[0] = 2;         // 64-bit
-    eh->e_type = 2;           // Executable
-    eh->e_machine = 0x3E;     // x86_64
+    eh->e_elf[0] = 2;      // 64-bit
+    eh->e_type = 2;        // Executable
+    eh->e_machine = 0x3E;  // x86_64
     eh->e_version = 1;
     eh->e_entry = 0x400000;
     eh->e_phoff = sizeof(elfhdr);

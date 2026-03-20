@@ -68,7 +68,7 @@ static void test_builtin_commands_registered() {
     TEST_START("shell builtins — all 14 registered");
 
     static const char* builtins[] = {
-        "help", "pgdir", "clear", "lsblk", "hdparm", "dd", "uname",
+        "help", "pgdir", "clear",  "lsblk", "hdparm", "dd",  "uname",
         "ps",   "mount", "umount", "info",  "ls",     "cat", "exec",
     };
     constexpr int N = sizeof(builtins) / sizeof(builtins[0]);
@@ -238,9 +238,9 @@ static void test_handle_char_control_chars() {
     TEST_START("shell::handle_char — control chars ignored");
 
     // Send some control characters, then a valid command
-    shell::handle_char('\0');   // NUL — handle_char checks c <= 0
-    shell::handle_char(0x01);   // SOH — below printable range
-    shell::handle_char(0x7F);   // DEL — explicitly ignored
+    shell::handle_char('\0');  // NUL — handle_char checks c <= 0
+    shell::handle_char(0x01);  // SOH — below printable range
+    shell::handle_char(0x7F);  // DEL — explicitly ignored
 
     // These should not have added anything to the buffer — no crash
     TEST_ASSERT(true, "Control characters do not crash");
