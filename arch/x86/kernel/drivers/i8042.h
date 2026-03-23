@@ -5,9 +5,9 @@
 
 namespace i8042 {
 
-int init(void);
-int getc(void);
-void intr(void);
-char getc_blocking(void);
+int init();
+int getc();
+void intr();
+char getc_blocking();
 
 }  // namespace i8042

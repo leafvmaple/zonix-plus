@@ -174,7 +174,7 @@ void AhciDevice::interrupt() {
 }
 
 int AhciManager::init(void) {
-    if (s_registered_) {
+    if (s_registered) {
         return 0;
     }
 
@@ -185,13 +185,13 @@ int AhciManager::init(void) {
         return -1;
     }
 
-    s_registered_ = true;
+    s_registered = true;
 
     return 0;
 }
 
 int AhciManager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*) {
-    if (s_ctrl_ready_) {
+    if (s_ctrl_ready) {
         return -1;
     }
 
@@ -205,28 +205,28 @@ int AhciManager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId
     uint32_t phys_base = bar5 & 0xFFFFFFF0;
     cprintf("ahci: Found controller at PCI %02x:%02x.%x, ABAR=0x%08x\n", pdev->bus, pdev->dev, pdev->func, phys_base);
 
-    s_base_ = vmm::mmio_map(phys_base, ahci::AHCI_BAR_SIZE, VM_WRITE | VM_NOCACHE);
-    if (s_base_ == 0) {
+    s_base = vmm::mmio_map(phys_base, ahci::AHCI_BAR_SIZE, VM_WRITE | VM_NOCACHE);
+    if (s_base == 0) {
         cprintf("ahci: failed to map MMIO region at phys=0x%08x\n", phys_base);
         return -1;
     }
 
-    uint32_t version = mmio::read32(s_base_, ahci::AHCI_VS);
+    uint32_t version = mmio::read32(s_base, ahci::AHCI_VS);
     if (version == 0x00000000 || version == 0xFFFFFFFF) {
         cprintf("ahci: controller not responding (version: 0x%08x)\n", version);
-        s_base_ = 0;
+        s_base = 0;
         return -1;
     }
 
-    uint32_t cap = mmio::read32(s_base_, ahci::AHCI_CAP);
+    uint32_t cap = mmio::read32(s_base, ahci::AHCI_CAP);
     cprintf("ahci: version %d.%d%d, CAP 0x%08x\n", (version >> 16) & 0xFFFF, (version >> 8) & 0xFF, version & 0xFF,
             cap);
 
-    uint32_t ghc = mmio::read32(s_base_, ahci::AHCI_GHC);
+    uint32_t ghc = mmio::read32(s_base, ahci::AHCI_GHC);
     ghc |= ahci::GHC_AHCI_EN | ahci::GHC_IE;
-    mmio::write32(s_base_, ahci::AHCI_GHC, ghc);
+    mmio::write32(s_base, ahci::AHCI_GHC, ghc);
 
-    uint32_t ports_impl = mmio::read32(s_base_, ahci::AHCI_PI);
+    uint32_t ports_impl = mmio::read32(s_base, ahci::AHCI_PI);
     cprintf("ahci: ports implemented: 0x%08x\n", ports_impl);
 
     for (int i = 0; i < ahci::MAX_DEVICES; i++) {
@@ -235,42 +235,42 @@ int AhciManager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId
         }
 
         auto& config = s_port_configs[i];
-        uintptr_t port_base = s_base_ + ahci::PORT_BASE_OFFSET + (i * ahci::PORT_REG_SIZE);
+        uintptr_t port_base = s_base + ahci::PORT_BASE_OFFSET + (i * ahci::PORT_REG_SIZE);
 
         uint32_t ssts = mmio::read32(port_base, ahci::PORT_SATA_STS);
         if ((ssts & ahci::SATA_STS_DET_MASK) != ahci::SATA_STS_DET_PRESENT) {
             continue;
         }
 
-        if (s_devices_[s_devices_count_].detect(&config, s_base_) != 0) {
+        if (s_devices[s_devices_count].detect(&config, s_base) != 0) {
             cprintf("ahci: port %d: device setup failed\n", i);
             continue;
         }
 
-        blk::register_device(&s_devices_[s_devices_count_]);
+        blk::register_device(&s_devices[s_devices_count]);
 
-        cprintf("ahci: port %d: '%s' ready (%d sectors, %d MB)\n", i, s_devices_[s_devices_count_].name,
-                s_devices_[s_devices_count_].info.size, s_devices_[s_devices_count_].info.size / 2048);
-        s_devices_count_++;
+        cprintf("ahci: port %d: '%s' ready (%d sectors, %d MB)\n", i, s_devices[s_devices_count].name,
+                s_devices[s_devices_count].info.size, s_devices[s_devices_count].info.size / 2048);
+        s_devices_count++;
     }
 
-    cprintf("ahci: initialization complete, %d device(s)\n", s_devices_count_);
-    s_ctrl_ready_ = true;
+    cprintf("ahci: initialization complete, %d device(s)\n", s_devices_count);
+    s_ctrl_ready = true;
     return 0;
 }
 
 AhciDevice* AhciManager::get_device(int device_id) {
-    if (device_id < 0 || device_id >= s_devices_count_) {
+    if (device_id < 0 || device_id >= s_devices_count) {
         return nullptr;
     }
-    if (!s_devices_[device_id].present_) {
+    if (!s_devices[device_id].present_) {
         return nullptr;
     }
-    return &s_devices_[device_id];
+    return &s_devices[device_id];
 }
 
 int AhciManager::get_device_count() {
-    return s_devices_count_;
+    return s_devices_count;
 }
 
 void AhciDevice::print_info() {
@@ -407,8 +407,8 @@ int AhciDevice::wait_cmd_complete(int timeout_ms) {
 }
 
 void AhciManager::interrupt_handler(int port) {
-    for (int i = 0; i < s_devices_count_; i++) {
-        AhciDevice& dev = s_devices_[i];
+    for (int i = 0; i < s_devices_count; i++) {
+        AhciDevice& dev = s_devices[i];
 
         if (!dev.present_ || dev.config->port_num != port) {
             continue;

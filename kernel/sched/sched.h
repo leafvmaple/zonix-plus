@@ -11,7 +11,6 @@ namespace vfs {
 class File;
 }
 
-// Process states - modeling Linux's approach
 enum class ProcessState : uint8_t {
     Uninit = 0,    // uninitialized
     Sleeping = 1,  // sleeping (blocked, waiting for event)
@@ -20,7 +19,6 @@ enum class ProcessState : uint8_t {
     Zombie = 4,    // almost dead (waiting to be cleaned up)
 };
 
-// Priority levels (lower value = higher priority)
 namespace sched_prio {
 inline constexpr int MAX_PRIO = 0;    // Highest priority
 inline constexpr int DEFAULT = 10;    // Normal processes
@@ -42,15 +40,19 @@ struct TaskStruct {
         bool used{};
     };
 
-    char name[32]{};  // Process name
-    int pid{};        // Process ID
+    int pid{};  // Process ID
 
-    volatile ProcessState state{};  // Process state
-    uintptr_t kernel_stack{};       // Kernel stack bottom
-    MemoryDesc* memory{};           // Memory management
-    Context context{};              // Process context for switching
-    TrapFrame* trap_frame{};        // Trap frame for current interrupt
-    uint32_t flags{};               // Process flags
+private:
+    char name_[32]{};                // Process name
+    Context context_{};              // Process context for switching
+    uintptr_t kernel_stack_{};       // Kernel stack bottom
+    volatile ProcessState state_{};  // Process state
+    friend struct TaskStructAccess;
+
+public:
+    MemoryDesc* memory{};     // Memory management
+    TrapFrame* trap_frame{};  // Trap frame for current interrupt
+    uint32_t flags{};         // Process flags
 
     ListNode list_node{};   // Link in process list
     ListNode hash_node{};   // Link in hash list
@@ -69,7 +71,12 @@ struct TaskStruct {
     FdEntry fd_table[MAX_FD]{};
 
     void run();
+    void sleep();
     void wakeup();
+    void mark_running();
+    void mark_zombie(int code);
+    void set_name(const char* name);
+    [[nodiscard]] ProcessState get_state() const { return state_; }
 
     [[nodiscard]] uintptr_t get_cr3() const;
     void copy_mm(uint32_t clone_flags);
@@ -107,19 +114,18 @@ public:
     static constexpr int HASH_SHIFT = 10;
     static constexpr size_t HASH_LIST_SIZE = 1 << HASH_SHIFT;
 
-    static ListNode s_proc_list;                  // All processes list (init in cpp)
-    static ListNode s_hash_list[HASH_LIST_SIZE];  // Hash table (init in cpp)
+    inline static ListNode s_proc_list{};
+    inline static ListNode s_hash_list[HASH_LIST_SIZE]{};
 
     inline static TaskStruct* s_idle_proc{};  // Idle process (PID 0)
     inline static TaskStruct* s_init_proc{};  // Init process (PID 1)
-    inline static int nr_process{};           // Number of processes
+    inline static int s_process_count{};      // Number of processes
 
     static int init();
 
     static inline ListNode& get_hash_node(int pid) { return s_hash_list[pid_hash(pid)]; }
 
     static inline TaskStruct* get_current() { return s_current; }
-
     static inline void set_current(TaskStruct* proc) { s_current = proc; }
 
     static void add_process(TaskStruct* proc);
@@ -147,8 +153,8 @@ private:
     static uint32_t pid_hash(int x);
 
     // Initialization helpers
-    static void init_idle();
-    static void init_init_proc();
+    static int init_idle();
+    static int init_init_proc();
 };
 
 namespace sched {

@@ -22,8 +22,7 @@ static int list_count(ListNode* head) {
 static void test_init_and_empty() {
     TEST_START("ListNode Init & Empty");
 
-    ListNode head;
-    head.init();
+    ListNode head{};
 
     TEST_ASSERT(head.empty(), "Freshly initialized list is empty");
     TEST_ASSERT(head.get_next() == &head, "next points to self");
@@ -40,8 +39,7 @@ static void test_init_and_empty() {
 static void test_add() {
     TEST_START("ListNode add (add_after)");
 
-    ListNode head;
-    head.init();
+    ListNode head{};
 
     ListNode a, b, c;
     head.add(a);
@@ -69,8 +67,7 @@ static void test_add() {
 static void test_add_before() {
     TEST_START("ListNode add_before");
 
-    ListNode head;
-    head.init();
+    ListNode head{};
 
     ListNode a, b, c;
 
@@ -96,8 +93,7 @@ static void test_add_before() {
 static void test_unlink() {
     TEST_START("ListNode unlink");
 
-    ListNode head;
-    head.init();
+    ListNode head{};
 
     ListNode a, b, c;
     head.add(a);
@@ -127,8 +123,7 @@ static void test_unlink() {
 static void test_fifo_order() {
     TEST_START("ListNode FIFO order via add_before");
 
-    ListNode head;
-    head.init();
+    ListNode head{};
 
     ListNode nodes[5];
     for (int i = 0; i < 5; i++) {
@@ -157,8 +152,7 @@ static void test_fifo_order() {
 static void test_lifo_order() {
     TEST_START("ListNode LIFO order via add (add_after)");
 
-    ListNode head;
-    head.init();
+    ListNode head{};
 
     ListNode nodes[5];
     for (int i = 0; i < 5; i++) {
@@ -187,8 +181,7 @@ static void test_lifo_order() {
 static void test_unlink_readd() {
     TEST_START("ListNode unlink then re-add");
 
-    ListNode head;
-    head.init();
+    ListNode head{};
 
     ListNode a, b;
     head.add(a);

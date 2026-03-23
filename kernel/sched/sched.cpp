@@ -10,17 +10,13 @@
 #include <asm/arch.h>
 #include <asm/mmu.h>
 
-// External symbols
 extern long user_stack[];
 extern pde_t* boot_pgdir;
 extern MemoryDesc init_mm;  // Global kernel MemoryDesc
 
-// Shell process entry point (defined in shell.cpp)
-#include "cons/shell.h"
+using fnThread = int (*)(void*);
 
-// TaskManager static member definitions (only non-inline members)
-ListNode TaskManager::s_proc_list{};
-ListNode TaskManager::s_hash_list[TaskManager::HASH_LIST_SIZE]{};
+#include "cons/shell.h"
 
 static const char* state_str(ProcessState state) {
     switch (state) {
@@ -33,47 +29,34 @@ static const char* state_str(ProcessState state) {
     }
 }
 
-// Allocate a unique PID
 static int get_pid(void) {
     static int next_pid = 1;
 
     return next_pid++;
 }
 
-// Free kernel stack
-static void free_kstack(TaskStruct* proc) {
-    pmm::free_pages(pmm::kva_to_page(reinterpret_cast<void*>(proc->kernel_stack)));
-}
-
-// Wrapper called by new kernel threads via iretq.
-// After iretq, RDI = fn pointer, RSI = arg (set up in TrapFrame by kernel_thread).
-// This function signature matches the x86_64 calling convention:
-// rdi = first param, rsi = second param.
-__attribute__((noreturn)) static void kernel_thread_entry(int (*fn)(void*), void* arg) {
+__attribute__((noreturn)) static void kernel_thread_entry(fnThread fn, void* arg) {
     int ret = fn(arg);
     TaskManager::exit(ret);
     __builtin_unreachable();
 }
 
-// Init process main function — fork shell, then reap children
+// PID 2
 static int init_main(void* arg) {
-    // Fork the shell as a separate process (PID 2)
     int shell_pid = TaskManager::kernel_thread(shell::main, nullptr);
     if (shell_pid <= 0) {
         panic("init: failed to create shell process!");
     }
 
-    // Find and name the shell process
     TaskStruct* shell_proc = TaskManager::find_proc(shell_pid);
     if (shell_proc) {
-        strcpy(shell_proc->name, "shell");
+        shell_proc->set_name("shell");
     }
 
     cprintf("init: started shell process (PID %d)\n", shell_pid);
 
-    // Init's job: wait for child processes (reap zombies)
     while (true) {
-        int exit_code = 0;
+        int exit_code{};
         int pid = TaskManager::wait(0, &exit_code);
         if (pid > 0) {
             cprintf("init: reaped child PID %d (exit code %d)\n", pid, exit_code);
@@ -84,10 +67,6 @@ static int init_main(void* arg) {
     return 0;
 }
 
-// ============================================================================
-// TaskStruct member functions (order matches sched.h)
-// ============================================================================
-
 void TaskStruct::run() {
     TaskStruct* current = TaskManager::get_current();
     if (this != current) {
@@ -95,7 +74,7 @@ void TaskStruct::run() {
 
         TaskStruct* prev = current;
         TaskManager::set_current(this);
-        state = ProcessState::Running;
+        mark_running();
 
         uintptr_t next_cr3 = get_cr3();
         uintptr_t prev_cr3 = prev->get_cr3();
@@ -103,17 +82,44 @@ void TaskStruct::run() {
             arch_load_cr3(next_cr3);
         }
 
-        // Update kernel stack pointer for privilege transitions
-        arch_switch_rsp0(this->kernel_stack + KSTACK_SIZE);
+        arch_switch_rsp0(kernel_stack_ + KSTACK_SIZE);
 
-        switch_to(&(prev->context), &(context));
+        switch_to(&(prev->context_), &(context_));
     }
 }
 
 void TaskStruct::wakeup() {
-    assert(state != ProcessState::Zombie);
-    if (state != ProcessState::Runnable) {
-        state = ProcessState::Runnable;
+    assert(state_ != ProcessState::Zombie);
+    if (state_ != ProcessState::Runnable) {
+        state_ = ProcessState::Runnable;
+    }
+}
+
+void TaskStruct::mark_running() {
+    assert(state_ != ProcessState::Zombie);
+    if (state_ != ProcessState::Running) {
+        state_ = ProcessState::Running;
+    }
+}
+
+void TaskStruct::mark_zombie(int code) {
+    state_ = ProcessState::Zombie;
+    exit_code = code;
+}
+
+void TaskStruct::set_name(const char* name) {
+    if (!name) {
+        return;
+    }
+
+    strncpy(name_, name, sizeof(name_) - 1);
+    name_[sizeof(name_) - 1] = '\0';
+}
+
+void TaskStruct::sleep() {
+    assert(state_ != ProcessState::Zombie);
+    if (state_ != ProcessState::Sleeping) {
+        state_ = ProcessState::Sleeping;
     }
 }
 
@@ -128,14 +134,13 @@ void TaskStruct::copy_mm(uint32_t clone_flags) {
 }
 
 void TaskStruct::copy_thread(uintptr_t esp, TrapFrame* src_tf) {
-    trap_frame = reinterpret_cast<TrapFrame*>(kernel_stack + KSTACK_SIZE) - 1;
+    trap_frame = reinterpret_cast<TrapFrame*>(kernel_stack_ + KSTACK_SIZE) - 1;
 
     *trap_frame = *src_tf;
     arch_fixup_fork_tf(trap_frame, esp);
 
-    // Set up context for context switch
-    context.set_entry(reinterpret_cast<uintptr_t>(forkret));
-    context.set_stack(reinterpret_cast<uintptr_t>(trap_frame));
+    context_.set_entry(reinterpret_cast<uintptr_t>(forkret));
+    context_.set_stack(reinterpret_cast<uintptr_t>(trap_frame));
 }
 
 int TaskStruct::setup_kernel_stack() {
@@ -144,7 +149,7 @@ int TaskStruct::setup_kernel_stack() {
         return -1;
     }
 
-    kernel_stack = reinterpret_cast<uintptr_t>(pmm::page_to_kva(page));
+    kernel_stack_ = reinterpret_cast<uintptr_t>(pmm::page_to_kva(page));
     return 0;
 }
 
@@ -200,17 +205,16 @@ int TaskStruct::close_fd(int fd) {
 }
 
 void TaskStruct::close_all_fds() {
-    for (int i = 0; i < MAX_FD; i++) {
-        if (fd_table[i].used && fd_table[i].file) {
-            vfs::close(fd_table[i].file);
+    for (auto& entry : fd_table) {
+        if (entry.used && entry.file) {
+            vfs::close(entry.file);
         }
-        fd_table[i].file = nullptr;
-        fd_table[i].offset = 0;
-        fd_table[i].used = false;
+        entry.file = nullptr;
+        entry.offset = 0;
+        entry.used = false;
     }
 }
 
-// Set process relationships (parent-child)
 void TaskStruct::set_links() {
     TaskManager::add_process(this);
     if (parent) {
@@ -226,34 +230,23 @@ void TaskStruct::remove_links() {
 void TaskStruct::destroy() {
     close_all_fds();
 
-    if (kernel_stack != reinterpret_cast<uintptr_t>(user_stack)) {
-        free_kstack(this);
+    if (kernel_stack_ != reinterpret_cast<uintptr_t>(user_stack)) {
+        pmm::free_pages(pmm::kva_to_page(reinterpret_cast<void*>(kernel_stack_)));
     }
-    // Free user address space if this is not a kernel thread
+
     if (memory && memory != &init_mm) {
         delete memory;
     }
     delete this;
 }
 
-// ============================================================================
-// TaskManager static functions (order matches sched.h)
-// ============================================================================
-
 int TaskManager::init() {
-    s_proc_list.init();
-    for (size_t i = 0; i < HASH_LIST_SIZE; i++) {
-        s_hash_list[i].init();
-    }
-
-    init_idle();
-    if (!s_idle_proc) {
+    if (init_idle() != 0) {
         cprintf("sched: failed to create idle process\n");
         return -1;
     }
 
-    init_init_proc();
-    if (!s_init_proc) {
+    if (init_init_proc() != 0) {
         cprintf("sched: failed to create init process\n");
         return -1;
     }
@@ -265,22 +258,22 @@ int TaskManager::init() {
 void TaskManager::add_process(TaskStruct* proc) {
     get_hash_node(proc->pid).add(proc->hash_node);
     s_proc_list.add(proc->list_node);
-    nr_process++;
+    s_process_count++;
 }
 
 void TaskManager::remove_process(TaskStruct* proc) {
     proc->hash_node.unlink();
     proc->list_node.unlink();
-    nr_process--;
+    s_process_count--;
 }
 
 TaskStruct* TaskManager::find_proc(int pid) {
     if (pid <= 0) {
         return nullptr;
     }
-    ListNode* head = &get_hash_node(pid);
-    for (auto* le = head->get_next(); le != head; le = le->get_next()) {
-        TaskStruct* proc = TaskStruct::from_hash_link(le);
+    ListNode& head = get_hash_node(pid);
+    for (auto* node : head) {
+        TaskStruct* proc = TaskStruct::from_hash_link(node);
         if (proc->pid == pid) {
             return proc;
         }
@@ -293,17 +286,15 @@ void TaskManager::print() {
     cprintf("PID  STAT  PPID  PRIO  SLICE  KSTACK            MM                NAME\n");
     cprintf("---  ----  ----  ----  -----  ----------------  ----------------  ----------------\n");
 
-    ListNode* le = &s_proc_list;
-    while ((le = le->get_prev()) != &s_proc_list) {
-        TaskStruct* proc = TaskStruct::from_list_link(le);
-
+    for (auto* node : s_proc_list.reversed()) {
+        TaskStruct* proc = TaskStruct::from_list_link(node);
         cprintf("%c%-3d %-4s  %-4d  %-4d  %-5d  %016lx  %016lx  %s\n", (proc == s_current) ? '*' : ' ', proc->pid,
-                state_str(proc->state), (proc->parent ? proc->parent->pid : -1), proc->priority, proc->time_slice,
-                proc->kernel_stack, reinterpret_cast<uintptr_t>(proc->memory), proc->name);
+                state_str(proc->state_), (proc->parent ? proc->parent->pid : -1), proc->priority, proc->time_slice,
+                proc->kernel_stack_, reinterpret_cast<uintptr_t>(proc->memory), proc->name_);
     }
 
-    cprintf("\nTotal processes: %d\n", nr_process);
-    cprintf("Current process: %s (PID %d)\n", s_current->name, s_current->pid);
+    cprintf("\nTotal processes: %d\n", s_process_count);
+    cprintf("Current process: %s (PID %d)\n", s_current->name_, s_current->pid);
 }
 
 uint32_t TaskManager::pid_hash(int x) {
@@ -311,10 +302,6 @@ uint32_t TaskManager::pid_hash(int x) {
     uint32_t hash = static_cast<uint32_t>(x) * 0x61C88647;
     return hash >> (32 - HASH_SHIFT);
 }
-
-// ============================================================================
-// TaskManager scheduling and process lifecycle (static methods)
-// ============================================================================
 
 // Compute timeslice from priority (higher priority = longer slice)
 int TaskManager::calc_timeslice(int priority) {
@@ -350,57 +337,31 @@ void TaskManager::schedule() {
     int best_prio = sched_prio::IDLE_PRIO + 1;  // Worse than idle
     ListNode* head = &s_proc_list;
 
-    // Start scanning from the round-robin cursor to ensure fairness.
-    // The cursor points to the node AFTER the last scheduled process.
     if (!s_sched_cursor || s_sched_cursor == head) {
         s_sched_cursor = head->get_next();
     }
 
-    // Scan the entire list starting from cursor, wrapping around
-    ListNode* start = s_sched_cursor;
-    ListNode* le = start;
-    bool wrapped = false;
-    while (true) {
-        if (le == head) {
-            le = head->get_next();
-            if (le == head) {
-                break;  // Empty list
-            }
-            if (le == start) {
-                break;  // Full wrap
-            }
-            wrapped = true;
-            continue;
-        }
-        if (wrapped && le == start) {
-            break;  // Completed full scan
-        }
-
-        TaskStruct* proc = TaskStruct::from_list_link(le);
-        if (proc->state == ProcessState::Runnable && proc != s_idle_proc) {
-            // Among runnable processes, prefer higher priority (lower number).
-            // For equal priority, pick the first one found (round-robin effect).
+    for (auto* node : s_proc_list.circular_from(s_sched_cursor)) {
+        TaskStruct* proc = TaskStruct::from_list_link(node);
+        if (proc->state_ == ProcessState::Runnable && proc != s_idle_proc) {
             if (proc->priority < best_prio) {
                 next = proc;
                 best_prio = proc->priority;
             }
         }
-        le = le->get_next();
     }
 
-    // Advance cursor past the chosen process for next time
     if (next != s_idle_proc) {
         s_sched_cursor = next->list_node.get_next();
     }
 
-    // Replenish timeslice for the next process if exhausted
     if (next->time_slice <= 0) {
         next->time_slice = calc_timeslice(next->priority);
     }
 
     if (next != s_current) {
-        if (s_current->state == ProcessState::Running) {
-            s_current->state = ProcessState::Runnable;
+        if (s_current->get_state() == ProcessState::Running) {
+            s_current->wakeup();
         }
         s_current->need_resched = 0;
         next->run();
@@ -417,7 +378,6 @@ int TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_fra
         return -1;
     }
     proc->parent = get_current();
-    proc->child_list.init();
     proc->init_fd_table();
 
     if (proc->setup_kernel_stack() != 0) {
@@ -442,7 +402,7 @@ int TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_fra
     return proc->pid;
 }
 
-int TaskManager::kernel_thread(int (*fn)(void*), void* arg) {
+int TaskManager::kernel_thread(fnThread fn, void* arg) {
     TrapFrame tf{};
 
     arch_setup_kthread_tf(&tf, reinterpret_cast<uintptr_t>(kernel_thread_entry), reinterpret_cast<uintptr_t>(fn),
@@ -453,8 +413,7 @@ int TaskManager::kernel_thread(int (*fn)(void*), void* arg) {
 
 int TaskManager::exit(int error_code) {
     TaskStruct* current = get_current();
-    current->state = ProcessState::Zombie;
-    current->exit_code = error_code;
+    current->mark_zombie(error_code);
 
     {
         intr::Guard guard;
@@ -475,7 +434,7 @@ int TaskManager::exit(int error_code) {
             // If child is zombie, it was waiting to be reaped by its original parent.
             // Now that init is the new parent, wake up init so it can reap the zombie.
             // This ensures zombie processes don't linger indefinitely after reparenting.
-            if (child->state == ProcessState::Zombie) {
+            if (child->state_ == ProcessState::Zombie) {
                 if (s_init_proc->wait_state) {
                     s_init_proc->wakeup();
                 }
@@ -492,8 +451,8 @@ int TaskManager::wait(int pid, int* code_store) {
     TaskStruct* current = get_current();
 
     while (true) {
-        bool has_children = false;
-        TaskStruct* zombie_child = nullptr;
+        bool has_children{};
+        TaskStruct* zombie_child{};
 
         {
             intr::Guard guard;
@@ -504,7 +463,7 @@ int TaskManager::wait(int pid, int* code_store) {
                 has_children = true;
 
                 if (pid == 0 || child->pid == pid) {
-                    if (child->state == ProcessState::Zombie) {
+                    if (child->state_ == ProcessState::Zombie) {
                         zombie_child = child;
                         break;
                     }
@@ -532,22 +491,21 @@ int TaskManager::wait(int pid, int* code_store) {
         }
 
         current->wait_state = 1;
-        current->state = ProcessState::Sleeping;
+        current->sleep();
         schedule();
         current->wait_state = 0;
     }
 }
 
-// Initialize idle process (PID 0)
-void TaskManager::init_idle() {
+// PID 0
+int TaskManager::init_idle() {
     TaskStruct* idle_proc = new TaskStruct();
     if (!idle_proc) {
         cprintf("sched: init_idle: failed to allocate TaskStruct\n");
-        return;
+        return -1;
     }
-    idle_proc->state = ProcessState::Runnable;
-    idle_proc->kernel_stack = reinterpret_cast<uintptr_t>(user_stack);  // Use boot stack
-    idle_proc->child_list.init();
+    idle_proc->wakeup();
+    idle_proc->kernel_stack_ = reinterpret_cast<uintptr_t>(user_stack);  // Use boot stack
     idle_proc->init_fd_table();
     idle_proc->priority = sched_prio::IDLE_PRIO;
     idle_proc->time_slice = 0;
@@ -555,15 +513,17 @@ void TaskManager::init_idle() {
     // Idle process uses kernel's init_mm (shared by all kernel threads)
     idle_proc->memory = &init_mm;
 
-    strcpy(idle_proc->name, "idle");
+    idle_proc->set_name("idle");
 
     s_idle_proc = idle_proc;
     set_current(idle_proc);
     add_process(idle_proc);
+
+    return 0;
 }
 
-// Create init process using fork (PID 1)
-void TaskManager::init_init_proc() {
+// PID 1
+int TaskManager::init_init_proc() {
     TrapFrame trap_frame{};
 
     arch_setup_kthread_tf(&trap_frame, reinterpret_cast<uintptr_t>(init_main), 0, 0);
@@ -571,16 +531,18 @@ void TaskManager::init_init_proc() {
     int ret = fork(0, 0, &trap_frame);
     if (ret <= 0) {
         cprintf("sched: init_init_proc: fork failed (ret=%d)\n", ret);
-        return;
+        return -1;
     }
 
     s_init_proc = find_proc(ret);
     if (!s_init_proc) {
         cprintf("sched: init_init_proc: find_proc(%d) returned null\n", ret);
-        return;
+        return -1;
     }
 
-    strcpy(s_init_proc->name, "init");
+    s_init_proc->set_name("init");
+
+    return 0;
 }
 
 namespace sched {
@@ -601,7 +563,7 @@ int fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* tf) {
     return TaskManager::fork(clone_flags, stack, tf);
 }
 
-int kernel_thread(int (*fn)(void*), void* arg) {
+int kernel_thread(fnThread fn, void* arg) {
     return TaskManager::kernel_thread(fn, arg);
 }
 

@@ -244,12 +244,12 @@ public:
     static void interrupt_handler(int port);
 
 private:
-    inline static uintptr_t s_base_{};  // AHCI controller MMIO virtual base
-    inline static AhciDevice s_devices_[ahci::MAX_DEVICES]{};
-    inline static int s_devices_count_{};
+    inline static uintptr_t s_base{};  // AHCI controller MMIO virtual base
+    inline static AhciDevice s_devices[ahci::MAX_DEVICES]{};
+    inline static int s_devices_count{};
 
-    inline static bool s_ctrl_ready_{};
-    inline static bool s_registered_{};
+    inline static bool s_ctrl_ready{};
+    inline static bool s_registered{};
 
     inline static AhciPortConfig s_port_configs[ahci::MAX_DEVICES] = {
         {0, IRQ_IDE1, "sda"},  // AHCI port 0

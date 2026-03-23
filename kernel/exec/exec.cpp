@@ -161,7 +161,6 @@ int exec(const char* path) {
     arch_setup_user_tf(&tf, entry, user_rsp);
 
     MemoryDesc* mm = new MemoryDesc();
-    mm->mmap_list.init();
     mm->pgdir = user_pgdir;
     mm->map_count = 0;
 
@@ -175,8 +174,7 @@ int exec(const char* path) {
     TaskStruct* proc = sched::find_proc(pid);
     if (proc) {
         proc->memory = mm;
-        strncpy(proc->name, path, sizeof(proc->name) - 1);
-        proc->name[sizeof(proc->name) - 1] = '\0';
+        proc->set_name(path);
     }
 
     cprintf("exec: started user process '%s' (PID %d) entry=0x%lx rsp=0x%lx\n", path, pid, entry, user_rsp);

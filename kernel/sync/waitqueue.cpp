@@ -18,7 +18,7 @@ void WaitQueue::sleep() {
     {
         LockGuard<Spinlock> guard(lock_);
         head_.add_before(entry.node);
-        entry.task->state = ProcessState::Sleeping;
+        entry.task->sleep();
     }
 
     sched::schedule();

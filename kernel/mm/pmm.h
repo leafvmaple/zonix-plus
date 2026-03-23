@@ -88,6 +88,4 @@ class FreeArea {
 public:
     ListNode free_list{};
     unsigned int nr_free{};
-
-    FreeArea() { free_list.init(); }
 };

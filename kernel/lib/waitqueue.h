@@ -8,7 +8,6 @@ enum class ProcessState : uint8_t;
 
 class WaitQueue {
 public:
-    WaitQueue() { head_.init(); }
     void sleep();
     void wakeup_one();
     void wakeup_all();

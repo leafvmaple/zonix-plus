@@ -8,14 +8,13 @@
 
 FifoSwapManager swap_mgr_fifo;
 
-static ListNode pra_list_head;
+static ListNode pra_list_head{};
 
 int FifoSwapManager::init() {
     return 0;
 }
 
 int FifoSwapManager::init_mm(MemoryDesc* mm) {
-    pra_list_head.init();
     mm->swap_list = &pra_list_head;
 
     return 0;

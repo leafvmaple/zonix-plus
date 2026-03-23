@@ -36,7 +36,7 @@ SECTIONS {
 
 	. = ALIGN(0x1000);
 	.data : {
-		*(.data)
+		*(.data .data.* .gnu.linkonce.d.*)
 	}
 
 	. = ALIGN(0x1000);
@@ -46,7 +46,8 @@ SECTIONS {
 
 	.bss : {
 		PROVIDE(__bss_start = .);
-		*(.bss)
+		*(.bss .bss.* .gnu.linkonce.b.*)
+		*(COMMON)
 		PROVIDE(__bss_end = .);
 	}
 

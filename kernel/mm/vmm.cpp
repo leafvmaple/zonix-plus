@@ -30,7 +30,6 @@ static const char* perm2str(int perm) {
 }
 
 static void mm_init(MemoryDesc* mm) {
-    mm->mmap_list.init();
     mm->pgdir = nullptr;
     mm->map_count = 0;
 }

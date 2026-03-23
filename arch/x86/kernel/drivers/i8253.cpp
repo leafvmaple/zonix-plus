@@ -8,6 +8,18 @@
 
 namespace {
 
+struct Timer {
+    int tm_sec;
+    int tm_min;
+    int tm_hour;
+    int tm_mday;
+    int tm_mon;
+    int tm_year;
+    int tm_wday;
+    int tm_yday;
+    int tm_isdst;
+};
+
 constexpr uint32_t TIMER_FREQ = 1193180;
 
 constexpr uint32_t timer_div(uint32_t x) {
@@ -26,16 +38,18 @@ constexpr uint8_t bcd_to_bin(uint8_t val) {
 }  // namespace
 
 namespace timer {
+
 volatile int64_t ticks = 0;
+
 }  // namespace timer
 
 namespace i8253 {
 
 int init() {
-    struct tm time;
-
-    int retries = 0;
+    struct Timer time{};
+    int retries{};
     constexpr int MAX_CMOS_RETRIES = 1000;
+
     do {
         time.tm_sec = cmos_read(0);
         time.tm_min = cmos_read(2);

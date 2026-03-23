@@ -12,18 +12,14 @@
 #include "lib/waitqueue.h"
 #include "lib/stdio.h"
 
-// ============================================================================
-// Input ring buffer — filled by IRQ, drained by getc_blocking()
-// ============================================================================
 namespace {
 
 constexpr size_t KBD_BUF_SIZE = 128;
 
-char kbd_buf[KBD_BUF_SIZE];
-volatile int kbd_read = 0;
-volatile int kbd_write = 0;
-
-WaitQueue kbd_waitq;  // Replaces ad-hoc kbd_waiter pointer
+char kbd_buf[KBD_BUF_SIZE]{};
+volatile int kbd_read{};
+volatile int kbd_write{};
+WaitQueue kbd_waitq{};  // Replaces ad-hoc kbd_waiter pointer
 
 }  // namespace
 
@@ -60,11 +56,12 @@ static void init_normal_map(void) {
 
 namespace i8042 {
 
-int init(void) {
+int init() {
     init_normal_map();
 
     // PS/2 controller self-test: send 0xAA, expect 0x55
     arch_port_outb(KBD_STATUS_REG, 0xAA);
+
     int timeout = 100000;
     while (timeout-- > 0) {
         if (arch_port_inb(KBD_STATUS_REG) & KBD_OBF_FULL)
@@ -74,6 +71,7 @@ int init(void) {
         cprintf("i8042: PS/2 controller self-test timeout\n");
         return -1;
     }
+
     uint8_t result = arch_port_inb(KBD_DATA_REG);
     if (result != 0x55) {
         cprintf("i8042: PS/2 controller self-test failed (0x%02x)\n", result);
@@ -84,7 +82,7 @@ int init(void) {
     return 0;
 }
 
-int getc(void) {
+int getc() {
     init_normal_map();
     if ((arch_port_inb(KBD_STATUS_REG) & KBD_OBF_FULL) == 0)
         return -1;
@@ -99,8 +97,7 @@ int getc(void) {
     return normal_map[data];
 }
 
-// Called from keyboard IRQ handler — read char from hardware, buffer it
-void intr(void) {
+void intr() {
     int c = getc();
     if (c <= 0)
         return;
@@ -112,12 +109,11 @@ void intr(void) {
     kbd_buf[kbd_write] = (char)c;
     kbd_write = next;
 
-    // Wake up process sleeping in getc_blocking()
     kbd_waitq.wakeup_one();
 }
 
 // Blocking read — called from process context, sleeps until input available
-char getc_blocking(void) {
+char getc_blocking() {
     while (true) {
         {
             intr::Guard guard;
