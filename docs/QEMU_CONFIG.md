@@ -1,108 +1,77 @@
 # QEMU 配置文件说明
 
+本文档描述当前仓库实际使用的 QEMU 配置文件与对应 Makefile 目标。
+
 ## 快速开始
 
-### IDE 模式（默认）
+### x86（UEFI + AHCI，默认）
 ```bash
-make qemu
-# 或使用配置文件
-qemu-system-i386 -readconfig qemu.cfg
+make qemu ARCH=x86
 ```
 
-### AHCI 模式
+### x86（BIOS 回退路径）
 ```bash
-make qemu-ahci
-# 或使用配置文件
-qemu-system-i386 -readconfig qemu-ahci.cfg
+make qemu-bios ARCH=x86
 ```
 
-### 调试模式
+### aarch64（UEFI + virt）
 ```bash
-make debug-qemu
-# GDB 调试：gdb -q -x tools/gdbinit
+make qemu ARCH=aarch64
+```
+
+### 调试（x86）
+```bash
+make debug ARCH=x86
+# 另一个终端可用 gdb -q -x scripts/gdbinit
 ```
 
 ## 配置文件列表
 
-| 文件 | 模式 | 用途 |
-|------|------|------|
-| qemu.cfg | IDE | 标准IDE模式 |
-| qemu-ahci.cfg | AHCI | AHCI模式（现代） |
-| qemu-debug.cfg | IDE | 调试模式 |
+| 文件 | 架构 | 模式 | 说明 |
+|------|------|------|------|
+| `qemu-uefi.cfg` | x86 | UEFI + AHCI | 默认运行配置，系统盘走 AHCI 端口 0 |
+| `qemu-bios.cfg` | x86 | BIOS + IDE | 回退路径，便于兼容性验证 |
+| `qemu-uefi-aarch64.cfg` | aarch64 | UEFI + virt | 使用 virtio-blk 辅助固件启动 + SDHCI 供内核识别 |
 
-## 配置参数说明
+## x86 运行参数约定
 
-### 机器类型
-- `type = "pc"` - 标准PC机器（IDE）
-- `type = "q35"` - Q35芯片组（支持AHCI）
+x86 运行由 `arch/x86/Makefile` 组装命令：
 
-### 磁盘配置
+- `make qemu ARCH=x86` 会读取 `qemu-uefi.cfg`
+- `make qemu-bios ARCH=x86` 会读取 `qemu-bios.cfg`
+- `DISK=ahci|ide` 控制 user-data 磁盘的控制器类型（默认 `ahci`）
 
-#### IDE模式
-```ini
-[drive "ide0"]
-file = "bin/zonix.img"
-if = "ide"
-index = "0"      # hda
+示例：
+```bash
+make qemu ARCH=x86 DISK=ide
 ```
 
-#### AHCI模式
-```ini
-[device "ahci0"]
-driver = "ahci"
+## aarch64 运行参数约定
 
-[drive "sata0"]
-file = "bin/zonix.img"
-if = "none"
+aarch64 运行由 `arch/aarch64/Makefile` 组装命令：
 
-[device "sata-disk0"]
-driver = "ide-hd"
-bus = "ahci0.0"
-drive = "sata0"
-```
+- 使用 `qemu-system-aarch64 -M virt`
+- 读取 `qemu-uefi-aarch64.cfg`
+- 固件路径默认 `AAVMF=/usr/share/qemu-efi-aarch64/QEMU_EFI.fd`
 
-## 修改配置
+## 配置文件格式要点
 
-直接编辑相应的 `.cfg` 文件，例如添加磁盘：
+QEMU 配置文件是 INI 风格：
 
-```ini
-[drive "sata1"]
-file = "bin/disk2.img"
-if = "none"
+- 不要缩进 key/value
+- 字符串一般用双引号
+- 注释使用 `#`
+- `-readconfig` 可叠加命令行参数
 
-[device "sata-disk1"]
-driver = "ide-hd"
-bus = "ahci0.1"
-drive = "sata1"
-```
+## 常见问题
 
-## 常见选项
+### 1) OVMF 或 AAVMF 路径不对
+- x86 可通过 `OVMF=/path/to/OVMF.fd` 覆盖
+- aarch64 可通过 `AAVMF=/path/to/QEMU_EFI.fd` 覆盖
 
-| 选项 | 说明 |
-|------|------|
-| `-S` | 启动后暂停（用于调试） |
-| `-no-reboot` | 关闭时不重启 |
-| `-s` | 启用GDB调试（端口1234） |
-| `-monitor stdio` | 监视器输出到标准输出 |
+### 2) 没看到 user-data 磁盘
+- x86 下确认是否传入了 `DISK=...`
+- aarch64 下确认 `bin/aarch64/sdcard.img` 已构建
 
-## 关于配置文件格式
-
-QEMU配置文件使用INI格式，注意：
-- **不要使用缩进**，所有键值对应该从行首开始
-- 注释以 `#` 开头
-- 字符串值需要用双引号括起来
-- 部分标量值（如整数）不需要引号
-
-正确示例：
-```ini
-[section]
-key = "value"
-number = 10
-```
-
-错误示例：
-```ini
-[section]
-  key = "value"    # 不要有缩进！
-  number = "10"    # 数字不需要引号
-```
+### 3) 调试端口
+`make debug ARCH=x86` 使用 QEMU `-S -s`，GDB 默认连接 `:1234`。

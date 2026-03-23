@@ -1,14 +1,15 @@
 # Zonix OS
 
-An x86_64 operating system kernel built from scratch for learning purposes, featuring dual-boot (BIOS + UEFI), process management, virtual memory with swap, synchronization primitives, preemptive scheduling, interrupt-driven disk I/O, and FAT32 file system support.
+A teaching operating system kernel with active x86_64 and aarch64 bring-up, featuring BIOS/UEFI boot paths, process management, virtual memory with swap, synchronization primitives, preemptive scheduling, VFS-backed file syscalls, and FAT filesystem support.
 
-**Current Version**: 0.9.3
+**Current Version**: 0.9.3 (main branch includes post-0.9.3 refactors)
 
 ## Features
 
 ### Boot & Architecture
-- **Dual Boot**: BIOS (MBR → VBR → bootloader) and UEFI (BOOTX64.EFI) boot paths
-- **x86_64 Long Mode**: Full 64-bit kernel with higher-half mapping at `0xFFFFFFFF80000000`
+- **x86_64 + aarch64**: Shared kernel core with architecture-specific hooks under `arch/`
+- **Dual Boot on x86**: BIOS (MBR → VBR → bootloader) and UEFI (BOOTX64.EFI)
+- **UEFI on aarch64**: BOOTAA64.EFI + QEMU virt machine support
 - **Kconfig-style Configuration**: Modular `CONFIG_*` toggles in `include/kernel/config.h`
 - **C++17 Freestanding**: Kernel written in C++17 with global `new`/`delete` operator support
 - **Clang/LLVM Toolchain**: Built with Clang, LLD, and LLVM utilities (UEFI uses MinGW cross-compiler)
@@ -41,6 +42,8 @@ An x86_64 operating system kernel built from scratch for learning purposes, feat
 ### Drivers
 - **IDE/ATA**: 4-device PIO mode with interrupt-driven sleep/wakeup I/O
 - **AHCI (SATA)**: MMIO-based SATA controller via PCI BAR discovery
+- **SDHCI (aarch64)**: SD card backend for QEMU virt UEFI flow
+- **PL011 UART (aarch64)**: Serial console and early boot diagnostics
 - **PCI**: Configuration space read/write, device enumeration by class/subclass
 - **8259 PIC / 8254 PIT**: Full initialization, EOI handling, timer ticks
 - **PS/2 Keyboard**: Scancode mapping with interrupt-driven input
@@ -68,30 +71,33 @@ sudo apt install make clang lld llvm nasm dosfstools mtools
 sudo apt install gcc-mingw-w64-x86-64 gnu-efi
 
 # Emulators
-sudo apt install qemu-system-x86 ovmf bochs-x
+sudo apt install qemu-system-x86 qemu-system-arm ovmf qemu-efi-aarch64 bochs-x
 ```
 
 ## Build
 
 ```bash
-make            # Build kernel (BIOS)
-make uefi       # Build UEFI bootloader
+make ARCH=x86
+make ARCH=aarch64
+
+# Include in-kernel unit tests
+make ARCH=x86 TEST=1
 ```
 
 ## Run
 
 ```bash
-# Create disk images (first time only)
-./scripts/create_userdata_image.sh
+# x86 UEFI + AHCI (default)
+make qemu ARCH=x86
 
-# BIOS mode
-bochs -f bochsrc.bxrc
+# x86 BIOS fallback
+make qemu-bios ARCH=x86
 
-# UEFI mode
-make qemu-uefi
+# aarch64 UEFI (QEMU virt)
+make qemu ARCH=aarch64
 
 # Debug with GDB
-make debug-qemu
+make debug ARCH=x86
 ```
 
 ## Shell Commands
