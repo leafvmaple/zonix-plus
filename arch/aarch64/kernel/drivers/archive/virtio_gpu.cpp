@@ -25,7 +25,6 @@
 #include "lib/memory.h"
 #include "lib/string.h"
 #include "mm/vmm.h"
-#include "mm/pmm.h"
 #include <asm/page.h>
 #include <asm/mmu.h>
 
@@ -257,22 +256,24 @@ int vq_alloc(Virtqueue* vq, uint16_t qsize) {
     size_t avail_sz = sizeof(uint16_t) * 3 + sizeof(uint16_t) * qsize;
     size_t used_sz = sizeof(uint16_t) * 3 + sizeof(VringUsedElem) * qsize;
 
-    // Allocate pages for each region (keep it simple: one alloc each)
+    // Allocate contiguous regions for each ring section (keep it simple: one alloc each)
     size_t desc_pages = (desc_sz + PG_SIZE - 1) / PG_SIZE;
     size_t avail_pages = (avail_sz + PG_SIZE - 1) / PG_SIZE;
     size_t used_pages = (used_sz + PG_SIZE - 1) / PG_SIZE;
 
-    Page* dp = pmm::alloc_pages(desc_pages);
-    Page* ap = pmm::alloc_pages(avail_pages);
-    Page* up = pmm::alloc_pages(used_pages);
-    if (!dp || !ap || !up) {
+    vq->desc = static_cast<VringDesc*>(kmalloc(desc_pages * PG_SIZE));
+    vq->avail = static_cast<VringAvail*>(kmalloc(avail_pages * PG_SIZE));
+    vq->used = static_cast<VringUsed*>(kmalloc(used_pages * PG_SIZE));
+    if (!vq->desc || !vq->avail || !vq->used) {
+        kfree(vq->desc);
+        kfree(vq->avail);
+        kfree(vq->used);
+        vq->desc = nullptr;
+        vq->avail = nullptr;
+        vq->used = nullptr;
         cprintf("virtio_gpu: vq_alloc failed\n");
         return -1;
     }
-
-    vq->desc = static_cast<VringDesc*>(pmm::page_to_kva(dp));
-    vq->avail = static_cast<VringAvail*>(pmm::page_to_kva(ap));
-    vq->used = static_cast<VringUsed*>(pmm::page_to_kva(up));
 
     vq->desc_phys = virt_to_phys(reinterpret_cast<uintptr_t>(vq->desc));
     vq->avail_phys = virt_to_phys(reinterpret_cast<uintptr_t>(vq->avail));
@@ -541,14 +542,14 @@ int init() {
     fb_size = fb_pitch * fb_height;
     cprintf("virtio_gpu: display %dx%d\n", fb_width, fb_height);
 
-    // 7. Allocate guest-physical framebuffer pages
+    // 7. Allocate guest-physical framebuffer backing
     size_t fb_pages = (fb_size + PG_SIZE - 1) / PG_SIZE;
-    Page* fb_page = pmm::alloc_pages(fb_pages);
-    if (!fb_page) {
+    void* fb_buf = kmalloc(fb_pages * PG_SIZE);
+    if (!fb_buf) {
         cprintf("virtio_gpu: failed to allocate %lu framebuffer pages\n", static_cast<unsigned long>(fb_pages));
         return -1;
     }
-    fb_virt = reinterpret_cast<uintptr_t>(pmm::page_to_kva(fb_page));
+    fb_virt = reinterpret_cast<uintptr_t>(fb_buf);
     fb_phys = virt_to_phys(fb_virt);
     memset(reinterpret_cast<void*>(fb_virt), 0, fb_pages * PG_SIZE);
 

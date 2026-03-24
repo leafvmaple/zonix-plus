@@ -31,25 +31,23 @@ struct Page {
     static constexpr size_t node_offset() { return offset_of(&Page::list_node); }
 };
 
+class FreeArea {
+public:
+    ListNode free_list{};
+    unsigned int nr_free{};
+};
+
 class PageAllocator {
 public:
-    virtual void init() = 0;
-    virtual void init_memmap(Page* base, size_t n) = 0;
-    virtual Page* alloc(size_t n) = 0;
-    virtual void free(Page* base, size_t n) = 0;
-    virtual size_t nr_free_pages() = 0;
-    virtual void check() = 0;
+    [[nodiscard]] const char* get_name() const;
 
-    PageAllocator() = default;
-    PageAllocator(const PageAllocator&) = delete;
-    // Non-virtual destructor - page allocators are never deleted via base pointer
-    ~PageAllocator() = default;
-    PageAllocator& operator=(const PageAllocator&) = delete;
+    void init();
+    void init_memmap(Page* base, size_t n);
 
-    [[nodiscard]] const char* get_name() const { return name_; }
+    Page* alloc(size_t n);
+    void free(Page* base, size_t n);
 
-protected:
-    const char* name_{};
+    [[nodiscard]] size_t free_page_count() const;
 };
 
 namespace pmm {
@@ -83,9 +81,3 @@ void free_user_pgdir(pde_t* pgdir);
 // Kernel memory allocation (page-granularity, global library functions)
 void* kmalloc(size_t size);
 void kfree(void* ptr);
-
-class FreeArea {
-public:
-    ListNode free_list{};
-    unsigned int nr_free{};
-};

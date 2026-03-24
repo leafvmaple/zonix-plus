@@ -1,6 +1,5 @@
 #include "lib/stdio.h"
 
-#include "swap_fifo.h"
 #include "swap.h"
 #include "pmm.h"
 
@@ -8,35 +7,27 @@
 #include <asm/mmu.h>
 #include "block/blk.h"
 
-// Global swap manager (can be changed to select different algorithms)
-static SwapManager* swap_mgr;
-
-// Maximum swap offset (swap entries)
-static unsigned int max_swap_offset;
-
-// Swap device
-static BlockDevice* swap_device = nullptr;
-
-// Swap space configuration
 namespace {
 
 constexpr uint32_t SWAP_START_SECTOR = 1000;        // Start sector for swap space
 constexpr size_t SECTORS_PER_PAGE = PG_SIZE / 512;  // Sectors needed for one page
+
+SwapManager swap_mgr{};
+unsigned int max_swap_offset;
+BlockDevice* swap_device = nullptr;
 
 }  // namespace
 
 namespace swap {
 
 int init() {
-    swap_mgr = &swap_mgr_fifo;
-    int rc = swap_mgr->init();
+    int rc = swap_mgr.init();
     if (rc != 0) {
-        cprintf("swap: swap manager '%s' init failed (rc=%d)\n", swap_mgr->name, rc);
+        cprintf("swap: swap manager '%s' init failed (rc=%d)\n", swap_mgr.name, rc);
         return rc;
     }
 
-    rc = swapfs_init();
-    if (rc != 0) {
+    if (swapfs_init() != 0) {
         cprintf("swap: no swap device available (non-fatal)\n");
     }
 
@@ -61,34 +52,23 @@ int init() {
         return 0;
     }
 
-    cprintf("swap: manager=%s, device='%s', %d pages (%d MB)\n", swap_mgr->name, swap_device->name, max_swap_offset,
+    cprintf("swap: manager=%s, device='%s', %d pages (%d MB)\n", swap_mgr.name, swap_device->name, max_swap_offset,
             (max_swap_offset * PG_SIZE) / (1024 * 1024));
 
     return 0;
 }
 
-/**
- * Initialize swap for a memory management struct
- */
 int init_mm(MemoryDesc* mm) {
-    return swap_mgr->init_mm(mm);
+    return swap_mgr.init_mm(mm);
 }
 
-/**
- * Swap in a page from disk to memory
- * @param mm: memory management struct
- * @param addr: virtual address that caused page fault
- * @param page_ptr: output pointer to the allocated page
- */
 int in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr) {
-    // Allocate a physical page
     Page* page = pmm::alloc_pages(1);
     if (page == nullptr) {
         cprintf("swap_in: failed to allocate page\n");
         return -1;
     }
 
-    // Get the page table entry
     pte_t* ptep = pmm::get_pte(mm->pgdir, addr, 0);
     if (ptep == nullptr) {
         cprintf("swap_in: no page table entry\n");
@@ -96,11 +76,7 @@ int in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr) {
         return -1;
     }
 
-    // Read page from swap space (disk)
-    // The swap entry is stored in the PTE
     uintptr_t swap_entry = *ptep;
-
-    // Read from disk if swap device is available
     if (swapfs_read(swap_entry, page) != 0) {
         cprintf("swap_in: failed to read from swap\n");
         pmm::free_pages(page, 1);
@@ -109,11 +85,9 @@ int in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr) {
 
     cprintf("swap_in: loaded addr 0x%x from swap entry 0x%x to page %p\n", addr, swap_entry, page);
 
-    // Update page table to map the virtual address to the new physical page
     pmm::page_insert(mm->pgdir, page, addr, VM_USER_RW);
 
-    // Mark page as swappable
-    swap_mgr->map_swappable(mm, addr, page, 1);
+    swap_mgr.map_swappable(mm, addr, page, 1);
 
     *page_ptr = page;
     return 0;
@@ -166,12 +140,6 @@ uintptr_t swap::find_vaddr_for_page(MemoryDesc* mm, Page* page) {
     return scan_pt_for_pa(mm->pgdir, 0, 0, pmm::page_to_phys(page));
 }
 
-/**
- * Swap out pages from memory to disk
- * @param mm: memory management struct  
- * @param n: number of pages to swap out
- * @param in_tick: whether called from timer interrupt
- */
 namespace swap {
 
 int out(MemoryDesc* mm, int n, int in_tick) {
@@ -179,9 +147,8 @@ int out(MemoryDesc* mm, int n, int in_tick) {
     static uint32_t swap_offset = 1;  // Global swap offset counter
 
     for (i = 0; i < n; i++) {
-        // Use swap manager to select a victim page
         Page* victim = nullptr;
-        if (swap_mgr->swap_out_victim(mm, &victim, in_tick) != 0) {
+        if (swap_mgr.swap_out_victim(mm, &victim, in_tick) != 0) {
             cprintf("swap_out: no victim page found\n");
             break;
         }
@@ -191,7 +158,6 @@ int out(MemoryDesc* mm, int n, int in_tick) {
             break;
         }
 
-        // Find the virtual address that maps to this page
         uintptr_t victim_addr = find_vaddr_for_page(mm, victim);
         if (victim_addr == 0) {
             cprintf("swap_out: cannot find virtual address for page %p\n", victim);
@@ -200,33 +166,23 @@ int out(MemoryDesc* mm, int n, int in_tick) {
 
         cprintf("swap_out: swapping out page %p at vaddr 0x%x\n", victim, victim_addr);
 
-        // Get the page table entry
         pte_t* ptep = pmm::get_pte(mm->pgdir, victim_addr, 0);
         if (ptep == nullptr) {
             cprintf("swap_out: cannot get PTE for vaddr 0x%x\n", victim_addr);
             continue;
         }
 
-        // Allocate a swap entry
         uintptr_t swap_entry = (swap_offset << 8);  // Create swap entry (present bit = 0)
-
-        // Write page to swap space
         if (swapfs_write(swap_entry, victim) != 0) {
             cprintf("swap_out: failed to write to swap\n");
             continue;
         }
 
-        // Update page table entry to indicate page is swapped out
-        // Clear present bit and store swap entry
         *ptep = swap_entry;
 
-        // Invalidate TLB for this address
         pmm::tlb_invl(mm->pgdir, victim_addr);
-
-        // Free the physical page
         pmm::free_pages(victim, 1);
 
-        // Increment swap offset for next allocation
         swap_offset++;
         if (swap_offset >= max_swap_offset) {
             swap_offset = 1;  // Wrap around (simple allocation)
@@ -240,11 +196,7 @@ int out(MemoryDesc* mm, int n, int in_tick) {
 
 }  // namespace swap
 
-/**
- * Initialize swap filesystem
- */
 int swap::swapfs_init(void) {
-    // Get disk device (use first disk for swap space)
     swap_device = BlockManager::get_device(blk::DeviceType::Disk);
     if (swap_device == nullptr) {
         cprintf("swapfs init: no disk device found for swap\n");
@@ -257,11 +209,7 @@ int swap::swapfs_init(void) {
     return 0;
 }
 
-/**
- * Read a page from swap space
- * @param entry: swap entry (page offset in swap space)
- * @param page: page descriptor to read into
- */
+
 int swap::swapfs_read(uintptr_t entry, Page* page) {
     // Calculate disk sector number
     // +--------------------------------+--------+---+
@@ -271,10 +219,7 @@ int swap::swapfs_read(uintptr_t entry, Page* page) {
     uint32_t offset = (entry >> 8) & 0xFFFFFF;  // Extract offset from swap entry
     uint32_t sector = SWAP_START_SECTOR + (offset * SECTORS_PER_PAGE);
 
-    // Get kernel virtual address for the page
     void* kva = pmm::page_to_kva(page);
-
-    // Read from disk
     if (swap_device->read(sector, kva, SECTORS_PER_PAGE) != 0) {
         cprintf("swapfs_read: disk read failed (sector=%d)\n", sector);
         return -1;
@@ -284,20 +229,11 @@ int swap::swapfs_read(uintptr_t entry, Page* page) {
     return 0;
 }
 
-/**
- * Write a page to swap space
- * @param entry: swap entry (page offset in swap space)
- * @param page: page descriptor to write from
- */
 int swap::swapfs_write(uintptr_t entry, Page* page) {
-    // Calculate disk sector number
     uint32_t offset = (entry >> 8) & 0xFFFFFF;  // Extract offset from swap entry
     uint32_t sector = SWAP_START_SECTOR + (offset * SECTORS_PER_PAGE);
 
-    // Get kernel virtual address for the page
     void* kva = pmm::page_to_kva(page);
-
-    // Write to disk
     if (swap_device->write(sector, kva, SECTORS_PER_PAGE) != 0) {
         cprintf("swapfs_write: disk write failed (sector=%d)\n", sector);
         return -1;

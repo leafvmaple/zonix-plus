@@ -1,4 +1,4 @@
-#include "pmm_firstfit.h"
+#include "pmm.h"
 #include "debug/assert.h"
 
 #include "lib/memory.h"
@@ -22,13 +22,15 @@
 #define PAGE_INIT_VALUE  0
 #define TEST_ALLOC_PAGES 5
 
-FirstFitPageAllocator::FirstFitPageAllocator() {
-    name_ = "First-Fit Page Allocator";
+FreeArea free_area{};
+
+const char* PageAllocator::get_name() const {
+    return "First-Fit Page Allocator";
 }
 
-void FirstFitPageAllocator::init() {}
+void PageAllocator::init() {}
 
-void FirstFitPageAllocator::init_memmap(Page* base, size_t n) {
+void PageAllocator::init_memmap(Page* base, size_t n) {
     for (Page* p = base; p != base + n; p++) {
         new (p) Page();
     }
@@ -36,19 +38,19 @@ void FirstFitPageAllocator::init_memmap(Page* base, size_t n) {
     base->property = n;
     base->set_reserved();
 
-    free_.nr_free += n;
-    free_.free_list.add_before(base->node());
+    free_area.nr_free += n;
+    free_area.free_list.add_before(base->node());
 }
 
-Page* FirstFitPageAllocator::alloc(size_t n) {
-    if (n > free_.nr_free) {
+Page* PageAllocator::alloc(size_t n) {
+    if (n > free_area.nr_free) {
         return nullptr;
     }
 
     Page* page{};
 
-    ListNode* valid_node = &free_.free_list;
-    while ((valid_node = valid_node->get_next()) != &free_.free_list) {
+    ListNode* valid_node = &free_area.free_list;
+    while ((valid_node = valid_node->get_next()) != &free_area.free_list) {
         Page* p = valid_node->container<Page>();
         if (p->property >= n) {
             page = p;
@@ -64,14 +66,14 @@ Page* FirstFitPageAllocator::alloc(size_t n) {
             valid_node->add_after(remaining->node());
         }
         valid_node->unlink();
-        free_.nr_free -= n;
+        free_area.nr_free -= n;
         page->clear_reserved();
     }
 
     return page;
 }
 
-void FirstFitPageAllocator::free(Page* base, size_t n) {
+void PageAllocator::free(Page* base, size_t n) {
     for (Page* p = base; p != base + n; p++) {
         p->flags = PAGE_INIT_VALUE;
     }
@@ -79,10 +81,10 @@ void FirstFitPageAllocator::free(Page* base, size_t n) {
     base->property = n;
     base->set_reserved();
 
-    ListNode* le = &free_.free_list;
+    ListNode* le = &free_area.free_list;
     ListNode* prev = le;
 
-    while ((le = le->get_next()) != &free_.free_list) {
+    while ((le = le->get_next()) != &free_area.free_list) {
         Page* p = le->container<Page>();
 
         if (base + base->property == p) {
@@ -101,30 +103,10 @@ void FirstFitPageAllocator::free(Page* base, size_t n) {
         }
     }
 
-    free_.nr_free += n;
+    free_area.nr_free += n;
     prev->add_after(base->node());
 }
 
-size_t FirstFitPageAllocator::nr_free_pages() {
-    return free_.nr_free;
-}
-
-void FirstFitPageAllocator::check() {
-    size_t total_free{};
-
-    // Count total free pages
-    ListNode* le = &free_.free_list;
-    while ((le = le->get_next()) != &free_.free_list) {
-        Page* p = le->container<Page>();
-        assert(p->is_reserved());
-        total_free += p->property;
-    }
-
-    // Verify consistency
-    assert(total_free == free_.nr_free);
-
-    // Test allocation
-    Page* p0 = alloc(TEST_ALLOC_PAGES);
-    assert(p0 != PMM_INVALID_PTR);
-    assert(!p0->is_reserved());
+size_t PageAllocator::free_page_count() const {
+    return free_area.nr_free;
 }

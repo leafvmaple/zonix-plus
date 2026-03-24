@@ -37,8 +37,8 @@ public:
     static void print();
 
 private:
-    static BlockDevice* s_devices[MAX_DEV];
-    static int s_device_count;
+    inline static BlockDevice* s_devices[MAX_DEV]{};
+    inline static int s_device_count{};
 };
 
 namespace blk {

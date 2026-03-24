@@ -129,6 +129,12 @@ static void cmd_ps(int argc, char** argv) {
     sched::print();
 }
 
+static void cmd_schedstat(int argc, char** argv) {
+    (void)argc;
+    (void)argv;
+    sched::print_stats();
+}
+
 // Global mounted filesystem info
 static const char* g_system_device{};
 static int g_system_mounted{};
@@ -501,6 +507,7 @@ static void register_builtin_commands() {
     register_builtin_command("dd", "Disk dump/copy (info only)", cmd_dd);
     register_builtin_command("uname", "Print system information (-a for all)", cmd_uname);
     register_builtin_command("ps", "List all processes", cmd_ps);
+    register_builtin_command("schedstat", "Show scheduler statistics", cmd_schedstat);
     register_builtin_command("mount", "Mount device to /mnt (usage: mount <device>)", cmd_mount);
     register_builtin_command("umount", "Unmount /mnt", cmd_umount);
     register_builtin_command("info", "Show file system information", cmd_info);

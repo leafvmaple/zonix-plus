@@ -8,16 +8,10 @@ class SwapManager {
 public:
     const char* name{};
 
-    virtual ~SwapManager() = default;
-    virtual int init() = 0;
-    virtual int init_mm(MemoryDesc* mm) = 0;
-    virtual int map_swappable(MemoryDesc* mm, uintptr_t addr, Page* page, int swap_in) = 0;
-    virtual int swap_out_victim(MemoryDesc* mm, Page** page_ptr, int in_tick) = 0;
-    virtual int check_swap() = 0;
-
-    SwapManager() = default;
-    SwapManager(const SwapManager&) = delete;
-    SwapManager& operator=(const SwapManager&) = delete;
+    int init();
+    int init_mm(MemoryDesc* mm);
+    int map_swappable(MemoryDesc* mm, uintptr_t addr, Page* page, int swap_in);
+    int swap_out_victim(MemoryDesc* mm, Page** page_ptr, int in_tick);
 };
 
 // Page-to-address mapping entry (for reverse lookup)

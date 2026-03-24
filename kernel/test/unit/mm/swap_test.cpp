@@ -1,6 +1,5 @@
 #include "test/unit/mm/swap_test.h"
 #include "mm/swap.h"
-#include "mm/swap_fifo.h"
 // Note: swap_clock and swap_lru are archived in kern/mm/archived/
 // #include "swap_clock.h"
 // #include "swap_lru.h"
@@ -16,6 +15,18 @@ extern MemoryDesc* init_mm;
 // Test statistics
 static int tests_passed = 0;
 static int tests_failed = 0;
+
+static SwapManager& test_swap_mgr() {
+    static SwapManager mgr;
+    static bool inited = false;
+
+    if (!inited) {
+        mgr.init();
+        inited = true;
+    }
+
+    return mgr;
+}
 
 #define TEST_START(name)            \
     cprintf("\n[TEST] %s\n", name); \
@@ -45,19 +56,20 @@ static int tests_failed = 0;
 void test_fifo_basic() {
     TEST_START("FIFO Basic Operation");
 
-    swap_mgr_fifo.init_mm(init_mm);
+    SwapManager& fifo = test_swap_mgr();
+    fifo.init_mm(init_mm);
 
     Page pages[5];
 
     // Add pages in order
     for (int i = 0; i < 5; i++) {
-        swap_mgr_fifo.map_swappable(init_mm, 0x1000 * i, &pages[i], 0);
+        fifo.map_swappable(init_mm, 0x1000 * i, &pages[i], 0);
     }
 
     // Verify FIFO order: should select page 0, then 1, then 2...
     for (int i = 0; i < 5; i++) {
         Page* victim = nullptr;
-        int ret = swap_mgr_fifo.swap_out_victim(init_mm, &victim, 0);
+        int ret = fifo.swap_out_victim(init_mm, &victim, 0);
 
         // Simple message without snprintf for now
         if (ret == 0 && victim == &pages[i]) {
@@ -70,7 +82,7 @@ void test_fifo_basic() {
 
     // Test empty list
     Page* victim = nullptr;
-    int ret = swap_mgr_fifo.swap_out_victim(init_mm, &victim, 0);
+    int ret = fifo.swap_out_victim(init_mm, &victim, 0);
     TEST_ASSERT(ret != 0, "Empty list returns error");
 
     TEST_END();
@@ -79,27 +91,28 @@ void test_fifo_basic() {
 void test_fifo_interleaved() {
     TEST_START("FIFO Interleaved Add/Remove");
 
-    swap_mgr_fifo.init_mm(init_mm);
+    SwapManager& fifo = test_swap_mgr();
+    fifo.init_mm(init_mm);
 
     Page pages[10];
 
     // Add 3 pages
     for (int i = 0; i < 3; i++) {
-        swap_mgr_fifo.map_swappable(init_mm, 0x1000 * i, &pages[i], 0);
+        fifo.map_swappable(init_mm, 0x1000 * i, &pages[i], 0);
     }
 
     // Remove 1
     Page* victim;
-    swap_mgr_fifo.swap_out_victim(init_mm, &victim, 0);
+    fifo.swap_out_victim(init_mm, &victim, 0);
     TEST_ASSERT(victim == &pages[0], "First victim is page 0");
 
     // Add 2 more
     for (int i = 3; i < 5; i++) {
-        swap_mgr_fifo.map_swappable(init_mm, 0x1000 * i, &pages[i], 0);
+        fifo.map_swappable(init_mm, 0x1000 * i, &pages[i], 0);
     }
 
     // Next victim should be page 1
-    swap_mgr_fifo.swap_out_victim(init_mm, &victim, 0);
+    fifo.swap_out_victim(init_mm, &victim, 0);
     TEST_ASSERT(victim == &pages[1], "Second victim is page 1");
 
     TEST_END();
@@ -206,7 +219,7 @@ void test_swap_init() {
     MemoryDesc mm;
     int ret = swap::init_mm(init_mm);
     TEST_ASSERT(ret == 0, "swap::init_mm succeeds");
-    TEST_ASSERT(mm.swap_list != nullptr, "Swap list created");
+    TEST_ASSERT(mm.swap_list.empty(), "Swap list created");
 
     TEST_END();
 }
@@ -261,7 +274,7 @@ void test_swap_out_basic() {
         if (pages_arr[i]) {
             addrs[i] = 0x200000 + i * PG_SIZE;
             pmm::page_insert(mm.pgdir, pages_arr[i], addrs[i], VM_USER_RW);
-            swap_mgr_fifo.map_swappable(init_mm, addrs[i], pages_arr[i], 0);
+            test_swap_mgr().map_swappable(init_mm, addrs[i], pages_arr[i], 0);
         }
     }
 
@@ -294,7 +307,7 @@ void test_algorithm_comparison() {
     cprintf("\n  Testing swap algorithm:\n");
 
     SwapManager* algorithms[] = {
-        &swap_mgr_fifo
+        &test_swap_mgr()
         // Add more algorithms here when re-enabled:
         // &swap_mgr_clock,
         // &swap_mgr_lru
@@ -423,7 +436,7 @@ void test_swap_disk_io() {
 
     // 2. Map the page
     pmm::page_insert(mm.pgdir, page, test_addr, VM_USER_RW);
-    swap_mgr_fifo.map_swappable(init_mm, test_addr, page, 0);
+    test_swap_mgr().map_swappable(init_mm, test_addr, page, 0);
 
     cprintf("  Filled page with test pattern\n");
 
@@ -497,7 +510,7 @@ void test_swap_multiple_pages() {
             }
 
             pmm::page_insert(mm.pgdir, pages_arr[i], addr, VM_USER_RW);
-            swap_mgr_fifo.map_swappable(init_mm, addr, pages_arr[i], 0);
+            test_swap_mgr().map_swappable(init_mm, addr, pages_arr[i], 0);
         }
     }
 

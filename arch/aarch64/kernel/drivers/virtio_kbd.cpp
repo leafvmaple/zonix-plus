@@ -25,7 +25,6 @@
 #include "lib/stdio.h"
 #include "lib/memory.h"
 #include "mm/vmm.h"
-#include "mm/pmm.h"
 #include <asm/page.h>
 #include <asm/mmu.h>
 
@@ -339,7 +338,7 @@ int init_from_pci_device(int bus, int dev, int func) {
     vq_size = qsz;
     write_queue_size(qsz);
 
-    // Allocate separate page-aligned regions for desc, avail, used
+    // Allocate separate contiguous regions for desc, avail, used
     size_t desc_sz = sizeof(VringDesc) * qsz;
     size_t avail_sz = sizeof(uint16_t) * (3 + qsz);
     size_t used_sz = sizeof(uint16_t) * 3 + sizeof(VringUsedElem) * qsz;
@@ -348,17 +347,19 @@ int init_from_pci_device(int bus, int dev, int func) {
     size_t avail_pages = (avail_sz + PG_SIZE - 1) / PG_SIZE;
     size_t used_pages = (used_sz + PG_SIZE - 1) / PG_SIZE;
 
-    Page* dp = pmm::alloc_pages(desc_pages);
-    Page* ap = pmm::alloc_pages(avail_pages);
-    Page* up = pmm::alloc_pages(used_pages);
-    if (!dp || !ap || !up) {
+    vq_desc = static_cast<VringDesc*>(kmalloc(desc_pages * PG_SIZE));
+    vq_avail = static_cast<VringAvail*>(kmalloc(avail_pages * PG_SIZE));
+    vq_used = static_cast<VringUsed*>(kmalloc(used_pages * PG_SIZE));
+    if (!vq_desc || !vq_avail || !vq_used) {
+        kfree(vq_desc);
+        kfree(vq_avail);
+        kfree(vq_used);
+        vq_desc = nullptr;
+        vq_avail = nullptr;
+        vq_used = nullptr;
         cprintf("virtio_kbd: VQ alloc failed\n");
         return -1;
     }
-
-    vq_desc = static_cast<VringDesc*>(pmm::page_to_kva(dp));
-    vq_avail = static_cast<VringAvail*>(pmm::page_to_kva(ap));
-    vq_used = static_cast<VringUsed*>(pmm::page_to_kva(up));
 
     memset(vq_desc, 0, desc_pages * PG_SIZE);
     memset(vq_avail, 0, avail_pages * PG_SIZE);

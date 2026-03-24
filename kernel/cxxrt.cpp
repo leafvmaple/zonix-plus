@@ -46,10 +46,6 @@ int atexit(void (*)(void)) {
 
 }  // extern "C"
 
-// ---------------------------------------------------------------------------
-// Global operator new / delete — backed by kmalloc / kfree
-// ---------------------------------------------------------------------------
-
 void* operator new(__SIZE_TYPE__ size, const std::nothrow_t&) noexcept {
     return kmalloc(size);
 }

@@ -11,8 +11,6 @@
 #include <asm/mmu.h>
 #include <kernel/bootinfo.h>
 
-#include "pmm_firstfit.h"
-
 // Declared in head.S — kernel's own copy of boot_info
 extern struct boot_info __kernel_boot_info;
 
@@ -29,48 +27,17 @@ void traverse_boot_mmap(F&& callback) {
 // Page management constants and bootstrap helpers
 namespace {
 
-enum class PageAllocatorKind : uint8_t {
-    FirstFit,
-};
-
-constexpr PageAllocatorKind BOOTSTRAP_ALLOCATOR_KIND = PageAllocatorKind::FirstFit;
-
 class Factory {
 public:
-    static int init(PageAllocatorKind kind) {
-        assert(!s_allocator);
-
-        switch (kind) {
-            case PageAllocatorKind::FirstFit: {
-                s_allocator = new (&s_storage.first_fit) FirstFitPageAllocator();
-                break;
-            }
-            default: return -1;
-        }
-
-        if (!s_allocator) {
-            return -1;
-        }
-        s_allocator->init();  // TODO
-
-        cprintf("pmm: allocator = %s\n", s_allocator->get_name());
-
+    static int init() {
+        s_allocator.init();
+        cprintf("pmm: allocator = %s\n", s_allocator.get_name());
         return 0;
     }
 
-    inline static PageAllocator* s_allocator{};
-    inline static Page* s_pages{};
-    inline static uint32_t s_num_pages{};
-
-private:
-    union AllocatorStorage {
-        FirstFitPageAllocator first_fit;
-
-        AllocatorStorage() {}
-        ~AllocatorStorage() {}
-    };
-
-    inline static AllocatorStorage s_storage{};
+    inline static PageAllocator s_allocator{};
+    inline static Page* s_page_desc{};
+    inline static uint32_t s_page_count{};
 };
 
 constexpr int PAGE_REF_INIT = 1;
@@ -78,6 +45,30 @@ constexpr int USER_PT_LEVEL_PDPT = 2;
 constexpr int USER_PT_LEVEL_PD = 1;
 constexpr int USER_PT_LEVEL_PT = 0;
 constexpr uintptr_t INVALID_TABLE_PA = static_cast<uintptr_t>(-1);
+
+static bool normalize_available_range(uint64_t addr, uint64_t size, uintptr_t min_addr, uint64_t* out_begin,
+                                      uint64_t* out_end) {
+    if (size == 0)
+        return false;
+
+    uint64_t limit{};
+    if (__builtin_add_overflow(addr, size, &limit)) {
+        limit = static_cast<uint64_t>(-1);
+    }
+
+    uint64_t begin = (addr < min_addr) ? static_cast<uint64_t>(min_addr) : addr;
+    if (begin >= limit)
+        return false;
+
+    begin = round_up(begin, PG_SIZE);
+    limit = round_down(limit, PG_SIZE);
+    if (begin >= limit)
+        return false;
+
+    *out_begin = begin;
+    *out_end = limit;
+    return true;
+}
 
 static uintptr_t alloc_table_page(bool create) {
     if (!create)
@@ -112,8 +103,8 @@ static pte_t* ensure_pt_from_pd_entry(pde_t* entry, bool create) {
     if (pte_is_block(*entry)) {  // 2MB Large Page
         uintptr_t large_pa = pte_addr(*entry);
         uint64_t old_perm = *entry & 0xFFF & ~VM_LARGEPAGE;
-        uintptr_t pa = alloc_table_page(create);
 
+        uintptr_t pa = alloc_table_page(create);
         if (pa == INVALID_TABLE_PA)
             return nullptr;
 
@@ -173,7 +164,7 @@ inline size_t page_num(uintptr_t addr) {
 }
 
 uintptr_t pmm::page_to_phys(Page* page) {
-    return static_cast<uintptr_t>((page - Factory::s_pages) << PG_SHIFT);
+    return static_cast<uintptr_t>((page - Factory::s_page_desc) << PG_SHIFT);
 }
 
 void* pmm::page_to_kva(Page* page) {
@@ -181,7 +172,7 @@ void* pmm::page_to_kva(Page* page) {
 }
 
 Page* pmm::phys_to_page(uintptr_t pa) {
-    return Factory::s_pages + page_num(pa);
+    return Factory::s_page_desc + page_num(pa);
 }
 
 Page* pmm::kva_to_page(void* kva) {
@@ -190,12 +181,12 @@ Page* pmm::kva_to_page(void* kva) {
 
 Page* pmm::alloc_pages(size_t n /*= 1*/) {
     intr::Guard guard;
-    return Factory::s_allocator->alloc(n);
+    return Factory::s_allocator.alloc(n);
 }
 
 void pmm::free_pages(Page* base, size_t n /*= 1*/) {
     intr::Guard guard;
-    Factory::s_allocator->free(base, n);
+    Factory::s_allocator.free(base, n);
 }
 
 pte_t* pmm::get_pte(pde_t* pml4, uintptr_t la, bool create) {
@@ -212,7 +203,7 @@ pte_t* pmm::get_pte(pde_t* pml4, uintptr_t la, bool create) {
 }
 
 static int page_init() {
-    struct boot_info* bi = &__kernel_boot_info;
+    boot_info* bi = &__kernel_boot_info;
 
     if (bi->mmap_length == 0) {
         cprintf("pmm: boot memory map is empty\n");
@@ -220,56 +211,50 @@ static int page_init() {
     }
 
     uint64_t max_pa{};
-    uint32_t usable_regions = 0;
-    traverse_boot_mmap([&max_pa, &usable_regions](uint64_t addr, uint64_t size, uint32_t type) {
+    traverse_boot_mmap([&max_pa](uint64_t addr, uint64_t size, uint32_t type) {
         if (type == BOOT_MEM_AVAILABLE) {
-            usable_regions++;
-            if (max_pa < addr + size) {
-                max_pa = addr + size;
+            uint64_t limit{};
+            if (__builtin_add_overflow(addr, size, &limit)) {
+                limit = static_cast<uint64_t>(-1);
             }
+            max_pa = (limit > max_pa) ? limit : max_pa;
         }
     });
 
-    if (usable_regions == 0 || max_pa == 0) {
+    if (max_pa == 0) {
         cprintf("pmm: no usable memory regions in boot map (%d entries)\n", bi->mmap_length);
         return -1;
     }
 
     extern uint8_t KERNEL_END[];
 
-    Factory::s_num_pages = page_num(max_pa);
-    if (Factory::s_num_pages == 0) {
+    Factory::s_page_count = page_num(round_up(max_pa, PG_SIZE));
+    if (Factory::s_page_count == 0) {
         cprintf("pmm: max physical address too small (0x%lx)\n", static_cast<uint64_t>(max_pa));
         return -1;
     }
 
-    Factory::s_pages = reinterpret_cast<Page*>(round_up((void*)KERNEL_END, PG_SIZE));
+    Factory::s_page_desc = reinterpret_cast<Page*>(round_up((void*)KERNEL_END, PG_SIZE));
 
-    cprintf("pmm: %d pages, page array at [0x%p], max_pa=0x%lx\n", Factory::s_num_pages, Factory::s_pages,
+    cprintf("pmm: %d pages, page array at [0x%p], max_pa=0x%lx\n", Factory::s_page_count, Factory::s_page_desc,
             static_cast<uint64_t>(max_pa));
 
-    for (uint32_t i = 0; i < Factory::s_num_pages; i++) {
-        Factory::s_pages[i].set_reserved();
+    for (uint32_t i = 0; i < Factory::s_page_count; i++) {
+        Factory::s_page_desc[i].set_reserved();
     }
 
-    uintptr_t valid_mem = virt_to_phys(reinterpret_cast<uintptr_t>(Factory::s_pages + Factory::s_num_pages));
+    uintptr_t valid_mem = virt_to_phys(reinterpret_cast<uintptr_t>(Factory::s_page_desc + Factory::s_page_count));
     traverse_boot_mmap([valid_mem](uint64_t addr, uint64_t size, uint32_t type) {
-        if (type == BOOT_MEM_AVAILABLE) {
-            uint64_t limit = addr + size;
-            if (addr < valid_mem)
-                addr = valid_mem;
+        if (type != BOOT_MEM_AVAILABLE)
+            return;
 
-            if (addr < limit) {
-                addr = round_up(addr, PG_SIZE);
-                limit = round_down(limit, PG_SIZE);
+        uint64_t begin{};
+        uint64_t limit{};
+        if (!normalize_available_range(addr, size, valid_mem, &begin, &limit))
+            return;
 
-                if (addr < limit) {
-                    cprintf("pmm: free region [0x%016lx, 0x%016lx]\n", static_cast<uint64_t>(addr),
-                            static_cast<uint64_t>(limit));
-                    Factory::s_allocator->init_memmap(pmm::phys_to_page(addr), page_num(limit - addr));
-                }
-            }
-        }
+        cprintf("pmm: free region [0x%016lx, 0x%016lx]\n", static_cast<uint64_t>(begin), static_cast<uint64_t>(limit));
+        Factory::s_allocator.init_memmap(pmm::phys_to_page(begin), page_num(limit - begin));
     });
 
     return 0;
@@ -336,15 +321,12 @@ void kfree(void* ptr) {
         return;
 
     Page* page = pmm::kva_to_page(ptr);
-    size_t nr = page->property;
-    if (nr == 0)
-        nr = 1;  // defensive: property unset → assume 1 page
-
-    pmm::free_pages(page, nr);
+    // defensive: property unset → assume 1 page
+    pmm::free_pages(page, page->property > 0 ? page->property : 1);
 }
 
 int pmm::init() {
-    Factory::init(BOOTSTRAP_ALLOCATOR_KIND);
+    Factory::init();
 
     int rc = page_init();
     if (rc != 0) {
@@ -352,7 +334,7 @@ int pmm::init() {
         return rc;
     }
 
-    size_t free_pages = Factory::s_allocator->nr_free_pages();
+    size_t free_pages = Factory::s_allocator.free_page_count();
     if (free_pages == 0) {
         cprintf("pmm: no free pages after initialization\n");
         return FAILURE;

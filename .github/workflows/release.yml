@@ -115,3 +115,4 @@ jobs:
           body_path: release_notes.md
           files: |
             bin/x86/*.img
+            bin/aarch64/*.img

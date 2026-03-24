@@ -1,5 +1,4 @@
 #include "sched/sched.h"
-#include "mm/pmm.h"
 #include "mm/vmm.h"
 #include "drivers/intr.h"
 #include "lib/stdio.h"
@@ -73,7 +72,7 @@ static void test_process_creation() {
     TEST_ASSERT(proc->child_list.empty(), "Child list is empty after init");
 
     // Clean up - free the kernel stack
-    pmm::free_pages(pmm::kva_to_page(reinterpret_cast<void*>(TaskStructAccess::kernel_stack(proc))));
+    kfree(reinterpret_cast<void*>(TaskStructAccess::kernel_stack(proc)));
     delete proc;
 
     TEST_END();
@@ -374,7 +373,7 @@ static void test_process_destruction() {
     TEST_ASSERT(TaskManager::s_process_count == initial_count, "Process removed from list");
 
     // Free kernel stack manually
-    pmm::free_pages(pmm::kva_to_page(reinterpret_cast<void*>(TaskStructAccess::kernel_stack(proc))));
+    kfree(reinterpret_cast<void*>(TaskStructAccess::kernel_stack(proc)));
     delete proc;
 
     TEST_END();

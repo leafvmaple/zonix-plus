@@ -4,8 +4,8 @@
 #include <base/types.h>
 
 #include "lib/list.h"
-#include "trap/trap.h"
 #include "mm/vmm.h"
+#include "trap/trap.h"
 
 namespace vfs {
 class File;
@@ -25,9 +25,18 @@ inline constexpr int DEFAULT = 10;    // Normal processes
 inline constexpr int MIN_PRIO = 20;   // Lowest priority
 inline constexpr int IDLE_PRIO = 31;  // Idle process only
 
-// Base timeslice in ticks (10ms each). Higher priority = more ticks.
 inline constexpr int BASE_TIMESLICE = 10;  // 100ms default
 }  // namespace sched_prio
+
+struct TaskStruct;
+
+class SchedulerPolicy {
+public:
+    [[nodiscard]] const char* get_name() const;
+    [[nodiscard]] int calc_time_slice(int priority) const;
+    void tick(TaskStruct* current, TaskStruct* idle) const;
+    [[nodiscard]] TaskStruct* pick_next(ListNode& proc_list, TaskStruct* idle);
+};
 
 // Process control block - modeling Linux's task_struct
 struct TaskStruct {
@@ -134,6 +143,7 @@ public:
     static TaskStruct* find_proc(int pid);
 
     static void print();
+    static void print_stats();
 
     // Scheduling and process lifecycle
     static void schedule();
@@ -143,12 +153,17 @@ public:
     static int exit(int error_code);
     static int wait(int pid, int* code_store);
 
-    // Compute timeslice from priority
-    static int calc_timeslice(int priority);
-
 private:
     inline static TaskStruct* s_current{};
-    inline static ListNode* s_sched_cursor{};  // Round-robin cursor
+
+    // Scheduler telemetry counters (monotonic since boot)
+    inline static uint64_t s_tick_count{};
+    inline static uint64_t s_schedule_calls{};
+    inline static uint64_t s_need_resched_events{};
+    inline static uint64_t s_context_switches{};
+    inline static uint64_t s_same_task_runs{};
+    inline static uint64_t s_pick_idle{};
+    inline static uint64_t s_pick_non_idle{};
 
     static uint32_t pid_hash(int x);
 
@@ -161,7 +176,6 @@ namespace sched {
 
 int init();
 
-// Scheduling and process lifecycle
 void schedule();
 void tick();  // Called from timer ISR each tick
 int fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* tf);
@@ -169,9 +183,9 @@ int kernel_thread(int (*fn)(void*), void* arg);
 int exit(int error_code);
 int wait(int pid, int* code_store);
 
-// Query
 TaskStruct* current();
 TaskStruct* find_proc(int pid);
 void print();
+void print_stats();
 
 }  // namespace sched

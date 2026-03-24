@@ -3,10 +3,6 @@
 #include "lib/stdio.h"
 #include "lib/string.h"
 
-// Static member definitions
-BlockDevice* BlockManager::s_devices[BlockManager::MAX_DEV] = {};
-int BlockManager::s_device_count = 0;
-
 void BlockManager::init() {
     cprintf("blk_init: initializing block device layer...\n");
 }

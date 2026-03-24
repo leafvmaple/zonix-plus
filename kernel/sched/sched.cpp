@@ -1,6 +1,5 @@
 #include "sched.h"
 #include "mm/vmm.h"
-#include "mm/pmm.h"
 #include "lib/stdio.h"
 #include "lib/memory.h"
 #include "lib/string.h"
@@ -17,6 +16,15 @@ extern MemoryDesc init_mm;  // Global kernel MemoryDesc
 using fnThread = int (*)(void*);
 
 #include "cons/shell.h"
+
+namespace {
+
+SchedulerPolicy& scheduler() {
+    static SchedulerPolicy policy;
+    return policy;
+}
+
+}  // namespace
 
 static const char* state_str(ProcessState state) {
     switch (state) {
@@ -144,20 +152,20 @@ void TaskStruct::copy_thread(uintptr_t esp, TrapFrame* src_tf) {
 }
 
 int TaskStruct::setup_kernel_stack() {
-    Page* page = pmm::alloc_pages();
-    if (!page) {
+    void* stack = kmalloc(KSTACK_SIZE);
+    if (!stack) {
         return -1;
     }
 
-    kernel_stack_ = reinterpret_cast<uintptr_t>(pmm::page_to_kva(page));
+    kernel_stack_ = reinterpret_cast<uintptr_t>(stack);
     return 0;
 }
 
 void TaskStruct::init_fd_table() {
-    for (int i = 0; i < MAX_FD; i++) {
-        fd_table[i].file = nullptr;
-        fd_table[i].offset = 0;
-        fd_table[i].used = false;
+    for (auto& entry : fd_table) {
+        entry.file = nullptr;
+        entry.offset = 0;
+        entry.used = false;
     }
 }
 
@@ -166,12 +174,12 @@ int TaskStruct::alloc_fd(vfs::File* file) {
         return -1;
     }
 
-    for (int i = 0; i < MAX_FD; i++) {
-        if (!fd_table[i].used) {
-            fd_table[i].file = file;
-            fd_table[i].offset = 0;
-            fd_table[i].used = true;
-            return i;
+    for (auto& entry : fd_table) {
+        if (!entry.used) {
+            entry.file = file;
+            entry.offset = 0;
+            entry.used = true;
+            return &entry - fd_table;  // Return index as fd
         }
     }
 
@@ -231,7 +239,7 @@ void TaskStruct::destroy() {
     close_all_fds();
 
     if (kernel_stack_ != reinterpret_cast<uintptr_t>(user_stack)) {
-        pmm::free_pages(pmm::kva_to_page(reinterpret_cast<void*>(kernel_stack_)));
+        kfree(reinterpret_cast<void*>(kernel_stack_));
     }
 
     if (memory && memory != &init_mm) {
@@ -251,6 +259,7 @@ int TaskManager::init() {
         return -1;
     }
 
+    cprintf("sched: policy = %s\n", scheduler().get_name());
     cprintf("sched init: idle process PID = 0, init process PID = 1\n");
     return 0;
 }
@@ -295,6 +304,15 @@ void TaskManager::print() {
 
     cprintf("\nTotal processes: %d\n", s_process_count);
     cprintf("Current process: %s (PID %d)\n", s_current->name_, s_current->pid);
+    TaskManager::print_stats();
+}
+
+void TaskManager::print_stats() {
+    cprintf("sched policy: %s\n", scheduler().get_name());
+    cprintf("sched stats: ticks=%lu schedule_calls=%lu need_resched_events=%lu\n", s_tick_count, s_schedule_calls,
+            s_need_resched_events);
+    cprintf("sched stats: ctx_switches=%lu same_task=%lu pick_idle=%lu pick_non_idle=%lu\n", s_context_switches,
+            s_same_task_runs, s_pick_idle, s_pick_non_idle);
 }
 
 uint32_t TaskManager::pid_hash(int x) {
@@ -303,63 +321,33 @@ uint32_t TaskManager::pid_hash(int x) {
     return hash >> (32 - HASH_SHIFT);
 }
 
-// Compute timeslice from priority (higher priority = longer slice)
-int TaskManager::calc_timeslice(int priority) {
-    // Priority 0 (highest) -> 2x base, priority 20 (lowest) -> 0.5x base
-    int slice = sched_prio::BASE_TIMESLICE * (sched_prio::MIN_PRIO + 1 - priority) / (sched_prio::DEFAULT + 1);
-    if (slice < 1)
-        slice = 1;
-    return slice;
-}
-
-// Called from timer ISR every tick — decrement timeslice, request reschedule
 void TaskManager::tick() {
-    if (!s_current) {
-        return;
-    }
-    if (s_current == s_idle_proc) {
-        return;  // idle doesn't consume timeslice
-    }
+    s_tick_count++;
 
-    if (s_current->time_slice > 0) {
-        s_current->time_slice--;
-    }
-    if (s_current->time_slice <= 0) {
-        s_current->need_resched = 1;
+    int prev_need_resched = (s_current != nullptr) ? s_current->need_resched : 0;
+    scheduler().tick(s_current, s_idle_proc);
+    if (s_current && !prev_need_resched && s_current->need_resched) {
+        s_need_resched_events++;
     }
 }
 
-// Priority-aware round-robin scheduler
 void TaskManager::schedule() {
     intr::Guard guard;
+    s_schedule_calls++;
 
-    TaskStruct* next = s_idle_proc;
-    int best_prio = sched_prio::IDLE_PRIO + 1;  // Worse than idle
-    ListNode* head = &s_proc_list;
-
-    if (!s_sched_cursor || s_sched_cursor == head) {
-        s_sched_cursor = head->get_next();
-    }
-
-    for (auto* node : s_proc_list.circular_from(s_sched_cursor)) {
-        TaskStruct* proc = TaskStruct::from_list_link(node);
-        if (proc->state_ == ProcessState::Runnable && proc != s_idle_proc) {
-            if (proc->priority < best_prio) {
-                next = proc;
-                best_prio = proc->priority;
-            }
-        }
-    }
-
-    if (next != s_idle_proc) {
-        s_sched_cursor = next->list_node.get_next();
+    TaskStruct* next = scheduler().pick_next(s_proc_list, s_idle_proc);
+    if (next == s_idle_proc) {
+        s_pick_idle++;
+    } else {
+        s_pick_non_idle++;
     }
 
     if (next->time_slice <= 0) {
-        next->time_slice = calc_timeslice(next->priority);
+        next->time_slice = scheduler().calc_time_slice(next->priority);
     }
 
     if (next != s_current) {
+        s_context_switches++;
         if (s_current->get_state() == ProcessState::Running) {
             s_current->wakeup();
         }
@@ -367,6 +355,7 @@ void TaskManager::schedule() {
         next->run();
     } else {
         // Staying on same process — just replenish if needed
+        s_same_task_runs++;
         s_current->need_resched = 0;
     }
 }
@@ -390,7 +379,7 @@ int TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_fra
 
     // Inherit parent's priority and compute timeslice
     proc->priority = get_current()->priority;
-    proc->time_slice = calc_timeslice(proc->priority);
+    proc->time_slice = scheduler().calc_time_slice(proc->priority);
 
     {
         intr::Guard guard;
@@ -457,9 +446,8 @@ int TaskManager::wait(int pid, int* code_store) {
         {
             intr::Guard guard;
 
-            ListNode* head = &current->child_list;
-            for (auto* le = head->get_next(); le != head; le = le->get_next()) {
-                TaskStruct* child = TaskStruct::from_child_link(le);
+            for (auto* node : current->child_list) {
+                TaskStruct* child = TaskStruct::from_child_link(node);
                 has_children = true;
 
                 if (pid == 0 || child->pid == pid) {
@@ -585,6 +573,10 @@ TaskStruct* find_proc(int pid) {
 
 void print() {
     TaskManager::print();
+}
+
+void print_stats() {
+    TaskManager::print_stats();
 }
 
 }  // namespace sched
