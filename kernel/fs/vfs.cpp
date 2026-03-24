@@ -130,9 +130,11 @@ int umount(const char* mount_point) {
 }
 
 int open(const char* path, File** out_file) {
-    if (!out_file) {
+    if (!path || !out_file) {
         return -1;
     }
+
+    *out_file = nullptr;
 
     ResolveResult rr{};
     if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
@@ -159,6 +161,10 @@ void close(File* file) {
 }
 
 int stat(const char* path, Stat* st) {
+    if (!path || !st) {
+        return -1;
+    }
+
     ResolveResult rr{};
     if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
         return -1;
@@ -168,6 +174,10 @@ int stat(const char* path, Stat* st) {
 }
 
 int readdir(const char* path, ReadDirFn cb, void* arg) {
+    if (!path || !cb) {
+        return -1;
+    }
+
     ResolveResult rr{};
     if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
         return -1;

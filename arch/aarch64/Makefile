@@ -30,6 +30,7 @@ KSRCDIR := kernel              \
            kernel/sync         \
            kernel/block        \
            kernel/fs           \
+		   kernel/fs/fat       \
            kernel/exec         \
            kernel/drivers
 

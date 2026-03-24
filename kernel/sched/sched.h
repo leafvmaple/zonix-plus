@@ -4,6 +4,7 @@
 #include <base/types.h>
 
 #include "lib/list.h"
+#include "fs/fd.h"
 #include "mm/vmm.h"
 #include "trap/trap.h"
 
@@ -41,13 +42,6 @@ public:
 // Process control block - modeling Linux's task_struct
 struct TaskStruct {
     static constexpr size_t KSTACK_SIZE = 4096;  // 4KB kernel stack
-    static constexpr int MAX_FD = 16;
-
-    struct FdEntry {
-        vfs::File* file{};
-        size_t offset{};
-        bool used{};
-    };
 
     int pid{};  // Process ID
 
@@ -56,6 +50,7 @@ private:
     Context context_{};              // Process context for switching
     uintptr_t kernel_stack_{};       // Kernel stack bottom
     volatile ProcessState state_{};  // Process state
+    fd::Table files_{};
     friend struct TaskStructAccess;
 
 public:
@@ -77,8 +72,6 @@ public:
     int time_slice{};                   // Remaining ticks in current quantum
     volatile int need_resched{};        // Set by timer ISR to request reschedule
 
-    FdEntry fd_table[MAX_FD]{};
-
     void run();
     void sleep();
     void wakeup();
@@ -86,16 +79,13 @@ public:
     void mark_zombie(int code);
     void set_name(const char* name);
     [[nodiscard]] ProcessState get_state() const { return state_; }
-
     [[nodiscard]] uintptr_t get_cr3() const;
+
     void copy_mm(uint32_t clone_flags);
     void copy_thread(uintptr_t esp, TrapFrame* src_tf);
     int setup_kernel_stack();
-    void init_fd_table();
-    int alloc_fd(vfs::File* file);
-    FdEntry* get_fd(int fd);
-    int close_fd(int fd);
-    void close_all_fds();
+    [[nodiscard]] fd::Table& files() { return files_; }
+    [[nodiscard]] const fd::Table& files() const { return files_; }
 
     ListNode* node() { return &list_node; }
 

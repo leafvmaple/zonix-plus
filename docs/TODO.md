@@ -4,9 +4,9 @@
 
 ## 📋 项目概览
 
-### 最近更新 (2026-03-23) — 多架构联调 + 测试体系完善
+### 最近更新 (2026-03-24) — 文件系统分层收敛 + FAT 模块化
 
-**近期主线完成了 x86/aarch64 的联调收敛、QEMU 自动化测试补齐，以及调度器/链表遍历重构。**
+**近期主线完成了 fd 管理从调度层解耦、FAT 代码拆分与目录遍历去重，并补齐了 VFS 参数健壮性。**
 
 #### 自 v0.8.0 以来的主要成就
 - ✨ **Spinlock**：中断安全的原子自旋锁，架构抽象 `arch_spin_hint()`
@@ -228,19 +228,20 @@ Zonix 是一个教学型操作系统，当前主线已实现：
 ### 2.2 文件系统
 
 #### VFS 层
-- [ ] **设计 VFS 接口**
+- [x] **设计 VFS 接口** ✅ (v0.9.3+)
   - 文件：`kernel/fs/vfs.h`
-  - 定义：inode、dentry、file 结构
-  - 定义：文件操作接口
+  - 完成：统一挂载点管理、路径解析、`open/stat/readdir` 分发接口
 
-- [ ] **实现文件描述符管理**
-  - 实现：fd 分配与回收
-  - 实现：fd 表管理
-  - 支持：stdin、stdout、stderr
+- [x] **实现文件描述符管理** ✅ (v0.9.3+)
+  - 完成：`kernel/fs/fd.{h,cpp}` 中的 `fd::Table`（分配、查询、关闭、全关闭）
+  - 完成：`TaskStruct::files()` 文件上下文访问器与 syscall 对接
+  - 待完成：共享 open-file description（`ForkPolicy::Share`）与标准 0/1/2 初始化
 
 #### 具体文件系统
-- [x] **FAT32 只读文件系统** ✅ (v0.8.0)
-  - 完成：`kernel/fs/fat.cpp` — MBR 分区 + 双挂载点
+- [x] **FAT32 只读文件系统** ✅ (v0.8.0, 持续增强)
+  - 完成：`kernel/fs/fat/fat_core.cpp` — MBR/GPT 探测 + 挂载状态初始化
+  - 完成：`kernel/fs/fat/fat_dir.cpp` — 多级路径查找、根目录/子目录读取、目录遍历去重
+  - 完成：`kernel/fs/fat/fat_vfs_adapter.cpp` — VFS 适配层
 
 - [ ] **实现 MinixFS/简单 FS**
   - 文件：`kernel/fs/minixfs/`
@@ -705,6 +706,7 @@ sudo apt install clang-format cppcheck
 - [x] **Milestone 4.5**：✅ 多架构 CI 联调（x86 BIOS/UEFI + aarch64 UEFI）
 - [ ] **Milestone 5**：用户态进程 (Ring 3) + syscall 表 + ELF 加载
 - [ ] **Milestone 6**：VFS + 文件描述符 + 管道
+- [ ] **Milestone 6**：VFS/FD 增强（写路径、pipe、fcntl、stdio 语义）
 - [ ] **Milestone 7**：支持网络通信
 
 ---

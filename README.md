@@ -2,7 +2,7 @@
 
 A teaching operating system kernel with active x86_64 and aarch64 bring-up, featuring BIOS/UEFI boot paths, process management, virtual memory with swap, synchronization primitives, preemptive scheduling, VFS-backed file syscalls, and FAT filesystem support.
 
-**Current Version**: 0.9.3 (main branch includes post-0.9.3 refactors)
+**Current Version**: 0.10.0
 
 ## Features
 
@@ -35,9 +35,10 @@ A teaching operating system kernel with active x86_64 and aarch64 bring-up, feat
 - **kmalloc/kfree**: Page-granularity kernel heap with C++ `new`/`delete`
 
 ### File System
-- **FAT32 Support**: Read-only FAT12/FAT16/FAT32 unified driver
+- **FAT32 Support**: Read-only FAT12/FAT16/FAT32 unified driver with split core/dir/VFS adapter modules
 - **Dual Mount Points**: System disk at `/`, secondary disk at `/mnt`
 - **MBR Partition Detection**: Auto-detect MBR partition table and mount from partition
+- **VFS + FD Integration**: Task file context uses `fd::Table` under `kernel/fs` (decoupled from scheduler internals)
 
 ### Drivers
 - **IDE/ATA**: 4-device PIO mode with interrupt-driven sleep/wakeup I/O

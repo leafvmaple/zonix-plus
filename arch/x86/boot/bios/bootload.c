@@ -75,7 +75,7 @@
 
 // Global variables
 static uint8_t boot_drive;
-static fat32_bpb_t* bpb32 = (fat32_bpb_t*)0x7C0B;  // BPB starts at 0x7C00 + 0x0B (after jmp + oem)
+static struct fat32_bpb_t* bpb32 = (struct fat32_bpb_t*)0x7C0B;  // BPB starts at 0x7C00 + 0x0B (after jmp + oem)
 static struct boot_info boot_info;
 
 
@@ -169,7 +169,7 @@ static int load_elf_kernel(uint8_t* elf_buffer, struct boot_info* boot_info) {
 // Find file in FAT root directory
 // Returns starting cluster number, or 0 if not found
 static uint32_t fat_find_file(const char* filename, uint8_t* dir_buffer, uint32_t root_entries) {
-    fat_dir_entry_t* entry = (fat_dir_entry_t*)dir_buffer;
+    struct fat_dir_entry_t* entry = (struct fat_dir_entry_t*)dir_buffer;
 
     for (uint32_t i = 0; i < root_entries; i++) {
         if (entry[i].name[0] == 0x00) {  // No more entries

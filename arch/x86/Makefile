@@ -36,6 +36,7 @@ KSRCDIR := kernel              \
            kernel/sched        \
            kernel/mm           \
            kernel/fs           \
+           kernel/fs/fat       \
            kernel/exec         \
            kernel/sync
 

@@ -74,7 +74,7 @@ long sys_open(TaskStruct* cur, const char* user_path, int flags, int mode) {
         return -1;
     }
 
-    int fd = cur->alloc_fd(file);
+    int fd = cur->files().alloc(file);
     if (fd < 0) {
         vfs::close(file);
         return -1;
@@ -101,7 +101,7 @@ long sys_read(TaskStruct* cur, int fd, void* user_buf, size_t count) {
         return -1;
     }
 
-    TaskStruct::FdEntry* entry = cur->get_fd(fd);
+    fd::Entry* entry = cur->files().get(fd);
     if (!entry) {
         return -1;
     }
@@ -120,7 +120,7 @@ long sys_close(TaskStruct* cur, int fd) {
         return -1;
     }
 
-    return cur->close_fd(fd);
+    return cur->files().close(fd);
 }
 
 long sys_write(const char* user_buf, size_t count) {

@@ -7,24 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-03-24
+
 ### Summary
-**Multi-arch integration and kernel refactor cycle** — Landed aarch64 UEFI boot/test flow, architecture abstraction cleanup, VFS-backed syscall plumbing, CI test expansion, and scheduler/list modernizations.
+**Filesystem layering and maintainability refactor cycle** — Landed FD table decoupling from scheduler internals, FAT module split, nested-path directory traversal improvements, and tighter VFS argument validation.
 
 ### Added
-- **aarch64 UEFI run path** with `BOOTAA64.EFI`, SDHCI-backed system disk flow, and QEMU virt integration.
-- **Cross-arch CI coverage** for x86 BIOS/UEFI and aarch64 UEFI boot tests.
-- **Kernel unit test harness** (`TEST=1`) and QEMU-based automated test scripts.
-- **VFS-backed file syscall plumbing** and exec path improvements.
+- **Dedicated FD table module** under `kernel/fs/fd.{h,cpp}` with `fd::Table` and fork policy hooks.
+- **Split FAT implementation** under `kernel/fs/fat/` (`fat_core.cpp`, `fat_dir.cpp`, `fat_vfs_adapter.cpp`).
 
 ### Changed
-- **Initialization flow**: moved PCI lifecycle ownership out of block backends into global init ordering.
-- **Architecture abstraction**: converged trap/interrupt and init hooks under shared `arch_*` interfaces.
-- **Memory API naming and internals**: page conversion helpers and table allocation flow were refactored for consistency.
-- **Scheduler + list internals**: switched to iterator-style list traversal (including reverse/circular scans) and aligned process/driver naming.
+- **Task file API surface reduced**: scheduler task struct now exposes file context via `files()` instead of ad-hoc FD wrappers.
+- **FAT directory/path handling improved**: supports nested path lookup and directory reads for subdirectories.
+- **VFS parameter checks hardened**: `open/stat/readdir` now fail fast on invalid arguments.
 
 ### CI / Tooling
-- **CI image target fix** for x86 test jobs and **new aarch64 test job**.
-- **Formatting and static checks** coverage updated alongside test automation.
+- **Architecture makefiles updated** to compile split FAT source directory for x86 and aarch64.
 
 ## [0.9.2] - 2026-03-12
 
