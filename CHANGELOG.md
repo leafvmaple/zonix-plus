@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **x86 UEFI toolchain**: `BOOTX64.EFI` now builds with `clang --target=x86_64-pc-windows-msvc` + `lld-link` instead of MinGW GCC.
+- **Documentation cleanup**: synchronized README/DEVELOPMENT toolchain and dependency notes with current build behavior.
+
 ## [0.10.0] - 2026-03-24
 
 ### Summary

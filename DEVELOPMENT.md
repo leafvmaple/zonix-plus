@@ -21,13 +21,13 @@ zonix-plus/
 │   │   │   ├── entry.S         # 32→64-bit long mode trampoline
 │   │   │   └── bootload.c      # ELF loader (32-bit protected mode)
 │   │   └── uefi/
-│   │       ├── Makefile        # mingw32-gcc: PE32+ cross-compile (UEFI)
+│   │       ├── Makefile        # clang + lld-link: PE32+ cross-compile (UEFI)
 │   │       └── bootload.c      # UEFI bootloader (efi_main)
 │   ├── include/asm/            # <asm/xxx.h> 头文件
 │   │   ├── arch.h, cpu.h, cr.h, io.h, memlayout.h, mmu.h, pg.h, ports.h
 │   │   ├── seg.h, segments.h
 │   │   └── drivers/            # 硬件寄存器定义 (i8042, i8254, i8259)
-│   │   └── kernel/             # 架构相关 kernel 代码
+│   └── kernel/                 # 架构相关 kernel 代码
 │       ├── head.S              # 64-bit 入口 + 页表初始化
 │       ├── idt.cpp/h           # IDT 初始化 (idt::init)
 │       ├── switch.S            # 上下文切换
@@ -36,7 +36,8 @@ zonix-plus/
 │   └── aarch64/                # aarch64 相关代码（UEFI + QEMU virt）
 ├── kernel/                     # 架构无关 kernel (C++17, 64-bit)
 │   ├── init.cpp                # kern_init() 入口
-│   ├── lib/                    # 内核基础库#   ├── block/                  # 块设备抽象层
+│   ├── lib/                    # 内核基础库
+│   ├── block/                  # 块设备抽象层
 │   ├── cons/                   # 控制台 + shell
 │   ├── debug/                  # panic / assert
 │   ├── drivers/                # 设备驱动 (IDE, AHCI, PCI, PIC, PIT, ...)
@@ -69,7 +70,7 @@ zonix-plus/
 | Kernel | `clang++` | 64-bit | C++17 freestanding |
 | arch/x86/kernel/ | `clang++` | 64-bit | C++17 / ASM |
 | BIOS boot (MBR/VBR/Bootloader) | `clang -m32` | 32-bit | C / ASM |
-| UEFI boot (BOOTX64.EFI) | `x86_64-w64-mingw32-gcc` | 64-bit | C (PE32+) |
+| UEFI boot (BOOTX64.EFI) | `clang --target=x86_64-pc-windows-msvc` + `lld-link` | 64-bit | C (PE32+) |
 | Linker | `ld.lld` | — | LLVM linker |
 | Utilities | `llvm-objdump`, `llvm-objcopy` | — | LLVM binutils |
 
@@ -79,7 +80,7 @@ zonix-plus/
 Makefile                         # 顶层: 变量、宏、kernel、磁盘镜像、运行目标
 └── include arch/x86/boot/Makefile
     ├── include bios/Makefile    # MBR + VBR + Bootloader (clang -m32)
-    └── include uefi/Makefile    # BOOTX64.EFI (mingw cross-compile)
+    └── include uefi/Makefile    # BOOTX64.EFI (clang --target=x86_64-pc-windows-msvc + lld-link)
 ```
 
 ### Include 路径 (`-I`)

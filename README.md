@@ -12,7 +12,7 @@ A teaching operating system kernel with active x86_64 and aarch64 bring-up, feat
 - **UEFI on aarch64**: BOOTAA64.EFI + QEMU virt machine support
 - **Kconfig-style Configuration**: Modular `CONFIG_*` toggles in `include/kernel/config.h`
 - **C++17 Freestanding**: Kernel written in C++17 with global `new`/`delete` operator support
-- **Clang/LLVM Toolchain**: Built with Clang, LLD, and LLVM utilities (UEFI uses MinGW cross-compiler)
+- **Clang/LLVM Toolchain**: Built with Clang, LLD, and LLVM utilities (including x86/aarch64 UEFI paths)
 
 ### Process Management
 - **Preemptive Round-Robin Scheduler**: Priority-aware scheduling with per-tick timeslice decrement
@@ -68,8 +68,8 @@ A teaching operating system kernel with active x86_64 and aarch64 bring-up, feat
 # Core build tools
 sudo apt install make clang lld llvm nasm dosfstools mtools
 
-# UEFI cross-compiler
-sudo apt install gcc-mingw-w64-x86-64 gnu-efi
+# UEFI linker (Ubuntu 24.04 package name)
+sudo apt install lld-18
 
 # Emulators
 sudo apt install qemu-system-x86 qemu-system-arm ovmf qemu-efi-aarch64 bochs-x
