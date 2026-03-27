@@ -1,6 +1,7 @@
 # Build outputs
 /obj
 /bin
+/*cache
 *.o
 *.d
 *.bin

@@ -6,7 +6,6 @@
 #include <asm/page.h>
 
 #include "drivers/fbcons.h"
-#include "cons/cons.h"
 #include "fs/vfs.h"
 #include "mm/vmm.h"
 #include "sched/sched.h"
@@ -123,7 +122,7 @@ long sys_close(TaskStruct* cur, int fd) {
     return cur->files().close(fd);
 }
 
-long sys_write(const char* user_buf, size_t count) {
+long sys_write(TaskStruct* cur, int fd, const char* user_buf, size_t count) {
     if (count == 0) {
         return 0;
     }
@@ -137,11 +136,22 @@ long sys_write(const char* user_buf, size_t count) {
         return -1;
     }
 
-    for (size_t i = 0; i < count; i++) {
-        cons::putc(user_buf[i]);
+    if (!cur) {
+        return -1;
     }
 
-    return static_cast<long>(count);
+    fd::Entry* entry = cur->files().get(fd);
+    if (!entry) {
+        return -1;
+    }
+
+    int bytes = vfs::write(entry->file, user_buf, count, entry->offset);
+    if (bytes < 0) {
+        return -1;
+    }
+
+    entry->offset += static_cast<size_t>(bytes);
+    return bytes;
 }
 
 }  // namespace
@@ -206,9 +216,10 @@ bool handle_syscall(TrapFrame* tf) {
             return true;
         }
         case NR_WRITE: {
+            int fd = static_cast<int>(tf->syscall_arg(0));
             const auto* buf = reinterpret_cast<const char*>(tf->syscall_arg(1));
             size_t count = static_cast<size_t>(tf->syscall_arg(2));
-            long rc = sys_write(buf, count);
+            long rc = sys_write(cur, fd, buf, count);
             tf->set_return(static_cast<uint64_t>(rc));
             return true;
         }

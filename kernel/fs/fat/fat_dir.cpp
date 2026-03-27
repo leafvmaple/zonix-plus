@@ -3,8 +3,102 @@
 #include "lib/memory.h"
 #include "lib/stdio.h"
 #include "lib/string.h"
+#include "debug/assert.h"
 
 #include <base/bpb.h>
+
+namespace {
+constexpr uint32_t FAT_IO_MAX_CLUSTER_BUF = 4096;
+}
+
+int FatInfo::is_valid(FatDirEntry* entry, const void* buf, uint32_t offset, uint32_t* size, uint32_t* start_cluster,
+                      const char* op) const {
+    if (!entry || !buf || !size || !start_cluster || !op) {
+        return -1;
+    }
+
+    if (entry->attr & FAT_ATTR_DIRECTORY) {
+        cprintf("fat_%s_file: cannot %s directory\n", op, op);
+        return -1;
+    }
+
+    if (offset >= entry->file_size) {
+        return 0;
+    }
+
+    uint32_t max_size = entry->file_size - offset;
+    if (*size > max_size) {
+        *size = max_size;
+    }
+
+    *start_cluster = get_cluster(*entry);
+    if (*start_cluster < 2) {
+        cprintf("fat_%s_file: invalid cluster: %d\n", op, *start_cluster);
+        return -1;
+    }
+
+    if (bytes_per_cluster_ > FAT_IO_MAX_CLUSTER_BUF) {
+        cprintf("fat_%s_file: cluster too large\n", op);
+        return -1;
+    }
+
+    return 1;
+}
+
+int FatInfo::file_io_common(FatDirEntry* entry, uint8_t* io_buf, uint32_t offset, uint32_t size, const char* op,
+                            bool writeback) {
+    uint32_t cluster = 0;
+    int rc = is_valid(entry, io_buf, offset, &size, &cluster, op);
+    if (rc <= 0) {
+        return rc;
+    }
+
+    uint8_t cluster_buf[FAT_IO_MAX_CLUSTER_BUF]{};
+    uint32_t done{};
+    uint32_t skip_bytes = offset;
+
+    while (cluster >= 2 && cluster < fat::FAT32_EOC_MIN && done < size) {
+        uint32_t sector = cluster_to_sector(cluster);
+        if (dev_->read(partition_start_ + sector, cluster_buf, sectors_per_cluster_) != 0) {
+            cprintf("fat_%s_file: failed to read cluster %d\n", op, cluster);
+            return -1;
+        }
+
+        uint32_t cluster_offset = 0;
+        uint32_t cluster_bytes = bytes_per_cluster_;
+
+        if (skip_bytes > 0) {
+            if (skip_bytes >= cluster_bytes) {
+                skip_bytes -= cluster_bytes;
+                cluster = read_entry(cluster);
+                continue;
+            }
+            cluster_offset = skip_bytes;
+            cluster_bytes -= skip_bytes;
+            skip_bytes = 0;
+        }
+
+        uint32_t to_copy = cluster_bytes;
+        if (to_copy > size - done) {
+            to_copy = size - done;
+        }
+
+        if (writeback) {
+            memcpy(cluster_buf + cluster_offset, io_buf + done, to_copy);
+            if (dev_->write(partition_start_ + sector, cluster_buf, sectors_per_cluster_) != 0) {
+                cprintf("fat_%s_file: failed to write cluster %d\n", op, cluster);
+                return -1;
+            }
+        } else {
+            memcpy(io_buf + done, cluster_buf + cluster_offset, to_copy);
+        }
+
+        done += to_copy;
+        cluster = read_entry(cluster);
+    }
+
+    return static_cast<int>(done);
+}
 
 int FatInfo::read_dir(uint32_t start_cluster, fnCallback callback, void* arg, bool verbose_read_error) {
     if (start_cluster < 2) {
@@ -27,15 +121,15 @@ int FatInfo::read_dir(uint32_t start_cluster, fnCallback callback, void* arg, bo
                 return -1;
             }
 
-            auto* entries = reinterpret_cast<fat_dir_entry_t*>(sector_buf);
+            auto* entries = reinterpret_cast<FatDirEntry*>(sector_buf);
             for (uint32_t j = 0; j < bytes_per_sector_ / 32; j++) {
-                fat_dir_entry_t& entry = entries[j];
+                FatDirEntry& entry = entries[j];
 
                 if (entry.name[0] == 0x00) {
                     return count;
                 }
 
-                if (!is_valid_entry(entry)) {
+                if (!entry.is_valid()) {
                     continue;
                 }
 
@@ -52,11 +146,9 @@ int FatInfo::read_dir(uint32_t start_cluster, fnCallback callback, void* arg, bo
 }
 
 int FatInfo::read_root_dir(fnCallback callback, void* arg) {
-    if (!callback) {
-        return -1;
-    }
+    assert(fat_type_ == fat::TYPE_FAT32);
 
-    if (fat_type_ != fat::TYPE_FAT32) {
+    if (!callback) {
         return -1;
     }
 
@@ -72,7 +164,7 @@ int FatInfo::read_dir(const char* relpath, fnCallback callback, void* arg) {
         return read_root_dir(callback, arg);
     }
 
-    fat_dir_entry_t dir{};
+    FatDirEntry dir{};
     if (find_file(relpath, &dir) != 0) {
         return -1;
     }
@@ -85,11 +177,10 @@ int FatInfo::read_dir(const char* relpath, fnCallback callback, void* arg) {
     return read_dir(start_cluster, callback, arg, false);
 }
 
-int FatInfo::find_file(const char* filename, fat_dir_entry_t* result) {
+int FatInfo::find_file(const char* filename, FatDirEntry* result) {
+    assert(fat_type_ == fat::TYPE_FAT32);
+
     if (!filename || !result) {
-        return -1;
-    }
-    if (fat_type_ != fat::TYPE_FAT32) {
         return -1;
     }
 
@@ -143,16 +234,16 @@ int FatInfo::find_file(const char* filename, fat_dir_entry_t* result) {
                     return -1;
                 }
 
-                auto* entries = reinterpret_cast<fat_dir_entry_t*>(sector_buf);
+                auto* entries = reinterpret_cast<FatDirEntry*>(sector_buf);
                 for (uint32_t j = 0; j < bytes_per_sector_ / 32; j++) {
-                    fat_dir_entry_t& entry = entries[j];
+                    FatDirEntry& entry = entries[j];
 
                     if (entry.name[0] == 0x00) {
                         dir_end = true;
                         break;
                     }
 
-                    if (!is_valid_entry(entry)) {
+                    if (!entry.is_valid()) {
                         continue;
                     }
 
@@ -194,70 +285,10 @@ int FatInfo::find_file(const char* filename, fat_dir_entry_t* result) {
     return 0;
 }
 
-int FatInfo::read_file(fat_dir_entry_t* entry, uint8_t* buf, uint32_t offset, uint32_t size) {
-    if (!entry || !buf) {
-        return -1;
-    }
+int FatInfo::read_file(FatDirEntry* entry, uint8_t* buf, uint32_t offset, uint32_t size) {
+    return file_io_common(entry, buf, offset, size, "read", false);
+}
 
-    if (entry->attr & FAT_ATTR_DIRECTORY) {
-        cprintf("fat_read_file: cannot read directory\n");
-        return -1;
-    }
-
-    if (offset >= entry->file_size) {
-        return 0;
-    }
-
-    if (offset + size > entry->file_size) {
-        size = entry->file_size - offset;
-    }
-
-    uint32_t cluster = get_cluster(*entry);
-    if (cluster < 2) {
-        cprintf("fat_read_file: invalid cluster: %d\n", cluster);
-        return -1;
-    }
-
-    uint8_t cluster_buf[4096]{};
-    if (bytes_per_cluster_ > sizeof(cluster_buf)) {
-        cprintf("fat_read_file: cluster too large\n");
-        return -1;
-    }
-
-    uint32_t bytes_read = 0;
-    uint32_t skip_bytes = offset;
-
-    while (cluster >= 2 && cluster < fat::FAT32_EOC_MIN && bytes_read < size) {
-        uint32_t sector = cluster_to_sector(cluster);
-        if (dev_->read(partition_start_ + sector, cluster_buf, sectors_per_cluster_) != 0) {
-            cprintf("fat_read_file: failed to read cluster %d\n", cluster);
-            return -1;
-        }
-
-        uint32_t cluster_offset = 0;
-        uint32_t cluster_bytes = bytes_per_cluster_;
-
-        if (skip_bytes > 0) {
-            if (skip_bytes >= cluster_bytes) {
-                skip_bytes -= cluster_bytes;
-                cluster = read_entry(cluster);
-                continue;
-            }
-            cluster_offset = skip_bytes;
-            cluster_bytes -= skip_bytes;
-            skip_bytes = 0;
-        }
-
-        uint32_t to_copy = cluster_bytes;
-        if (to_copy > size - bytes_read) {
-            to_copy = size - bytes_read;
-        }
-
-        memcpy(buf + bytes_read, cluster_buf + cluster_offset, to_copy);
-        bytes_read += to_copy;
-
-        cluster = read_entry(cluster);
-    }
-
-    return static_cast<int>(bytes_read);
+int FatInfo::write_file(FatDirEntry* entry, const uint8_t* buf, uint32_t offset, uint32_t size) {
+    return file_io_common(entry, const_cast<uint8_t*>(buf), offset, size, "write", true);
 }

@@ -11,40 +11,40 @@
  */
 #define SAFE_BOOT_INFO_ADDR   0x5000ULL
 #define SAFE_MMAP_ADDR        0x5100ULL
-#define SAFE_MMAP_MAX_ENTRIES ((0x7000ULL - SAFE_MMAP_ADDR) / sizeof(struct boot_mmap_entry))
+#define SAFE_MMAP_MAX_ENTRIES ((0x7000ULL - SAFE_MMAP_ADDR) / sizeof(boot_mmap_entry))
 
 #define PLATFORM_MEM_LOWER     640
 #define PLATFORM_MEM_UPPER_MIN 0x100000
 
-EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_table) {
+extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_table) {
     EFI_SYSTEM_TABLE* st = system_table;
     EFI_BOOT_SERVICES* bs = system_table->BootServices;
 
     st->ConOut->ClearScreen(st->ConOut);
-    uefi_print(st, L"\r\nZonix UEFI Bootloader (x86_64) v1.0\r\n\r\n");
-    bs->SetWatchdogTimer(0, 0, 0, NULL);
+    uefi_print(st, UEFI_STR(L"\r\nZonix UEFI Bootloader (x86_64) v1.0\r\n\r\n"));
+    bs->SetWatchdogTimer(0, 0, 0, 0);
 
-    struct boot_info* bi = (struct boot_info*)(UINTN)SAFE_BOOT_INFO_ADDR;
-    memset(bi, 0, sizeof(struct boot_info));
+    boot_info* bi = (boot_info*)(UINTN)SAFE_BOOT_INFO_ADDR;
+    memset(bi, 0, sizeof(boot_info));
     bi->magic = BOOT_INFO_MAGIC;
     bi->mmap_addr = SAFE_MMAP_ADDR;
 
-    uefi_print(st, L"Getting memory map...\r\n");
+    uefi_print(st, UEFI_STR(L"Getting memory map...\r\n"));
     EFI_STATUS status =
         uefi_get_memory_map(bs, bi, SAFE_MMAP_ADDR, SAFE_MMAP_MAX_ENTRIES, PLATFORM_MEM_LOWER, PLATFORM_MEM_UPPER_MIN);
     if (EFI_ERROR(status)) {
         return status;
     }
 
-    uefi_print(st, L"Loading kernel...\r\n");
-    VOID* kernel_buf = NULL;
+    uefi_print(st, UEFI_STR(L"Loading kernel...\r\n"));
+    VOID* kernel_buf = 0;
     UINTN kernel_size = 0;
     status = uefi_load_kernel_file(bs, image_handle, &kernel_buf, &kernel_size);
     if (EFI_ERROR(status)) {
         return status;
     }
 
-    uefi_print(st, L"Parsing ELF kernel...\r\n");
+    uefi_print(st, UEFI_STR(L"Parsing ELF kernel...\r\n"));
     if (uefi_load_elf(kernel_buf, bi, KERNEL_VIRT_BASE) != 0) {
         return EFI_LOAD_ERROR;
     }
@@ -55,10 +55,10 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_tab
     for (int i = 0; name[i] && i < 31; i++)
         bi->loader_name[i] = name[i];
 
-    uefi_print(st, L"Kernel entry (phys): ");
+    uefi_print(st, UEFI_STR(L"Kernel entry (phys): "));
     uefi_print_hex(st, bi->kernel_entry);
 
-    uefi_print(st, L"Exiting Boot Services...\r\n");
+    uefi_print(st, UEFI_STR(L"Exiting Boot Services...\r\n"));
     status = uefi_exit_boot_services(bs, image_handle);
     if (EFI_ERROR(status)) {
         return status;

@@ -9,6 +9,7 @@ enum class NodeType : uint8_t {
     Unknown = 0,
     File = 1,
     Directory = 2,
+    CharDevice = 3,
 };
 
 struct Stat {
@@ -29,6 +30,7 @@ public:
     virtual ~File() = default;
 
     virtual int read(void* buf, size_t size, size_t offset) = 0;
+    virtual int write(const void* buf, size_t size, size_t offset) = 0;
     virtual int stat(Stat* st) = 0;
 };
 
@@ -43,7 +45,7 @@ public:
     virtual int open(const char* relpath, File** out_file) = 0;
     virtual int stat(const char* relpath, Stat* st) = 0;
     virtual int readdir(const char* relpath, ReadDirFn cb, void* arg) = 0;
-    virtual void print_info() = 0;
+    virtual void print() = 0;
 };
 
 int mount(const char* mount_point, BlockDevice* dev, const char* fs_type);
@@ -51,6 +53,7 @@ int umount(const char* mount_point);
 
 int open(const char* path, File** out_file);
 int read(File* file, void* buf, size_t size, size_t offset);
+int write(File* file, const void* buf, size_t size, size_t offset);
 void close(File* file);
 
 int stat(const char* path, Stat* st);

@@ -1,11 +1,3 @@
-/**
- * Shared UEFI boot helpers.
- *
- * These helpers are implemented as static functions in a header so each
- * bootloader can inline platform-specific behavior while keeping logic shared.
- * Callers provide UEFI context and platform constants explicitly.
- */
-
 #pragma once
 
 #include <kernel/bootinfo.h>
@@ -28,10 +20,6 @@ static void* memset(void* dst, int c, UINTN n) {
     return dst;
 }
 
-/* ------------------------------------------------------------------ */
-/* Console output                                                      */
-/* ------------------------------------------------------------------ */
-
 static void uefi_print(EFI_SYSTEM_TABLE* st, const CHAR16* str) {
     if (st && st->ConOut) {
         st->ConOut->OutputString(st->ConOut, (CHAR16*)str);
@@ -40,7 +28,7 @@ static void uefi_print(EFI_SYSTEM_TABLE* st, const CHAR16* str) {
 
 static void uefi_print_hex(EFI_SYSTEM_TABLE* st, UINT64 val) {
     CHAR16 buf[21];
-    const CHAR16* hex = L"0123456789ABCDEF";
+    const CHAR16* hex = UEFI_STR(L"0123456789ABCDEF");
     buf[0] = L'0';
     buf[1] = L'x';
     for (int i = 0; i < 16; i++) {
@@ -53,14 +41,14 @@ static void uefi_print_hex(EFI_SYSTEM_TABLE* st, UINT64 val) {
 }
 
 static int uefi_load_elf(void* elf_buffer, struct boot_info* bi, UINT64 kernel_virt_base) {
-    elfhdr* elf = (elfhdr*)elf_buffer;
+    ElfHdr* elf = (ElfHdr*)elf_buffer;
     if (elf->e_magic != ELF_MAGIC) {
         return -1;
     }
 
     UINT64 kstart = ~0ULL, kend = 0;
-    proghdr* ph = (proghdr*)((UINT8*)elf + elf->e_phoff);
-    proghdr* eph = ph + elf->e_phnum;
+    ProgHdr* ph = (ProgHdr*)((UINT8*)elf + elf->e_phoff);
+    ProgHdr* eph = ph + elf->e_phnum;
 
     for (; ph < eph; ph++) {
         if (ph->p_type != ELF_PT_LOAD) {
@@ -94,14 +82,8 @@ static int uefi_load_elf(void* elf_buffer, struct boot_info* bi, UINT64 kernel_v
     return 0;
 }
 
-static EFI_STATUS uefi_get_memory_map(
-    EFI_BOOT_SERVICES* bs,
-    struct boot_info* bi,
-    UINT64 mmap_addr,
-    UINTN mmap_max_entries,
-    uint32_t mem_lower,
-    UINT64 mem_upper_min
-) {
+static EFI_STATUS uefi_get_memory_map(EFI_BOOT_SERVICES* bs, struct boot_info* bi, UINT64 mmap_addr,
+                                      UINTN mmap_max_entries, uint32_t mem_lower, UINT64 mem_upper_min) {
     UINTN map_key = 0;
     UINTN map_size = 0;
     UINTN desc_size = 0;
@@ -181,15 +163,11 @@ static EFI_STATUS uefi_get_memory_map(
     return EFI_SUCCESS;
 }
 
-/* ------------------------------------------------------------------ */
-/* Load kernel file from UEFI filesystem                               */
-/* ------------------------------------------------------------------ */
-
 static EFI_STATUS uefi_load_kernel_file(EFI_BOOT_SERVICES* bs, EFI_HANDLE image_handle, VOID** buf, UINTN* size) {
-    EFI_LOADED_IMAGE_PROTOCOL* loaded_image = NULL;
-    EFI_SIMPLE_FILE_SYSTEM_PROTOCOL* fs = NULL;
-    EFI_FILE_PROTOCOL* root = NULL;
-    EFI_FILE_PROTOCOL* file = NULL;
+    EFI_LOADED_IMAGE_PROTOCOL* loaded_image{};
+    EFI_SIMPLE_FILE_SYSTEM_PROTOCOL* fs{};
+    EFI_FILE_PROTOCOL* root{};
+    EFI_FILE_PROTOCOL* file{};
 
     EFI_GUID lip_guid = EFI_LOADED_IMAGE_PROTOCOL_GUID;
     EFI_GUID fs_guid = EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID;
@@ -209,7 +187,8 @@ static EFI_STATUS uefi_load_kernel_file(EFI_BOOT_SERVICES* bs, EFI_HANDLE image_
         return status;
     }
 
-    const CHAR16* paths[] = {L"\\EFI\\ZONIX\\KERNEL.ELF", L"\\KERNEL.ELF", L"\\KERNEL.SYS", NULL};
+    const CHAR16* paths[] = {UEFI_STR(L"\\EFI\\ZONIX\\KERNEL.ELF"), UEFI_STR(L"\\KERNEL.ELF"),
+                             UEFI_STR(L"\\KERNEL.SYS"), 0};
     for (int i = 0; paths[i]; i++) {
         status = root->Open(root, &file, (CHAR16*)paths[i], EFI_FILE_MODE_READ, 0);
         if (!EFI_ERROR(status)) {
@@ -223,7 +202,7 @@ static EFI_STATUS uefi_load_kernel_file(EFI_BOOT_SERVICES* bs, EFI_HANDLE image_
 
     EFI_GUID fi_guid = EFI_FILE_INFO_ID;
     UINTN info_size = sizeof(EFI_FILE_INFO) + 256;
-    EFI_FILE_INFO* file_info = NULL;
+    EFI_FILE_INFO* file_info{};
 
     status = bs->AllocatePool(EfiLoaderData, info_size, (VOID**)&file_info);
     if (EFI_ERROR(status)) {
@@ -257,10 +236,10 @@ static EFI_STATUS uefi_load_kernel_file(EFI_BOOT_SERVICES* bs, EFI_HANDLE image_
 }
 
 static void uefi_get_graphics_info(EFI_BOOT_SERVICES* bs, struct boot_info* bi) {
-    EFI_GRAPHICS_OUTPUT_PROTOCOL* gop = NULL;
+    EFI_GRAPHICS_OUTPUT_PROTOCOL* gop{};
     EFI_GUID gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
 
-    if (EFI_ERROR(bs->LocateProtocol(&gop_guid, NULL, (VOID**)&gop))) {
+    if (EFI_ERROR(bs->LocateProtocol(&gop_guid, nullptr, (VOID**)&gop))) {
         bi->framebuffer_addr = 0;
         return;
     }

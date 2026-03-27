@@ -6,7 +6,7 @@
 namespace fat {
 namespace {
 
-void fill_stat_from_entry(const fat_dir_entry_t& entry, vfs::Stat* st) {
+void fill_stat_from_entry(const FatDirEntry& entry, vfs::Stat* st) {
     st->attrs = entry.attr;
     st->size = entry.file_size;
     st->type = (entry.attr & FAT_ATTR_DIRECTORY) ? vfs::NodeType::Directory : vfs::NodeType::File;
@@ -17,7 +17,7 @@ struct ReadDirBridge {
     void* arg{};
 };
 
-int fat_readdir_bridge(fat_dir_entry_t* entry, void* arg) {
+int fat_readdir_bridge(FatDirEntry* entry, void* arg) {
     auto* bridge = static_cast<ReadDirBridge*>(arg);
     if (!bridge || !bridge->cb) {
         return -1;
@@ -34,7 +34,7 @@ int fat_readdir_bridge(fat_dir_entry_t* entry, void* arg) {
 
 class FatFile : public vfs::File {
 public:
-    FatFile(FatInfo* fat, const fat_dir_entry_t& entry) : fat_(fat), entry_(entry) {}
+    FatFile(FatInfo* fat, const FatDirEntry& entry) : fat_(fat), entry_(entry) {}
 
     int read(void* buf, size_t size, size_t offset) override {
         if (!fat_ || !buf) {
@@ -49,6 +49,19 @@ public:
                                static_cast<uint32_t>(size));
     }
 
+    int write(const void* buf, size_t size, size_t offset) override {
+        if (!fat_ || !buf) {
+            return -1;
+        }
+
+        if (size > 0xFFFFFFFFU || offset > 0xFFFFFFFFU) {
+            return -1;
+        }
+
+        return fat_->write_file(&entry_, static_cast<const uint8_t*>(buf), static_cast<uint32_t>(offset),
+                                static_cast<uint32_t>(size));
+    }
+
     int stat(vfs::Stat* st) override {
         if (!st) {
             return -1;
@@ -60,7 +73,7 @@ public:
 
 private:
     FatInfo* fat_{};
-    fat_dir_entry_t entry_{};
+    FatDirEntry entry_{};
 };
 
 class FatFileSystem : public vfs::FileSystem {
@@ -74,7 +87,7 @@ public:
             return -1;
         }
 
-        fat_dir_entry_t entry{};
+        FatDirEntry entry{};
         if (fat_.find_file(relpath, &entry) != 0) {
             return -1;
         }
@@ -104,7 +117,7 @@ public:
             return 0;
         }
 
-        fat_dir_entry_t entry{};
+        FatDirEntry entry{};
         if (fat_.find_file(relpath, &entry) != 0) {
             return -1;
         }
@@ -125,7 +138,7 @@ public:
         return fat_.read_dir(relpath, fat_readdir_bridge, &bridge);
     }
 
-    void print_info() override { fat_.print(); }
+    void print() override { fat_.print(); }
 
 private:
     FatInfo fat_{};

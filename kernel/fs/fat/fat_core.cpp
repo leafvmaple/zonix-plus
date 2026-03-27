@@ -78,7 +78,7 @@ int32_t find_partition_start(BlockDevice* dev) {
 
 }  // namespace
 
-void FatInfo::init_mount_state(BlockDevice* dev, uint32_t partition_start, const fat32_boot_sector& bs) {
+void FatInfo::init_mount_state(BlockDevice* dev, uint32_t partition_start, const Fat32BootSector& bs) {
     dev_ = dev;
     partition_start_ = partition_start;
     total_sectors_ = bs.total_sectors_32;
@@ -116,7 +116,7 @@ int FatInfo::mount(BlockDevice* dev) {
 
     uint32_t partition_start = static_cast<uint32_t>(part_start);
 
-    fat32_boot_sector bs{};
+    Fat32BootSector bs{};
     if (dev->read(partition_start, &bs, 1) != 0) {
         cprintf("fat_mount: failed to read boot sector at LBA %d\n", partition_start);
         return -1;
@@ -182,7 +182,7 @@ void FatInfo::print() const {
     cprintf("  Cluster Count: %d\n", cluster_count_);
 }
 
-uint32_t FatInfo::get_cluster(fat_dir_entry_t& entry) {
+uint32_t FatInfo::get_cluster(FatDirEntry& entry) {
     uint32_t cluster = entry.first_cluster_low;
     cluster |= (static_cast<uint32_t>(entry.first_cluster_high) << 16);
     return cluster;
@@ -227,19 +227,7 @@ uint32_t FatInfo::cluster_to_sector(uint32_t cluster) const {
     return data_start_ + ((cluster - 2) * sectors_per_cluster_);
 }
 
-bool FatInfo::is_valid_entry(fat_dir_entry_t& entry) {
-    if (entry.name[0] == 0x00 || entry.name[0] == static_cast<char>(0xE5)) {
-        return false;
-    }
-
-    if ((entry.attr & FAT_ATTR_VOLUME_ID) || (entry.attr & FAT_ATTR_LFN) == FAT_ATTR_LFN) {
-        return false;
-    }
-
-    return true;
-}
-
-void FatInfo::get_filename(fat_dir_entry_t* entry, char* buf, int bufsize) {
+void FatInfo::get_filename(FatDirEntry* entry, char* buf, int bufsize) {
     if (!entry || !buf || bufsize < 13) {
         return;
     }

@@ -14,16 +14,6 @@ inline constexpr int TYPE_FAT12 = 12;
 inline constexpr int TYPE_FAT16 = 16;
 inline constexpr int TYPE_FAT32 = 32;
 
-inline constexpr uint16_t FAT16_FREE = 0x0000;
-inline constexpr uint16_t FAT16_RESERVED_MIN = 0xFFF0;
-inline constexpr uint16_t FAT16_BAD_CLUSTER = 0xFFF7;
-inline constexpr uint16_t FAT16_EOC_MIN = 0xFFF8;  // End of chain
-inline constexpr uint16_t FAT16_EOC_MAX = 0xFFFF;
-
-inline constexpr uint16_t FAT12_FREE = 0x000;
-inline constexpr uint16_t FAT12_EOC_MIN = 0xFF8;
-inline constexpr uint16_t FAT12_EOC_MAX = 0xFFF;
-
 inline constexpr uint32_t FAT32_FREE = 0x00000000;
 inline constexpr uint32_t FAT32_RESERVED_MIN = 0x0FFFFFF0;
 inline constexpr uint32_t FAT32_BAD_CLUSTER = 0x0FFFFFF7;
@@ -37,30 +27,38 @@ vfs::FileSystem* create_vfs_filesystem();
 
 class FatInfo {
 public:
-    using fnCallback = int (*)(fat_dir_entry_t* entry, void* arg);
+    using fnCallback = int (*)(FatDirEntry* entry, void* arg);
 
     int mount(BlockDevice* dev);
     void unmount();
 
     void print() const;
 
-    uint32_t read_entry(uint32_t cluster);
-    int write_entry(uint32_t cluster, uint32_t value);
-
-    int read_root_dir(fnCallback callback, void* arg);
     int read_dir(const char* relpath, fnCallback callback, void* arg);
-    int find_file(const char* filename, fat_dir_entry_t* result);
-    int read_file(fat_dir_entry_t* entry, uint8_t* buf, uint32_t offset, uint32_t size);
+    int read_file(FatDirEntry* entry, uint8_t* buf, uint32_t offset, uint32_t size);
+
+    int write_file(FatDirEntry* entry, const uint8_t* buf, uint32_t offset, uint32_t size);
+
+    int find_file(const char* filename, FatDirEntry* result);
 
     [[nodiscard]] uint32_t cluster_to_sector(uint32_t cluster) const;
-    static void get_filename(fat_dir_entry_t* entry, char* buf, int bufsize);
+    static void get_filename(FatDirEntry* entry, char* buf, int bufsize);
 
 private:
-    static bool is_valid_entry(fat_dir_entry_t& entry);
-    static uint32_t get_cluster(fat_dir_entry_t& entry);
+    int is_valid(FatDirEntry* entry, const void* buf, uint32_t offset, uint32_t* size, uint32_t* start_cluster,
+                 const char* op) const;
+    int file_io_common(FatDirEntry* entry, uint8_t* io_buf, uint32_t offset, uint32_t size, const char* op,
+                       bool writeback);
+
+    static uint32_t get_cluster(FatDirEntry& entry);
+
+    int read_root_dir(fnCallback callback, void* arg);
+    uint32_t read_entry(uint32_t cluster);
     int read_dir(uint32_t start_cluster, fnCallback callback, void* arg, bool verbose_read_error);
 
-    void init_mount_state(BlockDevice* dev, uint32_t partition_start, const fat32_boot_sector& bs);
+    int write_entry(uint32_t cluster, uint32_t value);
+
+    void init_mount_state(BlockDevice* dev, uint32_t partition_start, const Fat32BootSector& bs);
 
     BlockDevice* dev_{};              // Block device
     uint32_t partition_start_{};      // Partition start LBA (0 if no MBR)

@@ -14,15 +14,15 @@
 namespace elf {
 
 bool is_elf(const uint8_t* data, size_t size) {
-    if (!data || size < sizeof(elfhdr)) {
+    if (!data || size < sizeof(ElfHdr)) {
         return false;
     }
-    const auto* eh = reinterpret_cast<const elfhdr*>(data);
+    const auto* eh = reinterpret_cast<const ElfHdr*>(data);
     return eh->e_magic == ELF_MAGIC;
 }
 
-int validate(const elfhdr* eh, size_t file_size) {
-    if (file_size < sizeof(elfhdr)) {
+int validate(const ElfHdr* eh, size_t file_size) {
+    if (file_size < sizeof(ElfHdr)) {
         cprintf("elf: file too small for ELF header (%d bytes)\n", file_size);
         return -1;
     }
@@ -62,7 +62,7 @@ int validate(const elfhdr* eh, size_t file_size) {
 }
 
 uintptr_t load(const uint8_t* data, size_t size, pde_t* pgdir) {
-    const auto* eh = reinterpret_cast<const elfhdr*>(data);
+    const auto* eh = reinterpret_cast<const ElfHdr*>(data);
 
     if (validate(eh, size) != 0) {
         return 0;
@@ -72,7 +72,7 @@ uintptr_t load(const uint8_t* data, size_t size, pde_t* pgdir) {
 
     for (uint16_t i = 0; i < eh->e_phnum; i++) {
         size_t ph_offset = eh->e_phoff + i * eh->e_phentsize;
-        const auto* ph = reinterpret_cast<const proghdr*>(data + ph_offset);
+        const auto* ph = reinterpret_cast<const ProgHdr*>(data + ph_offset);
 
         if (ph->p_type != ELF_PT_LOAD || ph->p_memsz == 0) {
             continue;

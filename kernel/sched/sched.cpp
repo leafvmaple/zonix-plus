@@ -7,6 +7,7 @@
 #include "debug/assert.h"
 #include <asm/arch.h>
 #include <asm/mmu.h>
+#include "fs/vfs.h"
 
 extern long user_stack[];
 extern pde_t* boot_pgdir;
@@ -17,6 +18,32 @@ using fnThread = int (*)(void*);
 #include "cons/shell.h"
 
 namespace {
+
+int setup_stdio(fd::Table& files) {
+    const char* console_path = "/dev/console";
+
+    for (int expected_fd = 0; expected_fd < 3; expected_fd++) {
+        vfs::File* file = nullptr;
+        if (vfs::open(console_path, &file) != 0 || !file) {
+            files.close_all();
+            return -1;
+        }
+
+        int fd = files.alloc(file);
+        if (fd < 0) {
+            vfs::close(file);
+            files.close_all();
+            return -1;
+        }
+
+        if (fd != expected_fd) {
+            files.close_all();
+            return -1;
+        }
+    }
+
+    return 0;
+}
 
 SchedulerPolicy& scheduler() {
     static SchedulerPolicy policy;
@@ -314,8 +341,15 @@ int TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_fra
         proc->files().init();
     }
 
+    if (setup_stdio(proc->files()) != 0) {
+        cprintf("sched: fork: failed to set up stdio\n");
+        delete proc;
+        return -1;
+    }
+
     if (proc->setup_kernel_stack() != 0) {
         cprintf("sched: fork: failed to allocate kernel stack\n");
+        proc->files().close_all();
         delete proc;
         return -1;
     }

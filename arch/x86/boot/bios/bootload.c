@@ -75,7 +75,7 @@
 
 // Global variables
 static uint8_t boot_drive;
-static struct fat32_bpb_t* bpb32 = (struct fat32_bpb_t*)0x7C0B;  // BPB starts at 0x7C00 + 0x0B (after jmp + oem)
+static struct Fat32Bpb* bpb32 = (struct Fat32Bpb*)0x7C0B;  // BPB starts at 0x7C00 + 0x0B (after jmp + oem)
 static struct boot_info boot_info;
 
 
@@ -120,7 +120,7 @@ static int read_sectors(uint32_t lba, uint32_t count, uint8_t* buffer) {
 
 // Load ELF64 kernel
 static int load_elf_kernel(uint8_t* elf_buffer, struct boot_info* boot_info) {
-    elfhdr64* elf = (elfhdr64*)elf_buffer;
+    struct ElfHdr64* elf = (struct ElfHdr64*)elf_buffer;
 
     // Verify ELF magic
     if (elf->e_magic != ELF_MAGIC) {
@@ -133,8 +133,8 @@ static int load_elf_kernel(uint8_t* elf_buffer, struct boot_info* boot_info) {
     boot_info->kernel_entry = (uint32_t)(elf->e_entry & 0xFFFFFFFF);  // Physical entry
 
     // Load each program segment (ELF64 program headers)
-    proghdr64* ph = (proghdr64*)((uint8_t*)elf + (uint32_t)elf->e_phoff);
-    proghdr64* eph = ph + elf->e_phnum;
+    struct ProgHdr64* ph = (struct ProgHdr64*)((uint8_t*)elf + (uint32_t)elf->e_phoff);
+    struct ProgHdr64* eph = ph + elf->e_phnum;
 
     for (; ph < eph; ph++) {
         if (ph->p_type != ELF_PT_LOAD) {
@@ -169,7 +169,7 @@ static int load_elf_kernel(uint8_t* elf_buffer, struct boot_info* boot_info) {
 // Find file in FAT root directory
 // Returns starting cluster number, or 0 if not found
 static uint32_t fat_find_file(const char* filename, uint8_t* dir_buffer, uint32_t root_entries) {
-    struct fat_dir_entry_t* entry = (struct fat_dir_entry_t*)dir_buffer;
+    struct FatDirEntry* entry = (struct FatDirEntry*)dir_buffer;
 
     for (uint32_t i = 0; i < root_entries; i++) {
         if (entry[i].name[0] == 0x00) {  // No more entries

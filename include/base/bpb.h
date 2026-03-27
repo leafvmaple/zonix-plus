@@ -47,17 +47,19 @@
 #define ERROR_DISK_READ  0x02
 #define ERROR_BAD_KERNEL 0x03
 
-#define FAT_ATTR_READ_ONLY 0x01
-#define FAT_ATTR_HIDDEN    0x02
-#define FAT_ATTR_SYSTEM    0x04
-#define FAT_ATTR_VOLUME_ID 0x08
-#define FAT_ATTR_DIRECTORY 0x10
-#define FAT_ATTR_ARCHIVE   0x20
-#define FAT_ATTR_LFN       0x0F /* Long file name */
+#ifdef __cplusplus
+inline constexpr uint8_t FAT_ATTR_READ_ONLY = 0x01;
+inline constexpr uint8_t FAT_ATTR_HIDDEN = 0x02;
+inline constexpr uint8_t FAT_ATTR_SYSTEM = 0x04;
+inline constexpr uint8_t FAT_ATTR_VOLUME_ID = 0x08;
+inline constexpr uint8_t FAT_ATTR_DIRECTORY = 0x10;
+inline constexpr uint8_t FAT_ATTR_ARCHIVE = 0x20;
+inline constexpr uint8_t FAT_ATTR_LFN = 0x0F; /* Long file name */
+#endif
 
 #ifndef __ASSEMBLER__
 
-struct fat_dir_entry_t {
+struct FatDirEntry {
     char name[8];                /* 0x00: File name (space padded) */
     char ext[3];                 /* 0x08: Extension */
     uint8_t attr;                /* 0x0B: Attributes */
@@ -71,9 +73,16 @@ struct fat_dir_entry_t {
     uint16_t write_date;         /* 0x18: Last write date */
     uint16_t first_cluster_low;  /* 0x1A: Low word of first cluster */
     uint32_t file_size;          /* 0x1C: File size in bytes */
+
+#ifdef __cplusplus
+    [[nodiscard]] bool is_valid() const {
+        return name[0] != 0x00 && name[0] != static_cast<char>(0xE5) && (attr & FAT_ATTR_VOLUME_ID) == 0 &&
+               (attr & FAT_ATTR_LFN) != FAT_ATTR_LFN;
+    }
+#endif
 } __attribute__((packed));
 
-struct fat_bpb_common_t {
+struct FatBpbCommon {
     uint16_t bytes_per_sector;   /* Offset 0x0B */
     uint8_t sectors_per_cluster; /* Offset 0x0D */
     uint16_t reserved_sectors;   /* Offset 0x0E */
@@ -88,18 +97,8 @@ struct fat_bpb_common_t {
     uint32_t total_sectors_32;   /* Offset 0x20 */
 } __attribute__((packed));
 
-struct fat16_bpb_t {
-    struct fat_bpb_common_t common;
-    uint8_t drive_number;   /* Offset 0x24 */
-    uint8_t reserved1;      /* Offset 0x25 */
-    uint8_t boot_signature; /* Offset 0x26 (0x29) */
-    uint32_t volume_id;     /* Offset 0x27 */
-    char volume_label[11];  /* Offset 0x2B */
-    char fs_type[8];        /* Offset 0x36 "FAT16   " */
-} __attribute__((packed));
-
-struct fat32_bpb_t {
-    struct fat_bpb_common_t common;
+struct Fat32Bpb {
+    struct FatBpbCommon common;
     uint32_t fat_size_32;        /* Offset 0x24: FAT size in sectors */
     uint16_t ext_flags;          /* Offset 0x28: Extended flags */
     uint16_t fs_version;         /* Offset 0x2A: File system version */
@@ -115,7 +114,7 @@ struct fat32_bpb_t {
     char fs_type[8];             /* Offset 0x52 "FAT32   " */
 } __attribute__((packed));
 
-struct fat32_boot_sector {
+struct Fat32BootSector {
     uint8_t jmp[3];              /* 0x00: Jump instruction */
     char oem[8];                 /* 0x03: OEM name */
     uint16_t bytes_per_sector;   /* 0x0B: Bytes per sector (512) */

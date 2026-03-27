@@ -48,7 +48,8 @@ ifeq ($(TEST),1)
 	KSRCDIR += kernel/test \
 	           kernel/test/unit/sched kernel/test/unit/mm kernel/test/shell \
 	           kernel/test/unit/lib kernel/test/unit/block \
-	           kernel/test/unit/exec kernel/test/unit/cons
+	           kernel/test/unit/exec kernel/test/unit/cons \
+	           kernel/test/unit/fs
 	CFLAGS   += -DTEST_MODE=1
 	CXXFLAGS += -DTEST_MODE=1
 	ifeq ($(ARCH),x86)
@@ -172,7 +173,7 @@ endif
 # ==========================================================================
 # Top-level targets
 # ==========================================================================
-.PHONY: all clean format lint help FORCE
+.PHONY: all clean format lint compdb help FORCE
 
 all: $(ALL_PREREQS)
 .DEFAULT_GOAL := all
@@ -188,6 +189,11 @@ lint:
 	@echo "  LINT    kernel/ arch/"
 	$(Q)find kernel/ arch/ -name '*.cpp' -o -name '*.h' -o -name '*.c' | \
 		xargs clang-tidy --quiet -p . 2>/dev/null || true
+
+compdb:
+	@command -v bear >/dev/null 2>&1 || { echo "bear not found — install with: sudo apt install bear"; exit 1; }
+	bear -- $(MAKE) -B all
+	@echo "  COMPDB  compile_commands.json"
 
 # ==========================================================================
 # Clean
@@ -221,6 +227,7 @@ help:
 	@echo "Quality:"
 	@echo "  make format          Run clang-format on all sources"
 	@echo "  make lint            Run clang-tidy on all sources"
+	@echo "  make compdb          Generate compile_commands.json (needs bear)"
 	@echo ""
 	@echo "Options:"
 	@echo "  ARCH=x86|aarch64     Target architecture (default: x86)"

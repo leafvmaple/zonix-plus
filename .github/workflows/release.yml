@@ -30,8 +30,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             clang lld llvm nasm make \
-            gcc-mingw-w64-x86-64 \
-            gnu-efi \
             mtools dosfstools \
             fdisk
 
@@ -77,7 +75,9 @@ jobs:
 
       # ── Build ──
       - name: Build
-        run: make
+        run: |
+          make ARCH=x86
+          make ARCH=aarch64 bin/aarch64/sdcard.img
 
       # ── Generate changelog from last release ──
       - name: Generate changelog

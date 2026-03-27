@@ -52,8 +52,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             clang lld llvm nasm make \
-            gcc-mingw-w64-x86-64 \
-            gnu-efi \
             mtools dosfstools \
             fdisk
 
@@ -81,8 +79,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             clang lld llvm nasm make \
-            gcc-mingw-w64-x86-64 \
-            gnu-efi \
             mtools dosfstools \
             fdisk
 
@@ -105,8 +101,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             clang lld llvm nasm make \
-            gcc-mingw-w64-x86-64 \
-            gnu-efi \
             mtools dosfstools \
             fdisk \
             qemu-system-x86
@@ -135,8 +129,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             clang lld llvm nasm make \
-            gcc-mingw-w64-x86-64 \
-            gnu-efi \
             mtools dosfstools \
             fdisk \
             qemu-system-x86 \
@@ -166,8 +158,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             clang lld llvm nasm make \
-            gcc-mingw-w64-x86-64 \
-            gnu-efi \
             mtools dosfstools \
             fdisk parted \
             qemu-system-arm \

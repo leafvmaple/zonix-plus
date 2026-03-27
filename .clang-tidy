@@ -11,7 +11,6 @@ Checks: >
   cppcoreguidelines-init-variables,
   cppcoreguidelines-pro-type-cstyle-cast,
   cppcoreguidelines-pro-type-static-cast-downcast,
-  misc-definitions-in-headers,
   misc-non-copyable-objects,
   misc-redundant-expression,
   misc-unused-using-decls,

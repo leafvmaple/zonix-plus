@@ -1,6 +1,8 @@
 #include "vfs.h"
 
 #include "fat.h"
+#include "cons/cons.h"
+#include "lib/memory.h"
 #include "lib/stdio.h"
 #include "lib/string.h"
 
@@ -30,6 +32,104 @@ struct ResolveResult {
     MountSlot* slot{};
     const char* relpath{};
 };
+
+class ConsoleFile : public File {
+public:
+    int read(void* buf, size_t size, size_t offset) override {
+        (void)offset;
+        if (!buf) {
+            return -1;
+        }
+
+        auto* out = static_cast<char*>(buf);
+        for (size_t i = 0; i < size; i++) {
+            out[i] = cons::getc();
+        }
+        return static_cast<int>(size);
+    }
+
+    int write(const void* buf, size_t size, size_t offset) override {
+        (void)offset;
+        if (!buf) {
+            return -1;
+        }
+
+        const auto* in = static_cast<const char*>(buf);
+        for (size_t i = 0; i < size; i++) {
+            cons::putc(in[i]);
+        }
+        return static_cast<int>(size);
+    }
+
+    int stat(Stat* st) override {
+        if (!st) {
+            return -1;
+        }
+
+        st->type = NodeType::CharDevice;
+        st->size = 0;
+        st->attrs = 0;
+        return 0;
+    }
+};
+
+int open_device(const char* path, File** out_file) {
+    if (!path || !out_file) {
+        return -1;
+    }
+
+    if (strcmp(path, "/dev/console") != 0) {
+        return -1;
+    }
+
+    auto* file = new (std::nothrow) ConsoleFile();
+    if (!file) {
+        return -1;
+    }
+
+    *out_file = file;
+    return 0;
+}
+
+int stat_device(const char* path, Stat* st) {
+    if (!path || !st) {
+        return -1;
+    }
+
+    if (strcmp(path, "/dev") == 0) {
+        st->type = NodeType::Directory;
+        st->size = 0;
+        st->attrs = 0;
+        return 0;
+    }
+
+    if (strcmp(path, "/dev/console") == 0) {
+        st->type = NodeType::CharDevice;
+        st->size = 0;
+        st->attrs = 0;
+        return 0;
+    }
+
+    return -1;
+}
+
+int readdir_device(const char* path, ReadDirFn cb, void* arg) {
+    if (!path || !cb) {
+        return -1;
+    }
+
+    if (strcmp(path, "/dev") != 0) {
+        return -1;
+    }
+
+    DirEntry entry{};
+    strcpy(entry.name, "console");
+    entry.type = NodeType::CharDevice;
+    entry.size = 0;
+    entry.attrs = 0;
+    (void)cb(&entry, arg);
+    return 1;
+}
 
 MountSlot* find_slot(const char* mount_point) {
     if (!mount_point) {
@@ -136,6 +236,10 @@ int open(const char* path, File** out_file) {
 
     *out_file = nullptr;
 
+    if (open_device(path, out_file) == 0) {
+        return 0;
+    }
+
     ResolveResult rr{};
     if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
         return -1;
@@ -156,6 +260,14 @@ int read(File* file, void* buf, size_t size, size_t offset) {
     return file->read(buf, size, offset);
 }
 
+int write(File* file, const void* buf, size_t size, size_t offset) {
+    if (!file || !buf) {
+        return -1;
+    }
+
+    return file->write(buf, size, offset);
+}
+
 void close(File* file) {
     delete file;
 }
@@ -163,6 +275,10 @@ void close(File* file) {
 int stat(const char* path, Stat* st) {
     if (!path || !st) {
         return -1;
+    }
+
+    if (stat_device(path, st) == 0) {
+        return 0;
     }
 
     ResolveResult rr{};
@@ -176,6 +292,11 @@ int stat(const char* path, Stat* st) {
 int readdir(const char* path, ReadDirFn cb, void* arg) {
     if (!path || !cb) {
         return -1;
+    }
+
+    int dev_count = readdir_device(path, cb, arg);
+    if (dev_count >= 0) {
+        return dev_count;
     }
 
     ResolveResult rr{};
@@ -211,7 +332,7 @@ void print_mount_info(const char* mount_point) {
         cprintf("  Device: %s\n", slot->device_name);
     }
 
-    slot->fs->print_info();
+    slot->fs->print();
 }
 
 }  // namespace vfs
