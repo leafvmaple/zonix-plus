@@ -1,6 +1,7 @@
 #pragma once
 
 #include <base/types.h>
+#include "lib/array.h"
 
 namespace blk {
 
@@ -37,8 +38,7 @@ public:
     static void print();
 
 private:
-    inline static BlockDevice* s_devices[MAX_DEV]{};
-    inline static int s_device_count{};
+    inline static Array<BlockDevice*, MAX_DEV> s_devices{};
 };
 
 namespace blk {

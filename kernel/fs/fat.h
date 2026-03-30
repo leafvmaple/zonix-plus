@@ -52,11 +52,12 @@ private:
 
     static uint32_t get_cluster(FatDirEntry& entry);
 
-    int read_root_dir(fnCallback callback, void* arg);
     uint32_t read_entry(uint32_t cluster);
     int read_dir(uint32_t start_cluster, fnCallback callback, void* arg, bool verbose_read_error);
 
     int write_entry(uint32_t cluster, uint32_t value);
+
+    bool find_entry(uint32_t start_cluster, const char* name, FatDirEntry* out);
 
     void init_mount_state(BlockDevice* dev, uint32_t partition_start, const Fat32BootSector& bs);
 

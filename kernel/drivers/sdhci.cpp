@@ -6,24 +6,16 @@
 #include "mm/vmm.h"
 #include <asm/page.h>
 
-// ==========================================================================
-// SDHCI register offsets (SD Host Controller Specification v3.0)
-// ==========================================================================
 namespace reg {
 
-constexpr uint32_t SDMA_ADDR = 0x00;
 constexpr uint32_t BLOCK_SIZE = 0x04;  // lower 16: block size; upper 16: block count
 constexpr uint32_t BLOCK_COUNT = 0x06;
 constexpr uint32_t ARGUMENT = 0x08;
 constexpr uint32_t XFER_MODE = 0x0C;
 constexpr uint32_t COMMAND = 0x0E;
 constexpr uint32_t RESPONSE0 = 0x10;
-constexpr uint32_t RESPONSE1 = 0x14;
-constexpr uint32_t RESPONSE2 = 0x18;
-constexpr uint32_t RESPONSE3 = 0x1C;
 constexpr uint32_t BUF_DATA = 0x20;
 constexpr uint32_t PRESENT_STATE = 0x24;
-constexpr uint32_t HOST_CTRL1 = 0x28;
 constexpr uint32_t POWER_CTRL = 0x29;
 constexpr uint32_t CLOCK_CTRL = 0x2C;
 constexpr uint32_t TIMEOUT_CTRL = 0x2E;
@@ -34,21 +26,15 @@ constexpr uint32_t INT_ENABLE = 0x34;
 constexpr uint32_t ERR_ENABLE = 0x36;
 constexpr uint32_t INT_SIGNAL = 0x38;
 constexpr uint32_t ERR_SIGNAL = 0x3A;
-constexpr uint32_t CAPABILITIES = 0x40;
 constexpr uint32_t HOST_VERSION = 0xFE;
 
 }  // namespace reg
 
 constexpr uint32_t PS_CMD_INHIBIT = (1U << 0);
 constexpr uint32_t PS_DAT_INHIBIT = (1U << 1);
-constexpr uint32_t PS_BUF_READ_EN = (1U << 11);
-constexpr uint32_t PS_BUF_WRITE_EN = (1U << 10);
-constexpr uint32_t PS_CARD_INSERTED = (1U << 16);
-constexpr uint32_t PS_CARD_STABLE = (1U << 17);
 
 constexpr uint16_t INT_CMD_DONE = (1U << 0);
 constexpr uint16_t INT_XFER_DONE = (1U << 1);
-constexpr uint16_t INT_DMA = (1U << 3);
 constexpr uint16_t INT_BUF_WR_READY = (1U << 4);
 constexpr uint16_t INT_BUF_RD_READY = (1U << 5);
 constexpr uint16_t INT_ERROR = (1U << 15);
@@ -58,8 +44,6 @@ constexpr uint16_t CLK_INT_STABLE = (1U << 1);
 constexpr uint16_t CLK_SD_EN = (1U << 2);
 
 constexpr uint8_t RST_ALL = (1U << 0);
-constexpr uint8_t RST_CMD = (1U << 1);
-constexpr uint8_t RST_DAT = (1U << 2);
 
 constexpr uint8_t PWR_ON = (1U << 0);
 constexpr uint8_t PWR_3V3 = (7U << 1);  // 3.3V
@@ -73,14 +57,13 @@ constexpr uint16_t CMD_IDX_EN = 0x10;
 constexpr uint16_t CMD_DATA = 0x20;
 
 constexpr uint16_t XFER_READ = (1U << 4);
-constexpr uint16_t XFER_MULTI = (1U << 5);
-constexpr uint16_t XFER_BLK_CNT_EN = (1U << 1);
 
 constexpr uint8_t SD_CMD0_GO_IDLE = 0;
 constexpr uint8_t SD_CMD2_ALL_CID = 2;
 constexpr uint8_t SD_CMD3_SEND_RCA = 3;
 constexpr uint8_t SD_CMD7_SELECT = 7;
 constexpr uint8_t SD_CMD8_SEND_IF = 8;
+constexpr uint8_t SD_CMD9_SEND_CSD = 9;
 constexpr uint8_t SD_CMD16_SET_BLKLEN = 16;
 constexpr uint8_t SD_CMD17_READ = 17;
 constexpr uint8_t SD_CMD24_WRITE = 24;
@@ -224,14 +207,58 @@ uint32_t SdDevice::read_response(int idx) {
     return mmio::read32(base_, reg::RESPONSE0 + idx * 4);
 }
 
+int SdDevice::read_csd() {
+    // CMD9: SEND_CSD — must be called while card is in Stand-by State (after CMD3, before CMD7).
+    // R2 response (136-bit): SDHCI strips bits[7:0] (CRC+end) and stores CSD[127:8] in
+    // RESPONSE[119:0], so registers map as:
+    //   RESPONSE3[23:0] = CSD[127:104],  RESPONSE3[31:24] = 0
+    //   RESPONSE2[31:0] = CSD[103:72]
+    //   RESPONSE1[31:0] = CSD[71:40]
+    //   RESPONSE0[31:0] = CSD[39:8]
+    if (send_cmd(SD_CMD9_SEND_CSD, static_cast<uint32_t>(rca_) << 16,
+                 CMD_RESP_136 | CMD_CRC_EN) != 0) {
+        cprintf("sdhci: CMD9 failed\n");
+        return -1;
+    }
+
+    uint32_t r3 = read_response(3);
+    uint32_t r2 = read_response(2);
+    uint32_t r1 = read_response(1);
+
+    uint32_t csd_structure = (r3 >> 22) & 0x3;  // CSD[127:126]
+
+    if (csd_structure == 1) {
+        // CSD v2 (SDHC/SDXC): capacity = (C_SIZE + 1) * 512 KB
+        // C_SIZE [69:48] = RESPONSE1[29:8]
+        uint32_t c_size = (r1 >> 8) & 0x3FFFFF;
+        size = (c_size + 1) * 1024;
+        cprintf("sdhci: CSD v2, C_SIZE=%u -> %u sectors (%u MB)\n", c_size, size, size / 2048);
+    } else if (csd_structure == 0) {
+        // CSD v1 (SDSC): capacity = BLOCKNR * BLOCK_LEN
+        // READ_BL_LEN [83:80] = RESPONSE2[11:8]
+        uint32_t read_bl_len = (r2 >> 8) & 0xF;
+        // C_SIZE [73:62]: top 2 bits in RESPONSE2[1:0], bottom 10 bits in RESPONSE1[31:22]
+        uint32_t c_size = ((r2 & 0x3) << 10) | (r1 >> 22);
+        // C_SIZE_MULT [49:47] = RESPONSE1[9:7]
+        uint32_t c_size_mult = (r1 >> 7) & 0x7;
+        uint32_t blocknr = (c_size + 1) << (c_size_mult + 2);
+        size = (blocknr * (1U << read_bl_len)) / 512;
+        cprintf("sdhci: CSD v1, C_SIZE=%u C_SIZE_MULT=%u READ_BL_LEN=%u -> %u sectors (%u MB)\n",
+                c_size, c_size_mult, read_bl_len, size, size / 2048);
+    } else {
+        cprintf("sdhci: unknown CSD structure %u, defaulting to 131072 sectors\n", csd_structure);
+        size = 131072;
+    }
+
+    return 0;
+}
+
 int SdDevice::card_identify() {
-    // CMD0: GO_IDLE_STATE (no response)
     if (send_cmd(SD_CMD0_GO_IDLE, 0, CMD_RESP_NONE) != 0) {
         cprintf("sdhci: CMD0 failed\n");
         return -1;
     }
 
-    // CMD8: SEND_IF_COND — check SD v2+ (arg: VHS=1, check pattern=0xAA)
     if (send_cmd(SD_CMD8_SEND_IF, 0x1AA, CMD_RESP_48 | CMD_CRC_EN | CMD_IDX_EN) != 0) {
         cprintf("sdhci: CMD8 failed (not SD v2 card?)\n");
         return -1;
@@ -245,16 +272,13 @@ int SdDevice::card_identify() {
 
     sdhc_ = false;
 
-    // ACMD41 loop: send CMD55 + ACMD41 until card is ready
     int retry{};
     for (retry = 0; retry < ACMD41_RETRIES; retry++) {
-        // CMD55: APP_CMD (next command is application-specific)
         if (send_cmd(SD_CMD55_APP, 0, CMD_RESP_48 | CMD_CRC_EN | CMD_IDX_EN) != 0) {
             cprintf("sdhci: CMD55 failed\n");
             return -1;
         }
 
-        // ACMD41: SD_SEND_OP_COND (R3 response — no CRC/Index check)
         if (send_cmd(SD_ACMD41_OP_COND, ACMD41_HCS | ACMD41_VOLTAGE, CMD_RESP_48) != 0) {
             cprintf("sdhci: ACMD41 failed\n");
             return -1;
@@ -273,13 +297,11 @@ int SdDevice::card_identify() {
         return -1;
     }
 
-    // CMD2: ALL_SEND_CID (R2 = 136-bit response)
     if (send_cmd(SD_CMD2_ALL_CID, 0, CMD_RESP_136 | CMD_CRC_EN) != 0) {
         cprintf("sdhci: CMD2 failed\n");
         return -1;
     }
 
-    // CMD3: SEND_RELATIVE_ADDR — get RCA (R6 response)
     if (send_cmd(SD_CMD3_SEND_RCA, 0, CMD_RESP_48 | CMD_CRC_EN | CMD_IDX_EN) != 0) {
         cprintf("sdhci: CMD3 failed\n");
         return -1;
@@ -288,7 +310,9 @@ int SdDevice::card_identify() {
     rca_ = static_cast<uint16_t>(read_response(0) >> 16);
     cprintf("sdhci: RCA = 0x%x\n", rca_);
 
-    // CMD7: SELECT_CARD (R1b = 48-bit + busy)
+    if (read_csd() != 0)
+        return -1;
+
     if (send_cmd(SD_CMD7_SELECT, static_cast<uint32_t>(rca_) << 16, CMD_RESP_48_BUSY | CMD_CRC_EN | CMD_IDX_EN) != 0) {
         cprintf("sdhci: CMD7 (SELECT) failed\n");
         return -1;
@@ -311,7 +335,6 @@ int SdDevice::read_single(uint32_t lba, void* buf) {
 
     mmio::write16(base_, reg::XFER_MODE, XFER_READ);
 
-    // Send CMD17 with data flag
     if (send_cmd(SD_CMD17_READ, addr, CMD_RESP_48 | CMD_CRC_EN | CMD_IDX_EN | CMD_DATA) != 0)
         return -1;
 
@@ -345,10 +368,8 @@ int SdDevice::write_single(uint32_t lba, const void* buf) {
     mmio::write16(base_, reg::BLOCK_SIZE, 512);
     mmio::write16(base_, reg::BLOCK_COUNT, 1);
 
-    // Transfer mode: single block, write (direction bit = 0)
     mmio::write16(base_, reg::XFER_MODE, 0);
 
-    // Send CMD24 with data flag
     if (send_cmd(SD_CMD24_WRITE, addr, CMD_RESP_48 | CMD_CRC_EN | CMD_IDX_EN | CMD_DATA) != 0)
         return -1;
 
@@ -396,12 +417,6 @@ int SdDevice::init(volatile uint8_t* base, int index) {
     name[1] = 'd';
     name[2] = static_cast<char>('0' + index);
     name[3] = '\0';
-
-    // Read card capacity via CMD9 would be proper, but for simplicity
-    // report a reasonable default. QEMU's SD emulation typically reports
-    // the image file size. We can refine this later with CMD9 (SEND_CSD).
-    // For now, use the image size hint from QEMU (64 MB = 131072 sectors).
-    size = 131072;
 
     cprintf("sdhci: SD card initialized as '%s'\n", name);
     return 0;
@@ -489,7 +504,6 @@ int Manager::init() {
         return 0;
     }
 
-    s_device_count = 0;
     if (pci::register_driver(&SDHCI_DRIVER) != 0) {
         cprintf("sdhci: failed to register PCI driver\n");
         return -1;
@@ -500,29 +514,29 @@ int Manager::init() {
 }
 
 int Manager::device_count() {
-    return s_device_count;
+    return static_cast<int>(s_devices.size());
 }
 
 SdDevice* Manager::get_device(int index) {
-    if (index < 0 || index >= s_device_count) {
+    if (index < 0 || static_cast<size_t>(index) >= s_devices.size()) {
         return nullptr;
     }
     return &s_devices[index];
 }
 
 int Manager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*) {
-    if (s_device_count >= MAX_DEVICES) {
+    if (s_devices.full()) {
         cprintf("sdhci: too many controllers, max=%d\n", MAX_DEVICES);
         return -1;
     }
 
-    int index = s_device_count;
+    int index = static_cast<int>(s_devices.size());
     int rc = probe_one_controller(&s_devices[index], index, pdev->bus, pdev->dev, pdev->func);
     if (rc != 0) {
         return rc;
     }
 
-    s_device_count++;
+    s_devices.commit_back();
     return 0;
 }
 

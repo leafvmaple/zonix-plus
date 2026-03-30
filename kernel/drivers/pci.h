@@ -4,7 +4,6 @@
 
 namespace pci {
 
-// ---- PCI configuration space register offsets ----
 enum ConfigOffset : uint8_t {
     VENDOR_ID = 0x00,       // Vendor ID (16) + Device ID (16)
     COMMAND = 0x04,         // Command (16) + Status (16)
@@ -20,13 +19,11 @@ enum ConfigOffset : uint8_t {
     INTERRUPT = 0x3C,  // Interrupt Line + Interrupt Pin
 };
 
-// ---- PCI command register bits ----
 inline constexpr uint16_t CMD_IO_SPACE = 0x0001;
 inline constexpr uint16_t CMD_MEMORY_SPACE = 0x0002;
 inline constexpr uint16_t CMD_BUS_MASTER = 0x0004;
 inline constexpr uint16_t CMD_INTX_DISABLE = 0x0400;
 
-// ---- Common PCI class codes ----
 inline constexpr uint8_t CLASS_MASS_STORAGE = 0x01;
 inline constexpr uint8_t SUBCLASS_SATA = 0x06;
 inline constexpr uint8_t INTERFACE_AHCI = 0x01;
@@ -36,8 +33,6 @@ inline constexpr uint8_t SUBCLASS_SD_HOST = 0x05;
 inline constexpr uint8_t INTERFACE_SDHCI = 0x00;
 inline constexpr uint8_t INTERFACE_SDHCI_DMA = 0x01;
 
-// Platform init (e.g. aarch64 maps ECAM; x86 can be a no-op).
-// Must be called before any other pci:: function.
 int init();
 
 uint32_t config_read32(int bus, int dev, int func, int offset);

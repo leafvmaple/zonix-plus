@@ -11,6 +11,7 @@
 #include <base/bpb.h>
 #include <base/types.h>
 #include <kernel/sysinfo.h>
+#include "lib/array.h"
 #include "lib/cons_defs.h"
 
 // Command buffer configuration
@@ -31,28 +32,23 @@ struct ShellCommand {
     void (*func)(int argc, char** argv);
 };
 
-using shell_cmd_t = ShellCommand;
-
 namespace {
 
-shell_cmd_t commands[MAX_COMMANDS]{};
-int command_count = 0;
+Array<ShellCommand, MAX_COMMANDS> commands{};
 
 }  // namespace
 
-// Forward declarations
 static int strcmp(const char* s1, const char* s2);
 static size_t str_len(const char* s);
 static int parse_args(const char* cmd, char** argv);
 
-// Command implementations
 static void cmd_help(int argc, char** argv) {
     static_cast<void>(argc);
     static_cast<void>(argv);
 
     cprintf("Available commands:\n");
-    for (int i = 0; i < command_count; i++) {
-        cprintf("  %-10s - %s\n", commands[i].name, commands[i].desc);
+    for (const ShellCommand& cmd : commands) {
+        cprintf("  %-10s - %s\n", cmd.name, cmd.desc);
     }
 }
 
@@ -65,7 +61,6 @@ static void cmd_pgdir(int argc, char** argv) {
 static void cmd_clear(int argc, char** argv) {
     static_cast<void>(argc);
     static_cast<void>(argv);
-    // Simple clear by printing newlines
     for (int i = 0; i < SCREEN_ROWS; i++) {
         cprintf("\n");
     }
@@ -118,7 +113,6 @@ static void cmd_uname(int argc, char** argv) {
         cprintf("%s %s %s %s %s\n", SYSINFO_NAME, SYSINFO_HOSTNAME, ZONIX_VERSION_STRING, SYSINFO_VERSION,
                 SYSINFO_MACHINE);
     } else {
-        // Simple uname without arguments shows kernel name
         cprintf("%s\n", SYSINFO_NAME);
     }
 }
@@ -135,11 +129,9 @@ static void cmd_schedstat(int argc, char** argv) {
     sched::print_stats();
 }
 
-// Global mounted filesystem info
 static const char* g_system_device{};
 static int g_system_mounted{};
 
-// /mnt mounted disk (optional)
 static const char* g_mnt_device{};
 static int g_mnt_mounted{};
 
@@ -573,9 +565,9 @@ static void execute_command(const char* cmd) {
     }
 
     // Find and execute command
-    for (int i = 0; i < command_count; i++) {
-        if (strcmp(argv[0], commands[i].name) == 0) {
-            commands[i].func(argc, argv);
+    for (ShellCommand& cmd : commands) {
+        if (strcmp(argv[0], cmd.name) == 0) {
+            cmd.func(argc, argv);
             return;
         }
     }
@@ -606,20 +598,19 @@ int shell::register_command(const char* name, const char* desc, command_func_t f
         return -1;
     }
 
-    for (int i = 0; i < command_count; i++) {
-        if (strcmp(name, commands[i].name) == 0) {
+    for (const ShellCommand& cmd : commands) {
+        if (strcmp(name, cmd.name) == 0) {
             return -1;
         }
     }
 
-    if (command_count >= MAX_COMMANDS) {
+    ShellCommand cmd{};
+    cmd.name = name;
+    cmd.desc = desc;
+    cmd.func = func;
+    if (!commands.push_back(cmd)) {
         return -1;
     }
-
-    commands[command_count].name = name;
-    commands[command_count].desc = desc;
-    commands[command_count].func = func;
-    command_count++;
     return 0;
 }
 
@@ -630,7 +621,7 @@ void shell::prompt() {
 void shell::init() {
     cmd_pos = 0;
     cmd_buffer[0] = '\0';
-    command_count = 0;
+    commands.clear();
     register_builtin_commands();
     if (shell_register_extensions) {
         shell_register_extensions();
@@ -669,11 +660,9 @@ void shell::handle_char(char c) {
             break;
 
         case ASCII_DEL:
-            // Ignore DEL key
             break;
 
         default:
-            // Regular printable character
             if (cmd_pos < CMD_BUF_SIZE - 1 && c >= ASCII_PRINTABLE_MIN && c < ASCII_PRINTABLE_MAX) {
                 cmd_buffer[cmd_pos++] = c;
                 cons::putc(c);
@@ -682,14 +671,12 @@ void shell::handle_char(char c) {
     }
 }
 
-// Shell process entry point — runs as an independent kernel thread
 int shell::main(void* arg) {
     static_cast<void>(arg);
 
     shell::init();
     shell::prompt();
 
-    // Main loop: read characters from console (blocking)
     while (true) {
         char c = cons::getc();
         if (c > 0) {

@@ -1,5 +1,6 @@
 #include "fs/fat.h"
 
+#include "lib/array.h"
 #include "lib/memory.h"
 #include "lib/stdio.h"
 #include "lib/string.h"
@@ -8,8 +9,29 @@
 #include <base/bpb.h>
 
 namespace {
+
 constexpr uint32_t FAT_IO_MAX_CLUSTER_BUF = 4096;
+
+static char to_upper(char ch) {
+    return (ch >= 'a' && ch <= 'z') ? static_cast<char>(ch - 32) : ch;
 }
+
+static bool next_component(const char*& path, char* buf, size_t max) {
+    size_t len = 0;
+    while (*path && *path != '/') {
+        if (len + 1 >= max) {
+            return false;
+        }
+        buf[len++] = to_upper(*path++);
+    }
+    buf[len] = '\0';
+    while (*path == '/') {
+        path++;
+    }
+    return true;
+}
+
+}  // namespace
 
 int FatInfo::is_valid(FatDirEntry* entry, const void* buf, uint32_t offset, uint32_t* size, uint32_t* start_cluster,
                       const char* op) const {
@@ -145,23 +167,13 @@ int FatInfo::read_dir(uint32_t start_cluster, fnCallback callback, void* arg, bo
     return count;
 }
 
-int FatInfo::read_root_dir(fnCallback callback, void* arg) {
-    assert(fat_type_ == fat::TYPE_FAT32);
-
-    if (!callback) {
-        return -1;
-    }
-
-    return read_dir(root_cluster_, callback, arg, true);
-}
-
 int FatInfo::read_dir(const char* relpath, fnCallback callback, void* arg) {
-    if (!relpath || !callback || fat_type_ != fat::TYPE_FAT32) {
+    if (!relpath || !callback) {
         return -1;
     }
 
     if (relpath[0] == '\0') {
-        return read_root_dir(callback, arg);
+        return read_dir(root_cluster_, callback, arg, true);
     }
 
     FatDirEntry dir{};
@@ -177,9 +189,48 @@ int FatInfo::read_dir(const char* relpath, fnCallback callback, void* arg) {
     return read_dir(start_cluster, callback, arg, false);
 }
 
-int FatInfo::find_file(const char* filename, FatDirEntry* result) {
-    assert(fat_type_ == fat::TYPE_FAT32);
+bool FatInfo::find_entry(uint32_t start_cluster, const char* name, FatDirEntry* out) {
+    uint8_t sector_buf[512]{};
 
+    for (uint32_t cluster = start_cluster; cluster >= 2 && cluster < fat::FAT32_EOC_MIN;
+         cluster = read_entry(cluster)) {
+        uint32_t base_sector = cluster_to_sector(cluster);
+
+        for (uint32_t i = 0; i < sectors_per_cluster_; i++) {
+            if (dev_->read(partition_start_ + base_sector + i, sector_buf, 1) != 0) {
+                return false;
+            }
+
+            auto* entries = reinterpret_cast<FatDirEntry*>(sector_buf);
+            for (uint32_t j = 0; j < bytes_per_sector_ / 32; j++) {
+                FatDirEntry& entry = entries[j];
+
+                if (entry.name[0] == 0x00) {
+                    return false;
+                }
+
+                if (!entry.is_valid()) {
+                    continue;
+                }
+
+                char entry_name[13]{};
+                get_filename(&entry, entry_name, sizeof(entry_name));
+                for (size_t k = 0; entry_name[k]; k++) {
+                    entry_name[k] = to_upper(entry_name[k]);
+                }
+
+                if (strcmp(entry_name, name) == 0) {
+                    *out = entry;
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+int FatInfo::find_file(const char* filename, FatDirEntry* result) {
     if (!filename || !result) {
         return -1;
     }
@@ -189,97 +240,38 @@ int FatInfo::find_file(const char* filename, FatDirEntry* result) {
         return -1;
     }
 
-    char component[13]{};
-    uint32_t current_cluster = root_cluster_;
+    constexpr int MAX_DEPTH = 16;
+    Array<char[13], MAX_DEPTH> components{};
 
     while (*path) {
-        size_t comp_len = 0;
-        while (*path && *path != '/') {
-            if (comp_len + 1 >= sizeof(component)) {
-                return -1;
-            }
-            char ch = *path;
-            if (ch >= 'a' && ch <= 'z') {
-                ch = static_cast<char>(ch - 32);
-            }
-            component[comp_len++] = ch;
-            path++;
-        }
-        component[comp_len] = '\0';
+        char component[13]{};
+        if (!next_component(path, component, sizeof(component)))
+            return -1;
 
-        while (*path == '/') {
-            path++;
-        }
-
-        if (component[0] == '\0' || (component[0] == '.' && component[1] == '\0')) {
+        if (component[0] == '\0' || (component[0] == '.' && component[1] == '\0'))
             continue;
-        }
 
         if (component[0] == '.' && component[1] == '.' && component[2] == '\0') {
-            current_cluster = root_cluster_;
+            components.pop_back();
             continue;
         }
 
-        bool found = false;
-        bool dir_end = false;
-        uint8_t sector_buf[512]{};
-
-        for (uint32_t cluster = current_cluster; cluster >= 2 && cluster < fat::FAT32_EOC_MIN;
-             cluster = read_entry(cluster)) {
-            uint32_t base_sector = cluster_to_sector(cluster);
-
-            for (uint32_t i = 0; i < sectors_per_cluster_; i++) {
-                uint32_t sector = base_sector + i;
-                if (dev_->read(partition_start_ + sector, sector_buf, 1) != 0) {
-                    return -1;
-                }
-
-                auto* entries = reinterpret_cast<FatDirEntry*>(sector_buf);
-                for (uint32_t j = 0; j < bytes_per_sector_ / 32; j++) {
-                    FatDirEntry& entry = entries[j];
-
-                    if (entry.name[0] == 0x00) {
-                        dir_end = true;
-                        break;
-                    }
-
-                    if (!entry.is_valid()) {
-                        continue;
-                    }
-
-                    char entry_name[13]{};
-                    get_filename(&entry, entry_name, sizeof(entry_name));
-                    for (size_t k = 0; entry_name[k] != '\0'; k++) {
-                        if (entry_name[k] >= 'a' && entry_name[k] <= 'z') {
-                            entry_name[k] = static_cast<char>(entry_name[k] - 32);
-                        }
-                    }
-
-                    if (strcmp(entry_name, component) == 0) {
-                        *result = entry;
-                        current_cluster = get_cluster(*result);
-                        found = true;
-                        break;
-                    }
-                }
-
-                if (found || dir_end) {
-                    break;
-                }
-            }
-
-            if (found || dir_end) {
-                break;
-            }
-        }
-
-        if (!found) {
+        if (!components.push_back(component))
             return -1;
-        }
+    }
 
-        if (*path != '\0' && (result->attr & FAT_ATTR_DIRECTORY) == 0) {
+    if (components.empty())
+        return -1;
+
+    uint32_t current_cluster = root_cluster_;
+
+    for (size_t i = 0; i < components.size(); i++) {
+        if (!find_entry(current_cluster, components[i], result))
             return -1;
-        }
+        current_cluster = get_cluster(*result);
+
+        if (i + 1 < components.size() && (result->attr & FAT_ATTR_DIRECTORY) == 0)
+            return -1;
     }
 
     return 0;

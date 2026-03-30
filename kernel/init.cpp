@@ -1,6 +1,7 @@
 #include "block/blk.h"
 #include "drivers/intr.h"
 #include "drivers/pci.h"
+#include "drivers/sdhci.h"
 #include "cons/cons.h"
 #include "mm/pmm.h"
 #include "mm/vmm.h"
@@ -62,7 +63,8 @@ static const InitStep KERN_STEPS[] = {
     {"early_init", early_init, true},  {"pmm", pmm::init, true},
     {"vmm", vmm::init, true},          {"cons_late", cons::late_init, false},
     {"pci_init", pci::init, false},    {"blk", blk::init, true},
-    {"pci_reg", pci_registers, false}, {"pci_probe", pci::probe_drivers, false},
+    {"sdhci", sdhci::init, false},     {"pci_reg", pci_registers, false},
+    {"pci_probe", pci::probe_drivers, false},
     {"swap", swap::init, false},       {"sched", sched::init, true},
 };
 

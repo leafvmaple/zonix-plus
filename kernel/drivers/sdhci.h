@@ -4,6 +4,7 @@
 
 #include <base/types.h>
 #include "block/blk.h"
+#include "lib/array.h"
 
 namespace pci {
 struct DeviceInfo;
@@ -31,6 +32,7 @@ private:
     uint32_t read_response(int idx);
 
     int card_identify();
+    int read_csd();
     int read_single(uint32_t lba, void* buf);
     int write_single(uint32_t lba, const void* buf);
 };
@@ -49,8 +51,7 @@ public:
 
 private:
     inline static bool s_initialized{};
-    inline static int s_device_count{};
-    inline static SdDevice s_devices[MAX_DEVICES]{};
+    inline static Array<SdDevice, MAX_DEVICES> s_devices{};
 };
 
 int init();

@@ -8,7 +8,6 @@
 #include <kernel/bootinfo.h>
 
 #include "drivers/gic.h"
-#include "drivers/sdhci.h"
 #include "drivers/timer.h"
 #include "drivers/virtio_kbd.h"
 #include "lib/stdio.h"
@@ -32,7 +31,6 @@ const InitStep ARCH_STEPS[] = {
 };
 
 const InitStep PCI_STEPS[] = {
-    {"sdhci", sdhci::init, false},
     {"virtio_kbd", virtio_kbd::init, false},
 };
 
@@ -53,21 +51,6 @@ const InitStep* arch_pci_steps(size_t* count) {
     return PCI_STEPS;
 }
 
-int arch_register_pci_drivers() {
-    int rc = 0;
-
-    if (sdhci::init() != 0) {
-        cprintf("pci: failed to register sdhci driver\n");
-        rc = -1;
-    }
-
-    if (virtio_kbd::init() != 0) {
-        cprintf("pci: failed to register virtio_kbd driver\n");
-        rc = -1;
-    }
-
-    return rc;
-}
 
 void arch_switch_rsp0(uintptr_t) {
     // AArch64 EL1 uses SP_EL1 implicitly; no TSS equivalent needed.

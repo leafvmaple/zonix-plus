@@ -1,4 +1,5 @@
 #include "drivers/pci.h"
+#include "lib/array.h"
 #include "lib/stdio.h"
 
 namespace {
@@ -6,14 +7,12 @@ namespace {
 constexpr int MAX_ENUM_DEVICES = 512;
 constexpr int MAX_REGISTERED_DRIVERS = 32;
 
-pci::DeviceInfo s_devices[MAX_ENUM_DEVICES];
-int s_device_count = 0;
-bool s_scanned = false;
+Array<pci::DeviceInfo, MAX_ENUM_DEVICES> s_devices{};
+bool s_scanned{};
 
-const pci::Driver* s_drivers[MAX_REGISTERED_DRIVERS];
-int s_driver_count = 0;
+Array<const pci::Driver*, MAX_REGISTERED_DRIVERS> s_drivers{};
 
-int s_bound_driver[MAX_ENUM_DEVICES];
+Array<int, MAX_ENUM_DEVICES> s_bound_driver{};
 
 bool is_present(uint32_t id) {
     return !(id == 0xFFFFFFFF || (id & 0xFFFF) == 0xFFFF);
@@ -25,12 +24,11 @@ uint8_t read_header_type(int bus, int dev, int func) {
 }
 
 void reset_bindings() {
-    for (int i = 0; i < MAX_ENUM_DEVICES; i++)
-        s_bound_driver[i] = -1;
+    s_bound_driver.fill(-1);
 }
 
 void scan_all_devices() {
-    s_device_count = 0;
+    s_devices.clear();
 
     int buses = pci::bus_count();
     for (int bus = 0; bus < buses; bus++) {
@@ -49,7 +47,7 @@ void scan_all_devices() {
                     continue;
                 }
 
-                if (s_device_count >= MAX_ENUM_DEVICES) {
+                if (s_devices.full()) {
                     cprintf("pci: device table full, max=%d\n", MAX_ENUM_DEVICES);
                     s_scanned = true;
                     reset_bindings();
@@ -59,7 +57,7 @@ void scan_all_devices() {
                 uint32_t cr = pci::config_read32(bus, dev, func, pci::CLASS_REVISION);
                 uint8_t hdr = (func == 0) ? hdr0 : read_header_type(bus, dev, func);
 
-                pci::DeviceInfo& di = s_devices[s_device_count++];
+                pci::DeviceInfo di{};
                 di.bus = static_cast<uint8_t>(bus);
                 di.dev = static_cast<uint8_t>(dev);
                 di.func = static_cast<uint8_t>(func);
@@ -69,6 +67,7 @@ void scan_all_devices() {
                 di.subcls = static_cast<uint8_t>((cr >> 16) & 0xFF);
                 di.iface = static_cast<uint8_t>((cr >> 8) & 0xFF);
                 di.header_type = static_cast<uint8_t>(hdr & 0x7F);
+                s_devices.push_back(di);
             }
         }
     }
@@ -115,30 +114,29 @@ int register_driver(const Driver* driver) {
         return -1;
     }
 
-    for (int i = 0; i < s_driver_count; i++) {
-        if (s_drivers[i] == driver) {
+    for (const pci::Driver* d : s_drivers) {
+        if (d == driver) {
             return 0;
         }
     }
 
-    if (s_driver_count >= MAX_REGISTERED_DRIVERS) {
+    if (!s_drivers.push_back(driver)) {
         cprintf("pci: driver table full, max=%d\n", MAX_REGISTERED_DRIVERS);
         return -1;
     }
 
-    s_drivers[s_driver_count++] = driver;
     return 0;
 }
 
 int probe_drivers() {
     ensure_scanned();
 
-    for (int i = 0; i < s_device_count; i++) {
+    for (size_t i = 0; i < s_devices.size(); i++) {
         if (s_bound_driver[i] >= 0) {
             continue;
         }
 
-        for (int d = 0; d < s_driver_count; d++) {
+        for (size_t d = 0; d < s_drivers.size(); d++) {
             const Driver* drv = s_drivers[d];
             const DriverId* matched = find_matching_id(drv, s_devices[i]);
             if (matched == nullptr) {
@@ -147,7 +145,7 @@ int probe_drivers() {
 
             int rc = drv->probe(&s_devices[i], matched);
             if (rc == 0) {
-                s_bound_driver[i] = d;
+                s_bound_driver[i] = static_cast<int>(d);
                 break;
             }
         }
