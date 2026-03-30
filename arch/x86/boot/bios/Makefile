@@ -26,7 +26,7 @@ $(mbr): $(MOBJ) $(SCRIPTDIR)/mbr.ld | $$(dir $$@)
 # --------------------------------------------------------------------------
 # VBR (Volume Boot Record — 512 bytes, 16-bit real mode)
 # --------------------------------------------------------------------------
-bootfiles = $(filter-out $(BOOT_BIOS_DIR)/mbr.S $(BOOT_BIOS_DIR)/bootload.c $(BOOT_BIOS_DIR)/entry.S, \
+bootfiles = $(filter-out $(BOOT_BIOS_DIR)/mbr.S $(BOOT_BIOS_DIR)/bootload.cpp $(BOOT_BIOS_DIR)/entry.S, \
               $(call listf_cc,$(BOOT_BIOS_DIR)))
 $(eval $(call compiles,$(bootfiles),$(CC),$(BOOT_CFLAGS) $(BOOT_INC) -Os))
 
@@ -45,19 +45,19 @@ $(vbr): $(VOBJS) $(SCRIPTDIR)/boot.ld | $$(dir $$@)
 # Can use reserved sectors: sector 1-7 (512 * 7 = 3584 bytes max)
 # --------------------------------------------------------------------------
 bootloader = $(call totarget,bootloader)
-BOOTLOAD_C_OBJ := $(call toobj,$(BOOT_BIOS_DIR)/bootload.c)
+BOOTLOAD_CXX_OBJ := $(call toobj,$(BOOT_BIOS_DIR)/bootload.cpp)
 BOOTLOAD_S_OBJ := $(call toobj,$(BOOT_BIOS_DIR)/entry.S)
 
-$(BOOTLOAD_C_OBJ): $(BOOT_BIOS_DIR)/bootload.c | $$(dir $$@)
-	$(Q)$(CC) $(BOOT_CFLAGS) $(BOOT_INC) $(DEPFLAGS) -O2 -c $< -o $@
+$(BOOTLOAD_CXX_OBJ): $(BOOT_BIOS_DIR)/bootload.cpp | $$(dir $$@)
+	$(Q)$(CXX) $(BOOT_CXXFLAGS) $(BOOT_INC) $(DEPFLAGS) -O2 -c $< -o $@
 
 $(BOOTLOAD_S_OBJ): $(BOOT_BIOS_DIR)/entry.S | $$(dir $$@)
 	$(Q)$(CC) $(BOOT_CFLAGS) $(BOOT_INC) $(DEPFLAGS) -D__ASSEMBLY__ -c $< -o $@
 
-ALLOBJS += $(BOOTLOAD_C_OBJ) $(BOOTLOAD_S_OBJ)
+ALLOBJS += $(BOOTLOAD_CXX_OBJ) $(BOOTLOAD_S_OBJ)
 
-$(bootloader): $(BOOTLOAD_C_OBJ) $(BOOTLOAD_S_OBJ) $(SCRIPTDIR)/bootload.ld | $$(dir $$@)
-	$(Q)$(LD) $(BOOT_LDFLAGS) -T $(SCRIPTDIR)/bootload.ld -o $@ $(BOOTLOAD_C_OBJ) $(BOOTLOAD_S_OBJ)
+$(bootloader): $(BOOTLOAD_CXX_OBJ) $(BOOTLOAD_S_OBJ) $(SCRIPTDIR)/bootload.ld | $$(dir $$@)
+	$(Q)$(LD) $(BOOT_LDFLAGS) -T $(SCRIPTDIR)/bootload.ld -o $@ $(BOOTLOAD_CXX_OBJ) $(BOOTLOAD_S_OBJ)
 	$(Q)$(OBJCOPY) -S -O binary $@ $(call tobin,bootloader)
 	@if [ `stat -c%s $(call tobin,bootloader)` -gt 3584 ]; then \
 		echo "Error: Bootloader size is `stat -c%s $(call tobin,bootloader)` bytes, must be <= 3584"; exit 1; fi
