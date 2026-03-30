@@ -69,7 +69,7 @@ int Table::fork_from(const Table& parent, ForkPolicy policy) {
     switch (policy) {
         case ForkPolicy::Reset: init(); return 0;
         case ForkPolicy::Share:
-            (void)parent;
+            static_cast<void>(parent);
             // Shared file descriptions need refcounted open-file objects.
             return -1;
         default: return -1;

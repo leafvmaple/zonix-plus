@@ -153,7 +153,7 @@ static void test_mem_functions() {
     TEST_ASSERT(buf1[0] == 0 && buf1[63] == 0, "memset zero works");
 
     for (int i = 0; i < 64; i++)
-        buf1[i] = (uint8_t)i;
+        buf1[i] = static_cast<uint8_t>(i);
 
     memcpy(buf2, buf1, 64);
     TEST_ASSERT(memcmp(buf1, buf2, 64) == 0, "memcpy + memcmp: buffers match");

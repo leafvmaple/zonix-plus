@@ -1,3 +1,4 @@
+#include "kernel/bootinfo.h"
 #include <uefi/uefi.h>
 #include <boot/uefi_boot.h>
 
@@ -9,7 +10,7 @@
  */
 #define SAFE_BOOT_INFO_ADDR   0x40005000ULL
 #define SAFE_MMAP_ADDR        0x40005100ULL
-#define SAFE_MMAP_MAX_ENTRIES ((0x40007000ULL - SAFE_MMAP_ADDR) / sizeof(boot_mmap_entry))
+#define SAFE_MMAP_MAX_ENTRIES ((0x40007000ULL - SAFE_MMAP_ADDR) / sizeof(BootMemEntry))
 
 extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_table) {
     EFI_SYSTEM_TABLE* st = system_table;
@@ -19,8 +20,8 @@ extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE*
     uefi_print(st, UEFI_STR(L"\r\nZonix UEFI Bootloader (AArch64) v1.0\r\n\r\n"));
     bs->SetWatchdogTimer(0, 0, 0, 0);
 
-    auto* bi = (boot_info*)(UINTN)SAFE_BOOT_INFO_ADDR;
-    memset(bi, 0, sizeof(boot_info));
+    auto* bi = reinterpret_cast<BootInfo*>(SAFE_BOOT_INFO_ADDR);
+    memset(bi, 0, sizeof(BootInfo));
     bi->magic = BOOT_INFO_MAGIC;
     bi->mmap_addr = SAFE_MMAP_ADDR;
 
@@ -32,8 +33,8 @@ extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE*
     }
 
     uefi_print(st, UEFI_STR(L"Loading kernel...\r\n"));
-    VOID* kernel_buf = 0;
-    UINTN kernel_size = 0;
+    void* kernel_buf = 0;
+    uintptr_t kernel_size = 0;
     status = uefi_load_kernel_file(bs, image_handle, &kernel_buf, &kernel_size);
     if (EFI_ERROR(status)) {
         uefi_print(st, UEFI_STR(L"Kernel load failed\r\n"));
@@ -48,7 +49,7 @@ extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE*
      */
     {
         EFI_PHYSICAL_ADDRESS kernel_base = 0x40080000ULL;
-        UINTN kernel_pages = 256; /* 1 MB */
+        uintptr_t kernel_pages = 256; /* 1 MB */
         status = bs->AllocatePages(AllocateAddress, EfiLoaderCode, kernel_pages, &kernel_base);
         if (EFI_ERROR(status)) {
             uefi_print(st, UEFI_STR(L"AllocatePages for kernel failed\r\n"));
@@ -81,8 +82,8 @@ extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE*
      * Jump to kernel.  AArch64 UEFI and kernel both use AAPCS64
      * (first argument in x0), so a direct function call suffices.
      */
-    using kernel_entry_fn = void (*)(boot_info*);
-    auto entry = (kernel_entry_fn)(UINTN)bi->kernel_entry;
+    using kernel_entry_fn = void (*)(BootInfo*);
+    auto entry = reinterpret_cast<kernel_entry_fn>(bi->kernel_entry);
     entry(bi);
 
     for (;;) {

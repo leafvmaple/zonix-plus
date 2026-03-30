@@ -23,7 +23,7 @@
 extern "C" const uint8_t _binary_fonts_console_psf_start[];
 extern "C" const uint8_t _binary_fonts_console_psf_end[];
 
-extern struct boot_info __kernel_boot_info;
+extern struct BootInfo __kernel_boot_info;
 
 namespace fbcons {
 
@@ -224,7 +224,7 @@ bool is_active() {
 }
 
 void late_init() {
-    struct boot_info* bi = &::__kernel_boot_info;
+    struct BootInfo* bi = &::__kernel_boot_info;
 
     cprintf("fbcons_late_init: type=%d addr=0x%lx w=%d h=%d pitch=%d bpp=%d\n", bi->framebuffer_type,
             static_cast<unsigned long>(bi->framebuffer_addr), bi->framebuffer_width, bi->framebuffer_height,

@@ -85,7 +85,7 @@ void IdeDevice::interrupt() {
     request.waitq.wakeup_one();
 }
 
-void IdeManager::init(void) {
+void IdeManager::init() {
     i8259::enable(IRQ_IDE1);
     i8259::enable(IRQ_IDE2);
 

@@ -62,7 +62,7 @@ static constexpr uint32_t PT_PS = 0x080;  // Page Size (2MB)
 
 static uint8_t boot_drive{};
 static auto* bpb32 = reinterpret_cast<Fat32Bpb*>(0x7C0B);  // BPB starts at 0x7C00 + 0x0B (after jmp + oem)
-static boot_info bi{};
+static BootInfo bi{};
 
 static void ata_wait_ready() {
     while ((inb(ATA_PORT_STATUS) & (ATA_STATUS_BSY | ATA_STATUS_DRDY)) != ATA_STATUS_DRDY)
@@ -96,7 +96,7 @@ static int read_sectors(uint32_t lba, uint32_t count, uint8_t* buffer) {
     return 0;
 }
 
-static int load_elf_kernel(uint8_t* elf_buffer, boot_info* bi) {
+static int load_elf_kernel(uint8_t* elf_buffer, BootInfo* bi) {
     auto* elf = reinterpret_cast<ElfHdr64*>(elf_buffer);
 
     if (elf->e_magic != ELF_MAGIC) {
@@ -149,7 +149,7 @@ static uint32_t fat_find_file(const char* filename, uint8_t* dir_buffer, uint32_
         }
         // Compare name (8 bytes) and ext (3 bytes) together as 11 bytes
         if (memcmp(&entry[i].name, filename, 11) == 0) {
-            return ((uint32_t)entry[i].first_cluster_high << 16) | entry[i].first_cluster_low;
+            return (static_cast<uint32_t>(entry[i].first_cluster_high) << 16) | entry[i].first_cluster_low;
         }
     }
     return 0;  // Not found
@@ -262,9 +262,9 @@ static void build_gdt64() {
 //   info: pointer to struct boot_info (passed to kernel in %rdi)
 // =============================================================================
 extern "C" {
-void __attribute__((noreturn)) enter_long_mode(uint32_t kernel_entry_phys, struct boot_info* info);
+[[noreturn]] void enter_long_mode(uint32_t kernel_entry_phys, struct BootInfo* info);
 
-void __attribute__((section(".text.bootmain"))) bootmain(uint32_t boot_drive_param);
+[[gnu::section(".text.bootmain")]] void bootmain(uint32_t boot_drive_param);
 }
 
 void bootmain(uint32_t boot_drive_param) {
@@ -277,7 +277,7 @@ void bootmain(uint32_t boot_drive_param) {
     bi.mmap_length = e820_count;
     bi.mmap_addr = E820_MEM_DATA;
 
-    auto* mmap_entries = reinterpret_cast<boot_mmap_entry*>(E820_MEM_DATA);
+    auto* mmap_entries = reinterpret_cast<BootMemEntry*>(E820_MEM_DATA);
     bi.mem_lower = 640;  // Always 640KB
     for (uint32_t i = 0; i < e820_count; i++) {
         auto* entry = &mmap_entries[i];

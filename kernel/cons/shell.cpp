@@ -47,8 +47,8 @@ static int parse_args(const char* cmd, char** argv);
 
 // Command implementations
 static void cmd_help(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
+    static_cast<void>(argc);
+    static_cast<void>(argv);
 
     cprintf("Available commands:\n");
     for (int i = 0; i < command_count; i++) {
@@ -57,14 +57,14 @@ static void cmd_help(int argc, char** argv) {
 }
 
 static void cmd_pgdir(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
+    static_cast<void>(argc);
+    static_cast<void>(argv);
     vmm::print_pgdir();
 }
 
 static void cmd_clear(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
+    static_cast<void>(argc);
+    static_cast<void>(argv);
     // Simple clear by printing newlines
     for (int i = 0; i < SCREEN_ROWS; i++) {
         cprintf("\n");
@@ -72,14 +72,14 @@ static void cmd_clear(int argc, char** argv) {
 }
 
 static void cmd_lsblk(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
+    static_cast<void>(argc);
+    static_cast<void>(argv);
     BlockManager::print();
 }
 
 static void cmd_hdparm(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
+    static_cast<void>(argc);
+    static_cast<void>(argv);
 
     int count = BlockManager::get_device_count();
     if (count == 0) {
@@ -97,8 +97,8 @@ static void cmd_hdparm(int argc, char** argv) {
 }
 
 static void cmd_dd(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
+    static_cast<void>(argc);
+    static_cast<void>(argv);
     cprintf("dd - disk read/write utility\n");
     cprintf("Note: Full dd command with parameters not yet implemented\n");
 }
@@ -124,14 +124,14 @@ static void cmd_uname(int argc, char** argv) {
 }
 
 static void cmd_ps(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
+    static_cast<void>(argc);
+    static_cast<void>(argv);
     sched::print();
 }
 
 static void cmd_schedstat(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
+    static_cast<void>(argc);
+    static_cast<void>(argv);
     sched::print_stats();
 }
 
@@ -146,7 +146,7 @@ static int g_mnt_mounted{};
 // Auto-mount system disk on first access
 // Tries each block device in order until one successfully mounts as FAT.
 // This handles both BIOS (IDE hda with raw FAT) and UEFI (AHCI sda with GPT+ESP).
-static int ensure_system_mounted(void) {
+static int ensure_system_mounted() {
     if (g_system_mounted && vfs::is_mounted("/")) {
         return 0;  // Already mounted
     }
@@ -216,8 +216,8 @@ static void cmd_mount(int argc, char** argv) {
 }
 
 static void cmd_umount(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
+    static_cast<void>(argc);
+    static_cast<void>(argv);
 
     if (!g_mnt_mounted || !vfs::is_mounted("/mnt")) {
         cprintf("Nothing mounted at /mnt\n");
@@ -238,8 +238,8 @@ static void cmd_umount(int argc, char** argv) {
 }
 
 static void cmd_info(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
+    static_cast<void>(argc);
+    static_cast<void>(argv);
 
     // Auto-mount system disk if needed
     if (ensure_system_mounted() != 0) {
@@ -260,7 +260,7 @@ static void cmd_info(int argc, char** argv) {
 }
 
 static int ls_callback(const vfs::DirEntry* entry, void* arg) {
-    (void)arg;
+    static_cast<void>(arg);
 
     // Get file attributes
     char attr_str[6] = "-----";
@@ -490,7 +490,7 @@ static void cmd_exec(int argc, char** argv) {
     }
 }
 
-extern void shell_register_extensions(void) __attribute__((weak));
+[[gnu::weak]] extern void shell_register_extensions();
 
 static void register_builtin_command(const char* name, const char* desc, shell::command_func_t func) {
     if (shell::register_command(name, desc, func) != 0) {
@@ -623,11 +623,11 @@ int shell::register_command(const char* name, const char* desc, command_func_t f
     return 0;
 }
 
-void shell::prompt(void) {
+void shell::prompt() {
     cprintf("zonix> ");
 }
 
-void shell::init(void) {
+void shell::init() {
     cmd_pos = 0;
     cmd_buffer[0] = '\0';
     command_count = 0;
@@ -684,7 +684,7 @@ void shell::handle_char(char c) {
 
 // Shell process entry point — runs as an independent kernel thread
 int shell::main(void* arg) {
-    (void)arg;
+    static_cast<void>(arg);
 
     shell::init();
     shell::prompt();

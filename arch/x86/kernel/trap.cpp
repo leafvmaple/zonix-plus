@@ -109,7 +109,7 @@ uint32_t arch_page_fault_error(const TrapFrame* tf) {
 }
 
 uintptr_t arch_page_fault_addr(const TrapFrame* tf) {
-    (void)tf;
+    static_cast<void>(tf);
     return arch_fault_addr();
 }
 
@@ -118,11 +118,11 @@ bool arch_is_syscall(const TrapFrame* tf) {
 }
 
 void arch_on_syscall_entry(TrapFrame* tf) {
-    (void)tf;
+    static_cast<void>(tf);
 }
 
 void arch_on_unhandled(TrapFrame* tf) {
-    (void)tf;
+    static_cast<void>(tf);
 }
 
 void arch_post_dispatch(TrapFrame* tf) {

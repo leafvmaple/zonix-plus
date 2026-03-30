@@ -56,8 +56,8 @@ int copy_user_cstr(const char* user, char* out, size_t out_size) {
 }
 
 long sys_open(TaskStruct* cur, const char* user_path, int flags, int mode) {
-    (void)flags;
-    (void)mode;
+    static_cast<void>(flags);
+    static_cast<void>(mode);
 
     if (!cur) {
         return -1;

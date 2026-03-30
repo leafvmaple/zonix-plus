@@ -1,5 +1,7 @@
 #pragma once
 
+#include <base/types.h>
+
 #define MBR_SECTOR_SIZE      512    /* MBR sector size */
 #define MBR_SIGNATURE        0xAA55 /* MBR signature */
 #define MBR_PARTITION_COUNT  4      /* Number of partition entries */
@@ -26,7 +28,7 @@
 
 #ifndef __ASSEMBLER__
 
-struct mbr_partition_t {
+struct MbrPartition {
     uint8_t boot_flag;    /* 0x80 = bootable, 0x00 = not bootable */
     uint8_t start_chs[3]; /* Starting CHS address */
     uint8_t type;         /* Partition type */
@@ -35,9 +37,9 @@ struct mbr_partition_t {
     uint32_t size;        /* Size in sectors */
 } __attribute__((packed));
 
-struct mbr_t {
+struct MbrHeader {
     uint8_t boot_code[446];
-    mbr_partition_t partitions[MBR_PARTITION_COUNT];
+    MbrPartition partitions[MBR_PARTITION_COUNT];
     uint16_t signature; /* 0xAA55 */
 } __attribute__((packed));
 

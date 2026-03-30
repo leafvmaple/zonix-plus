@@ -8,8 +8,8 @@
 #include <base/types.h>
 
 static inline void* memcpy(void* dst, const void* src, size_t n) {
-    char* d = (char*)dst;
-    const char* s = (const char*)src;
+    auto* d = static_cast<char*>(dst);
+    auto* s = static_cast<const char*>(src);
     while (n--) {
         *d++ = *s++;
     }
@@ -17,15 +17,15 @@ static inline void* memcpy(void* dst, const void* src, size_t n) {
 }
 
 static inline void* memset(void* dst, int c, size_t n) {
-    char* d = (char*)dst;
+    auto* d = static_cast<char*>(dst);
     while (n--)
-        *d++ = (char)c;
+        *d++ = static_cast<char>(c);
     return dst;
 }
 
 static inline int memcmp(const void* s1, const void* s2, size_t n) {
-    const uint8_t* p1 = (const uint8_t*)s1;
-    const uint8_t* p2 = (const uint8_t*)s2;
+    auto* p1 = static_cast<const uint8_t*>(s1);
+    auto* p2 = static_cast<const uint8_t*>(s2);
     while (n--) {
         if (*p1 != *p2) {
             return *p1 - *p2;

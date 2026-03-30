@@ -8,8 +8,8 @@ namespace sched {
 void test();
 }
 
-extern void driver_test_disktest(void) __attribute__((weak));
-extern void driver_test_intrtest(void) __attribute__((weak));
+[[gnu::weak]] extern void driver_test_disktest();
+[[gnu::weak]] extern void driver_test_intrtest();
 
 namespace {
 
@@ -58,14 +58,14 @@ static void run_generic_intrtest() {
 }
 
 void cmd_swaptest(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
+    static_cast<void>(argc);
+    static_cast<void>(argv);
     run_swap_tests();
 }
 
 void cmd_disktest(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
+    static_cast<void>(argc);
+    static_cast<void>(argv);
     cprintf("Running disk test...\n");
     if (driver_test_disktest) {
         driver_test_disktest();
@@ -76,8 +76,8 @@ void cmd_disktest(int argc, char** argv) {
 }
 
 void cmd_intrtest(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
+    static_cast<void>(argc);
+    static_cast<void>(argv);
     cprintf("Running interrupt test...\n");
     if (driver_test_intrtest) {
         driver_test_intrtest();
@@ -88,8 +88,8 @@ void cmd_intrtest(int argc, char** argv) {
 }
 
 void cmd_schedtest(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
+    static_cast<void>(argc);
+    static_cast<void>(argv);
     sched::test();
 }
 
@@ -101,7 +101,7 @@ void register_test_command(const char* name, const char* desc, shell::command_fu
 
 }  // namespace
 
-void shell_register_extensions(void) {
+void shell_register_extensions() {
     register_test_command("swaptest", "Run swap system tests", cmd_swaptest);
     register_test_command("disktest", "Test disk read/write", cmd_disktest);
     register_test_command("intrtest", "Test block device interrupts", cmd_intrtest);

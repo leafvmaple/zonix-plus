@@ -60,7 +60,7 @@ static void test_mock_readwrite() {
 
     uint8_t wbuf[512], rbuf[512];
     for (int i = 0; i < 512; i++)
-        wbuf[i] = (uint8_t)(i & 0xFF);
+        wbuf[i] = static_cast<uint8_t>(i & 0xFF);
 
     int rc = mock.write(0, wbuf, 1);
     TEST_ASSERT(rc == 0, "Mock write returns 0");

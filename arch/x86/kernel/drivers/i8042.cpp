@@ -34,7 +34,7 @@ static uint8_t normal_map[256] = {
 
 static bool normal_map_initialized = false;
 
-static void init_normal_map(void) {
+static void init_normal_map() {
     if (normal_map_initialized) {
         return;
     }
@@ -106,7 +106,7 @@ void intr() {
     if (next == kbd_read)
         return;  // buffer full, drop
 
-    kbd_buf[kbd_write] = (char)c;
+    kbd_buf[kbd_write] = static_cast<char>(c);
     kbd_write = next;
 
     kbd_waitq.wakeup_one();

@@ -47,7 +47,8 @@
 #define ERROR_DISK_READ  0x02
 #define ERROR_BAD_KERNEL 0x03
 
-#ifdef __cplusplus
+#ifndef __ASSEMBLER__
+
 inline constexpr uint8_t FAT_ATTR_READ_ONLY = 0x01;
 inline constexpr uint8_t FAT_ATTR_HIDDEN = 0x02;
 inline constexpr uint8_t FAT_ATTR_SYSTEM = 0x04;
@@ -55,9 +56,6 @@ inline constexpr uint8_t FAT_ATTR_VOLUME_ID = 0x08;
 inline constexpr uint8_t FAT_ATTR_DIRECTORY = 0x10;
 inline constexpr uint8_t FAT_ATTR_ARCHIVE = 0x20;
 inline constexpr uint8_t FAT_ATTR_LFN = 0x0F; /* Long file name */
-#endif
-
-#ifndef __ASSEMBLER__
 
 struct FatDirEntry {
     char name[8];                /* 0x00: File name (space padded) */
@@ -130,7 +128,6 @@ struct Fat32BootSector {
     uint32_t hidden_sectors;     /* 0x1C: Hidden sectors */
     uint32_t total_sectors_32;   /* 0x20: Total sectors */
 
-    /* FAT32 Extended boot record */
     uint32_t fat_size_32;        /* 0x24: FAT size in sectors */
     uint16_t ext_flags;          /* 0x28: Extended flags */
     uint16_t fs_version;         /* 0x2A: File system version */

@@ -8,8 +8,10 @@
  * This header provides the constants referenced by shared kernel code.
  */
 
-#define PIT_TIMER0_REG 0x40
-#define PIT_CTRL_REG   0x43
-#define PIT_SEL_TIMER0 0x00
-#define PIT_RATE_GEN   0x04
-#define PIT_16BIT      0x30
+#include <base/types.h>
+
+inline constexpr uint8_t PIT_TIMER0_REG = 0x40;
+inline constexpr uint8_t PIT_CTRL_REG   = 0x43;
+inline constexpr uint8_t PIT_SEL_TIMER0 = 0x00;
+inline constexpr uint8_t PIT_RATE_GEN   = 0x04;
+inline constexpr uint8_t PIT_16BIT      = 0x30;

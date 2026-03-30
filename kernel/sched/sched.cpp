@@ -63,13 +63,13 @@ static const char* state_str(ProcessState state) {
     }
 }
 
-static int get_pid(void) {
+static int get_pid() {
     static int next_pid = 1;
 
     return next_pid++;
 }
 
-__attribute__((noreturn)) static void kernel_thread_entry(fnThread fn, void* arg) {
+[[noreturn]] static void kernel_thread_entry(fnThread fn, void* arg) {
     int ret = fn(arg);
     TaskManager::exit(ret);
     __builtin_unreachable();

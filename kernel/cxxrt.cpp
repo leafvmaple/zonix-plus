@@ -39,7 +39,7 @@ void __cxa_pure_virtual() {
     arch_halt_forever();
 }
 
-int atexit(void (*)(void)) {
+int atexit(void (*)()) {
     // No-op: kernel never exits, so we never run global destructors.
     return 0;
 }

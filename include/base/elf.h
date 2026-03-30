@@ -2,7 +2,7 @@
 
 #include <base/types.h>
 
-#define ELF_MAGIC 0x464C457F
+inline constexpr uint32_t ELF_MAGIC = 0x464C457FU;
 
 struct ElfHdr64 {
     uint32_t e_magic;  // must equal ELF_MAGIC
@@ -33,15 +33,11 @@ struct ProgHdr64 {
     uint64_t p_align;   // required alignment
 };
 
-#ifdef __cplusplus
 using ElfHdr = ElfHdr64;
 using ProgHdr = ProgHdr64;
-#endif
 
-/* values for Proghdr::p_type */
-#define ELF_PT_LOAD 1
+inline constexpr uint32_t ELF_PT_LOAD = 1;
 
-/* flag bits for Proghdr::p_flags */
-#define ELF_PF_X 1
-#define ELF_PF_W 2
-#define ELF_PF_R 4
+inline constexpr uint32_t ELF_PF_X = 1;
+inline constexpr uint32_t ELF_PF_W = 2;
+inline constexpr uint32_t ELF_PF_R = 4;

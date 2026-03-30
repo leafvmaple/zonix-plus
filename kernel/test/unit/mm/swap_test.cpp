@@ -538,8 +538,8 @@ void test_swap_multiple_pages() {
                 int errors = 0;
 
                 for (int j = 0; j < 256; j++) {  // Check first 256 bytes
-                    uint8_t expected = (uint8_t)((i * 17 + j) & 0xFF);
-                    uint8_t actual = ((uint8_t*)kva)[j];
+                    uint8_t expected = static_cast<uint8_t>((i * 17 + j) & 0xFF);
+                    uint8_t actual = reinterpret_cast<uint8_t*>(kva)[j];
                     if (actual != expected) {
                         errors++;
                     }

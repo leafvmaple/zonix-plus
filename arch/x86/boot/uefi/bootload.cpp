@@ -11,7 +11,7 @@
  */
 #define SAFE_BOOT_INFO_ADDR   0x5000ULL
 #define SAFE_MMAP_ADDR        0x5100ULL
-#define SAFE_MMAP_MAX_ENTRIES ((0x7000ULL - SAFE_MMAP_ADDR) / sizeof(boot_mmap_entry))
+#define SAFE_MMAP_MAX_ENTRIES ((0x7000ULL - SAFE_MMAP_ADDR) / sizeof(BootMemEntry))
 
 #define PLATFORM_MEM_LOWER     640
 #define PLATFORM_MEM_UPPER_MIN 0x100000
@@ -24,8 +24,8 @@ extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE*
     uefi_print(st, UEFI_STR(L"\r\nZonix UEFI Bootloader (x86_64) v1.0\r\n\r\n"));
     bs->SetWatchdogTimer(0, 0, 0, 0);
 
-    boot_info* bi = (boot_info*)(UINTN)SAFE_BOOT_INFO_ADDR;
-    memset(bi, 0, sizeof(boot_info));
+    BootInfo* bi = reinterpret_cast<BootInfo*>(SAFE_BOOT_INFO_ADDR);
+    memset(bi, 0, sizeof(BootInfo));
     bi->magic = BOOT_INFO_MAGIC;
     bi->mmap_addr = SAFE_MMAP_ADDR;
 
@@ -37,8 +37,8 @@ extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE*
     }
 
     uefi_print(st, UEFI_STR(L"Loading kernel...\r\n"));
-    VOID* kernel_buf = 0;
-    UINTN kernel_size = 0;
+    void* kernel_buf = 0;
+    uintptr_t kernel_size = 0;
     status = uefi_load_kernel_file(bs, image_handle, &kernel_buf, &kernel_size);
     if (EFI_ERROR(status)) {
         return status;
@@ -70,8 +70,8 @@ extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE*
      * but the kernel expects System V ABI (first arg in %rdi).
      * Use inline assembly to place boot_info in %rdi explicitly.
      */
-    UINT64 entry_addr = (UINT64)(UINTN)bi->kernel_entry;
-    UINT64 info_addr = (UINT64)(UINTN)bi;
+    uint64_t entry_addr = (uint64_t)(uintptr_t)bi->kernel_entry;
+    uint64_t info_addr = (uint64_t)(uintptr_t)bi;
     __asm__ volatile("movq %0, %%rdi\n\t"
                      "jmp *%1\n\t"
                      :

@@ -73,11 +73,11 @@ struct GpuCtrlHdr {
     uint64_t fence_id;
     uint32_t ctx_id;
     uint32_t padding;
-} __attribute__((packed));
+};
 
 struct GpuRect {
     uint32_t x, y, width, height;
-} __attribute__((packed));
+};
 
 struct GpuDisplayInfo {
     GpuCtrlHdr hdr;
@@ -86,7 +86,7 @@ struct GpuDisplayInfo {
         uint32_t enabled;
         uint32_t flags;
     } pmodes[16];
-} __attribute__((packed));
+};
 
 struct GpuResourceCreate2d {
     GpuCtrlHdr hdr;
@@ -94,26 +94,26 @@ struct GpuResourceCreate2d {
     uint32_t format;
     uint32_t width;
     uint32_t height;
-} __attribute__((packed));
+};
 
 struct GpuResourceAttachBacking {
     GpuCtrlHdr hdr;
     uint32_t resource_id;
     uint32_t nr_entries;
-} __attribute__((packed));
+};
 
 struct GpuMemEntry {
     uint64_t addr;
     uint32_t length;
     uint32_t padding;
-} __attribute__((packed));
+};
 
 struct GpuSetScanout {
     GpuCtrlHdr hdr;
     GpuRect r;
     uint32_t scanout_id;
     uint32_t resource_id;
-} __attribute__((packed));
+};
 
 struct GpuTransferToHost2d {
     GpuCtrlHdr hdr;
@@ -121,14 +121,14 @@ struct GpuTransferToHost2d {
     uint64_t offset;
     uint32_t resource_id;
     uint32_t padding;
-} __attribute__((packed));
+};
 
 struct GpuResourceFlush {
     GpuCtrlHdr hdr;
     GpuRect r;
     uint32_t resource_id;
     uint32_t padding;
-} __attribute__((packed));
+};
 
 // ---------------------------------------------------------------------------
 // VirtQueue (split virtqueue, single descriptor chain)
@@ -139,7 +139,7 @@ struct VringDesc {
     uint32_t len;
     uint16_t flags;
     uint16_t next;
-} __attribute__((packed));
+};
 
 constexpr uint16_t VRING_DESC_F_NEXT = 1;
 constexpr uint16_t VRING_DESC_F_WRITE = 2;
@@ -148,18 +148,18 @@ struct VringAvail {
     uint16_t flags;
     uint16_t idx;
     uint16_t ring[];  // flexible array of queue_size entries
-} __attribute__((packed));
+};
 
 struct VringUsedElem {
     uint32_t id;
     uint32_t len;
-} __attribute__((packed));
+};
 
 struct VringUsed {
     uint16_t flags;
     uint16_t idx;
     VringUsedElem ring[];
-} __attribute__((packed));
+};
 
 // A simple single-queue abstraction
 struct Virtqueue {
@@ -570,10 +570,10 @@ int init() {
     // 9. RESOURCE_ATTACH_BACKING — point resource at our framebuffer pages
     // We send the attach header followed immediately by one GpuMemEntry.
     // Pack them contiguously to form a single request buffer.
-    struct {
+    struct [[gnu::packed]] {
         GpuResourceAttachBacking hdr;
         GpuMemEntry entry;
-    } __attribute__((packed)) attach_cmd{};
+    } attach_cmd{};
     GpuCtrlHdr attach_resp{};
 
     attach_cmd.hdr.hdr.type = CMD_RESOURCE_ATTACH_BACKING;

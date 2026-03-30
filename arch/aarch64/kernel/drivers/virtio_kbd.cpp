@@ -59,31 +59,31 @@ struct VirtioInputEvent {
     uint16_t type;
     uint16_t code;
     uint32_t value;
-} __attribute__((packed));
+};
 
 struct VringDesc {
     uint64_t addr;
     uint32_t len;
     uint16_t flags;
     uint16_t next;
-} __attribute__((packed));
+};
 
 struct VringAvail {
     uint16_t flags;
     uint16_t idx;
     uint16_t ring[];
-} __attribute__((packed));
+};
 
 struct VringUsedElem {
     uint32_t id;
     uint32_t len;
-} __attribute__((packed));
+};
 
 struct VringUsed {
     uint16_t flags;
     uint16_t idx;
     VringUsedElem ring[];
-} __attribute__((packed));
+};
 
 // ============================================================================
 // Driver state
@@ -449,7 +449,7 @@ int init() {
 void intr() {
     // Read ISR to acknowledge interrupt (modern: via ISR cap region)
     if (isr_cfg) {
-        (void)mmio::read8(isr_cfg, 0);
+        static_cast<void>(mmio::read8(isr_cfg, 0));
     }
 
     // Process used ring entries

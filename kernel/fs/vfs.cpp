@@ -36,7 +36,7 @@ struct ResolveResult {
 class ConsoleFile : public File {
 public:
     int read(void* buf, size_t size, size_t offset) override {
-        (void)offset;
+        static_cast<void>(offset);
         if (!buf) {
             return -1;
         }
@@ -49,7 +49,7 @@ public:
     }
 
     int write(const void* buf, size_t size, size_t offset) override {
-        (void)offset;
+        static_cast<void>(offset);
         if (!buf) {
             return -1;
         }
@@ -127,7 +127,7 @@ int readdir_device(const char* path, ReadDirFn cb, void* arg) {
     entry.type = NodeType::CharDevice;
     entry.size = 0;
     entry.attrs = 0;
-    (void)cb(&entry, arg);
+    static_cast<void>(cb(&entry, arg));
     return 1;
 }
 

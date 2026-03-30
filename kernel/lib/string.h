@@ -34,7 +34,7 @@ static inline int strcmp(const char* s1, const char* s2) {
         s1++;
         s2++;
     }
-    return (*(unsigned char*)s1 - *(unsigned char*)s2);
+    return (*reinterpret_cast<const unsigned char*>(s1) - *reinterpret_cast<const unsigned char*>(s2));
 }
 
 static inline const char* strchr(const char* s, int c) {

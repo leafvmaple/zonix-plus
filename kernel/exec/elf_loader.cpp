@@ -52,7 +52,7 @@ int validate(const ElfHdr* eh, size_t file_size) {
         return -1;
     }
 
-    size_t ph_end = eh->e_phoff + (size_t)eh->e_phnum * eh->e_phentsize;
+    size_t ph_end = eh->e_phoff + static_cast<size_t>(eh->e_phnum) * eh->e_phentsize;
     if (ph_end > file_size) {
         cprintf("elf: program header table exceeds file size\n");
         return -1;

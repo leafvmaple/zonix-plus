@@ -173,7 +173,7 @@ void AhciDevice::interrupt() {
     }
 }
 
-int AhciManager::init(void) {
+int AhciManager::init() {
     if (s_registered) {
         return 0;
     }

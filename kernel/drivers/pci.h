@@ -21,20 +21,20 @@ enum ConfigOffset : uint8_t {
 };
 
 // ---- PCI command register bits ----
-constexpr uint16_t CMD_IO_SPACE = 0x0001;
-constexpr uint16_t CMD_MEMORY_SPACE = 0x0002;
-constexpr uint16_t CMD_BUS_MASTER = 0x0004;
-constexpr uint16_t CMD_INTX_DISABLE = 0x0400;
+inline constexpr uint16_t CMD_IO_SPACE = 0x0001;
+inline constexpr uint16_t CMD_MEMORY_SPACE = 0x0002;
+inline constexpr uint16_t CMD_BUS_MASTER = 0x0004;
+inline constexpr uint16_t CMD_INTX_DISABLE = 0x0400;
 
 // ---- Common PCI class codes ----
-constexpr uint8_t CLASS_MASS_STORAGE = 0x01;
-constexpr uint8_t SUBCLASS_SATA = 0x06;
-constexpr uint8_t INTERFACE_AHCI = 0x01;
+inline constexpr uint8_t CLASS_MASS_STORAGE = 0x01;
+inline constexpr uint8_t SUBCLASS_SATA = 0x06;
+inline constexpr uint8_t INTERFACE_AHCI = 0x01;
 
-constexpr uint8_t CLASS_SYSTEM_PERIPHERAL = 0x08;
-constexpr uint8_t SUBCLASS_SD_HOST = 0x05;
-constexpr uint8_t INTERFACE_SDHCI = 0x00;
-constexpr uint8_t INTERFACE_SDHCI_DMA = 0x01;
+inline constexpr uint8_t CLASS_SYSTEM_PERIPHERAL = 0x08;
+inline constexpr uint8_t SUBCLASS_SD_HOST = 0x05;
+inline constexpr uint8_t INTERFACE_SDHCI = 0x00;
+inline constexpr uint8_t INTERFACE_SDHCI_DMA = 0x01;
 
 // Platform init (e.g. aarch64 maps ECAM; x86 can be a no-op).
 // Must be called before any other pci:: function.
@@ -56,8 +56,8 @@ struct DeviceInfo {
     uint8_t header_type;
 };
 
-constexpr uint16_t ANY_ID = 0xFFFF;
-constexpr uint8_t ANY_CLASS = 0xFF;
+inline constexpr uint16_t ANY_ID = 0xFFFF;
+inline constexpr uint8_t ANY_CLASS = 0xFF;
 
 struct DriverId {
     uint16_t vendor;

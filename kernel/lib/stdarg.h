@@ -1,6 +1,6 @@
 #pragma once
 
-typedef __builtin_va_list va_list;
+using va_list = __builtin_va_list;
 
 // NOLINTNEXTLINE(readability-identifier-naming)
 #define va_start(ap, last) (__builtin_va_start(ap, last))

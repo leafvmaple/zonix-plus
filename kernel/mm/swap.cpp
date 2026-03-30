@@ -196,7 +196,7 @@ int out(MemoryDesc* mm, int n, int in_tick) {
 
 }  // namespace swap
 
-int swap::swapfs_init(void) {
+int swap::swapfs_init() {
     swap_device = BlockManager::get_device(blk::DeviceType::Disk);
     if (swap_device == nullptr) {
         cprintf("swapfs init: no disk device found for swap\n");

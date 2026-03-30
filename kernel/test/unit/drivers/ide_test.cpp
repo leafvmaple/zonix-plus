@@ -3,7 +3,7 @@
 
 #include <asm/arch.h>
 
-void driver_test_disktest(void) {
+void driver_test_disktest() {
     cprintf("\n=== Multi-Disk Test ===\n");
     cprintf("Testing %d disk device(s)\n\n", IdeManager::get_device_count());
 
@@ -43,7 +43,7 @@ void driver_test_disktest(void) {
 
         // Fill write buffer with test pattern (unique per device)
         for (size_t j = 0; j < ide::SECTOR_SIZE; j++) {
-            write_buff[j] = (uint8_t)((j + j * 17) & 0xFF);
+            write_buff[j] = static_cast<uint8_t>((j + j * 17) & 0xFF);
         }
 
         cprintf("  Test 1: Write sector %d...\n", test_sector);
@@ -90,7 +90,7 @@ void driver_test_disktest(void) {
     cprintf("=== Multi-Disk Test Complete ===\n\n");
 }
 
-void driver_test_intrtest(void) {
+void driver_test_intrtest() {
     cprintf("\n=== IDE Interrupt Test ===\n");
 
     if (IdeManager::get_device_count() == 0) {

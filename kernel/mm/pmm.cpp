@@ -12,12 +12,12 @@
 #include <kernel/bootinfo.h>
 
 // Declared in head.S — kernel's own copy of boot_info
-extern struct boot_info __kernel_boot_info;
+extern struct BootInfo __kernel_boot_info;
 
 template<typename F>
 void traverse_boot_mmap(F&& callback) {
-    struct boot_info* bi = &__kernel_boot_info;
-    auto* entries = reinterpret_cast<struct boot_mmap_entry*>(bi->mmap_addr + KERNEL_BASE);
+    struct BootInfo* bi = &__kernel_boot_info;
+    auto* entries = reinterpret_cast<struct BootMemEntry*>(bi->mmap_addr + KERNEL_BASE);
     uint32_t count = bi->mmap_length;
     for (uint32_t i = 0; i < count; i++) {
         callback(entries[i].addr, entries[i].len, entries[i].type);
@@ -203,7 +203,7 @@ pte_t* pmm::get_pte(pde_t* pml4, uintptr_t la, bool create) {
 }
 
 static int page_init() {
-    boot_info* bi = &__kernel_boot_info;
+    BootInfo* bi = &__kernel_boot_info;
 
     if (bi->mmap_length == 0) {
         cprintf("pmm: boot memory map is empty\n");
@@ -234,7 +234,7 @@ static int page_init() {
         return -1;
     }
 
-    Factory::s_page_desc = reinterpret_cast<Page*>(round_up((void*)KERNEL_END, PG_SIZE));
+    Factory::s_page_desc = reinterpret_cast<Page*>(round_up(reinterpret_cast<void*>(KERNEL_END), PG_SIZE));
 
     cprintf("pmm: %d pages, page array at [0x%p], max_pa=0x%lx\n", Factory::s_page_count, Factory::s_page_desc,
             static_cast<uint64_t>(max_pa));
@@ -262,7 +262,7 @@ static int page_init() {
 
 void pmm::tlb_invl(pde_t* pgdir, uintptr_t la) {
     if (arch_read_cr3() == virt_to_phys(pgdir)) {
-        arch_invlpg((void*)la);
+        arch_invlpg(reinterpret_cast<void*>(la));
     }
 }
 

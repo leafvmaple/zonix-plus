@@ -12,18 +12,7 @@
 #include <asm/trap_numbers.h>
 
 /* x86 PIC IRQ lines — stubbed to harmless values for shared code */
-#ifndef IRQ_SLAVE
-#define IRQ_SLAVE 2
-#endif
-
-#ifndef IRQ_KBD
-#define IRQ_KBD 1
-#endif
-
-#ifndef IRQ_IDE1
-#define IRQ_IDE1 14
-#endif
-
-#ifndef IRQ_IDE2
-#define IRQ_IDE2 15
-#endif
+inline constexpr int IRQ_SLAVE = 2;
+inline constexpr int IRQ_KBD   = 1;
+inline constexpr int IRQ_IDE1  = 14;
+inline constexpr int IRQ_IDE2  = 15;

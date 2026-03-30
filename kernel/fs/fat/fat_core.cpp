@@ -12,7 +12,7 @@ namespace {
 constexpr uint32_t FAT_INVALID_SECTOR = static_cast<uint32_t>(-1);
 
 int32_t find_partition_start(BlockDevice* dev) {
-    mbr_t mbr{};
+    MbrHeader mbr{};
     if (dev->read(0, &mbr, 1) != 0) {
         cprintf("fat_mount: failed to read sector 0\n");
         return -1;
@@ -214,8 +214,8 @@ uint32_t FatInfo::read_entry(uint32_t cluster) {
 
 int FatInfo::write_entry(uint32_t cluster, uint32_t value) {
     // TODO: Implement FAT write support.
-    (void)cluster;
-    (void)value;
+    static_cast<void>(cluster);
+    static_cast<void>(value);
     return -1;
 }
 

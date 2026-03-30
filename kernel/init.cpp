@@ -70,7 +70,7 @@ static const InitStep KERN_STEPS[] = {
 // Kernel entry point
 // ============================================================================
 
-extern "C" __attribute__((noreturn)) int kern_init(struct boot_info* boot_info) {
+extern "C" [[noreturn]] int kern_init(struct BootInfo* boot_info) {
     if (!boot_info || boot_info->magic != BOOT_INFO_MAGIC) {
         arch_halt();
     }

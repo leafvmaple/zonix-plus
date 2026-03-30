@@ -1,20 +1,20 @@
 #pragma once
 
-typedef __INT8_TYPE__ int8_t;
-typedef __UINT8_TYPE__ uint8_t;
-typedef __INT16_TYPE__ int16_t;
-typedef __UINT16_TYPE__ uint16_t;
-typedef __INT32_TYPE__ int32_t;
-typedef __UINT32_TYPE__ uint32_t;
-typedef __INT64_TYPE__ int64_t;
-typedef __UINT64_TYPE__ uint64_t;
+#ifndef __ASSEMBLER__
 
-typedef __INTPTR_TYPE__ intptr_t;
-typedef __UINTPTR_TYPE__ uintptr_t;
+using int8_t = __INT8_TYPE__;
+using uint8_t = __UINT8_TYPE__;
+using int16_t = __INT16_TYPE__;
+using uint16_t = __UINT16_TYPE__;
+using int32_t = __INT32_TYPE__;
+using uint32_t = __UINT32_TYPE__;
+using int64_t = __INT64_TYPE__;
+using uint64_t = __UINT64_TYPE__;
 
-typedef unsigned long long size_t;
+using intptr_t = __INTPTR_TYPE__;
+using uintptr_t = __UINTPTR_TYPE__;
 
-#ifdef __cplusplus
+using size_t = unsigned long long;
 
 template<typename T, typename M>
 constexpr size_t offset_of(M T::* member) {
@@ -26,9 +26,6 @@ inline T* to_struct(void* ptr, M T::* member) {
     return reinterpret_cast<T*>(reinterpret_cast<char*>(ptr) - offset_of(member));
 }
 
-#define OFFSET_OF(type, member)      reinterpret_cast<size_t>(&(static_cast<type*>(nullptr)->member))
-#define TO_STRUCT(ptr, type, member) reinterpret_cast<type*>(reinterpret_cast<char*>(ptr) - OFFSET_OF(type, member))
-
 template<typename T, size_t N>
 constexpr size_t array_size(const T (&)[N]) noexcept {
     return N;
@@ -36,13 +33,4 @@ constexpr size_t array_size(const T (&)[N]) noexcept {
 
 constexpr int ARCH_INIT_OK = 0;
 
-#else /* C */
-
-#define OFFSET_OF(type, member)      ((size_t)&(((type*)0)->member))
-#define TO_STRUCT(ptr, type, member) ((type*)((char*)(ptr) - OFFSET_OF(type, member)))
-
-#ifndef NULL
-#define NULL ((void*)0)
-#endif
-
-#endif /* __cplusplus */
+#endif /* !__ASSEMBLER__ */
