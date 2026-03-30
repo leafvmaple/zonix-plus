@@ -29,7 +29,7 @@ size_t cmd_pos = 0;
 struct ShellCommand {
     const char* name{};
     const char* desc{};
-    void (*func)(int argc, char** argv);
+    shell::fnCommand func{};
 };
 
 namespace {
@@ -99,7 +99,6 @@ static void cmd_dd(int argc, char** argv) {
 }
 
 static void cmd_uname(int argc, char** argv) {
-    // Check for -a flag
     int show_all = 0;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-a") == 0) {
@@ -135,9 +134,6 @@ static int g_system_mounted{};
 static const char* g_mnt_device{};
 static int g_mnt_mounted{};
 
-// Auto-mount system disk on first access
-// Tries each block device in order until one successfully mounts as FAT.
-// This handles both BIOS (IDE hda with raw FAT) and UEFI (AHCI sda with GPT+ESP).
 static int ensure_system_mounted() {
     if (g_system_mounted && vfs::is_mounted("/")) {
         return 0;  // Already mounted
@@ -165,7 +161,6 @@ static int ensure_system_mounted() {
 }
 
 static void cmd_mount(int argc, char** argv) {
-    // Check if /mnt already has something mounted
     if (g_mnt_mounted || vfs::is_mounted("/mnt")) {
         const char* mounted = g_mnt_device ? g_mnt_device : vfs::mounted_device("/mnt");
         cprintf("Device already mounted at /mnt: %s\n", mounted ? mounted : "(unknown)");
@@ -173,7 +168,6 @@ static void cmd_mount(int argc, char** argv) {
         return;
     }
 
-    // Parse arguments
     if (argc < 2) {
         cprintf("Usage: mount <device>\n");
         cprintf("Example: mount hdb\n");
@@ -182,7 +176,6 @@ static void cmd_mount(int argc, char** argv) {
 
     const char* dev_name = argv[1];
 
-    // Don't allow mounting system disk to /mnt
     if (g_system_mounted && g_system_device && strcmp(dev_name, g_system_device) == 0) {
         cprintf("Error: %s is the system disk and already mounted at /\n", dev_name);
         return;
@@ -267,7 +260,6 @@ static int ls_callback(const vfs::DirEntry* entry, void* arg) {
     if (entry->attrs & FAT_ATTR_ARCHIVE)
         attr_str[4] = 'a';
 
-    // Format file size
     uint32_t size = entry->size;
 
     cprintf("%s %8d  %s\n", attr_str, size, entry->name);
@@ -292,7 +284,6 @@ static void cmd_ls(int argc, char** argv) {
         }
         path = "/mnt";
     } else {
-        // Auto-mount system disk if needed
         if (ensure_system_mounted() != 0) {
             return;
         }
@@ -341,7 +332,6 @@ static void cmd_cat(int argc, char** argv) {
 
     const char* filename = argv[1];
 
-    // Check if reading from /mnt
     int use_mnt = 0;
     if (argc >= 3 && strcmp(argv[2], "/mnt") == 0) {
         use_mnt = 1;
@@ -353,7 +343,6 @@ static void cmd_cat(int argc, char** argv) {
             return;
         }
     } else {
-        // Auto-mount system disk if needed
         if (ensure_system_mounted() != 0) {
             return;
         }
@@ -484,7 +473,7 @@ static void cmd_exec(int argc, char** argv) {
 
 [[gnu::weak]] extern void shell_register_extensions();
 
-static void register_builtin_command(const char* name, const char* desc, shell::command_func_t func) {
+static void register_builtin_command(const char* name, const char* desc, shell::fnCommand func) {
     if (shell::register_command(name, desc, func) != 0) {
         cprintf("shell: failed to register command '%s'\n", name);
     }
@@ -519,10 +508,8 @@ static int parse_args(const char* cmd, char** argv) {
     }
     arg_buf[i] = '\0';
 
-    // Parse arguments
     char* p = arg_buf;
     while (*p && argc < MAX_ARGS) {
-        // Skip leading spaces
         while (*p == ' ') {
             p++;
         }
@@ -537,7 +524,6 @@ static int parse_args(const char* cmd, char** argv) {
             p++;
         }
 
-        // Null-terminate if not end of string
         if (*p) {
             *p = '\0';
             p++;
@@ -558,13 +544,11 @@ static void execute_command(const char* cmd) {
         return;
     }
 
-    // Parse arguments
     int argc = parse_args(cmd, argv);
     if (argc == 0) {
         return;
     }
 
-    // Find and execute command
     for (ShellCommand& cmd : commands) {
         if (strcmp(argv[0], cmd.name) == 0) {
             cmd.func(argc, argv);
@@ -572,7 +556,6 @@ static void execute_command(const char* cmd) {
         }
     }
 
-    // Command not found
     cprintf("Unknown command: %s\n", argv[0]);
     cprintf("Type 'help' for available commands.\n");
 }
@@ -593,7 +576,7 @@ static size_t str_len(const char* s) {
     return len;
 }
 
-int shell::register_command(const char* name, const char* desc, command_func_t func) {
+int shell::register_command(const char* name, const char* desc, fnCommand func) {
     if (name == nullptr || desc == nullptr || func == nullptr) {
         return -1;
     }
@@ -608,7 +591,7 @@ int shell::register_command(const char* name, const char* desc, command_func_t f
     cmd.name = name;
     cmd.desc = desc;
     cmd.func = func;
-    if (!commands.push_back(cmd)) {
+    if (!commands.push_back({name, desc, func})) {
         return -1;
     }
     return 0;

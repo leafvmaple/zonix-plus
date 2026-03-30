@@ -72,12 +72,35 @@ struct FatDirEntry {
     uint16_t first_cluster_low;  /* 0x1A: Low word of first cluster */
     uint32_t file_size;          /* 0x1C: File size in bytes */
 
-#ifdef __cplusplus
     [[nodiscard]] bool is_valid() const {
-        return name[0] != 0x00 && name[0] != static_cast<char>(0xE5) && (attr & FAT_ATTR_VOLUME_ID) == 0 &&
-               (attr & FAT_ATTR_LFN) != FAT_ATTR_LFN;
+        if (name[0] == 0x00 || name[0] == static_cast<char>(0xE5))
+            return false;
+
+        return (attr & FAT_ATTR_VOLUME_ID) == 0 && (attr & FAT_ATTR_LFN) != FAT_ATTR_LFN;
     }
-#endif
+
+    [[nodiscard]] uint32_t get_cluster() const {
+        uint32_t cluster = first_cluster_low;
+        cluster |= (static_cast<uint32_t>(first_cluster_high) << 16);
+        return cluster;
+    }
+
+    void get_filename(char* buf, int bufsize) const {
+        if (!buf || bufsize < 13) {
+            return;
+        }
+        int out{};
+        for (int i = 0; i < 8 && name[i] != ' '; ++i) {
+            buf[out++] = name[i];
+        }
+        if (ext[0] != ' ') {
+            buf[out++] = '.';
+            for (int i = 0; i < 3 && ext[i] != ' '; ++i) {
+                buf[out++] = ext[i];
+            }
+        }
+        buf[out] = '\0';
+    }
 } __attribute__((packed));
 
 struct FatBpbCommon {
@@ -96,7 +119,7 @@ struct FatBpbCommon {
 } __attribute__((packed));
 
 struct Fat32Bpb {
-    struct FatBpbCommon common;
+    FatBpbCommon common;
     uint32_t fat_size_32;        /* Offset 0x24: FAT size in sectors */
     uint16_t ext_flags;          /* Offset 0x28: Extended flags */
     uint16_t fs_version;         /* Offset 0x2A: File system version */

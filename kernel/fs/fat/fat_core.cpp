@@ -182,12 +182,6 @@ void FatInfo::print() const {
     cprintf("  Cluster Count: %d\n", cluster_count_);
 }
 
-uint32_t FatInfo::get_cluster(FatDirEntry& entry) {
-    uint32_t cluster = entry.first_cluster_low;
-    cluster |= (static_cast<uint32_t>(entry.first_cluster_high) << 16);
-    return cluster;
-}
-
 uint32_t FatInfo::read_entry(uint32_t cluster) {
     if (cluster < 2 || cluster >= cluster_count_ + 2) {
         return 0;
@@ -225,24 +219,4 @@ uint32_t FatInfo::cluster_to_sector(uint32_t cluster) const {
     }
 
     return data_start_ + ((cluster - 2) * sectors_per_cluster_);
-}
-
-void FatInfo::get_filename(FatDirEntry* entry, char* buf, int bufsize) {
-    if (!entry || !buf || bufsize < 13) {
-        return;
-    }
-
-    int out{};
-    for (int i = 0; i < 8 && entry->name[i] != ' '; ++i) {
-        buf[out++] = entry->name[i];
-    }
-
-    if (entry->ext[0] != ' ') {
-        buf[out++] = '.';
-        for (int i = 0; i < 3 && entry->ext[i] != ' '; ++i) {
-            buf[out++] = entry->ext[i];
-        }
-    }
-
-    buf[out] = '\0';
 }

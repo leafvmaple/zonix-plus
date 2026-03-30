@@ -24,7 +24,7 @@ int fat_readdir_bridge(FatDirEntry* entry, void* arg) {
     }
 
     vfs::DirEntry dir{};
-    FatInfo::get_filename(entry, dir.name, sizeof(dir.name));
+    entry->get_filename(dir.name, sizeof(dir.name));
     dir.attrs = entry->attr;
     dir.size = entry->file_size;
     dir.type = (entry->attr & FAT_ATTR_DIRECTORY) ? vfs::NodeType::Directory : vfs::NodeType::File;

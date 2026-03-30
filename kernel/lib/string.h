@@ -24,8 +24,7 @@ static inline char* strncpy(char* dst, const char* src, size_t n) {
 
 static inline char* strcpy(char* dst, const char* src) {
     char* d = dst;
-    while ((*d++ = *src++))
-        ;
+    while ((*d++ = *src++)) {}
     return dst;
 }
 
