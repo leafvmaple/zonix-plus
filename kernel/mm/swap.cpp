@@ -101,7 +101,7 @@ constexpr int LEVEL_SHIFTS[PAGE_LEVELS] = {PML4X_SHIFT, PDPTX_SHIFT, PDX_SHIFT, 
 
 // Recursively walk the page table tree looking for a mapping to target_pa.
 // depth: 0 = PML4, 1 = PDPT, 2 = PD, 3 = PT (leaf)
-uintptr_t scan_pt_for_pa(pde_t* table, int depth, uintptr_t va_base, uintptr_t target_pa) {
+uintptr_t scan_pt_for_pa(const pde_t* table, int depth, uintptr_t va_base, uintptr_t target_pa) {
     int shift = LEVEL_SHIFTS[depth];
     bool is_leaf = (depth == PAGE_LEVELS - 1);
 
@@ -143,7 +143,7 @@ uintptr_t swap::find_vaddr_for_page(MemoryDesc* mm, Page* page) {
 namespace swap {
 
 int out(MemoryDesc* mm, int n, int in_tick) {
-    int i;
+    int i{};
     static uint32_t swap_offset = 1;  // Global swap offset counter
 
     for (i = 0; i < n; i++) {

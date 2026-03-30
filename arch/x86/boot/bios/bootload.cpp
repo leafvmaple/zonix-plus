@@ -306,6 +306,6 @@ void bootmain(uint32_t boot_drive_param) {
     }
 
 bad:
-    while (1)
+    while (true)
         __asm__ volatile("hlt");
 }

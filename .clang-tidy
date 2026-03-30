@@ -36,7 +36,7 @@ Checks: >
   readability-make-member-function-const,
   readability-non-const-parameter,
   readability-qualified-auto,
-  readability-redundant-member-init,
+  # readability-redundant-member-init,
   readability-redundant-string-init,
   readability-static-accessed-through-instance,
   readability-uppercase-literal-suffix,

@@ -22,7 +22,7 @@ void __panic(const char* file, int line, const char* fmt, ...) {
 
 panic_dead:
     intr::disable();
-    while (1) {
+    while (true) {
         ;
     }
 }

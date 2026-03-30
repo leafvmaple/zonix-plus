@@ -42,20 +42,20 @@ int init() {
 void enable(uint32_t intid) {
     uint32_t reg = intid / 32;
     uint32_t bit = intid % 32;
-    mmio::write32(GICD_BASE, GICD_ISENABLER + reg * 4, (1u << bit));
+    mmio::write32(GICD_BASE, GICD_ISENABLER + reg * 4, (1U << bit));
 
     // Set priority to 0 (highest)
     uint32_t shift = (intid % 4) * 8;
     uintptr_t prio_off = GICD_IPRIORITYR + (intid / 4) * 4;
     uint32_t prio = mmio::read32(GICD_BASE, prio_off);
-    prio &= ~(0xFFu << shift);
+    prio &= ~(0xFFU << shift);
     mmio::write32(GICD_BASE, prio_off, prio);
 
     // Route SPIs (IntID >= 32) to CPU 0
     if (intid >= 32) {
         uintptr_t tgt_off = GICD_ITARGETSR + (intid / 4) * 4;
         uint32_t tgt = mmio::read32(GICD_BASE, tgt_off);
-        tgt = (tgt & ~(0xFFu << shift)) | (0x01u << shift);
+        tgt = (tgt & ~(0xFFU << shift)) | (0x01U << shift);
         mmio::write32(GICD_BASE, tgt_off, tgt);
     }
 }

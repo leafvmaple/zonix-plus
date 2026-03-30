@@ -49,7 +49,7 @@ struct TestSuite {
     void (*run)();
 };
 
-static const TestSuite suites[] = {
+static const TestSuite SUITES[] = {
     {"String Library", string_test::test}, {"Linked List", list_test::test},
     {"PMM Allocator", pmm_test::test},     {"Scheduler", sched::test},
     {"Swap (FIFO)", run_swap_suite},       {"Block Manager", blk_test::test},
@@ -63,11 +63,11 @@ int test_run_all(void*) {
     cprintf("#     ZONIX OS — CI TEST SUITE         #\n");
     cprintf("########################################\n");
 
-    int suite_count = sizeof(suites) / sizeof(suites[0]);
+    int suite_count = sizeof(SUITES) / sizeof(SUITES[0]);
 
     for (int i = 0; i < suite_count; i++) {
-        cprintf("\n>>> [%d/%d] Running: %s\n", i + 1, suite_count, suites[i].name);
-        suites[i].run();
+        cprintf("\n>>> [%d/%d] Running: %s\n", i + 1, suite_count, SUITES[i].name);
+        SUITES[i].run();
     }
 
     cprintf("\n########################################\n");

@@ -22,8 +22,9 @@
 // Serial console output (COM1, 0x3F8, 115200 baud).
 #define CONFIG_SERIAL 1
 
-// Bochs debug port (port 0xE9) output.
-#define CONFIG_BOCHS_DBG 1
+// Debug console port (port 0xE9) output.
+// Works with QEMU -debugcon and Bochs port e9.
+#define CONFIG_DEBUGCON 1
 
 // ==========================================================================
 // Input

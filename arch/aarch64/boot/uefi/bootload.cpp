@@ -18,10 +18,10 @@ extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE*
 
     st->ConOut->ClearScreen(st->ConOut);
     uefi_print(st, UEFI_STR(L"\r\nZonix UEFI Bootloader (AArch64) v1.0\r\n\r\n"));
-    bs->SetWatchdogTimer(0, 0, 0, 0);
+    bs->SetWatchdogTimer(0, 0, 0, nullptr);
 
     auto* bi = reinterpret_cast<BootInfo*>(SAFE_BOOT_INFO_ADDR);
-    memset(bi, 0, sizeof(BootInfo));
+    uefi_memset(bi, 0, sizeof(BootInfo));
     bi->magic = BOOT_INFO_MAGIC;
     bi->mmap_addr = SAFE_MMAP_ADDR;
 
@@ -33,7 +33,7 @@ extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE*
     }
 
     uefi_print(st, UEFI_STR(L"Loading kernel...\r\n"));
-    void* kernel_buf = 0;
+    void* kernel_buf{};
     uintptr_t kernel_size = 0;
     status = uefi_load_kernel_file(bs, image_handle, &kernel_buf, &kernel_size);
     if (EFI_ERROR(status)) {

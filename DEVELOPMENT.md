@@ -58,7 +58,7 @@ zonix-plus/
 │   └── gdbinit                 # GDB 调试脚本
 ├── docs/                       # 文档
 ├── Makefile                    # 顶层构建 (~310 行)
-└── qemu*.cfg, bochsrc*.bxrc   # 模拟器配置
+└── qemu*.cfg                   # 模拟器配置
 ```
 
 ## 2. 构建系统

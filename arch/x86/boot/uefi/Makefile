@@ -20,9 +20,12 @@ UEFI_LD      := $(shell which lld-link-18 2>/dev/null || echo lld-link)
 UEFI_LDFLAGS := /subsystem:efi_application /entry:efi_main \
                 /nodefaultlib /dll
 
+UEFI_COMMON_SRC := boot/uefi_boot.cpp
+
 bootx64 = $(call totarget,BOOTX64.EFI)
-$(bootx64): $(BOOT_UEFI_DIR)/bootload.cpp | $$(dir $$@)
-	$(Q)mkdir -p $(OBJDIR)/$(BOOT_UEFI_DIR)
-	$(Q)$(UEFI_CXX) $(UEFI_CXXFLAGS) -c $< -o $(OBJDIR)/$(BOOT_UEFI_DIR)/bootload.o
-	$(Q)$(UEFI_LD) $(UEFI_LDFLAGS) $(OBJDIR)/$(BOOT_UEFI_DIR)/bootload.o /out:$@
+$(bootx64): $(BOOT_UEFI_DIR)/bootload.cpp $(UEFI_COMMON_SRC) | $$(dir $$@)
+	$(Q)mkdir -p $(OBJDIR)/$(BOOT_UEFI_DIR) $(OBJDIR)/boot
+	$(Q)$(UEFI_CXX) $(UEFI_CXXFLAGS) -c $(BOOT_UEFI_DIR)/bootload.cpp -o $(OBJDIR)/$(BOOT_UEFI_DIR)/bootload.o
+	$(Q)$(UEFI_CXX) $(UEFI_CXXFLAGS) -c $(UEFI_COMMON_SRC) -o $(OBJDIR)/boot/uefi_boot.o
+	$(Q)$(UEFI_LD) $(UEFI_LDFLAGS) $(OBJDIR)/$(BOOT_UEFI_DIR)/bootload.o $(OBJDIR)/boot/uefi_boot.o /out:$@
 	@echo "  UEFI    $@"

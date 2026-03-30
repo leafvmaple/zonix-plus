@@ -383,7 +383,7 @@ int AhciDevice::issue_cmd(uint8_t command, uint32_t lba, uint16_t count, bool wr
     return 0;
 }
 
-int AhciDevice::wait_cmd_complete(int timeout_ms) {
+int AhciDevice::wait_cmd_complete(int timeout_ms) const {
     int timeout = timeout_ms * 10000;
 
     while (timeout-- > 0) {

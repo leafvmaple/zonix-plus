@@ -102,7 +102,7 @@ void test_fifo_interleaved() {
     }
 
     // Remove 1
-    Page* victim;
+    Page* victim{};
     fifo.swap_out_victim(init_mm, &victim, 0);
     TEST_ASSERT(victim == &pages[0], "First victim is page 0");
 
@@ -328,7 +328,7 @@ void test_algorithm_comparison() {
         // Remove 10 pages
         int removed = 0;
         for (int j = 0; j < 10; j++) {
-            Page* victim;
+            Page* victim{};
             if (algorithms[i]->swap_out_victim(init_mm, &victim, 0) == 0) {
                 removed++;
             }

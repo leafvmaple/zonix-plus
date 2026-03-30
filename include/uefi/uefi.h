@@ -1,5 +1,9 @@
 #pragma once
 
+// NOLINTBEGIN(readability-identifier-naming, performance-enum-size)
+// This header mirrors the UEFI specification; PascalCase names and uint32_t
+// enum bases are mandated by the ABI and must not be changed.
+
 #include <base/types.h>
 
 using EFI_STATUS = uintptr_t;
@@ -25,10 +29,6 @@ inline constexpr EFI_STATUS EFI_NOT_FOUND = (14ULL | (1ULL << 63));
 [[nodiscard]] static constexpr bool EFI_ERROR(EFI_STATUS status) {
     return static_cast<intptr_t>(status) < 0;
 }
-
-// =============================================================================
-// GUID
-// =============================================================================
 
 struct EFI_GUID {
     uint32_t Data1;
@@ -85,10 +85,6 @@ struct EFI_MEMORY_DESCRIPTOR {
     uint64_t Attribute;
 };
 
-// =============================================================================
-// Protocol Forward Declarations
-// =============================================================================
-
 struct EFI_SYSTEM_TABLE;
 struct EFI_BOOT_SERVICES;
 struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL;
@@ -96,10 +92,6 @@ struct EFI_SIMPLE_FILE_SYSTEM_PROTOCOL;
 struct EFI_FILE_PROTOCOL;
 struct EFI_LOADED_IMAGE_PROTOCOL;
 struct EFI_GRAPHICS_OUTPUT_PROTOCOL;
-
-// =============================================================================
-// Text Output Protocol
-// =============================================================================
 
 using EFI_TEXT_STRING = EFI_STATUS(EFIAPI*)(EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL*, wchar_t*);
 using EFI_TEXT_CLEAR_SCREEN = EFI_STATUS(EFIAPI*)(EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL*);
@@ -118,10 +110,6 @@ struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL {
     void* Mode;
 };
 
-// =============================================================================
-// Boot Services
-// =============================================================================
-
 using EFI_ALLOCATE_POOL = EFI_STATUS(EFIAPI*)(EFI_MEMORY_TYPE, uintptr_t, void**);
 using EFI_FREE_POOL = EFI_STATUS(EFIAPI*)(void*);
 using EFI_GET_MEMORY_MAP = EFI_STATUS(EFIAPI*)(uintptr_t*, EFI_MEMORY_DESCRIPTOR*, uintptr_t*, uintptr_t*, uint32_t*);
@@ -130,7 +118,6 @@ using EFI_LOCATE_PROTOCOL = EFI_STATUS(EFIAPI*)(EFI_GUID*, void*, void**);
 using EFI_EXIT_BOOT_SERVICES = EFI_STATUS(EFIAPI*)(EFI_HANDLE, uintptr_t);
 using EFI_SET_WATCHDOG_TIMER = EFI_STATUS(EFIAPI*)(uintptr_t, uint64_t, uintptr_t, wchar_t*);
 
-// AllocatePages Type values
 inline constexpr uintptr_t AllocateAnyPages = 0;
 inline constexpr uintptr_t AllocateMaxAddress = 1;
 inline constexpr uintptr_t AllocateAddress = 2;
@@ -190,10 +177,6 @@ struct EFI_SYSTEM_TABLE {
     void* ConfigurationTable;
 };
 
-// =============================================================================
-// File Protocol
-// =============================================================================
-
 inline constexpr uint64_t EFI_FILE_MODE_READ = 0x0000000000000001ULL;
 
 struct EFI_FILE_INFO {
@@ -224,10 +207,6 @@ struct EFI_SIMPLE_FILE_SYSTEM_PROTOCOL {
     EFI_STATUS(EFIAPI* OpenVolume)(EFI_SIMPLE_FILE_SYSTEM_PROTOCOL*, EFI_FILE_PROTOCOL**);
 };
 
-// =============================================================================
-// Loaded Image Protocol
-// =============================================================================
-
 struct EFI_LOADED_IMAGE_PROTOCOL {
     uint32_t Revision;
     EFI_HANDLE ParentHandle;
@@ -243,10 +222,6 @@ struct EFI_LOADED_IMAGE_PROTOCOL {
     EFI_MEMORY_TYPE ImageDataType;
     void* Unload;
 };
-
-// =============================================================================
-// Graphics Output Protocol
-// =============================================================================
 
 enum EFI_GRAPHICS_PIXEL_FORMAT : uint32_t {
     PixelRedGreenBlueReserved8BitPerColor,
@@ -280,3 +255,5 @@ struct EFI_GRAPHICS_OUTPUT_PROTOCOL {
     void* Blt;
     EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE* Mode;
 };
+
+// NOLINTEND(readability-identifier-naming, performance-enum-size)

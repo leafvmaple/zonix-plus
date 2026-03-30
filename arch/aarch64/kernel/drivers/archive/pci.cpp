@@ -90,7 +90,7 @@ void assign_bars() {
             if (mask == 0 || mask == 0xFFFFFFFF)
                 continue;
 
-            bool is_io = (mask & 1);
+            bool is_io = (mask & 1) != 0U;
             if (is_io)
                 continue;  // skip I/O BARs
 

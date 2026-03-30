@@ -43,7 +43,7 @@ inline constexpr int ENTRY_MASK = ENTRY_NUM - 1;  // 0x1FF
 // PML4 entries 0..255 cover user space, 256..511 cover kernel space
 inline constexpr int USER_PML4_ENTRIES = ENTRY_NUM / 2;
 
-inline constexpr uint64_t PT_SIZE = (uint64_t)PG_SIZE * ENTRY_NUM;  // 2MB
+inline constexpr uint64_t PT_SIZE = static_cast<uint64_t>(PG_SIZE) * ENTRY_NUM;  // 2MB
 inline constexpr uint64_t PD_SIZE = PT_SIZE * ENTRY_NUM;            // 1GB
 inline constexpr uint64_t PDPT_SIZE = PD_SIZE * ENTRY_NUM;          // 512GB
 

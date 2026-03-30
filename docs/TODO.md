@@ -649,7 +649,6 @@ Zonix 是一个教学型操作系统，当前主线已实现：
 
 **调试技巧：**
 - 使用 GDB：`make debug ARCH=x86`
-- 使用 Bochs 调试：`bochs -f bochsrc_debug.bxrc`
 - 添加 `cprintf` 调试输出
 - 查看反汇编：`obj/kernel.asm`
 
@@ -668,7 +667,7 @@ Zonix 是一个教学型操作系统，当前主线已实现：
 ### 基础环境
 ```bash
 # 当前已安装（参考 README.md）
-sudo apt install make clang lld llvm nasm bochs-x
+sudo apt install make clang lld llvm nasm
 
 # 推荐额外安装
 sudo apt install gdb qemu-system-x86 
@@ -677,7 +676,6 @@ sudo apt install clang-format cppcheck
 
 ### 调试配置
 - GDB 配置：`scripts/gdbinit`
-- Bochs 配置：`bochsrc.bxrc`、`bochsrc_debug.bxrc`
 - QEMU 调试：参考 `Makefile` 的 `debug` / `debug-bios` 目标
 
 ### 代码编辑器

@@ -219,7 +219,7 @@ struct AhciDevice : public BlockDevice {
 
 private:
     int issue_cmd(uint8_t command, uint32_t lba, uint16_t count, bool write);
-    int wait_cmd_complete(int timeout_ms);
+    int wait_cmd_complete(int timeout_ms) const;
     int transfer_blocks(uint32_t block_number, size_t block_count, void* buf, bool write);
 
     int present_{};

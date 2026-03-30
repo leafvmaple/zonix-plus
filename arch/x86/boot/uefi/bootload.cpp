@@ -22,10 +22,10 @@ extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE*
 
     st->ConOut->ClearScreen(st->ConOut);
     uefi_print(st, UEFI_STR(L"\r\nZonix UEFI Bootloader (x86_64) v1.0\r\n\r\n"));
-    bs->SetWatchdogTimer(0, 0, 0, 0);
+    bs->SetWatchdogTimer(0, 0, 0, nullptr);
 
     BootInfo* bi = reinterpret_cast<BootInfo*>(SAFE_BOOT_INFO_ADDR);
-    memset(bi, 0, sizeof(BootInfo));
+    uefi_memset(bi, 0, sizeof(BootInfo));
     bi->magic = BOOT_INFO_MAGIC;
     bi->mmap_addr = SAFE_MMAP_ADDR;
 
@@ -37,7 +37,7 @@ extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE*
     }
 
     uefi_print(st, UEFI_STR(L"Loading kernel...\r\n"));
-    void* kernel_buf = 0;
+    void* kernel_buf{};
     uintptr_t kernel_size = 0;
     status = uefi_load_kernel_file(bs, image_handle, &kernel_buf, &kernel_size);
     if (EFI_ERROR(status)) {
@@ -70,8 +70,8 @@ extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE*
      * but the kernel expects System V ABI (first arg in %rdi).
      * Use inline assembly to place boot_info in %rdi explicitly.
      */
-    uint64_t entry_addr = (uint64_t)(uintptr_t)bi->kernel_entry;
-    uint64_t info_addr = (uint64_t)(uintptr_t)bi;
+    uint64_t entry_addr = static_cast<uint64_t>(bi->kernel_entry);
+    uint64_t info_addr = reinterpret_cast<uint64_t>(bi);
     __asm__ volatile("movq %0, %%rdi\n\t"
                      "jmp *%1\n\t"
                      :

@@ -36,7 +36,7 @@ struct Font {
 };
 
 inline bool parse(const uint8_t* data, Font* out) {
-    auto* h2 = (const Psf2Header*)data;
+    const auto* h2 = reinterpret_cast<const Psf2Header*>(data);
     if (h2->magic == PSF2_MAGIC) {
         out->glyphs       = data + h2->headersize;
         out->numglyph     = h2->numglyph;
@@ -46,7 +46,7 @@ inline bool parse(const uint8_t* data, Font* out) {
         return true;
     }
 
-    auto* h1 = (const Psf1Header*)data;
+    const auto* h1 = reinterpret_cast<const Psf1Header*>(data);
     if (h1->magic[0] == PSF1_MAGIC0 && h1->magic[1] == PSF1_MAGIC1) {
         out->glyphs       = data + sizeof(Psf1Header);
         out->numglyph     = (h1->mode & PSF1_MODE512) ? 512 : 256;
@@ -62,7 +62,7 @@ inline bool parse(const uint8_t* data, Font* out) {
 inline const uint8_t* glyph(const Font* font, int ch) {
     if (ch < 0 || (uint32_t)ch >= font->numglyph)
         ch = '?';
-    return font->glyphs + ch * font->bytesperglyph;
+    return font->glyphs + static_cast<size_t>(ch) * font->bytesperglyph;
 }
 
 } // namespace psf

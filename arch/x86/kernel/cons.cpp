@@ -15,7 +15,7 @@ extern uint8_t KERNEL_START[];
 namespace cons {
 
 int init() {
-    int rc;
+    int rc{};
 
     rc = cga::init();
     if (rc != 0)
