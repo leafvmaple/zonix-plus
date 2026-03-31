@@ -1,4 +1,5 @@
 #include "vfs.h"
+#include "vfs_fs.h"
 
 #include "fat.h"
 #include "cons/cons.h"
@@ -113,7 +114,7 @@ int stat_device(const char* path, Stat* st) {
     return -1;
 }
 
-int readdir_device(const char* path, ReadDirFn cb, void* arg) {
+int readdir_device(const char* path, fnReadDir cb, void* arg) {
     if (!path || !cb) {
         return -1;
     }
@@ -289,7 +290,7 @@ int stat(const char* path, Stat* st) {
     return rr.slot->fs->stat(rr.relpath, st);
 }
 
-int readdir(const char* path, ReadDirFn cb, void* arg) {
+int readdir(const char* path, fnReadDir cb, void* arg) {
     if (!path || !cb) {
         return -1;
     }

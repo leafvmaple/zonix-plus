@@ -25,12 +25,32 @@ struct GptGuid {
     bool operator==(const GptGuid& other) const {
         return __builtin_memcmp(this, &other, sizeof(GptGuid)) == 0;
     }
+
     bool operator!=(const GptGuid& other) const { return !(*this == other); }
+
 } __attribute__((packed));
 
 inline constexpr GptGuid ESP_GUID = {
     0xC12A7328, 0xF81F, 0x11D2, {0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E, 0xC9, 0x3B}
 };
+
+struct GptPartitionEntry {
+    GptGuid type_guid;      // Partition type GUID
+    GptGuid unique_guid;    // Unique partition GUID
+    uint64_t starting_lba;  // First LBA
+    uint64_t ending_lba;    // Last LBA (inclusive)
+    uint64_t attributes;    // Attribute flags
+    uint16_t name[36];      // Partition name (UTF-16LE)
+
+    [[nodiscard]] inline bool is_empty() const {
+        return type_guid.data1 == 0 && type_guid.data2 == 0 && type_guid.data3 == 0 &&
+               __builtin_memcmp(type_guid.data4, "\0\0\0\0\0\0\0\0", 8) == 0;
+    }
+
+    [[nodiscard]] inline bool is_esp() const { // EFI System Partition
+        return type_guid == ESP_GUID;
+    }
+} __attribute__((packed));
 
 struct GptHeader {
     uint64_t signature;              // "EFI PART" = 0x5452415020494645
@@ -47,19 +67,36 @@ struct GptHeader {
     uint32_t num_partition_entries;  // Number of partition entries
     uint32_t partition_entry_size;   // Size of each entry (usually 128)
     uint32_t partition_array_crc32;  // CRC32 of partition entry array
-} __attribute__((packed));
 
-struct GptPartitionEntry {
-    GptGuid type_guid;      // Partition type GUID
-    GptGuid unique_guid;    // Unique partition GUID
-    uint64_t starting_lba;  // First LBA
-    uint64_t ending_lba;    // Last LBA (inclusive)
-    uint64_t attributes;    // Attribute flags
-    uint16_t name[36];      // Partition name (UTF-16LE)
-} __attribute__((packed));
+    [[nodiscard]] bool is_valid() const {
+        return signature == GPT_HEADER_SIGNATURE;
+    }
 
-inline bool is_esp_guid(const GptGuid* guid) {
-    return *guid == ESP_GUID;
-}
+    template<typename Reader>
+    int32_t find_esp_lba(Reader reader) const {
+        uint8_t buf[512]{};
+        const uint32_t entries_per_sector = 512 / partition_entry_size;
+
+        for (uint32_t i = 0; i < num_partition_entries; i++) {
+            uint32_t sector = static_cast<uint32_t>(partition_entry_lba) + (i / entries_per_sector);
+            uint32_t offset = (i % entries_per_sector) * partition_entry_size;
+
+            if (reader(sector, buf) != 0) {
+                break;
+            }
+
+            const auto* entry = reinterpret_cast<const GptPartitionEntry*>(buf + offset);
+            if (entry->is_empty()) {
+                continue;
+            }
+
+            if (entry->is_esp()) {
+                return static_cast<int32_t>(entry->starting_lba);
+            }
+        }
+
+        return -1;
+    }
+} __attribute__((packed));
 
 #endif /* __ASSEMBLER__ */

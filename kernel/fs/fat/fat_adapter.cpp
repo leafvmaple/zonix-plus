@@ -1,5 +1,6 @@
 #include "fs/fat.h"
 #include "fs/vfs.h"
+#include "fs/vfs_fs.h"
 
 #include "lib/memory.h"
 
@@ -9,11 +10,11 @@ namespace {
 void fill_stat_from_entry(const FatDirEntry& entry, vfs::Stat* st) {
     st->attrs = entry.attr;
     st->size = entry.file_size;
-    st->type = (entry.attr & FAT_ATTR_DIRECTORY) ? vfs::NodeType::Directory : vfs::NodeType::File;
+    st->type = entry.is_directory() ? vfs::NodeType::Directory : vfs::NodeType::File;
 }
 
 struct ReadDirBridge {
-    vfs::ReadDirFn cb{};
+    vfs::fnReadDir cb{};
     void* arg{};
 };
 
@@ -27,7 +28,7 @@ int fat_readdir_bridge(FatDirEntry* entry, void* arg) {
     entry->get_filename(dir.name, sizeof(dir.name));
     dir.attrs = entry->attr;
     dir.size = entry->file_size;
-    dir.type = (entry->attr & FAT_ATTR_DIRECTORY) ? vfs::NodeType::Directory : vfs::NodeType::File;
+    dir.type = entry->is_directory() ? vfs::NodeType::Directory : vfs::NodeType::File;
 
     return bridge->cb(&dir, bridge->arg);
 }
@@ -92,7 +93,7 @@ public:
             return -1;
         }
 
-        if (entry.attr & FAT_ATTR_DIRECTORY) {
+        if (entry.is_directory()) {
             return -1;
         }
 
@@ -126,7 +127,7 @@ public:
         return 0;
     }
 
-    int readdir(const char* relpath, vfs::ReadDirFn cb, void* arg) override {
+    int readdir(const char* relpath, vfs::fnReadDir cb, void* arg) override {
         if (!relpath || !cb) {
             return -1;
         }

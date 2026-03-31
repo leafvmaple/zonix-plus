@@ -41,8 +41,6 @@ public:
     
     int find_file(const char* filename, FatDirEntry* result);
 
-    [[nodiscard]] uint32_t cluster_to_sector(uint32_t cluster) const;
-
 private:
     int read_dir(uint32_t start_cluster, fnCallback callback, void* arg, bool verbose_read_error);
 
@@ -51,8 +49,10 @@ private:
 
     bool find_entry(uint32_t start_cluster, const char* name, FatDirEntry* out);
 
-    void init_mount_state(BlockDevice* dev, uint32_t partition_start, const Fat32BootSector& bs);
+    void do_init_state(BlockDevice* dev, uint32_t partition_start, const Fat32BootSector& bs);
     int do_file_io(FatDirEntry* entry, uint8_t* io_buf, uint32_t offset, uint32_t size, const char* op, bool writeback);
+
+    [[nodiscard]] uint32_t cluster_to_sector(uint32_t cluster) const;
 
     BlockDevice* dev_{};              // Block device
     uint32_t partition_start_{};      // Partition start LBA (0 if no MBR)

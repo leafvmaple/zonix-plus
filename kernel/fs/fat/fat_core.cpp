@@ -31,39 +31,17 @@ int32_t find_partition_start(BlockDevice* dev) {
         }
 
         auto* gpt = reinterpret_cast<GptHeader*>(buf);
-        if (gpt->signature != GPT_HEADER_SIGNATURE) {
+        if (!gpt->is_valid()) {
             cprintf("fat_mount: bad GPT signature\n");
             return -1;
         }
 
-        cprintf("fat_mount: GPT detected, scanning partition entries...\n");
+        int32_t esp_lba = gpt->find_esp_lba([dev](uint32_t lba, void* sector_buf) {
+            return dev->read(lba, sector_buf, 1);
+        });
 
-        uint64_t entry_lba = gpt->partition_entry_lba;
-        uint32_t num_entries = gpt->num_partition_entries;
-        uint32_t entry_size = gpt->partition_entry_size;
-        uint32_t entries_per_sector = 512 / entry_size;
-
-        for (uint32_t i = 0; i < num_entries; i++) {
-            uint32_t sector = entry_lba + (i / entries_per_sector);
-            uint32_t offset = (i % entries_per_sector) * entry_size;
-
-            if (dev->read(sector, buf, 1) != 0) {
-                break;
-            }
-
-            auto* part = reinterpret_cast<GptPartitionEntry*>(buf + offset);
-            if (part->type_guid.data1 == 0 && part->type_guid.data2 == 0 && part->type_guid.data3 == 0) {
-                break;
-            }
-
-            if (is_esp_guid(&part->type_guid)) {
-                cprintf("fat_mount: found ESP at LBA %d\n", static_cast<uint32_t>(part->starting_lba));
-                return static_cast<int32_t>(part->starting_lba);
-            }
-        }
-
-        cprintf("fat_mount: no ESP found in GPT\n");
-        return -1;
+        cprintf("fat_mount: found ESP at LBA %d\n", static_cast<uint32_t>(esp_lba));
+        return esp_lba;
     }
 
     // Traditional MBR.
@@ -78,7 +56,7 @@ int32_t find_partition_start(BlockDevice* dev) {
 
 }  // namespace
 
-void FatInfo::init_mount_state(BlockDevice* dev, uint32_t partition_start, const Fat32BootSector& bs) {
+void FatInfo::do_init_state(BlockDevice* dev, uint32_t partition_start, const Fat32BootSector& bs) {
     dev_ = dev;
     partition_start_ = partition_start;
     total_sectors_ = bs.total_sectors_32;
@@ -89,10 +67,8 @@ void FatInfo::init_mount_state(BlockDevice* dev, uint32_t partition_start, const
     reserved_sectors_ = bs.reserved_sectors;
     num_fats_ = bs.num_fats;
     fat_size_ = bs.fat_size_32;
-    root_entries_ = 0;
     root_cluster_ = bs.root_cluster;
 
-    // FAT32 keeps root directory in data area.
     fat_start_ = reserved_sectors_;
     data_start_ = fat_start_ + (num_fats_ * fat_size_);
 
@@ -101,7 +77,6 @@ void FatInfo::init_mount_state(BlockDevice* dev, uint32_t partition_start, const
     fat_type_ = fat::TYPE_FAT32;
 
     buffer_sector_ = FAT_INVALID_SECTOR;
-    buffer_dirty_ = false;
 }
 
 int FatInfo::mount(BlockDevice* dev) {
@@ -132,7 +107,7 @@ int FatInfo::mount(BlockDevice* dev) {
         return -1;
     }
 
-    init_mount_state(dev, partition_start, bs);
+    do_init_state(dev, partition_start, bs);
 
     char oem[9]{};
     char label[12]{};
@@ -143,6 +118,7 @@ int FatInfo::mount(BlockDevice* dev) {
     cprintf("FAT%d mounted: %s\n", fat_type_, label);
     cprintf("  OEM: %s\n", oem);
     cprintf("  Partition Start: LBA %d\n", partition_start);
+
     print();
 
     return 0;
@@ -172,12 +148,9 @@ void FatInfo::print() const {
     cprintf("  Total Sectors: %d\n", total_sectors_);
     cprintf("  FAT Start: sector %d\n", fat_start_);
     cprintf("  FAT Size: %d sectors\n", fat_size_);
-    if (fat_type_ == fat::TYPE_FAT32) {
-        cprintf("  Root Cluster: %d\n", root_cluster_);
-    } else {
-        cprintf("  Root Start: sector %d\n", root_start_);
-        cprintf("  Root Entries: %d\n", root_entries_);
-    }
+    cprintf("  Root Cluster: %d\n", root_cluster_);
+    cprintf("  Root Start: sector %d\n", root_start_);
+    cprintf("  Root Entries: %d\n", root_entries_);
     cprintf("  Data Start: sector %d\n", data_start_);
     cprintf("  Cluster Count: %d\n", cluster_count_);
 }

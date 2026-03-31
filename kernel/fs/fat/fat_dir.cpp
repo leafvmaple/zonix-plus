@@ -41,7 +41,7 @@ int FatInfo::do_file_io(FatDirEntry* entry, uint8_t* io_buf, uint32_t offset, ui
     }
 
     // TODO
-    if (entry->attr & FAT_ATTR_DIRECTORY) {
+    if (entry->is_directory()) {
         cprintf("fat_%s_file: cannot %s directory\n", op, op);
         return -1;
     }
@@ -126,7 +126,7 @@ int FatInfo::read_dir(uint32_t start_cluster, fnCallback callback, void* arg, bo
             for (uint32_t j = 0; j < bytes_per_sector_ / 32; j++) {
                 FatDirEntry& entry = entries[j];
 
-                if (entry.name[0] == 0x00) {
+                if (entry.is_end()) {
                     return count;
                 }
 
@@ -184,7 +184,7 @@ bool FatInfo::find_entry(uint32_t start_cluster, const char* name, FatDirEntry* 
             for (uint32_t j = 0; j < bytes_per_sector_ / 32; j++) {
                 FatDirEntry& entry = entries[j];
 
-                if (entry.name[0] == 0x00) {
+                if (entry.is_end()) {
                     return false;
                 }
 
@@ -220,7 +220,6 @@ int FatInfo::find_file(const char* filename, FatDirEntry* result) {
     }
 
     Array<char[MAX_PART_LEN], MAX_DEPTH> parts{};
-
     while (*path) {
         char part[MAX_PART_LEN]{};
         if (!next_part(path, part))
@@ -241,14 +240,14 @@ int FatInfo::find_file(const char* filename, FatDirEntry* result) {
     if (parts.empty())
         return -1;
 
-    uint32_t current_cluster = root_cluster_;
+    uint32_t cluster = root_cluster_;
 
-    for (size_t i = 0; i < parts.size(); i++) {
-        if (!find_entry(current_cluster, parts[i], result))
+    for (size_t i = 0; i < parts.size(); i++, cluster = result->get_cluster()) {
+
+        if (!find_entry(cluster, parts[i], result))
             return -1;
-        current_cluster = result->get_cluster();
 
-        if (i + 1 < parts.size() && (result->attr & FAT_ATTR_DIRECTORY) == 0)
+        if (i + 1 < parts.size() && !result->is_directory())
             return -1;
     }
 

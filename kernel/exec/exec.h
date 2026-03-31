@@ -3,7 +3,6 @@
 #include <base/types.h>
 #include <asm/page.h>
 #include "mm/pmm.h"
-#include "fs/vfs.h"
 
 namespace exec {
 

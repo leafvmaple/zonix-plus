@@ -141,15 +141,15 @@ static uint32_t fat_find_file(const char* filename, uint8_t* dir_buffer, uint32_
     auto* entry = reinterpret_cast<FatDirEntry*>(dir_buffer);
 
     for (uint32_t i = 0; i < root_entries; i++) {
-        if (entry[i].name[0] == 0x00) {
+        if (entry[i].is_end()) {
             break;
         }
-        if (entry[i].name[0] == static_cast<char>(0xE5)) {
+        if (entry[i].is_deleted()) {
             continue;
         }
         // Compare name (8 bytes) and ext (3 bytes) together as 11 bytes
         if (memcmp(&entry[i].name, filename, 11) == 0) {
-            return (static_cast<uint32_t>(entry[i].first_cluster_high) << 16) | entry[i].first_cluster_low;
+            return entry[i].get_cluster();
         }
     }
     return 0;  // Not found

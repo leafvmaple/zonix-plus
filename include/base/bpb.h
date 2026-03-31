@@ -72,17 +72,27 @@ struct FatDirEntry {
     uint16_t first_cluster_low;  /* 0x1A: Low word of first cluster */
     uint32_t file_size;          /* 0x1C: File size in bytes */
 
-    [[nodiscard]] bool is_valid() const {
-        if (name[0] == 0x00 || name[0] == static_cast<char>(0xE5))
+    [[nodiscard]] inline bool is_end() const {
+        return name[0] == 0x00;
+    }
+
+    [[nodiscard]] inline bool is_deleted() const {
+        return name[0] == static_cast<char>(0xE5);
+    }
+
+    [[nodiscard]] inline bool is_directory() const {
+        return (attr & FAT_ATTR_DIRECTORY) != 0;
+    }
+
+    [[nodiscard]] inline bool is_valid() const {
+        if (is_end() || is_deleted())
             return false;
 
         return (attr & FAT_ATTR_VOLUME_ID) == 0 && (attr & FAT_ATTR_LFN) != FAT_ATTR_LFN;
     }
 
-    [[nodiscard]] uint32_t get_cluster() const {
-        uint32_t cluster = first_cluster_low;
-        cluster |= (static_cast<uint32_t>(first_cluster_high) << 16);
-        return cluster;
+    [[nodiscard]] inline uint32_t get_cluster() const {
+        return (static_cast<uint32_t>(first_cluster_high) << 16) + first_cluster_low;
     }
 
     void get_filename(char* buf, int bufsize) const {
