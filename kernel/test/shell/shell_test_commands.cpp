@@ -93,7 +93,7 @@ void cmd_schedtest(int argc, char** argv) {
     sched::test();
 }
 
-void register_test_command(const char* name, const char* desc, shell::command_func_t func) {
+void register_test_command(const char* name, const char* desc, shell::fnCommand func) {
     if (shell::register_command(name, desc, func) != 0) {
         cprintf("shell test ext: failed to register '%s'\n", name);
     }

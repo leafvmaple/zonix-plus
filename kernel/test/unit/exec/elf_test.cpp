@@ -6,7 +6,7 @@
 // Only validate/is_elf — no actual loading (would need pgdir setup)
 namespace elf {
 bool is_elf(const uint8_t* data, size_t size);
-int validate(const elfhdr* eh, size_t file_size);
+int validate(const ElfHdr* eh, size_t file_size);
 }  // namespace elf
 
 static int tests_passed = 0;
@@ -16,7 +16,7 @@ static int tests_failed = 0;
 // Helper: build a minimal valid ELF64 header
 // ============================================================================
 
-static void make_valid_elf64(elfhdr* eh) {
+static void make_valid_elf64(ElfHdr* eh) {
     memset(eh, 0, sizeof(*eh));
     eh->e_magic = ELF_MAGIC;
     eh->e_elf[0] = 2;      // 64-bit
@@ -24,10 +24,10 @@ static void make_valid_elf64(elfhdr* eh) {
     eh->e_machine = 0x3E;  // x86_64
     eh->e_version = 1;
     eh->e_entry = 0x400000;
-    eh->e_phoff = sizeof(elfhdr);
-    eh->e_phentsize = sizeof(proghdr);
+    eh->e_phoff = sizeof(ElfHdr);
+    eh->e_phentsize = sizeof(ProgHdr);
     eh->e_phnum = 1;
-    eh->e_ehsize = sizeof(elfhdr);
+    eh->e_ehsize = sizeof(ElfHdr);
 }
 
 // ============================================================================
@@ -40,7 +40,7 @@ static void test_is_elf_valid() {
     alignas(8) uint8_t buf[512];
     memset(buf, 0, sizeof(buf));
 
-    auto* eh = reinterpret_cast<elfhdr*>(buf);
+    auto* eh = reinterpret_cast<ElfHdr*>(buf);
     make_valid_elf64(eh);
 
     TEST_ASSERT(elf::is_elf(buf, sizeof(buf)), "Valid ELF64 header recognized");
@@ -59,7 +59,7 @@ static void test_is_elf_null_and_small() {
     TEST_ASSERT(!elf::is_elf(nullptr, 1024), "nullptr with size returns false");
 
     uint8_t tiny[4] = {0x7f, 'E', 'L', 'F'};
-    TEST_ASSERT(!elf::is_elf(tiny, sizeof(tiny)), "Buffer smaller than elfhdr returns false");
+    TEST_ASSERT(!elf::is_elf(tiny, sizeof(tiny)), "Buffer smaller than ElfHdr returns false");
 
     TEST_END();
 }
@@ -74,7 +74,7 @@ static void test_is_elf_bad_magic() {
     alignas(8) uint8_t buf[512];
     memset(buf, 0, sizeof(buf));
 
-    auto* eh = reinterpret_cast<elfhdr*>(buf);
+    auto* eh = reinterpret_cast<ElfHdr*>(buf);
     make_valid_elf64(eh);
     eh->e_magic = 0xDEADBEEF;
 
@@ -93,7 +93,7 @@ static void test_validate_valid() {
     alignas(8) uint8_t buf[512];
     memset(buf, 0, sizeof(buf));
 
-    auto* eh = reinterpret_cast<elfhdr*>(buf);
+    auto* eh = reinterpret_cast<ElfHdr*>(buf);
     make_valid_elf64(eh);
 
     int rc = elf::validate(eh, sizeof(buf));
@@ -112,7 +112,7 @@ static void test_validate_wrong_class() {
     alignas(8) uint8_t buf[512];
     memset(buf, 0, sizeof(buf));
 
-    auto* eh = reinterpret_cast<elfhdr*>(buf);
+    auto* eh = reinterpret_cast<ElfHdr*>(buf);
     make_valid_elf64(eh);
     eh->e_elf[0] = 1;  // 32-bit
 
@@ -132,7 +132,7 @@ static void test_validate_not_exec() {
     alignas(8) uint8_t buf[512];
     memset(buf, 0, sizeof(buf));
 
-    auto* eh = reinterpret_cast<elfhdr*>(buf);
+    auto* eh = reinterpret_cast<ElfHdr*>(buf);
     make_valid_elf64(eh);
     eh->e_type = 1;  // Relocatable, not executable
 
@@ -152,7 +152,7 @@ static void test_validate_wrong_machine() {
     alignas(8) uint8_t buf[512];
     memset(buf, 0, sizeof(buf));
 
-    auto* eh = reinterpret_cast<elfhdr*>(buf);
+    auto* eh = reinterpret_cast<ElfHdr*>(buf);
     make_valid_elf64(eh);
     eh->e_machine = 0x28;  // ARM instead of x86_64
 
@@ -172,7 +172,7 @@ static void test_validate_no_phdr() {
     alignas(8) uint8_t buf[512];
     memset(buf, 0, sizeof(buf));
 
-    auto* eh = reinterpret_cast<elfhdr*>(buf);
+    auto* eh = reinterpret_cast<ElfHdr*>(buf);
     make_valid_elf64(eh);
     eh->e_phoff = 0;
     eh->e_phnum = 0;
@@ -193,7 +193,7 @@ static void test_validate_phdr_overflow() {
     alignas(8) uint8_t buf[128];
     memset(buf, 0, sizeof(buf));
 
-    auto* eh = reinterpret_cast<elfhdr*>(buf);
+    auto* eh = reinterpret_cast<ElfHdr*>(buf);
     make_valid_elf64(eh);
     eh->e_phnum = 100;  // Would need 100*56 = 5600 bytes, but file is 128
 
@@ -211,7 +211,7 @@ static void test_validate_too_small() {
     TEST_START("elf::validate — file too small");
 
     uint8_t buf[8] = {};
-    auto* eh = reinterpret_cast<elfhdr*>(buf);
+    auto* eh = reinterpret_cast<ElfHdr*>(buf);
 
     int rc = elf::validate(eh, sizeof(buf));
     TEST_ASSERT(rc != 0, "Tiny file rejected");
