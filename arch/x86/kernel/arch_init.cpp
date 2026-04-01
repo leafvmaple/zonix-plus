@@ -62,6 +62,19 @@ void arch_irq_eoi(int irq) {
     i8259::send_eoi(irq);
 }
 
+void arch_irq_enable_line(int irq) {
+    i8259::enable(static_cast<unsigned int>(irq));
+}
+
+int arch_pci_intx_to_irq(uint8_t dev, uint8_t int_pin) {
+    // x86: read interrupt line from PCI config (set by BIOS/firmware)
+    // The int_pin parameter is unused; IRQ is pre-assigned via PCI_INTERRUPT_LINE.
+    // Caller should pass the value from config offset 0x3C bits[7:0].
+    (void)dev;
+    (void)int_pin;
+    return -1;  // x86 callers read IRQ line directly from PCI config
+}
+
 void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry, uintptr_t fn, uintptr_t arg) {
     tf->cs = KERNEL_CS;
     tf->rflags = FL_IF;

@@ -68,7 +68,7 @@ bool arch_try_handle_irq(TrapFrame* tf) {
     } else if (intid == TRAP_INTID_UART) {
         pl011::intr();
         gic::send_eoi(iar);
-    } else if (intid == virtio_kbd::gic_intid()) {
+    } else if (intid == static_cast<uint32_t>(virtio_kbd::irq())) {
         virtio_kbd::intr();
         gic::send_eoi(iar);
     } else if (intid != TRAP_INTID_SPURIOUS) {

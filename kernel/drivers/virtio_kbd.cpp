@@ -20,11 +20,11 @@
 #include "virtio_kbd.h"
 #include "drivers/mmio.h"
 #include "drivers/pci.h"
-#include "gic.h"
 #include "cons/cons.h"
 #include "lib/stdio.h"
 #include "lib/memory.h"
 #include "mm/vmm.h"
+#include <asm/arch.h>
 #include <asm/page.h>
 #include <asm/mmu.h>
 
@@ -110,7 +110,7 @@ VirtioInputEvent event_bufs[MAX_QUEUE_SIZE];
 // Cached notify address (avoid reading common_cfg in interrupt context)
 volatile uint16_t* vq_notify_addr = nullptr;
 
-uint32_t s_gic_intid = 0;
+int s_irq = -1;
 bool s_initialized = false;
 bool s_registered = false;
 
@@ -269,9 +269,9 @@ void fill_eventq() {
 
         vq_avail->ring[i] = i;
     }
-    __asm__ volatile("dmb ishst" ::: "memory");
+    arch_wmb();
     vq_avail->idx = vq_size;
-    __asm__ volatile("dmb ishst" ::: "memory");
+    arch_wmb();
 }
 
 int init_from_pci_device(int bus, int dev, int func) {
@@ -386,18 +386,15 @@ int init_from_pci_device(int bus, int dev, int func) {
     vq_notify_addr = reinterpret_cast<volatile uint16_t*>(notify_base + notify_off);
     *vq_notify_addr = 0;
 
-    // Set up GIC interrupt
-    // QEMU virt: PCI INTx → GIC SPI = (dev % 4 + pin - 1) % 4 + 3
-    // Read interrupt pin (offset 0x3D, 1=INTA)
+    // Resolve platform IRQ from PCI INTx and enable it in the interrupt controller
     uint32_t int_reg = pci::config_read32(bus, dev, func, 0x3C);
     uint8_t int_pin = (int_reg >> 8) & 0xFF;  // interrupt pin (1-based)
     if (int_pin == 0)
         int_pin = 1;  // default to INTA
-    uint32_t spi = (dev % 4 + int_pin - 1) % 4 + 3;
-    s_gic_intid = spi + 32;
-    gic::enable(s_gic_intid);
+    s_irq = arch_pci_intx_to_irq(static_cast<uint8_t>(dev), int_pin);
+    arch_irq_enable_line(s_irq);
 
-    cprintf("virtio_kbd: ready, eventq=%d, GIC IntID=%d\n", qsz, s_gic_intid);
+    cprintf("virtio_kbd: ready, eventq=%d, IRQ=%d\n", qsz, s_irq);
     return 0;
 }
 
@@ -453,7 +450,7 @@ void intr() {
     }
 
     // Process used ring entries
-    __asm__ volatile("dmb ish" ::: "memory");
+    arch_mb();
     while (last_used_idx != vq_used->idx) {
         uint16_t idx = last_used_idx % vq_size;
         uint32_t desc_id = vq_used->ring[idx].id;
@@ -473,9 +470,9 @@ void intr() {
         // Recycle descriptor
         uint16_t avail_idx = vq_avail->idx % vq_size;
         vq_avail->ring[avail_idx] = static_cast<uint16_t>(desc_id);
-        __asm__ volatile("dmb ishst" ::: "memory");
+        arch_wmb();
         vq_avail->idx++;
-        __asm__ volatile("dmb ishst" ::: "memory");
+        arch_wmb();
 
         last_used_idx++;
     }
@@ -485,8 +482,8 @@ void intr() {
         *vq_notify_addr = 0;
 }
 
-uint32_t gic_intid() {
-    return s_gic_intid;
+int irq() {
+    return s_irq;
 }
 
 }  // namespace virtio_kbd

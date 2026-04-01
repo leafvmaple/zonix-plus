@@ -79,6 +79,14 @@ static inline void arch_io_wait(void) {
     io_wait();
 }
 
+static inline void arch_mb(void) {
+    __asm__ volatile("mfence" ::: "memory");
+}
+
+static inline void arch_wmb(void) {
+    __asm__ volatile("sfence" ::: "memory");
+}
+
 static inline void arch_spin_hint(void) {
     __asm__ volatile("pause");
 }
@@ -112,6 +120,8 @@ const InitStep* arch_early_steps(size_t* count);
 const InitStep* arch_pci_steps(size_t* count);
 void arch_switch_rsp0(uintptr_t rsp0);
 void arch_irq_eoi(int irq);
+void arch_irq_enable_line(int irq);                     /* enable IRQ line in interrupt controller */
+int arch_pci_intx_to_irq(uint8_t dev, uint8_t int_pin); /* PCI INTx → platform IRQ */
 void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry, uintptr_t fn, uintptr_t arg);
 void arch_fixup_fork_tf(TrapFrame* tf, uintptr_t esp);
 void arch_setup_user_tf(TrapFrame* tf, uintptr_t entry, uintptr_t usp);

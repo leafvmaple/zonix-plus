@@ -61,6 +61,16 @@ void arch_irq_eoi(int irq) {
     gic::send_eoi(static_cast<uint32_t>(irq));
 }
 
+void arch_irq_enable_line(int irq) {
+    gic::enable(static_cast<uint32_t>(irq));
+}
+
+int arch_pci_intx_to_irq(uint8_t dev, uint8_t int_pin) {
+    // QEMU virt: PCI INTx → GIC SPI = (dev % 4 + pin - 1) % 4 + 3; IRQ = SPI + 32
+    uint32_t spi = (dev % 4 + int_pin - 1) % 4 + 3;
+    return static_cast<int>(spi + 32);
+}
+
 void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry, uintptr_t fn, uintptr_t arg) {
     // ELR_EL1 = entry (kernel_thread_entry), x0 = fn, x1 = arg
     tf->pc = entry;

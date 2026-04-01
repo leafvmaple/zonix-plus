@@ -72,6 +72,14 @@ static inline void arch_port_outl(uint16_t, uint32_t) {}
 static inline void arch_port_outsw(uint32_t, const void*, int) {}
 static inline void arch_io_wait(void) {}
 
+static inline void arch_mb(void) {
+    __asm__ volatile("dmb ish" ::: "memory");
+}
+
+static inline void arch_wmb(void) {
+    __asm__ volatile("dmb ishst" ::: "memory");
+}
+
 static inline void arch_spin_hint(void) {
     __asm__ volatile("yield");
 }
@@ -110,6 +118,8 @@ const InitStep* arch_pci_steps(size_t* count);
 
 void arch_switch_rsp0(uintptr_t sp0); /* update EL1 stack for current task */
 void arch_irq_eoi(int irq);
+void arch_irq_enable_line(int irq);                     /* enable IRQ line in interrupt controller */
+int arch_pci_intx_to_irq(uint8_t dev, uint8_t int_pin); /* PCI INTx → platform IRQ */
 void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry, uintptr_t fn, uintptr_t arg);
 void arch_fixup_fork_tf(TrapFrame* tf, uintptr_t sp);
 void arch_setup_user_tf(TrapFrame* tf, uintptr_t entry, uintptr_t usp);
