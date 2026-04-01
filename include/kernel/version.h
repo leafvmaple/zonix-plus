@@ -1,8 +1,8 @@
 #pragma once
 
 #define ZONIX_VERSION_MAJOR 0
-#define ZONIX_VERSION_MINOR 10
-#define ZONIX_VERSION_PATCH 1
+#define ZONIX_VERSION_MINOR 11
+#define ZONIX_VERSION_PATCH 0
 
 #define _ZONIX_STR(x) #x
 #define ZONIX_STR(x)  _ZONIX_STR(x)
@@ -12,6 +12,6 @@
 
 #define ZONIX_CODENAME "Genesis"
 
-#define ZONIX_BUILD_DATE        "Mar 24 2026"
-#define ZONIX_BUILD_TIME        "15:23:32"
+#define ZONIX_BUILD_DATE        "Apr 01 2026"
+#define ZONIX_BUILD_TIME        "11:24:04"
 #define ZONIX_BUILD_NUMBER 1
