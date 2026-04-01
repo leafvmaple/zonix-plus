@@ -4,8 +4,8 @@
 #include <kernel/bootinfo.h>
 #include <base/elf.h>
 
-void* uefi_memcpy(void* dst, const void* src, uintptr_t n);
-void* uefi_memset(void* dst, int c, uintptr_t n);
+extern "C" void* memcpy(void* dst, const void* src, uintptr_t n);
+extern "C" void* memset(void* dst, int c, uintptr_t n);
 void uefi_print(EFI_SYSTEM_TABLE* st, const wchar_t* str);
 void uefi_print_hex(EFI_SYSTEM_TABLE* st, uint64_t val);
 int uefi_load_elf(void* elf_buffer, struct BootInfo* bi, uint64_t kernel_virt_base);

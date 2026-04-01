@@ -1,6 +1,11 @@
 #include <boot/uefi_boot.h>
 
-void* uefi_memcpy(void* dst, const void* src, uintptr_t n) {
+/*
+ * The compiler may emit implicit calls to memcpy/memset/memmove for
+ * struct copies and zeroing.  Provide C-linkage wrappers so the linker
+ * can resolve them without a C library.
+ */
+extern "C" void* memcpy(void* dst, const void* src, uintptr_t n) {
     auto* d = static_cast<uint8_t*>(dst);
     const auto* s = static_cast<const uint8_t*>(src);
     while (n--) {
@@ -9,7 +14,7 @@ void* uefi_memcpy(void* dst, const void* src, uintptr_t n) {
     return dst;
 }
 
-void* uefi_memset(void* dst, int c, uintptr_t n) {
+extern "C" void* memset(void* dst, int c, uintptr_t n) {
     auto* d = static_cast<uint8_t*>(dst);
     while (n--) {
         *d++ = static_cast<uint8_t>(c);
@@ -67,9 +72,9 @@ int uefi_load_elf(void* elf_buffer, struct BootInfo* bi, uint64_t kernel_virt_ba
             kend = phys + ph->p_memsz;
         }
 
-        uefi_memcpy(dst, src, ph->p_filesz);
+        memcpy(dst, src, ph->p_filesz);
         if (ph->p_memsz > ph->p_filesz) {
-            uefi_memset(dst + ph->p_filesz, 0, ph->p_memsz - ph->p_filesz);
+            memset(dst + ph->p_filesz, 0, ph->p_memsz - ph->p_filesz);
         }
     }
 
@@ -185,7 +190,7 @@ EFI_STATUS uefi_load_kernel_file(EFI_BOOT_SERVICES* bs, EFI_HANDLE image_handle,
     }
 
     const wchar_t* paths[] = {UEFI_STR(L"\\EFI\\ZONIX\\KERNEL.ELF"), UEFI_STR(L"\\KERNEL.ELF"),
-                             UEFI_STR(L"\\KERNEL.SYS"), nullptr};
+                              UEFI_STR(L"\\KERNEL.SYS"), nullptr};
     for (int i = 0; paths[i]; i++) {
         status = root->Open(root, &file, const_cast<wchar_t*>(paths[i]), EFI_FILE_MODE_READ, 0);
         if (!EFI_ERROR(status)) {

@@ -40,6 +40,7 @@
 #include <base/types.h>
 
 inline constexpr int PAGE_LEVELS = 4;
+inline constexpr int PT_WALK_LEVELS = 4;       /* actual hardware page table depth */
 inline constexpr int PAGE_TABLE_ENTRIES = 512; /* 9-bit index per level */
 inline constexpr int USER_TOP_ENTRIES = 256;   /* lower half of TTBR0   */
 

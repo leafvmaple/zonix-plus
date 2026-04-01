@@ -41,9 +41,7 @@ public:
 };
 
 constexpr int PAGE_REF_INIT = 1;
-constexpr int USER_PT_LEVEL_PDPT = 2;
-constexpr int USER_PT_LEVEL_PD = 1;
-constexpr int USER_PT_LEVEL_PT = 0;
+constexpr int USER_PT_SUBTREE_DEPTH = PT_WALK_LEVELS - 2; /* depth passed to free_user_pt_subtree */
 constexpr uintptr_t INVALID_TABLE_PA = static_cast<uintptr_t>(-1);
 
 static bool normalize_available_range(uint64_t addr, uint64_t size, uintptr_t min_addr, uint64_t* out_begin,
@@ -88,53 +86,73 @@ static inline void link_table_entry(pde_t* entry, uintptr_t pa) {
     *entry = make_pte_table(pa);
 }
 
-static pde_t* ensure_table_entry(pde_t* entry, bool create) {
-    if (!(*entry & VM_PRESENT)) {
-        uintptr_t pa = alloc_table_page(create);
-        if (pa == INVALID_TABLE_PA)
-            return nullptr;
-        link_table_entry(entry, pa);
-    }
+/*
+ * Level-shift table for the page table walker.
+ * LEVEL_SHIFTS[0] = root level shift  (PML4 / PGD)
+ * LEVEL_SHIFTS[N-1] = leaf level shift (PT)
+ * Used by both get_pte() and free_user_pt_subtree().
+ */
+static constexpr int LEVEL_SHIFTS[PAGE_LEVELS] = {PML4X_SHIFT, PDPTX_SHIFT, PDX_SHIFT, PTX_SHIFT};
 
-    return phys_to_virt<pde_t>(pte_addr(*entry));
+static inline int level_index(uintptr_t va, int level) {
+    return (va >> LEVEL_SHIFTS[level]) & 0x1FF;
 }
 
-static pte_t* ensure_pt_from_pd_entry(pde_t* entry, bool create) {
-    if (pte_is_block(*entry)) {  // 2MB Large Page
-        uintptr_t large_pa = pte_addr(*entry);
-        uint64_t old_perm = *entry & 0xFFF & ~VM_LARGEPAGE;
+/*
+ * Descend one level in the page table.
+ *
+ * Given a pointer to a PDE at level N, return a pointer to the level-(N+1)
+ * table it references.  Handles three cases:
+ *
+ *   1. Empty slot     → allocate a new page table (if create == true).
+ *   2. Leaf (block)   → split into next-level entries, each covering
+ *                        (1 << child_shift) bytes.
+ *   3. Table pointer  → follow it.
+ */
+static pde_t* descend_level(pde_t* entry, bool create, int child_shift) {
+    if (*entry & VM_PRESENT) {
+        if (pte_is_block(*entry)) {
+            uintptr_t large_pa = pte_addr(*entry);
+            uint64_t old_perm = *entry & 0xFFF & ~VM_LARGEPAGE;
 
-        uintptr_t pa = alloc_table_page(create);
-        if (pa == INVALID_TABLE_PA)
-            return nullptr;
+            uintptr_t pa = alloc_table_page(create);
+            if (pa == INVALID_TABLE_PA)
+                return nullptr;
 
-        auto* pt = phys_to_virt<pte_t>(pa);
-        for (int i = 0; i < PAGE_TABLE_ENTRIES; i++) {
-            pt[i] = make_pte_page(large_pa + static_cast<uintptr_t>(i) * PG_SIZE, old_perm);
+            auto* table = phys_to_virt<pde_t>(pa);
+            for (int i = 0; i < PAGE_TABLE_ENTRIES; i++) {
+                table[i] = make_pte_page(large_pa + (static_cast<uintptr_t>(i) << child_shift), old_perm);
+            }
+
+            link_table_entry(entry, pa);
+            return table;
         }
-
-        link_table_entry(entry, pa);
-
-        return pt;
+        return phys_to_virt<pde_t>(pte_addr(*entry));
     }
 
-    if (!(*entry & VM_PRESENT)) {
-        uintptr_t pa = alloc_table_page(create);
-        if (pa == INVALID_TABLE_PA)
-            return nullptr;
-        link_table_entry(entry, pa);
-    }
-
-    return phys_to_virt<pte_t>(pte_addr(*entry));
+    uintptr_t pa = alloc_table_page(create);
+    if (pa == INVALID_TABLE_PA)
+        return nullptr;
+    link_table_entry(entry, pa);
+    return phys_to_virt<pde_t>(pa);
 }
 
-static void free_user_pt_subtree(pde_t* table, int level) {
+/*
+ * Recursively free user-space page table subtree.
+ *
+ * @param table  Pointer to a page table at the given depth.
+ * @param depth  Remaining depth below this table.
+ *               depth == 0: entries are leaf PTEs (4KB pages).
+ *               depth >  0: entries are either table pointers or large-page leaves.
+ */
+static void free_user_pt_subtree(pde_t* table, int depth) {
     for (int i = 0; i < ENTRY_NUM; i++) {
         pde_t entry = table[i];
         if (!(entry & VM_PRESENT))
             continue;
 
-        if (level == USER_PT_LEVEL_PT) {
+        if (depth == 0) {
+            /* Leaf PTE — free the mapped physical page */
             Page* page = pmm::phys_to_page(pte_addr(entry));
             if (page->ref > 0)
                 page->ref--;
@@ -143,13 +161,13 @@ static void free_user_pt_subtree(pde_t* table, int level) {
             continue;
         }
 
-        if (level == USER_PT_LEVEL_PD && (entry & VM_LARGEPAGE)) {
-            // Keep behavior: skip large mappings in user teardown path.
+        if (pte_is_block(entry)) {
+            /* Large-page leaf (2MB / 1GB) — skip in user teardown */
             continue;
         }
 
         pde_t* child = phys_to_virt<pde_t>(pte_addr(entry));
-        free_user_pt_subtree(child, level - 1);
+        free_user_pt_subtree(child, depth - 1);
         pmm::free_pages(pmm::phys_to_page(pte_addr(entry)));
     }
 }
@@ -189,17 +207,24 @@ void pmm::free_pages(Page* base, size_t n /*= 1*/) {
     Factory::s_allocator.free(base, n);
 }
 
-pte_t* pmm::get_pte(pde_t* pml4, uintptr_t la, bool create) {
-    pde_t* pdpt = ensure_table_entry(pml4 + pml4_index(la), create);
-    if (!pdpt)
-        return nullptr;
+/*
+ * Walk the multi-level page table and return a pointer to the leaf PTE
+ * for virtual address @la.  If @create is true, intermediate tables and
+ * large-page splits are allocated on-demand.
+ *
+ * Works for any PT_WALK_LEVELS (3 for Sv39, 4 for x86-64 / AArch64).
+ */
+pte_t* pmm::get_pte(pde_t* pgdir, uintptr_t la, bool create) {
+    pde_t* table = pgdir;
 
-    pde_t* pd = ensure_table_entry(pdpt + pdpt_index(la), create);
-    if (!pd)
-        return nullptr;
+    for (int level = 0; level < PT_WALK_LEVELS - 1; level++) {
+        int idx = level_index(la, level);
+        table = descend_level(table + idx, create, LEVEL_SHIFTS[level + 1]);
+        if (!table)
+            return nullptr;
+    }
 
-    pte_t* pt = ensure_pt_from_pd_entry(pd + pd_index(la), create);
-    return pt ? pt + pt_index(la) : nullptr;
+    return table + level_index(la, PT_WALK_LEVELS - 1);
 }
 
 static int page_init() {
@@ -293,8 +318,11 @@ void pmm::free_user_pgdir(pde_t* pgdir) {
         if (!(entry & VM_PRESENT))
             continue;
 
-        pde_t* pdpt = phys_to_virt<pde_t>(pte_addr(entry));
-        free_user_pt_subtree(pdpt, USER_PT_LEVEL_PDPT);
+        if (pte_is_block(entry))
+            continue;
+
+        pde_t* child = phys_to_virt<pde_t>(pte_addr(entry));
+        free_user_pt_subtree(child, USER_PT_SUBTREE_DEPTH);
         pmm::free_pages(phys_to_page(pte_addr(entry)));
     }
 

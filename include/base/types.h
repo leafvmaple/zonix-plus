@@ -14,7 +14,7 @@ using uint64_t = __UINT64_TYPE__;
 using intptr_t = __INTPTR_TYPE__;
 using uintptr_t = __UINTPTR_TYPE__;
 
-using size_t = unsigned long long;
+using size_t = __SIZE_TYPE__;
 
 template<typename T, typename M>
 constexpr size_t offset_of(M T::* member) {

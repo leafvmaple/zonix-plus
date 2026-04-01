@@ -98,6 +98,8 @@ uintptr_t mmio_map(uintptr_t phys_addr, size_t size, uint32_t perm) {
     // (e.g. from split 2MB blocks) don't interfere.
 #if defined(__aarch64__)
     __asm__ volatile("dsb ishst; tlbi vmalle1is; dsb ish; isb" ::: "memory");
+#elif defined(__riscv)
+    __asm__ volatile("sfence.vma zero, zero" ::: "memory");
 #endif
     mmio_next_va += size;
     return va;
@@ -115,6 +117,12 @@ int init() {
         cprintf("vmm: failed to map kernel address space\n");
         return -1;
     }
+
+#if defined(__aarch64__)
+    __asm__ volatile("dsb ishst; tlbi vmalle1is; dsb ish; isb" ::: "memory");
+#elif defined(__riscv)
+    __asm__ volatile("sfence.vma zero, zero" ::: "memory");
+#endif
 
     mm_init(&init_mm);
     init_mm.pgdir = boot_pgdir;

@@ -25,7 +25,7 @@ extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE*
     bs->SetWatchdogTimer(0, 0, 0, nullptr);
 
     BootInfo* bi = reinterpret_cast<BootInfo*>(SAFE_BOOT_INFO_ADDR);
-    uefi_memset(bi, 0, sizeof(BootInfo));
+    memset(bi, 0, sizeof(BootInfo));
     bi->magic = BOOT_INFO_MAGIC;
     bi->mmap_addr = SAFE_MMAP_ADDR;
 

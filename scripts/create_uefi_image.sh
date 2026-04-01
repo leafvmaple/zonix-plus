@@ -13,6 +13,7 @@ BINDIR="${BINDIR:-bin}"
 if [ -z "$ARCH" ]; then
     case "$BINDIR" in
         *aarch64*) ARCH=aarch64 ;;
+        *riscv64*) ARCH=riscv64 ;;
         *)         ARCH=x86 ;;
     esac
 fi
@@ -23,6 +24,11 @@ case "$ARCH" in
     aarch64)
         BOOTLOADER="${BINDIR}/BOOTAA64.EFI"
         EFI_BOOT_NAME="BOOTAA64.EFI"
+        IMAGE_SIZE=128
+        ;;
+    riscv64)
+        BOOTLOADER="${BINDIR}/BOOTRISCV64.EFI"
+        EFI_BOOT_NAME="BOOTRISCV64.EFI"
         IMAGE_SIZE=128
         ;;
     *)
