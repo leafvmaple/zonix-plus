@@ -8,20 +8,8 @@
 
 #include "drivers/i8259.h"
 #include "drivers/intr.h"
-#include "sched/sched.h"
-#include "lib/waitqueue.h"
+#include "cons/cons.h"
 #include "lib/stdio.h"
-
-namespace {
-
-constexpr size_t KBD_BUF_SIZE = 128;
-
-char kbd_buf[KBD_BUF_SIZE]{};
-volatile int kbd_read{};
-volatile int kbd_write{};
-WaitQueue kbd_waitq{};  // Replaces ad-hoc kbd_waiter pointer
-
-}  // namespace
 
 static uint8_t normal_map[256] = {
     NO,   0x1B, '1', '2',  '3',  '4', '5',  '6',                                           // 0x00
@@ -102,29 +90,7 @@ void intr() {
     if (c <= 0)
         return;
 
-    int next = (kbd_write + 1) % KBD_BUF_SIZE;
-    if (next == kbd_read)
-        return;  // buffer full, drop
-
-    kbd_buf[kbd_write] = static_cast<char>(c);
-    kbd_write = next;
-
-    kbd_waitq.wakeup_one();
-}
-
-// Blocking read — called from process context, sleeps until input available
-char getc_blocking() {
-    while (true) {
-        {
-            intr::Guard guard;
-            if (kbd_read != kbd_write) {
-                char c = kbd_buf[kbd_read];
-                kbd_read = (kbd_read + 1) % KBD_BUF_SIZE;
-                return c;
-            }
-        }
-        kbd_waitq.sleep();
-    }
+    cons::push_input(static_cast<char>(c));
 }
 
 }  // namespace i8042

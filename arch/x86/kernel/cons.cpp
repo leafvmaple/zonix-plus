@@ -2,15 +2,28 @@
 
 #include <kernel/config.h>
 #include <asm/arch.h>
+#include <base/types.h>
 
 #include "drivers/cga.h"
 #include "drivers/i8042.h"
 #include "drivers/fbcons.h"
 #include "drivers/uart8250.h"
+#include "drivers/intr.h"
 
 #include "lib/stdio.h"
+#include "lib/waitqueue.h"
 
 extern uint8_t KERNEL_START[];
+
+namespace {
+
+constexpr size_t INPUT_BUF_SIZE = 128;
+char input_buf[INPUT_BUF_SIZE]{};
+volatile int input_read{};
+volatile int input_write{};
+WaitQueue input_waitq{};
+
+}  // namespace
 
 namespace cons {
 
@@ -38,8 +51,28 @@ int late_init() {
     return 0;
 }
 
+void push_input(char c) {
+    int next = (input_write + 1) % INPUT_BUF_SIZE;
+    if (next == input_read) {
+        return;  // buffer full
+    }
+    input_buf[input_write] = c;
+    input_write = next;
+    input_waitq.wakeup_one();
+}
+
 char getc() {
-    return i8042::getc_blocking();
+    while (true) {
+        {
+            intr::Guard guard;
+            if (input_read != input_write) {
+                char c = input_buf[input_read];
+                input_read = (input_read + 1) % INPUT_BUF_SIZE;
+                return c;
+            }
+        }
+        input_waitq.sleep();
+    }
 }
 
 void putc(int c) {
