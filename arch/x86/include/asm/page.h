@@ -44,8 +44,8 @@ inline constexpr int ENTRY_MASK = ENTRY_NUM - 1;  // 0x1FF
 inline constexpr int USER_PML4_ENTRIES = ENTRY_NUM / 2;
 
 inline constexpr uint64_t PT_SIZE = static_cast<uint64_t>(PG_SIZE) * ENTRY_NUM;  // 2MB
-inline constexpr uint64_t PD_SIZE = PT_SIZE * ENTRY_NUM;            // 1GB
-inline constexpr uint64_t PDPT_SIZE = PD_SIZE * ENTRY_NUM;          // 512GB
+inline constexpr uint64_t PD_SIZE = PT_SIZE * ENTRY_NUM;                         // 1GB
+inline constexpr uint64_t PDPT_SIZE = PD_SIZE * ENTRY_NUM;                       // 512GB
 
 inline constexpr int PDE_NUM = ENTRY_NUM;
 inline constexpr int PTE_NUM = ENTRY_NUM;

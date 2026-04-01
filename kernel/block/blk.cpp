@@ -70,8 +70,8 @@ void BlockManager::print() {
             uint32_t remainder = size_bytes % (1024 * 1024);
             uint32_t decimal = (remainder * 10) / (1024 * 1024);
 
-            cprintf("%-6s %3d:%-3d %-2d %2d.%dM %-2d %-4s %s\n", dev->name, 8, static_cast<int>(i) * 16, 0,
-                    size_mb, decimal, 0, type_string, mount_string);
+            cprintf("%-6s %3d:%-3d %-2d %2d.%dM %-2d %-4s %s\n", dev->name, 8, static_cast<int>(i) * 16, 0, size_mb,
+                    decimal, 0, type_string, mount_string);
         }
     }
 }

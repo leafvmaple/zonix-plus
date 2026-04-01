@@ -215,8 +215,7 @@ int SdDevice::read_csd() {
     //   RESPONSE2[31:0] = CSD[103:72]
     //   RESPONSE1[31:0] = CSD[71:40]
     //   RESPONSE0[31:0] = CSD[39:8]
-    if (send_cmd(SD_CMD9_SEND_CSD, static_cast<uint32_t>(rca_) << 16,
-                 CMD_RESP_136 | CMD_CRC_EN) != 0) {
+    if (send_cmd(SD_CMD9_SEND_CSD, static_cast<uint32_t>(rca_) << 16, CMD_RESP_136 | CMD_CRC_EN) != 0) {
         cprintf("sdhci: CMD9 failed\n");
         return -1;
     }
@@ -243,8 +242,8 @@ int SdDevice::read_csd() {
         uint32_t c_size_mult = (r1 >> 7) & 0x7;
         uint32_t blocknr = (c_size + 1) << (c_size_mult + 2);
         size = (blocknr * (1U << read_bl_len)) / 512;
-        cprintf("sdhci: CSD v1, C_SIZE=%u C_SIZE_MULT=%u READ_BL_LEN=%u -> %u sectors (%u MB)\n",
-                c_size, c_size_mult, read_bl_len, size, size / 2048);
+        cprintf("sdhci: CSD v1, C_SIZE=%u C_SIZE_MULT=%u READ_BL_LEN=%u -> %u sectors (%u MB)\n", c_size, c_size_mult,
+                read_bl_len, size, size / 2048);
     } else {
         cprintf("sdhci: unknown CSD structure %u, defaulting to 131072 sectors\n", csd_structure);
         size = 131072;

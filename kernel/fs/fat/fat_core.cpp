@@ -36,9 +36,8 @@ int32_t find_partition_start(BlockDevice* dev) {
             return -1;
         }
 
-        int32_t esp_lba = gpt->find_esp_lba([dev](uint32_t lba, void* sector_buf) {
-            return dev->read(lba, sector_buf, 1);
-        });
+        int32_t esp_lba =
+            gpt->find_esp_lba([dev](uint32_t lba, void* sector_buf) { return dev->read(lba, sector_buf, 1); });
 
         cprintf("fat_mount: found ESP at LBA %d\n", static_cast<uint32_t>(esp_lba));
         return esp_lba;

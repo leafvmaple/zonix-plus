@@ -2,18 +2,20 @@
 
 #include <base/types.h>
 
-template <typename T, size_t N>
+template<typename T, size_t N>
 class Array {
 public:
     bool push_back(const T& val) {
-        if (size_ >= N) return false;
+        if (size_ >= N)
+            return false;
         __builtin_memcpy(&data_[size_], &val, sizeof(T));
         size_++;
         return true;
     }
 
     void pop_back() {
-        if (size_ > 0) size_--;
+        if (size_ > 0)
+            size_--;
     }
 
     T& operator[](size_t i) { return data_[i]; }
@@ -40,7 +42,8 @@ public:
 
     void clear() { size_ = 0; }
     void commit_back() {
-        if (size_ < N) size_++;
+        if (size_ < N)
+            size_++;
     }
 
 private:

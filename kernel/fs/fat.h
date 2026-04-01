@@ -32,7 +32,7 @@ public:
 
     int read_file(FatDirEntry* entry, uint8_t* buf, uint32_t offset, uint32_t size);
     int write_file(FatDirEntry* entry, const uint8_t* buf, uint32_t offset, uint32_t size);
-    
+
     int find_file(const char* filename, FatDirEntry* result);
 
 private:

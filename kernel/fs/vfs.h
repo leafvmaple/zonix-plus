@@ -33,9 +33,7 @@ struct DirEntry {
     uint32_t attrs{};
 
     DirEntry() = default;
-    DirEntry(const char* n, NodeType t, uint32_t s, uint32_t a) {
-        set(n, t, s, a);
-    }
+    DirEntry(const char* n, NodeType t, uint32_t s, uint32_t a) { set(n, t, s, a); }
 
     void set(const char* n, NodeType t, uint32_t s, uint32_t a);
 };

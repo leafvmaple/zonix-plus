@@ -18,21 +18,21 @@
 
 #include "../bootlib.h"
 
-static constexpr uint32_t SECT_SIZE   = 512;
+static constexpr uint32_t SECT_SIZE = 512;
 static constexpr const char KERNEL_FNAME[] = "KERNEL  SYS";
 
-static constexpr uint16_t ATA_PORT_DATA       = 0x1F0;  // Data register
+static constexpr uint16_t ATA_PORT_DATA = 0x1F0;        // Data register
 static constexpr uint16_t ATA_PORT_SECTOR_CNT = 0x1F2;  // Sector count
-static constexpr uint16_t ATA_PORT_LBA_LOW    = 0x1F3;  // LBA low byte
-static constexpr uint16_t ATA_PORT_LBA_MID    = 0x1F4;  // LBA mid byte
-static constexpr uint16_t ATA_PORT_LBA_HIGH   = 0x1F5;  // LBA high byte
-static constexpr uint16_t ATA_PORT_DRIVE      = 0x1F6;  // Drive/Head register
-static constexpr uint16_t ATA_PORT_STATUS     = 0x1F7;  // Status register (read)
-static constexpr uint16_t ATA_PORT_COMMAND    = 0x1F7;  // Command register (write)
+static constexpr uint16_t ATA_PORT_LBA_LOW = 0x1F3;     // LBA low byte
+static constexpr uint16_t ATA_PORT_LBA_MID = 0x1F4;     // LBA mid byte
+static constexpr uint16_t ATA_PORT_LBA_HIGH = 0x1F5;    // LBA high byte
+static constexpr uint16_t ATA_PORT_DRIVE = 0x1F6;       // Drive/Head register
+static constexpr uint16_t ATA_PORT_STATUS = 0x1F7;      // Status register (read)
+static constexpr uint16_t ATA_PORT_COMMAND = 0x1F7;     // Command register (write)
 
 static constexpr uint8_t ATA_CMD_READ_PIO = 0x20;  // Read with retry
 
-static constexpr uint8_t ATA_STATUS_BSY  = 0x80;  // Busy
+static constexpr uint8_t ATA_STATUS_BSY = 0x80;   // Busy
 static constexpr uint8_t ATA_STATUS_DRDY = 0x40;  // Drive ready
 
 static constexpr uint32_t KERNEL_ELF_ADDR = 0x10000;
@@ -49,15 +49,15 @@ static constexpr uint32_t KERNEL_ELF_ADDR = 0x10000;
 //   0x6040 - 0x604F  : GDT descriptor
 //   0x6050 - 0x60FF  : Boot info copy area
 // =============================================================================
-static constexpr uint32_t BOOT_PML4_ADDR      = 0x1000;
-static constexpr uint32_t BOOT_PDPT_ADDR      = 0x2000;
-static constexpr uint32_t BOOT_PD0_ADDR       = 0x3000;
-static constexpr uint32_t BOOT_PD1_ADDR       = 0x4000;
-static constexpr uint32_t BOOT_GDT64_ADDR     = 0x6000;
+static constexpr uint32_t BOOT_PML4_ADDR = 0x1000;
+static constexpr uint32_t BOOT_PDPT_ADDR = 0x2000;
+static constexpr uint32_t BOOT_PD0_ADDR = 0x3000;
+static constexpr uint32_t BOOT_PD1_ADDR = 0x4000;
+static constexpr uint32_t BOOT_GDT64_ADDR = 0x6000;
 static constexpr uint32_t BOOT_GDTDESC64_ADDR = 0x6040;
 
-static constexpr uint32_t PT_P  = 0x001;  // Present
-static constexpr uint32_t PT_W  = 0x002;  // Writable
+static constexpr uint32_t PT_P = 0x001;   // Present
+static constexpr uint32_t PT_W = 0x002;   // Writable
 static constexpr uint32_t PT_PS = 0x080;  // Page Size (2MB)
 
 static uint8_t boot_drive{};
@@ -194,8 +194,8 @@ static int fat_load_file(const char* filename, uint8_t* buffer) {
 static void build_page_tables() {
     auto* pml4 = reinterpret_cast<uint32_t*>(BOOT_PML4_ADDR);
     auto* pdpt = reinterpret_cast<uint32_t*>(BOOT_PDPT_ADDR);
-    auto* pd0  = reinterpret_cast<uint32_t*>(BOOT_PD0_ADDR);
-    auto* pd1  = reinterpret_cast<uint32_t*>(BOOT_PD1_ADDR);
+    auto* pd0 = reinterpret_cast<uint32_t*>(BOOT_PD0_ADDR);
+    auto* pd1 = reinterpret_cast<uint32_t*>(BOOT_PD1_ADDR);
 
     memset(pml4, 0, 4096);
     memset(pdpt, 0, 4096);

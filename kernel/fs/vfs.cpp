@@ -12,7 +12,7 @@ namespace {
 
 struct FsEntry {
     const char* name{};
-    FsFactory   create{};
+    FsFactory create{};
 };
 
 constexpr int MAX_FS_TYPES = 8;
@@ -29,7 +29,7 @@ struct MountSlot {
 MountSlot s_mounts[] = {
     {"/dev", nullptr, nullptr, nullptr, nullptr},
     {"/mnt", nullptr, nullptr, nullptr, nullptr},
-    {"/",    nullptr, nullptr, nullptr, nullptr},
+    {"/", nullptr, nullptr, nullptr, nullptr},
 };
 
 struct ResolveResult {

@@ -21,9 +21,9 @@ int fat_readdir_bridge(FatDirEntry* entry, void* arg) {
     char name[32];
     entry->get_filename(name, sizeof(name));
 
-    return bridge->cb({name, entry->is_directory() ? vfs::NodeType::Directory : vfs::NodeType::File,
-        entry->file_size, entry->attr
-    }, bridge->arg);
+    return bridge->cb(
+        {name, entry->is_directory() ? vfs::NodeType::Directory : vfs::NodeType::File, entry->file_size, entry->attr},
+        bridge->arg);
 }
 
 class FatFile : public vfs::File {

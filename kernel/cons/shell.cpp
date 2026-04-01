@@ -604,8 +604,7 @@ void shell::handle_char(char c) {
             }
             break;
 
-        case ASCII_DEL:
-            break;
+        case ASCII_DEL: break;
 
         default:
             if (cmd_pos < CMD_BUF_SIZE - 1 && c >= ASCII_PRINTABLE_MIN && c < ASCII_PRINTABLE_MAX) {

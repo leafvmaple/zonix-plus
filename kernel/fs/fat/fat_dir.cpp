@@ -17,7 +17,7 @@ static char to_upper(char ch) {
     return (ch >= 'a' && ch <= 'z') ? static_cast<char>(ch - 32) : ch;
 }
 
-template <size_t N>
+template<size_t N>
 static bool next_part(const char*& path, char (&buf)[N]) {
     size_t len{};
     while (*path && *path != '/') {
@@ -35,7 +35,8 @@ static bool next_part(const char*& path, char (&buf)[N]) {
 
 }  // namespace
 
-int FatInfo::do_file_io(FatDirEntry* entry, uint8_t* io_buf, uint32_t offset, uint32_t size, const char* op, bool writeback) {
+int FatInfo::do_file_io(FatDirEntry* entry, uint8_t* io_buf, uint32_t offset, uint32_t size, const char* op,
+                        bool writeback) {
     if (!entry || !io_buf || !op) {
         return -1;
     }
@@ -173,7 +174,6 @@ bool FatInfo::find_entry(uint32_t start_cluster, const char* name, FatDirEntry* 
 
     for (uint32_t cluster = start_cluster; cluster >= 2 && cluster < fat::FAT32_EOC_MIN;
          cluster = read_entry(cluster)) {
-
         uint32_t base_sector = cluster_to_sector(cluster);
         for (uint32_t i = 0; i < sectors_per_cluster_; i++) {
             if (dev_->read(partition_start_ + base_sector + i, sector_buf, 1) != 0) {
@@ -243,7 +243,6 @@ int FatInfo::find_file(const char* filename, FatDirEntry* result) {
     uint32_t cluster = root_cluster_;
 
     for (size_t i = 0; i < parts.size(); i++, cluster = result->get_cluster()) {
-
         if (!find_entry(cluster, parts[i], result))
             return -1;
 
