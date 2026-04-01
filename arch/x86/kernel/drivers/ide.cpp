@@ -32,6 +32,24 @@ static int hd_wait_ready_on_base(uint16_t base) {
     return -1;
 }
 
+// Poll until BSY=0 and DRQ=1 (data ready for PIO transfer after a command)
+static int hd_wait_drq(uint16_t base) {
+    int timeout = 100000;
+
+    while (timeout-- > 0) {
+        uint8_t status = arch_port_inb(base + ide::REG_STATUS);
+
+        if (status & ide::STATUS_ERR) {
+            return -1;
+        }
+        if (!(status & ide::STATUS_BSY) && (status & ide::STATUS_DRQ)) {
+            return 0;
+        }
+    }
+
+    return -1;
+}
+
 void IdeDevice::detect(const IdeConfig* cfg) {
     this->config = cfg;
 
@@ -177,46 +195,38 @@ int IdeDevice::read(uint32_t block_number, void* buf, size_t block_count) {
 
     uint8_t drive_sel = config->drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
 
-    // Read blocks one by one (interrupt-driven)
+    // Read blocks one by one using PIO polling (no scheduler dependency)
     for (size_t i = 0; i < block_count; i++) {
         uint32_t lba = block_number + i;
 
-        // Wait for device ready
+        // Select drive first, then wait for it to become ready
+        arch_port_outb(config->base + ide::REG_DEVICE, drive_sel);
+        arch_io_wait();
         if (hd_wait_ready_on_base(config->base) != 0) {
             cprintf("IdeDevice::read: device %s not ready\n", name);
             return -1;
         }
 
-        {
-            intr::Guard guard;
+        // Disable IDE interrupt for this PIO transfer (nIEN bit)
+        arch_port_outb(config->ctrl, ide::CTRL_nIEN);
 
-            request.reset();
-            request.buffer = reinterpret_cast<uint8_t*>(buf) + i * ide::SECTOR_SIZE;
-            request.op = IdeRequest::Op::Read;
+        arch_port_outb(config->base + ide::REG_SECTOR_COUNT, 1);
+        arch_port_outb(config->base + ide::REG_LBA_LOW, lba & 0xFF);
+        arch_port_outb(config->base + ide::REG_LBA_MID, (lba >> 8) & 0xFF);
+        arch_port_outb(config->base + ide::REG_LBA_HIGH, (lba >> 16) & 0xFF);
+        arch_port_outb(config->base + ide::REG_DEVICE, drive_sel | ((lba >> 24) & 0x0F));
+        arch_port_outb(config->base + ide::REG_COMMAND, ide::CMD_READ);
 
-            // Set sector count and LBA address
-            arch_port_outb(config->base + ide::REG_SECTOR_COUNT, 1);
-            arch_port_outb(config->base + ide::REG_LBA_LOW, lba & 0xFF);
-            arch_port_outb(config->base + ide::REG_LBA_MID, (lba >> 8) & 0xFF);
-            arch_port_outb(config->base + ide::REG_LBA_HIGH, (lba >> 16) & 0xFF);
-            arch_port_outb(config->base + ide::REG_DEVICE, drive_sel | ((lba >> 24) & 0x0F));
-
-            // Send read command (will trigger interrupt)
-            arch_port_outb(config->base + ide::REG_COMMAND, ide::CMD_READ);
-        }
-
-        // Wait for interrupt completion
-        while (!request.done) {
-            request.waitq.sleep();
-        }
-
-        if (request.err) {
-            request.reset();
-            cprintf("IdeDevice::read: error reading block %d from %s\n", lba, name);
+        if (hd_wait_drq(config->base) != 0) {
+            arch_port_outb(config->ctrl, 0);
+            cprintf("IdeDevice::read: DRQ timeout on %s (LBA %d)\n", name, lba);
             return -1;
         }
 
-        request.reset();
+        arch_port_insw(config->base + ide::REG_DATA, reinterpret_cast<uint8_t*>(buf) + i * ide::SECTOR_SIZE,
+                       ide::SECTOR_SIZE / 2);
+
+        arch_port_outb(config->ctrl, 0);  // Re-enable IDE interrupt
     }
 
     return 0;
@@ -235,51 +245,47 @@ int IdeDevice::write(uint32_t block_number, const void* buf, size_t block_count)
 
     uint8_t drive_sel = config->drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
 
-    // Write blocks one by one (interrupt-driven)
+    // Write blocks one by one using PIO polling (no scheduler dependency)
     for (size_t i = 0; i < block_count; i++) {
         uint32_t lba = block_number + i;
 
-        // Wait for device ready
+        // Select drive first, then wait for it to become ready
+        arch_port_outb(config->base + ide::REG_DEVICE, drive_sel);
+        arch_io_wait();
         if (hd_wait_ready_on_base(config->base) != 0) {
             cprintf("IdeDevice::write: device %s not ready\n", name);
             return -1;
         }
 
-        {
-            intr::Guard guard;
+        // Disable IDE interrupt for this PIO transfer (nIEN bit)
+        arch_port_outb(config->ctrl, ide::CTRL_nIEN);
 
-            request.reset();
-            request.buffer = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(buf) + i * ide::SECTOR_SIZE);
-            request.op = IdeRequest::Op::Write;
+        arch_port_outb(config->base + ide::REG_SECTOR_COUNT, 1);
+        arch_port_outb(config->base + ide::REG_LBA_LOW, lba & 0xFF);
+        arch_port_outb(config->base + ide::REG_LBA_MID, (lba >> 8) & 0xFF);
+        arch_port_outb(config->base + ide::REG_LBA_HIGH, (lba >> 16) & 0xFF);
+        arch_port_outb(config->base + ide::REG_DEVICE, drive_sel | ((lba >> 24) & 0x0F));
+        arch_port_outb(config->base + ide::REG_COMMAND, ide::CMD_WRITE);
 
-            arch_port_outb(config->base + ide::REG_SECTOR_COUNT, 1);
-            arch_port_outb(config->base + ide::REG_LBA_LOW, lba & 0xFF);
-            arch_port_outb(config->base + ide::REG_LBA_MID, (lba >> 8) & 0xFF);
-            arch_port_outb(config->base + ide::REG_LBA_HIGH, (lba >> 16) & 0xFF);
-            arch_port_outb(config->base + ide::REG_DEVICE, drive_sel | ((lba >> 24) & 0x0F));
-
-            arch_port_outb(config->base + ide::REG_COMMAND, ide::CMD_WRITE);
-
-            if (hd_wait_ready_on_base(config->base) != 0) {
-                request.reset();
-                return -1;  // guard destructor will restore interrupts
-            }
-
-            arch_port_outsw(config->base + ide::REG_DATA, request.buffer, ide::SECTOR_SIZE / 2);
-        }
-
-        // Wait for interrupt completion
-        while (!request.done) {
-            request.waitq.sleep();
-        }
-
-        if (request.err) {
-            request.reset();
-            cprintf("IdeDevice::write: error writing block %d to %s\n", lba, name);
+        // Wait for drive to signal it is ready to accept data
+        if (hd_wait_drq(config->base) != 0) {
+            arch_port_outb(config->ctrl, 0);
+            cprintf("IdeDevice::write: DRQ timeout on %s (LBA %d)\n", name, lba);
             return -1;
         }
 
-        request.reset();
+        arch_port_outsw(config->base + ide::REG_DATA,
+                        const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(buf)) + i * ide::SECTOR_SIZE,
+                        ide::SECTOR_SIZE / 2);
+
+        // Wait for write to complete
+        if (hd_wait_ready_on_base(config->base) != 0) {
+            arch_port_outb(config->ctrl, 0);
+            cprintf("IdeDevice::write: completion timeout on %s (LBA %d)\n", name, lba);
+            return -1;
+        }
+
+        arch_port_outb(config->ctrl, 0);  // Re-enable IDE interrupt
     }
 
     return 0;

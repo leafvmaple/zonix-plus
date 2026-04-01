@@ -77,7 +77,7 @@ tobin     = $(addprefix $(BINDIR)$(SLASH),$(addsuffix .bin,$(1)))
 # Single compile rule (with auto-deps via DEPFLAGS)
 # .S files get -D__ASSEMBLY__ so headers can hide C/C++ constructs.
 define compile
-$$(call toobj,$(1)): $(1) | $$$$(dir $$$$@)
+$$(call toobj,$(1)): $(1) $$(TEST_MODE_STAMP) | $$$$(dir $$$$@)
 	$(Q)$(2) -I$$(dir $(1)) $(3) $(if $(filter %.S,$(1)),-D__ASSEMBLY__) $(DEPFLAGS) -c $$< -o $$@
 ALLOBJS += $$(call toobj,$(1))
 endef
@@ -120,12 +120,16 @@ INCLUDE := include \
 CFLAGS   += $(addprefix -I,$(INCLUDE))
 CXXFLAGS += $(addprefix -I,$(INCLUDE))
 
+# Track TEST mode changes: when TEST switches, all .o files must be recompiled
+# (because -DTEST_MODE=1 changes preprocessor output).  Must be defined before
+# the compile rules are eval'd by add_packet_files_cxx below.
+TEST_MODE_STAMP := $(OBJDIR)/.test_mode
+
 $(call add_packet_files_cc,$(call listf_cc,$(KSRCDIR)),kernel)
 $(call add_packet_files_cxx,$(call listf_cxx,$(KSRCDIR)),kernel)
 
 kernel = $(call totarget,kernel)
 KOBJS  := $(sort $(call read_packet,kernel))
-TEST_MODE_STAMP := $(OBJDIR)/.test_mode
 
 FORCE:
 
