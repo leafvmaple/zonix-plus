@@ -39,7 +39,7 @@ Array<ShellCommand, MAX_COMMANDS> commands{};
 }  // namespace
 
 static int strcmp(const char* s1, const char* s2);
-static size_t str_len(const char* s);
+static size_t strlen(const char* s);
 static int parse_args(const char* cmd, char** argv);
 
 static void cmd_help(int argc, char** argv) {
@@ -128,37 +128,8 @@ static void cmd_schedstat(int argc, char** argv) {
     sched::print_stats();
 }
 
-static const char* g_system_device{};
-static int g_system_mounted{};
-
 static const char* g_mnt_device{};
 static int g_mnt_mounted{};
-
-static int ensure_system_mounted() {
-    if (g_system_mounted && vfs::is_mounted("/")) {
-        return 0;  // Already mounted
-    }
-
-    g_system_mounted = 0;
-    g_system_device = nullptr;
-
-    int count = BlockManager::get_device_count();
-    for (int i = 0; i < count; i++) {
-        BlockDevice* dev = BlockManager::get_device(i);
-        if (!dev || dev->type != blk::DeviceType::Disk) {
-            continue;
-        }
-
-        if (vfs::mount("/", dev, "fat") == 0) {
-            g_system_device = dev->name;
-            g_system_mounted = 1;
-            return 0;
-        }
-    }
-
-    cprintf("Error: No mountable system disk found\n");
-    return -1;
-}
 
 static void cmd_mount(int argc, char** argv) {
     if (g_mnt_mounted || vfs::is_mounted("/mnt")) {
@@ -176,7 +147,8 @@ static void cmd_mount(int argc, char** argv) {
 
     const char* dev_name = argv[1];
 
-    if (g_system_mounted && g_system_device && strcmp(dev_name, g_system_device) == 0) {
+    const char* root_dev = vfs::mounted_device("/");
+    if (root_dev && strcmp(dev_name, root_dev) == 0) {
         cprintf("Error: %s is the system disk and already mounted at /\n", dev_name);
         return;
     }
@@ -226,13 +198,16 @@ static void cmd_info(int argc, char** argv) {
     static_cast<void>(argc);
     static_cast<void>(argv);
 
-    // Auto-mount system disk if needed
-    if (ensure_system_mounted() != 0) {
+    if (!vfs::is_mounted("/")) {
+        cprintf("Error: no system disk mounted at /\n");
         return;
     }
 
     cprintf("System Disk Information:\n");
-    cprintf("  Device: %s\n", g_system_device);
+    const char* root_dev = vfs::mounted_device("/");
+    if (root_dev) {
+        cprintf("  Device: %s\n", root_dev);
+    }
     cprintf("  Mount Point: /\n");
     vfs::print_mount_info("/");
 
@@ -244,25 +219,25 @@ static void cmd_info(int argc, char** argv) {
     }
 }
 
-static int ls_callback(const vfs::DirEntry* entry, void* arg) {
+static int ls_callback(const vfs::DirEntry& entry, void* arg) {
     static_cast<void>(arg);
 
     // Get file attributes
     char attr_str[6] = "-----";
-    if (entry->attrs & FAT_ATTR_DIRECTORY)
+    if (entry.attrs & FAT_ATTR_DIRECTORY)
         attr_str[0] = 'd';
-    if (entry->attrs & FAT_ATTR_READ_ONLY)
+    if (entry.attrs & FAT_ATTR_READ_ONLY)
         attr_str[1] = 'r';
-    if (entry->attrs & FAT_ATTR_HIDDEN)
+    if (entry.attrs & FAT_ATTR_HIDDEN)
         attr_str[2] = 'h';
-    if (entry->attrs & FAT_ATTR_SYSTEM)
+    if (entry.attrs & FAT_ATTR_SYSTEM)
         attr_str[3] = 's';
-    if (entry->attrs & FAT_ATTR_ARCHIVE)
+    if (entry.attrs & FAT_ATTR_ARCHIVE)
         attr_str[4] = 'a';
 
-    uint32_t size = entry->size;
+    uint32_t size = entry.size;
 
-    cprintf("%s %8d  %s\n", attr_str, size, entry->name);
+    cprintf("%s %8d  %s\n", attr_str, size, entry.name);
 
     return 0;  // Continue
 }
@@ -284,7 +259,8 @@ static void cmd_ls(int argc, char** argv) {
         }
         path = "/mnt";
     } else {
-        if (ensure_system_mounted() != 0) {
+        if (!vfs::is_mounted("/")) {
+            cprintf("Error: no system disk mounted at /\n");
             return;
         }
         path = "/";
@@ -309,8 +285,8 @@ static int build_path(const char* filename, int use_mnt, char* out, size_t out_s
     }
 
     const char* prefix = use_mnt ? "/mnt/" : "";
-    size_t prefix_len = str_len(prefix);
-    size_t file_len = str_len(filename);
+    size_t prefix_len = strlen(prefix);
+    size_t file_len = strlen(filename);
 
     if (prefix_len + file_len + 1 > out_size) {
         return -1;
@@ -343,7 +319,8 @@ static void cmd_cat(int argc, char** argv) {
             return;
         }
     } else {
-        if (ensure_system_mounted() != 0) {
+        if (!vfs::is_mounted("/")) {
+            cprintf("Error: no system disk mounted at /\n");
             return;
         }
     }
@@ -449,7 +426,8 @@ static void cmd_exec(int argc, char** argv) {
             return;
         }
     } else {
-        if (ensure_system_mounted() != 0) {
+        if (!vfs::is_mounted("/")) {
+            cprintf("Error: no system disk mounted at /\n");
             return;
         }
     }
@@ -558,22 +536,6 @@ static void execute_command(const char* cmd) {
 
     cprintf("Unknown command: %s\n", argv[0]);
     cprintf("Type 'help' for available commands.\n");
-}
-
-static int strcmp(const char* s1, const char* s2) {
-    while (*s1 && (*s1 == *s2)) {
-        s1++;
-        s2++;
-    }
-    return (static_cast<unsigned char>(*s1) - static_cast<unsigned char>(*s2));
-}
-
-static size_t str_len(const char* s) {
-    size_t len = 0;
-    while (s && s[len]) {
-        len++;
-    }
-    return len;
 }
 
 int shell::register_command(const char* name, const char* desc, fnCommand func) {

@@ -2,7 +2,6 @@
 #include "cons.h"
 #include "lib/stdarg.h"
 #include <base/types.h>
-#include "lib/math.h"
 
 namespace {
 
@@ -11,68 +10,49 @@ constexpr int FMT_TRANSFER = 1;
 
 }  // namespace
 
-// Helper to get number of digits
 static int get_num_digits(uint64_t num, uint32_t base) {
-    int digits = 0;
+    int digits{};
     if (num == 0)
         return 1;
+
     while (num > 0) {
         digits++;
-        uint64_t temp = num;
-        do_div(temp, base);
-        num = temp;
+        num /= base;
     }
     return digits;
 }
 
-void print_digit(uint64_t num, uint32_t base, int width, char padc) {
-    uint32_t mod = 0;
+void print_digit(uint64_t num, uint32_t base, int width = 0, char pad_chr = ' ') {
+    uint32_t mod = num % base;
     if (num >= base) {
-        mod = do_div(num, base);
-        print_digit(num, base, width - 1, padc);
+        print_digit(num / base, base, width - 1, pad_chr);
     } else {
-        mod = num;
         while (--width > 0) {
-            cons::putc(padc);
+            cons::putc(pad_chr);
         }
     }
-
     cons::putc(mod < 10 ? '0' + mod : 'A' + mod - 10);
 }
 
-void print_digit_no_pad(uint64_t num, int base) {
-    uint32_t mod = 0;
-    if (num >= static_cast<uint64_t>(base)) {
-        mod = do_div(num, base);
-        print_digit_no_pad(num, base);
-    } else {
-        mod = num;
-    }
-    cons::putc(mod < 10 ? '0' + mod : 'A' + mod - 10);
-}
-
-void print_num(va_list* args, uint32_t base, int lflag, int width, char padc, int left_align) {
+void print_num(va_list* args, uint32_t base, int lflag, int width, char pad_chr, int left_align) {
     uint64_t num = lflag ? va_arg(*args, uint64_t) : va_arg(*args, uint32_t);
 
     if (left_align) {
-        // Left-aligned: print number first, then padding
         int num_digits = get_num_digits(num, base);
-        print_digit_no_pad(num, base);
+        print_digit(num, base);
         for (int i = num_digits; i < width; i++) {
             cons::putc(' ');
         }
     } else {
-        // Right-aligned: use original function
-        print_digit(num, base, width, padc);
+        print_digit(num, base, width, pad_chr);
     }
 }
 
-void print_signed_num(va_list* args, int base, int lflag, int width, char padc, int left_align) {
+void print_signed_num(va_list* args, int base, int lflag, int width, char pad_chr, int left_align) {
     int64_t signed_num = lflag ? va_arg(*args, int64_t) : va_arg(*args, int32_t);
     uint64_t num{};
     int is_negative{};
 
-    // Handle negative numbers
     if (signed_num < 0) {
         is_negative = 1;
         num = -signed_num;
@@ -81,40 +61,34 @@ void print_signed_num(va_list* args, int base, int lflag, int width, char padc, 
     }
 
     if (left_align) {
-        // Left-aligned: print sign and number first, then padding
         if (is_negative) {
             cons::putc('-');
         }
         int num_digits = get_num_digits(num, base);
-        print_digit_no_pad(num, base);
+        print_digit(num, base);
         int total_width = num_digits + (is_negative ? 1 : 0);
         for (int i = total_width; i < width; i++) {
             cons::putc(' ');
         }
     } else {
-        // Right-aligned: handle padding
         int num_digits = get_num_digits(num, base);
         int total_width = num_digits + (is_negative ? 1 : 0);
 
-        // Print padding
-        if (padc == '0' && is_negative) {
-            // If padding with 0 and negative, print sign first
+        if (pad_chr == '0' && is_negative) {
             cons::putc('-');
             for (int i = total_width; i < width; i++) {
                 cons::putc('0');
             }
         } else {
-            // Otherwise print padding first, then sign
             for (int i = total_width; i < width; i++) {
-                cons::putc(padc);
+                cons::putc(pad_chr);
             }
             if (is_negative) {
                 cons::putc('-');
             }
         }
 
-        // Print the number
-        print_digit_no_pad(num, base);
+        print_digit(num, base);
     }
 }
 
@@ -123,23 +97,19 @@ void print_str(va_list* args, int width, int left_align) {
     int len = 0;
     char* p = s;
 
-    // Calculate string length
     while (*p++)
         len++;
 
-    // Print left padding if right-aligned
     if (!left_align && width > len) {
         for (int i = 0; i < width - len; i++) {
             cons::putc(' ');
         }
     }
 
-    // Print string
     while (*s) {
         cons::putc(*s++);
     }
 
-    // Print right padding if left-aligned
     if (left_align && width > len) {
         for (int i = 0; i < width - len; i++) {
             cons::putc(' ');
@@ -150,10 +120,10 @@ void print_str(va_list* args, int width, int left_align) {
 int cprintf(const char* fmt, ...) {
     char c{};
     int status = FMT_NONE;
-    int lflag{};
     int width{};
+    int left_flag{};
     int left_align{};
-    char padc{};
+    char pad_chr{};
     va_list args;
     va_start(args, fmt);
 
@@ -165,26 +135,26 @@ int cprintf(const char* fmt, ...) {
                 } else {
                     cons::putc(c);
                 }
-                padc = ' ';
-                lflag = width = left_align = 0;
+                pad_chr = ' ';
+                left_flag = width = left_align = 0;
                 break;
             case FMT_TRANSFER:
                 switch (c) {
                     case '-': left_align = 1; break;
-                    case '0': padc = '0'; break;
+                    case '0': pad_chr = '0'; break;
                     case '1' ... '9': width = width * 10 + (c - '0'); break;
-                    case 'l': lflag = 1; break;
+                    case 'l': left_flag = 1; break;
                     case 'x':
                     case 'p':
-                        print_num(&args, 16, lflag, width, padc, left_align);
+                        print_num(&args, 16, left_flag, width, pad_chr, left_align);
                         status = FMT_NONE;
                         break;
                     case 'd':
-                        print_signed_num(&args, 10, lflag, width, padc, left_align);
+                        print_signed_num(&args, 10, left_flag, width, pad_chr, left_align);
                         status = FMT_NONE;
                         break;
                     case 'u':
-                        print_num(&args, 10, lflag, width, padc, left_align);
+                        print_num(&args, 10, left_flag, width, pad_chr, left_align);
                         status = FMT_NONE;
                         break;
                     case 's':

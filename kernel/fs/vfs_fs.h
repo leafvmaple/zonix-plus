@@ -17,4 +17,10 @@ public:
     virtual void print() = 0;
 };
 
+using FsFactory = FileSystem* (*)();
+int register_fs(const char* name, FsFactory factory);
+
+using CharDevFactory = File* (*)();
+int register_char_dev(const char* name, CharDevFactory factory);
+
 }  // namespace vfs

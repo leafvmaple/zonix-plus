@@ -1,6 +1,7 @@
 #pragma once
 
 #include <base/types.h>
+#include "lib/string.h"
 
 struct BlockDevice;
 
@@ -17,6 +18,12 @@ struct Stat {
     NodeType type{NodeType::Unknown};
     uint32_t size{};
     uint32_t attrs{};
+
+    inline void set(NodeType t, uint32_t s, uint32_t a) {
+        type = t;
+        size = s;
+        attrs = a;
+    }
 };
 
 struct DirEntry {
@@ -24,6 +31,13 @@ struct DirEntry {
     NodeType type{NodeType::Unknown};
     uint32_t size{};
     uint32_t attrs{};
+
+    DirEntry() = default;
+    DirEntry(const char* n, NodeType t, uint32_t s, uint32_t a) {
+        set(n, t, s, a);
+    }
+
+    void set(const char* n, NodeType t, uint32_t s, uint32_t a);
 };
 
 class File {
@@ -35,8 +49,9 @@ public:
     virtual int stat(Stat* st) = 0;
 };
 
-using fnReadDir = int (*)(const DirEntry* entry, void* arg);
+using fnReadDir = int (*)(const DirEntry& entry, void* arg);
 
+int init();
 int mount(const char* mount_point, BlockDevice* dev, const char* fs_type);
 int umount(const char* mount_point);
 

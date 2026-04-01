@@ -4,10 +4,6 @@
 #include <base/bpb.h>
 #include "block/blk.h"
 
-namespace vfs {
-class FileSystem;
-}
-
 namespace fat {
 
 inline constexpr int TYPE_FAT12 = 12;
@@ -20,8 +16,6 @@ inline constexpr uint32_t FAT32_BAD_CLUSTER = 0x0FFFFFF7;
 inline constexpr uint32_t FAT32_EOC_MIN = 0x0FFFFFF8;
 inline constexpr uint32_t FAT32_EOC_MAX = 0x0FFFFFFF;
 inline constexpr uint32_t FAT32_CLUSTER_MASK = 0x0FFFFFFF;  // Mask for FAT32 entries (top 4 bits reserved)
-
-vfs::FileSystem* create_vfs_filesystem();
 
 }  // namespace fat
 

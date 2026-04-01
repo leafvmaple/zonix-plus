@@ -3,6 +3,8 @@
 #include "drivers/pci.h"
 #include "drivers/sdhci.h"
 #include "cons/cons.h"
+#include "fs/vfs.h"
+#include "fs/rootfs.h"
 #include "mm/pmm.h"
 #include "mm/vmm.h"
 #include "mm/swap.h"
@@ -61,10 +63,12 @@ static int pci_registers() {
 
 static const InitStep KERN_STEPS[] = {
     {"early_init", early_init, true},  {"pmm", pmm::init, true},
-    {"vmm", vmm::init, true},          {"cons_late", cons::late_init, false},
+    {"vmm", vmm::init, true},          {"vfs", vfs::init, true},
+    {"cons_late", cons::late_init, false},
     {"pci_init", pci::init, false},    {"blk", blk::init, true},
     {"sdhci", sdhci::init, false},     {"pci_reg", pci_registers, false},
     {"pci_probe", pci::probe_drivers, false},
+    {"rootfs",    rootfs::init,        false},
     {"swap", swap::init, false},       {"sched", sched::init, true},
 };
 

@@ -1,14 +1,5 @@
 #pragma once
 
-#define do_div(n, base)                    \
-    ({                                     \
-        unsigned long __n = (n);           \
-        unsigned int __base = (base);      \
-        unsigned int __mod = __n % __base; \
-        (n) = __n / __base;                \
-        __mod;                             \
-    })
-
 // Type trait for pointer detection
 template<typename T>
 struct is_pointer {

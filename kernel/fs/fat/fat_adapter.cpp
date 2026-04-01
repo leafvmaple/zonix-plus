@@ -7,12 +7,6 @@
 namespace fat {
 namespace {
 
-void fill_stat_from_entry(const FatDirEntry& entry, vfs::Stat* st) {
-    st->attrs = entry.attr;
-    st->size = entry.file_size;
-    st->type = entry.is_directory() ? vfs::NodeType::Directory : vfs::NodeType::File;
-}
-
 struct ReadDirBridge {
     vfs::fnReadDir cb{};
     void* arg{};
@@ -24,13 +18,12 @@ int fat_readdir_bridge(FatDirEntry* entry, void* arg) {
         return -1;
     }
 
-    vfs::DirEntry dir{};
-    entry->get_filename(dir.name, sizeof(dir.name));
-    dir.attrs = entry->attr;
-    dir.size = entry->file_size;
-    dir.type = entry->is_directory() ? vfs::NodeType::Directory : vfs::NodeType::File;
+    char name[32];
+    entry->get_filename(name, sizeof(name));
 
-    return bridge->cb(&dir, bridge->arg);
+    return bridge->cb({name, entry->is_directory() ? vfs::NodeType::Directory : vfs::NodeType::File,
+        entry->file_size, entry->attr
+    }, bridge->arg);
 }
 
 class FatFile : public vfs::File {
@@ -68,7 +61,7 @@ public:
             return -1;
         }
 
-        fill_stat_from_entry(entry_, st);
+        st->set(entry_.is_directory() ? vfs::NodeType::Directory : vfs::NodeType::File, entry_.file_size, entry_.attr);
         return 0;
     }
 
@@ -112,9 +105,7 @@ public:
         }
 
         if (relpath[0] == '\0') {
-            st->type = vfs::NodeType::Directory;
-            st->size = 0;
-            st->attrs = FAT_ATTR_DIRECTORY;
+            st->set(vfs::NodeType::Directory, 0, FAT_ATTR_DIRECTORY);
             return 0;
         }
 
@@ -123,7 +114,7 @@ public:
             return -1;
         }
 
-        fill_stat_from_entry(entry, st);
+        st->set(entry.is_directory() ? vfs::NodeType::Directory : vfs::NodeType::File, entry.file_size, entry.attr);
         return 0;
     }
 
@@ -150,5 +141,13 @@ private:
 vfs::FileSystem* create_vfs_filesystem() {
     return new (std::nothrow) FatFileSystem();
 }
+
+namespace {
+
+struct FatFsRegistrar {
+    FatFsRegistrar() { vfs::register_fs("fat", fat::create_vfs_filesystem); }
+} s_fat_registrar;
+
+}  // namespace
 
 }  // namespace fat
