@@ -1,4 +1,5 @@
 #include <boot/uefi_boot.h>
+#include <base/elf.h>
 
 /*
  * The compiler may emit implicit calls to memcpy/memset/memmove for
@@ -22,13 +23,13 @@ extern "C" void* memset(void* dst, int c, uintptr_t n) {
     return dst;
 }
 
-void uefi_print(EFI_SYSTEM_TABLE* st, const wchar_t* str) {
+static void uefi_print(EFI_SYSTEM_TABLE* st, const wchar_t* str) {
     if (st && st->ConOut) {
         st->ConOut->OutputString(st->ConOut, const_cast<wchar_t*>(str));
     }
 }
 
-void uefi_print_hex(EFI_SYSTEM_TABLE* st, uint64_t val) {
+static void uefi_print_hex(EFI_SYSTEM_TABLE* st, uint64_t val) {
     wchar_t buf[21];
     const wchar_t* hex = UEFI_STR(L"0123456789ABCDEF");
     buf[0] = L'0';
@@ -42,7 +43,7 @@ void uefi_print_hex(EFI_SYSTEM_TABLE* st, uint64_t val) {
     uefi_print(st, buf);
 }
 
-int uefi_load_elf(void* elf_buffer, struct BootInfo* bi, uint64_t kernel_virt_base) {
+static int uefi_load_elf(void* elf_buffer, struct BootInfo* bi, uint64_t kernel_virt_base) {
     auto* elf = static_cast<ElfHdr*>(elf_buffer);
     if (elf->e_magic != ELF_MAGIC) {
         return -1;
@@ -84,8 +85,8 @@ int uefi_load_elf(void* elf_buffer, struct BootInfo* bi, uint64_t kernel_virt_ba
     return 0;
 }
 
-EFI_STATUS uefi_get_memory_map(EFI_BOOT_SERVICES* bs, struct BootInfo* bi, uint64_t mmap_addr,
-                               uintptr_t mmap_max_entries, uint32_t mem_lower, uint64_t mem_upper_min) {
+static EFI_STATUS uefi_get_memory_map(EFI_BOOT_SERVICES* bs, struct BootInfo* bi, uint64_t mmap_addr,
+                                      uintptr_t mmap_max_entries, uint32_t mem_lower, uint64_t mem_upper_min) {
     uintptr_t map_key = 0;
     uintptr_t map_size = 0;
     uintptr_t desc_size = 0;
@@ -165,7 +166,7 @@ EFI_STATUS uefi_get_memory_map(EFI_BOOT_SERVICES* bs, struct BootInfo* bi, uint6
     return EFI_SUCCESS;
 }
 
-EFI_STATUS uefi_load_kernel_file(EFI_BOOT_SERVICES* bs, EFI_HANDLE image_handle, void** buf, uintptr_t* size) {
+static EFI_STATUS uefi_load_kernel_file(EFI_BOOT_SERVICES* bs, EFI_HANDLE image_handle, void** buf, uintptr_t* size) {
     EFI_LOADED_IMAGE_PROTOCOL* loaded_image{};
     EFI_SIMPLE_FILE_SYSTEM_PROTOCOL* fs{};
     EFI_FILE_PROTOCOL* root{};
@@ -237,7 +238,7 @@ EFI_STATUS uefi_load_kernel_file(EFI_BOOT_SERVICES* bs, EFI_HANDLE image_handle,
     return status;
 }
 
-void uefi_get_graphics_info(EFI_BOOT_SERVICES* bs, struct BootInfo* bi) {
+static void uefi_get_graphics_info(EFI_BOOT_SERVICES* bs, struct BootInfo* bi) {
     EFI_GRAPHICS_OUTPUT_PROTOCOL* gop{};
     EFI_GUID gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
 
@@ -254,7 +255,7 @@ void uefi_get_graphics_info(EFI_BOOT_SERVICES* bs, struct BootInfo* bi) {
     bi->framebuffer_type = 1; /* RGB */
 }
 
-EFI_STATUS uefi_exit_boot_services(EFI_BOOT_SERVICES* bs, EFI_HANDLE image_handle) {
+static EFI_STATUS uefi_exit_boot_services(EFI_BOOT_SERVICES* bs, EFI_HANDLE image_handle) {
     uintptr_t map_key = 0, m_size = 0, d_size = 0;
     uint32_t d_ver = 0;
     EFI_MEMORY_DESCRIPTOR* m_map = nullptr;
@@ -279,4 +280,69 @@ EFI_STATUS uefi_exit_boot_services(EFI_BOOT_SERVICES* bs, EFI_HANDLE image_handl
         status = bs->ExitBootServices(image_handle, map_key);
     }
     return status;
+}
+
+EFI_STATUS uefi_boot_setup(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_table, const UefiBootConfig& cfg,
+                           BootInfo** out_bi) {
+    EFI_SYSTEM_TABLE* st = system_table;
+    EFI_BOOT_SERVICES* bs = system_table->BootServices;
+
+    st->ConOut->ClearScreen(st->ConOut);
+    uefi_print(st, cfg.banner);
+    bs->SetWatchdogTimer(0, 0, 0, nullptr);
+
+    auto* bi = reinterpret_cast<BootInfo*>(static_cast<uintptr_t>(cfg.boot_info_addr));
+    memset(bi, 0, sizeof(BootInfo));
+    bi->magic = BOOT_INFO_MAGIC;
+    bi->mmap_addr = cfg.mmap_addr;
+
+    uefi_print(st, UEFI_STR(L"Getting memory map...\r\n"));
+    EFI_STATUS status =
+        uefi_get_memory_map(bs, bi, cfg.mmap_addr, cfg.mmap_max_entries, cfg.mem_lower, cfg.mem_upper_min);
+    if (EFI_ERROR(status)) {
+        uefi_print(st, UEFI_STR(L"Memory map failed\r\n"));
+        return status;
+    }
+
+    uefi_print(st, UEFI_STR(L"Loading kernel...\r\n"));
+    void* kernel_buf = nullptr;
+    uintptr_t kernel_size = 0;
+    status = uefi_load_kernel_file(bs, image_handle, &kernel_buf, &kernel_size);
+    if (EFI_ERROR(status)) {
+        uefi_print(st, UEFI_STR(L"Kernel load failed\r\n"));
+        return status;
+    }
+
+    if (cfg.kernel_alloc_base != 0) {
+        EFI_PHYSICAL_ADDRESS kbase = cfg.kernel_alloc_base;
+        status = bs->AllocatePages(AllocateAddress, EfiLoaderCode, cfg.kernel_alloc_pages, &kbase);
+        if (EFI_ERROR(status)) {
+            uefi_print(st, UEFI_STR(L"AllocatePages for kernel failed\r\n"));
+            return status;
+        }
+    }
+
+    uefi_print(st, UEFI_STR(L"Parsing ELF kernel...\r\n"));
+    if (uefi_load_elf(kernel_buf, bi, cfg.kernel_virt_base) != 0) {
+        uefi_print(st, UEFI_STR(L"ELF parse failed\r\n"));
+        return EFI_LOAD_ERROR;
+    }
+
+    uefi_get_graphics_info(bs, bi);
+
+    for (int i = 0; cfg.loader_name[i] && i < 31; i++) {
+        bi->loader_name[i] = cfg.loader_name[i];
+    }
+
+    uefi_print(st, UEFI_STR(L"Kernel entry (phys): "));
+    uefi_print_hex(st, bi->kernel_entry);
+
+    uefi_print(st, UEFI_STR(L"Exiting Boot Services...\r\n"));
+    status = uefi_exit_boot_services(bs, image_handle);
+    if (EFI_ERROR(status)) {
+        return status;
+    }
+
+    *out_bi = bi;
+    return EFI_SUCCESS;
 }

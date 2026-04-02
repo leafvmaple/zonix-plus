@@ -88,6 +88,51 @@
                 ],
                 "limitSymbolsToIncludedHeaders": true
             }
+        },
+        {
+            "name": "Zonix Riscv64",
+            "compilerPath": "/usr/bin/clang",
+            "intelliSenseMode": "linux-clang-arm64",
+            "cStandard": "gnu17",
+            "cppStandard": "gnu++17",
+            "includePath": [
+                "${workspaceFolder}/include",
+                "${workspaceFolder}/kernel",
+                "${workspaceFolder}/arch/riscv64/include",
+                "${workspaceFolder}/arch/riscv64/kernel"
+            ],
+            "defines": [
+                "__riscv",
+                "__riscv_xlen=64",
+                "__ELF__"
+            ],
+            "compilerArgs": [
+                "--target=riscv64-none-elf",
+                "-march=rv64gc",
+                "-mabi=lp64d",
+                "-mcmodel=medany",
+                "-ffreestanding",
+                "-nostdinc",
+                "-nostdinc++",
+                "-fno-builtin",
+                "-fno-stack-protector",
+                "-fno-pic",
+                "-fno-exceptions",
+                "-fno-rtti",
+                "-fno-use-cxa-atexit",
+                "-fno-threadsafe-statics",
+                "-fno-asynchronous-unwind-tables",
+                "-fno-unwind-tables"
+            ],
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/include",
+                    "${workspaceFolder}/kernel",
+                    "${workspaceFolder}/arch/riscv64/include",
+                    "${workspaceFolder}/arch/riscv64/kernel"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            }
         }
     ]
 }

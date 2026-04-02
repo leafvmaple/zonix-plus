@@ -118,8 +118,6 @@ int FatInfo::mount(BlockDevice* dev) {
     cprintf("  OEM: %s\n", oem);
     cprintf("  Partition Start: LBA %d\n", partition_start);
 
-    print();
-
     return 0;
 }
 

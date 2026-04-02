@@ -9,7 +9,6 @@
 *.EFI
 
 # Editor / IDE
-.vscode/
 *.swp
 *.swo
 *~

@@ -67,12 +67,17 @@ KERNEL_EXTRA_OBJS := $(FONT_OBJ)
 KERNEL_LD_SCRIPT  := $(SCRIPTDIR)/kernel-riscv64.ld
 
 # ---------- top-level "all" prerequisites ----------
-ALL_PREREQS := $(BINDIR)/kernel $(BINDIR)/BOOTRISCV64.EFI $(BINDIR)/zonix-uefi.img
+ALL_PREREQS := $(BINDIR)/kernel $(BINDIR)/BOOTRISCV64.EFI $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img
 
 # ---------- UEFI disk image ----------
 $(BINDIR)/zonix-uefi.img: $(BINDIR)/BOOTRISCV64.EFI $(BINDIR)/kernel | $$(dir $$@)
 	@echo "  IMG     $@"
 	$(Q)BINDIR=$(BINDIR) ARCH=riscv64 bash $(SCRIPTDIR)/create_uefi_image.sh
+
+# ---------- SD card image (kernel-visible system disk) ----------
+$(BINDIR)/sdcard.img: $(BINDIR)/zonix-uefi.img
+	@echo "  IMG     $@"
+	$(Q)cp $< $@
 
 # ---------- QEMU run / debug targets ----------
 AAVMF ?= /usr/share/qemu-efi-riscv64/RISCV_VIRT_CODE.fd
@@ -84,7 +89,7 @@ AAVMF ?= /usr/share/qemu-efi-riscv64/RISCV_VIRT_CODE.fd
 AAVMF ?= /usr/share/qemu-efi-riscv64/RISCV_VIRT_CODE.fd
 AAVMF_VARS ?= /usr/share/qemu-efi-riscv64/RISCV_VIRT_VARS.fd
 
-qemu: $(BINDIR)/zonix-uefi.img
+qemu: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img
 	@cp -n $(AAVMF_VARS) $(BINDIR)/riscv_vars.fd 2>/dev/null || true
 	$(QEMU) -cpu rv64 \
 		-drive if=pflash,format=raw,unit=0,file=$(AAVMF),readonly=on \
@@ -92,7 +97,7 @@ qemu: $(BINDIR)/zonix-uefi.img
 		-readconfig qemu-uefi-riscv64.cfg \
 		-serial stdio -no-reboot
 
-debug: $(BINDIR)/zonix-uefi.img
+debug: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img
 	$(QEMU) -cpu rv64 \
 		-drive if=pflash,format=raw,unit=0,file=$(AAVMF),readonly=on \
 		-drive if=pflash,format=raw,unit=1,file=$(BINDIR)/riscv_vars.fd \

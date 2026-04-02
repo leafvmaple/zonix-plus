@@ -21,6 +21,21 @@ void* memcpy(void* dst, const void* src, size_t n) {
     return arch_memcpy(dst, src, n);
 }
 
+void* memmove(void* dst, const void* src, size_t n) {
+    auto* d = static_cast<uint8_t*>(dst);
+    const auto* s = static_cast<const uint8_t*>(src);
+    if (d < s) {
+        while (n-- > 0)
+            *d++ = *s++;
+    } else if (d > s) {
+        d += n;
+        s += n;
+        while (n-- > 0)
+            *--d = *--s;
+    }
+    return dst;
+}
+
 int memcmp(const void* s1, const void* s2, size_t n) {
     const auto* p1 = static_cast<const unsigned char*>(s1);
     const auto* p2 = static_cast<const unsigned char*>(s2);

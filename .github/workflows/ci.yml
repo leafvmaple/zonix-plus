@@ -172,7 +172,57 @@ jobs:
           bash scripts/ci_qemu_test_aarch64.sh
 
   # ======================================================================
-  # Job 7: Static analysis (clang-tidy, non-blocking)
+  # Job 7: Build riscv64 kernel
+  # ======================================================================
+  build-riscv64:
+    name: Build riscv64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang lld llvm nasm make \
+            mtools dosfstools \
+            fdisk
+
+      - name: Build kernel
+        run: make ARCH=riscv64
+
+  # ======================================================================
+  # Job 8: Integration tests in QEMU (RISC-V 64 UEFI boot)
+  # ======================================================================
+  test-riscv64-uefi:
+    name: Test riscv64 (UEFI)
+    runs-on: ubuntu-latest
+    needs: build-riscv64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang lld llvm nasm make \
+            mtools dosfstools \
+            fdisk parted \
+            qemu-system-misc \
+            qemu-efi-riscv64
+
+      - name: Build with tests
+        run: make ARCH=riscv64 TEST=1 bin/riscv64/sdcard.img
+
+      - name: Run riscv64 UEFI boot tests
+        run: |
+          chmod +x scripts/ci_qemu_test_riscv64.sh
+          bash scripts/ci_qemu_test_riscv64.sh
+
+  # ======================================================================
+  # Job 9: Static analysis (clang-tidy, non-blocking)
   # ======================================================================
   static-analysis:
     name: Static Analysis

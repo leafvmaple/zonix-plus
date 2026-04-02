@@ -112,7 +112,7 @@ static void scroll_up() {
     uint8_t* dst = reinterpret_cast<uint8_t*>(fb_base);
     uint8_t* src = dst + bytes_per_char_row;
     uint32_t total = bytes_per_char_row * (rows - 1);
-    memcpy(dst, src, total);
+    memmove(dst, src, total);
     clear_row(rows - 1);
 }
 
