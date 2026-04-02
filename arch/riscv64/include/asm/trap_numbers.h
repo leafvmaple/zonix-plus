@@ -10,6 +10,7 @@
 #ifndef __ASSEMBLY__
 
 #include <base/types.h>
+#include <asm/board.h>
 
 /* scause interrupt bit */
 inline constexpr uint64_t SCAUSE_INTR_BIT = 1ULL << 63;
@@ -41,7 +42,7 @@ inline constexpr int T_PGFLT = CAUSE_LOAD_PAGE_FAULT; /* representative; all thr
 /* IRQ "line" numbers exposed to the generic layer.
  * For RISC-V we use the PLIC interrupt numbers directly. */
 inline constexpr int IRQ_OFFSET = 0;
-inline constexpr int IRQ_UART = 10; /* QEMU virt: UART0 → PLIC IRQ 10  */
+inline constexpr int IRQ_UART = BOARD_UART_IRQ;
 inline constexpr int IRQ_COUNT = 64;
 
 #endif /* !__ASSEMBLY__ */

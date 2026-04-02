@@ -6,12 +6,12 @@
 
 namespace {
 
-enum class FmtState { None, Spec };
+enum class FmtState : uint8_t { None, Spec };
 
 constexpr int NUM_BUF_SIZE = 21;
 
 struct ConsoleSink {
-    size_t pos;
+    size_t pos{};
     void put(char c) {
         cons::putc(c);
         pos++;
@@ -19,9 +19,9 @@ struct ConsoleSink {
 };
 
 struct BufferSink {
-    char* buf;
-    size_t pos;
-    size_t size;
+    char* buf{};
+    size_t pos{};
+    size_t size{};
     void put(char c) {
         if (pos < size - 1)
             buf[pos] = c;

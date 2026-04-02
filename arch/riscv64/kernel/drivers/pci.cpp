@@ -1,9 +1,8 @@
 /**
  * @file pci.cpp
- * @brief RISC-V QEMU virt PCI ECAM configuration space access.
+ * @brief RISC-V PCI ECAM configuration space access.
  *
- * QEMU virt RISC-V maps the PCI ECAM window at physical 0x30000000.
- * Segment 0, buses 0-63, at 2MB per bus = bus 0 base + offset.
+ * PCI ECAM window physical address is board-specific.
  */
 
 #include "drivers/pci.h"
@@ -11,10 +10,10 @@
 #include "lib/stdio.h"
 #include "mm/vmm.h"
 #include <asm/page.h>
+#include <asm/board.h>
 
-/* QEMU virt RISC-V PCI ECAM physical base */
-static constexpr uintptr_t PCI_ECAM_PHYS = 0x30000000UL;
-static constexpr size_t PCI_ECAM_SIZE = 0x00100000; /* 1 MB (bus 0) */
+static constexpr uintptr_t PCI_ECAM_PHYS = BOARD_PCI_ECAM_PHYS;
+static constexpr size_t PCI_ECAM_SIZE = BOARD_PCI_ECAM_SIZE;
 
 namespace {
 
@@ -30,6 +29,10 @@ static uintptr_t ecam_offset(int bus, int dev, int func, int offset) {
 namespace pci {
 
 int init() {
+    if (PCI_ECAM_PHYS == 0 || PCI_ECAM_SIZE == 0) {
+        cprintf("pci: no ECAM configured for this board\n");
+        return 0;
+    }
     uintptr_t va = vmm::mmio_map(PCI_ECAM_PHYS, PCI_ECAM_SIZE, VM_WRITE | VM_NOCACHE);
     if (va == 0) {
         cprintf("pci: failed to map ECAM\n");

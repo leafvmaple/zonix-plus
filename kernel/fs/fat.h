@@ -21,14 +21,18 @@ inline constexpr uint32_t FAT32_CLUSTER_MASK = 0x0FFFFFFF;  // Mask for FAT32 en
 
 class FatInfo {
 public:
-    using fnCallback = int (*)(FatDirEntry* entry, void* arg);
+    class DirVisitor {
+    public:
+        virtual ~DirVisitor() = default;
+        virtual int visit(FatDirEntry* entry) = 0;
+    };
 
     int mount(BlockDevice* dev);
     void unmount();
 
     void print() const;
 
-    int read_dir(const char* relpath, fnCallback callback, void* arg);
+    int read_dir(const char* relpath, DirVisitor& visitor);
 
     int read_file(FatDirEntry* entry, uint8_t* buf, uint32_t offset, uint32_t size);
     int write_file(FatDirEntry* entry, const uint8_t* buf, uint32_t offset, uint32_t size);
@@ -36,7 +40,7 @@ public:
     int find_file(const char* filename, FatDirEntry* result);
 
 private:
-    int read_dir(uint32_t start_cluster, fnCallback callback, void* arg, bool verbose_read_error);
+    int read_dir(uint32_t start_cluster, DirVisitor& visitor, bool verbose_read_error);
 
     uint32_t read_entry(uint32_t cluster);
     int write_entry(uint32_t cluster, uint32_t value);

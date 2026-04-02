@@ -57,8 +57,8 @@ public:
         return -1;
     }
 
-    int readdir(const char* relpath, vfs::fnReadDir cb, void* arg) override {
-        if (!relpath || !cb) {
+    int readdir(const char* relpath, vfs::DirVisitor& visitor) override {
+        if (!relpath) {
             return -1;
         }
 
@@ -68,7 +68,7 @@ public:
 
         int count = 0;
         for (const auto& entry : s_char_dev_registry) {
-            cb({entry.name, vfs::NodeType::CharDevice, 0, 0}, arg);
+            visitor.visit({entry.name, vfs::NodeType::CharDevice, 0, 0});
             count++;
         }
         return count;

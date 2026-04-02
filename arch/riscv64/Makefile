@@ -3,25 +3,39 @@
 #
 # Included from the top-level Makefile.
 #
-# Target: QEMU virt machine (and VisionFive2 board)
+# Target: QEMU virt machine or VisionFive2 board
 #   - Boots via UEFI (BOOTRISCV64.EFI)
 #   - Sv39 page tables (39-bit VA, kernel at 0xFFFFFFC000000000)
 #   - SBI timer, 16550 UART, PLIC interrupt controller
+#
+# Board selection: make ARCH=riscv64 BOARD=qemu_virt    (default)
+#                  make ARCH=riscv64 BOARD=visionfive2
 # ==========================================================================
+
+BOARD ?= qemu_virt
+BOARD_DEFINE := -DBOARD_$(shell echo $(BOARD) | tr a-z A-Z)
 
 CC      := clang --target=riscv64-none-elf
 CXX     := clang++ --target=riscv64-none-elf
 LD      := ld.lld
 CFLAGS  := -g -Wall -O0 -nostdinc -fno-builtin -fno-stack-protector \
            -fno-pic -ffreestanding -gdwarf-2 -march=rv64gc -mabi=lp64d \
-           -mcmodel=medany
+           -mcmodel=medany $(BOARD_DEFINE)
 CXXFLAGS := -g -Wall -O0 -nostdinc -nostdinc++ \
            -fno-builtin -fno-stack-protector -fno-pic -fno-exceptions -fno-rtti \
            -fno-use-cxa-atexit -fno-threadsafe-statics \
            -fno-asynchronous-unwind-tables -fno-unwind-tables \
            -ffreestanding -std=gnu++17 -gdwarf-2 \
-           -march=rv64gc -mabi=lp64d -mcmodel=medany
-LDFLAGS := -m elf64lriscv -nostdlib
+           -march=rv64gc -mabi=lp64d -mcmodel=medany $(BOARD_DEFINE)
+
+# Board-specific kernel physical load address for the linker script
+ifeq ($(BOARD),visionfive2)
+  BOARD_KERNEL_PHYS := 0x40200000
+else
+  BOARD_KERNEL_PHYS := 0x80200000
+endif
+
+LDFLAGS := -m elf64lriscv -nostdlib --defsym KERNEL_PHYS=$(BOARD_KERNEL_PHYS)
 
 QEMU    := qemu-system-riscv64
 

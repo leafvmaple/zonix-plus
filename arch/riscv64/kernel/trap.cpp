@@ -17,6 +17,7 @@
 #include "drivers/plic.h"
 #include "drivers/timer.h"
 #include "drivers/uart16550.h"
+#include "drivers/virtio_kbd.h"
 
 void TrapFrame::print() const {
     cprintf("TrapFrame at %p\n", this);
@@ -66,6 +67,8 @@ bool arch_try_handle_irq(TrapFrame* tf) {
         uint32_t irq = plic::claim();
         if (irq == static_cast<uint32_t>(IRQ_UART)) {
             uart16550::intr();
+        } else if (irq == static_cast<uint32_t>(virtio_kbd::irq())) {
+            virtio_kbd::intr();
         }
         if (irq != 0) {
             plic::complete(irq);

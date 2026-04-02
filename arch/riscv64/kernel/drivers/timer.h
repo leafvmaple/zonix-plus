@@ -9,11 +9,12 @@
  */
 
 #include <base/types.h>
+#include <asm/board.h>
 
 namespace timer {
 
-/* Timer clock frequency on QEMU virt RISC-V (10 MHz) */
-static constexpr uint64_t TIMER_FREQ_HZ = 10000000ULL;
+/* Timer clock frequency (board-specific) */
+static constexpr uint64_t TIMER_FREQ_HZ = BOARD_TIMER_FREQ_HZ;
 
 /* Ticks between scheduler interrupts (~10 ms) */
 static constexpr uint64_t TIMER_TICK_TICKS = TIMER_FREQ_HZ / 100;

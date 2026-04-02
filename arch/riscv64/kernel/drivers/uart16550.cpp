@@ -1,21 +1,20 @@
 /**
- * NS16550A UART driver for RISC-V QEMU virt machine.
+ * NS16550A-compatible UART driver for RISC-V.
  *
- * The QEMU virt machine maps a 16550-compatible UART at physical
- * 0x10000000.  Registers are 1-byte wide but at 4-byte strides
- * when REGSHIFT = 2 is used.  QEMU actually supports byte accesses
- * at byte-aligned offsets, so we use stride = 1.
+ * Register stride is board-specific: 1 byte on QEMU virt,
+ * 4 bytes on VisionFive 2 (DW APB UART).
  */
 
 #include "uart16550.h"
 #include "cons/cons.h"
 #include <asm/memlayout.h>
+#include <asm/board.h>
 #include <asm/arch.h>
 #include <base/types.h>
 
 namespace {
 
-/* Physical MMIO base on QEMU virt RISC-V */
+/* Physical MMIO base (common for both QEMU virt and JH7110 UART0) */
 constexpr uintptr_t UART_PHYS = 0x10000000UL;
 
 /* Virtual MMIO base — accessed via the PGD[256] boot gigapage:
@@ -23,7 +22,10 @@ constexpr uintptr_t UART_PHYS = 0x10000000UL;
  *   UART_BASE = KERNEL_BASE + UART_PHYS */
 constexpr uintptr_t UART_BASE = UART_PHYS + KERNEL_BASE;
 
-/* 16550 register offsets (stride = 1 byte) */
+/* Register stride: 1 byte on QEMU virt, 4 bytes on VisionFive 2 */
+constexpr uint32_t REG_STRIDE = BOARD_UART_REG_STRIDE;
+
+/* 16550 register offsets (multiplied by stride when accessed) */
 constexpr uint32_t REG_RHR = 0; /* Receive  Holding Register (R) */
 constexpr uint32_t REG_THR = 0; /* Transmit Holding Register (W) */
 constexpr uint32_t REG_IER = 1; /* Interrupt Enable Register     */
@@ -44,7 +46,7 @@ constexpr uint8_t LSR_DR = 0x01;   /* Data Ready     */
 constexpr uint8_t LSR_THRE = 0x20; /* THR Empty      */
 
 static volatile uint8_t* reg(uint32_t offset) {
-    return reinterpret_cast<volatile uint8_t*>(UART_BASE + offset);
+    return reinterpret_cast<volatile uint8_t*>(UART_BASE + offset * REG_STRIDE);
 }
 
 static void write_reg(uint32_t offset, uint8_t val) {

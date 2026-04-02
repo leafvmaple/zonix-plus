@@ -3,11 +3,13 @@
 #include <asm/trap_numbers.h>
 #include <asm/cpu.h>
 #include <asm/page.h>
+#include <asm/board.h>
 #include <kernel/bootinfo.h>
 
 #include "drivers/plic.h"
 #include "drivers/timer.h"
 #include "drivers/uart16550.h"
+#include "drivers/virtio_kbd.h"
 #include "lib/stdio.h"
 #include "lib/array.h"
 
@@ -38,9 +40,10 @@ const InitStep ARCH_STEPS[] = {
     {"timer", timer_init, true},
 };
 
-/* No additional PCI-post-probe steps on bare RISC-V */
-const InitStep* const PCI_STEPS = nullptr;
-constexpr size_t PCI_STEPS_COUNT = 0;
+const InitStep PCI_STEPS[] = {
+    {"virtio_kbd", virtio_kbd::init, false},
+};
+constexpr size_t PCI_STEPS_COUNT = array_size(PCI_STEPS);
 
 }  // namespace
 
@@ -73,10 +76,12 @@ void arch_irq_enable_line(int irq) {
 }
 
 int arch_pci_intx_to_irq(uint8_t dev, uint8_t int_pin) {
-    /* QEMU virt: virtio devices at slots 1..8 get IRQs 1..8 */
-    if (dev >= 1 && dev <= 8 && int_pin == 1) {
-        return static_cast<int>(dev);
-    }
+#if BOARD_PCI_ECAM_PHYS != 0
+    /* QEMU virt: PCI INTx → PLIC IRQ = 32 + (slot + pin-1) % 4 */
+    return 32 + static_cast<int>((dev + int_pin - 1) % 4);
+#endif
+    (void)dev;
+    (void)int_pin;
     return 0;
 }
 

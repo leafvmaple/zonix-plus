@@ -5,9 +5,7 @@ namespace fd {
 
 void Table::init() {
     for (auto& entry : entries_) {
-        entry.file = nullptr;
-        entry.offset = 0;
-        entry.used = false;
+        entry.reset();
     }
 }
 
@@ -18,9 +16,7 @@ int Table::alloc(vfs::File* file) {
 
     for (auto& entry : entries_) {
         if (!entry.used) {
-            entry.file = file;
-            entry.offset = 0;
-            entry.used = true;
+            entry.set(file, 0, true);
             return &entry - entries_;
         }
     }
@@ -47,9 +43,7 @@ int Table::close(int fd) {
     }
 
     vfs::close(entry->file);
-    entry->file = nullptr;
-    entry->offset = 0;
-    entry->used = false;
+    entry->reset();
 
     return 0;
 }
@@ -59,9 +53,7 @@ void Table::close_all() {
         if (entry.used && entry.file) {
             vfs::close(entry.file);
         }
-        entry.file = nullptr;
-        entry.offset = 0;
-        entry.used = false;
+        entry.reset();
     }
 }
 

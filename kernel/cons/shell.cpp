@@ -219,28 +219,26 @@ static void cmd_info(int argc, char** argv) {
     }
 }
 
-static int ls_callback(const vfs::DirEntry& entry, void* arg) {
-    static_cast<void>(arg);
+class LsVisitor : public vfs::DirVisitor {
+public:
+    int visit(const vfs::DirEntry& entry) override {
+        char attr_str[6] = "-----";
+        if (entry.attrs & FAT_ATTR_DIRECTORY)
+            attr_str[0] = 'd';
+        if (entry.attrs & FAT_ATTR_READ_ONLY)
+            attr_str[1] = 'r';
+        if (entry.attrs & FAT_ATTR_HIDDEN)
+            attr_str[2] = 'h';
+        if (entry.attrs & FAT_ATTR_SYSTEM)
+            attr_str[3] = 's';
+        if (entry.attrs & FAT_ATTR_ARCHIVE)
+            attr_str[4] = 'a';
 
-    // Get file attributes
-    char attr_str[6] = "-----";
-    if (entry.attrs & FAT_ATTR_DIRECTORY)
-        attr_str[0] = 'd';
-    if (entry.attrs & FAT_ATTR_READ_ONLY)
-        attr_str[1] = 'r';
-    if (entry.attrs & FAT_ATTR_HIDDEN)
-        attr_str[2] = 'h';
-    if (entry.attrs & FAT_ATTR_SYSTEM)
-        attr_str[3] = 's';
-    if (entry.attrs & FAT_ATTR_ARCHIVE)
-        attr_str[4] = 'a';
+        cprintf("%s %8d  %s\n", attr_str, entry.size, entry.name);
 
-    uint32_t size = entry.size;
-
-    cprintf("%s %8d  %s\n", attr_str, size, entry.name);
-
-    return 0;  // Continue
-}
+        return 0;
+    }
+};
 
 static void cmd_ls(int argc, char** argv) {
     // Check if path is /mnt
@@ -270,7 +268,8 @@ static void cmd_ls(int argc, char** argv) {
     cprintf("ATTR     SIZE     NAME\n");
     cprintf("-------- -------- ------------\n");
 
-    int count = vfs::readdir(path, ls_callback, nullptr);
+    LsVisitor visitor;
+    int count = vfs::readdir(path, visitor);
 
     if (count < 0) {
         cprintf("Failed to read directory\n");

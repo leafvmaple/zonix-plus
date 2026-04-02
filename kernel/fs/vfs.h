@@ -47,7 +47,11 @@ public:
     virtual int stat(Stat* st) = 0;
 };
 
-using fnReadDir = int (*)(const DirEntry& entry, void* arg);
+class DirVisitor {
+public:
+    virtual ~DirVisitor() = default;
+    virtual int visit(const DirEntry& entry) = 0;
+};
 
 int init();
 int mount(const char* mount_point, BlockDevice* dev, const char* fs_type);
@@ -59,7 +63,7 @@ int write(File* file, const void* buf, size_t size, size_t offset);
 void close(File* file);
 
 int stat(const char* path, Stat* st);
-int readdir(const char* path, fnReadDir cb, void* arg);
+int readdir(const char* path, DirVisitor& visitor);
 
 bool is_mounted(const char* mount_point);
 const char* mounted_device(const char* mount_point);

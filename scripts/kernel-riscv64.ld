@@ -3,7 +3,10 @@ OUTPUT_ARCH(riscv)
 ENTRY(_start)
 
 KERNEL_BASE = 0xFFFFFFC000000000;
-KERNEL_PHYS = 0x80200000;    /* DRAM base 0x80000000 + OpenSBI space 0x200000 */
+
+/* KERNEL_PHYS is provided by the Makefile via --defsym.
+ * Default: 0x80200000 (QEMU virt: DRAM 0x80000000 + 2MB OpenSBI). */
+KERNEL_PHYS = DEFINED(KERNEL_PHYS) ? KERNEL_PHYS : 0x80200000;
 
 /*
  * All kernel sections are mapped at VMA = KERNEL_BASE + offset,

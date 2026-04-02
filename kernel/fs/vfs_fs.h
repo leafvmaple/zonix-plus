@@ -13,7 +13,7 @@ public:
     virtual void unmount() = 0;
     virtual int open(const char* relpath, File** out_file) = 0;
     virtual int stat(const char* relpath, Stat* st) = 0;
-    virtual int readdir(const char* relpath, fnReadDir cb, void* arg) = 0;
+    virtual int readdir(const char* relpath, DirVisitor& visitor) = 0;
     virtual void print() = 0;
 };
 

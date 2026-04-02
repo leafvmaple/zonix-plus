@@ -1,9 +1,9 @@
 /**
  * @file head.S
- * @brief RISC-V (rv64gc) kernel entry point for UEFI boot on QEMU virt machine.
+ * @brief RISC-V (rv64gc) kernel entry point for UEFI boot.
  *
  * The UEFI bootloader (BOOTRISCV64.EFI) loads the kernel ELF at
- * KERNEL_PHYS (0x8020_0000), fills a boot_info structure, calls
+ * BOARD_KERNEL_PHYS, fills a boot_info structure, calls
  * ExitBootServices, disables the MMU (satp = 0), and jumps here with:
  *
  *   a0 = hart ID
@@ -11,7 +11,7 @@
  *   CPU in S-mode, MMU OFF, interrupts disabled
  *
  * We then:
- *   1.  Park secondary harts.
+ *   1.  Park secondary harts (first hart to arrive continues).
  *   2.  Build a minimal Sv39 root page table (2 × 1GB gigapages).
  *   3.  Enable the MMU (write satp, sfence.vma).
  *   4.  Jump to the higher-half virtual address.
@@ -22,33 +22,16 @@
  *
  * Page-table design (Sv39, 4KB granule, VA = PA + KERNEL_BASE):
  *
- *   __boot_pgd[256] — 1GB gigapage, PA 0x0000_0000 → MMIO virtual space
- *                     Covers VA 0xFFFF_FFC0_0000_0000 .. +1GB
- *   __boot_pgd[258] — 1GB gigapage, PA 0x8000_0000 → kernel DRAM
- *                     Covers VA 0xFFFF_FFC0_8000_0000 .. +1GB
- *   __boot_pgd[2]   — 1GB gigapage, PA 0x8000_0000 → identity map
- *                     Covers VA 0x0000_0000_8000_0000 .. +1GB
- *                     (trampoline; removed right after jumping to virtual)
+ *   __boot_pgd[BOARD_PGD_IDX_MMIO]  — 1GB gigapage, PA 0x0000_0000 → MMIO
+ *   __boot_pgd[BOARD_PGD_IDX_DRAM]  — 1GB gigapage, PA BOARD_DRAM_BASE → DRAM
+ *   __boot_pgd[BOARD_PGD_IDX_IDENT] — 1GB gigapage, PA BOARD_DRAM_BASE → identity
+ *                                      (trampoline; removed after jump to virtual)
  */
 
 #include <asm/page.h>       /* PTE_V/R/W/X/A/D, SATP_SV39 */
+#include <asm/board.h>      /* BOARD_DRAM_BASE, BOARD_PGD_IDX_*, BOARD_KERNEL_PHYS */
 
-/*
- * Sv39 PGD index assignments (VA = PA + KERNEL_BASE):
- *
- *   PGD[256] — 1GB gigapage, PA 0x00000000 → VA KERNEL_BASE
- *              VPN[2] = 0x100 = 256.  Covers low MMIO (PLIC, UART, PCI ECAM).
- *
- *   PGD[258] — 1GB gigapage, PA 0x80000000 → VA KERNEL_BASE + 0x80000000
- *              VPN[2] = 0x102 = 258.  Covers DRAM (kernel text/data/bss).
- *
- *   PGD[2]   — 1GB gigapage, PA 0x80000000 → VA 0x0000000080000000
- *              Identity-map trampoline; removed after jumping to virtual.
- */
 #define BOOT_PERM  (PTE_V | PTE_R | PTE_W | PTE_X | PTE_A | PTE_D)  /* 0xCF */
-#define PGD_IDX_MMIO  256   /* VPN[2] for KERNEL_BASE (PA 0x00000000)           */
-#define PGD_IDX_DRAM  258   /* VPN[2] for KERNEL_BASE + 0x80000000 (PA 0x80000000) */
-#define PGD_IDX_IDENT 2     /* VPN[2] for 0x0000000080000000 */
 
 /* ======================================================================
  * .text.boot — runs at PHYSICAL addresses before MMU is enabled.
@@ -63,8 +46,15 @@ _start:
     /* Disable all interrupts (clear SIE in sstatus) */
     csrci sstatus, 2
 
-    /* Park all secondary harts — only hart 0 runs the boot sequence */
-    bnez  a0, .Lpark
+    /*
+     * Park secondary harts — only the first hart to arrive runs boot.
+     * Use an atomic flag so this works regardless of which hart ID
+     * the firmware boots on (hart 0 on QEMU, hart 1 on VisionFive 2).
+     */
+    la    t0, __boot_hart_flag
+    li    t1, 1
+    amoswap.w.aq t1, t1, (t0)    /* t1 = old value; set flag to 1 */
+    bnez  t1, .Lpark              /* if already claimed, park */
 
     /* Save boot_info phys pointer in s9 (callee-saved, survives calls) */
     mv    s9, a1
@@ -87,32 +77,32 @@ _start:
     bnez  t1, .Lzero_pgd
 
     /* ----------------------------------------------------------------
-     * Build PTE for 1GB gigapage: PA 0x80000000 (DRAM)
-     *   pte = ((0x80000000 >> 12) << 10) | BOOT_PERM = 0x200000CF
+     * Build PTE for 1GB gigapage: PA BOARD_DRAM_BASE (DRAM)
+     *   pte = ((BOARD_DRAM_BASE >> 12) << 10) | BOOT_PERM
      * ---------------------------------------------------------------- */
-    li    t2, ((0x80000000 >> 12) << 10)
+    li    t2, ((BOARD_DRAM_BASE >> 12) << 10)
     li    t3, BOOT_PERM
-    or    t2, t2, t3              /* t2 = 1GB gigapage PTE for PA 0x80000000 */
+    or    t2, t2, t3              /* t2 = 1GB gigapage PTE for PA BOARD_DRAM_BASE */
 
     la    t0, __boot_pgd
 
-    /* PGD[PGD_IDX_DRAM] = kernel DRAM (PA 0x80000000, VPN[2]=258) */
-    li    t3, PGD_IDX_DRAM * 8
+    /* PGD[BOARD_PGD_IDX_DRAM] = kernel DRAM */
+    li    t3, BOARD_PGD_IDX_DRAM * 8
     add   t3, t0, t3
     sd    t2, 0(t3)
 
-    /* PGD[PGD_IDX_IDENT] = identity map trampoline (same PTE) */
-    li    t3, PGD_IDX_IDENT * 8
+    /* PGD[BOARD_PGD_IDX_IDENT] = identity map trampoline (same PTE) */
+    li    t3, BOARD_PGD_IDX_IDENT * 8
     add   t3, t0, t3
     sd    t2, 0(t3)
 
     /* ----------------------------------------------------------------
      * Build PTE for 1GB gigapage: PA 0x00000000 (low MMIO devices)
      * PGD[256] covers VA KERNEL_BASE .. KERNEL_BASE+1GB
-     * That maps PLIC @0x0C000000, UART @0x10000000, PCI ECAM @0x30000000
+     * That maps PLIC @0x0C000000, UART @0x10000000, etc.
      * ---------------------------------------------------------------- */
     li    t2, BOOT_PERM           /* PPN=0 (PA 0x00000000) */
-    li    t3, PGD_IDX_MMIO * 8
+    li    t3, BOARD_PGD_IDX_MMIO * 8
     add   t3, t0, t3
     sd    t2, 0(t3)
 
@@ -147,7 +137,7 @@ _start:
     li    t0, KERNEL_BASE
     add   sp, sp, t0
 
-    /* Remove identity map (PGD[PGD_IDX_IDENT] = 0) */
+    /* Remove identity map (PGD[BOARD_PGD_IDX_IDENT] = 0) */
     la    t0, __boot_pgd          /* virtual address (la → PA + KERNEL_BASE below) */
     /* Actually la still gives PA here because it's PC-relative and the
      * addend (symbol_VMA - insn_VMA) is fixed at link time.  We already
@@ -155,7 +145,7 @@ _start:
      *   la gives: PC_actual + (sym_VMA - insn_VMA)
      *   PC_actual (virtual) = insn_VMA  → result = sym_VMA  ✓
      * So from here la directly gives the VIRTUAL address. */
-    li    t1, PGD_IDX_IDENT * 8
+    li    t1, BOARD_PGD_IDX_IDENT * 8
     add   t1, t0, t1
     sd    zero, 0(t1)
     sfence.vma zero, zero
@@ -177,8 +167,8 @@ _start:
      * points to a BootInfo (magic == 0x12345678).
      *
      * s9 = physical address of a1 (FDT or BootInfo).
-     * VA = PA + KERNEL_BASE (our mapping: PA 0x80000000 → PGD[258]).
-     * BootInfo from UEFI bootloader is at ~0x80180000, in DRAM range.
+     * VA = PA + KERNEL_BASE (our mapping: PA BOARD_DRAM_BASE → PGD[DRAM]).
+     * BootInfo from UEFI bootloader is in DRAM range.
      * ---------------------------------------------------------------- */
     li    t0, KERNEL_BASE
     add   t0, s9, t0             /* t0 = PA + KERNEL_BASE = VA */
@@ -252,5 +242,10 @@ __boot_stack_top:
 .globl __kernel_boot_info
 __kernel_boot_info:
     .space 256
+
+/* Atomic flag for first-come hart selection (0 = unclaimed) */
+.balign 4
+__boot_hart_flag:
+    .word 0
 
 .section .note.GNU-stack,"",@progbits

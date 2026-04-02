@@ -17,7 +17,7 @@ UEFI_CXXFLAGS := $(BOOT_INC) -ffreestanding -fshort-wchar -nostdinc \
                   -fno-stack-protector -fno-exceptions -fno-rtti \
                   -fno-use-cxa-atexit -fno-threadsafe-statics \
                   -std=gnu++17 -O2 -march=rv64gc -mabi=lp64d \
-                  -mcmodel=medany -fpic -fno-plt
+                  -mcmodel=medany -fpic -fno-plt $(BOARD_DEFINE)
 
 # Link as a relocatable shared object at VA 0.
 UEFI_LD       := ld.lld

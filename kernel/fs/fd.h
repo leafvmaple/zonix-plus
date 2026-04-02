@@ -19,6 +19,13 @@ struct Entry {
     vfs::File* file{};
     size_t offset{};
     bool used{};
+
+    inline void set(vfs::File* f, size_t off, bool in_use) {
+        file = f;
+        offset = off;
+        used = in_use;
+    }
+    inline void reset() { set(nullptr, 0, false); }
 };
 
 class Table {

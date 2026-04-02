@@ -1,5 +1,7 @@
 #pragma once
 
+#include <asm/board.h>
+
 /*
  * RISC-V Sv39 memory layout
  *
@@ -7,9 +9,9 @@
  *    VPN[2] = 256 (bits [38:30] = 0x100)
  *    All kernel VAs are sign-extended from bit 38.
  *
- *  Physical memory (QEMU virt):
- *    DRAM starts at 0x80000000; OpenSBI occupies 0x80000000..0x801FFFFF.
- *    Kernel loaded at KERNEL_PHYS = 0x80200000.
+ *  Physical memory:
+ *    DRAM starts at BOARD_DRAM_BASE; OpenSBI occupies base..base+0x1FFFFF.
+ *    Kernel loaded at BOARD_KERNEL_PHYS.
  *
  *  virt_to_phys(va) = va - KERNEL_BASE
  *  phys_to_virt(pa) = pa + KERNEL_BASE

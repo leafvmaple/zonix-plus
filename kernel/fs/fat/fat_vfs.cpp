@@ -7,50 +7,37 @@
 namespace fat {
 namespace {
 
-struct ReadDirBridge {
-    vfs::fnReadDir cb{};
-    void* arg{};
-};
+class VfsDirVisitor : public FatInfo::DirVisitor {
+public:
+    explicit VfsDirVisitor(vfs::DirVisitor& outer) : outer_(outer) {}
 
-int fat_readdir_bridge(FatDirEntry* entry, void* arg) {
-    auto* bridge = static_cast<ReadDirBridge*>(arg);
-    if (!bridge || !bridge->cb) {
-        return -1;
+    int visit(FatDirEntry* entry) override {
+        char name[32];
+        entry->get_filename(name, sizeof(name));
+
+        return outer_.visit({name, entry->is_directory() ? vfs::NodeType::Directory : vfs::NodeType::File,
+                             entry->file_size, entry->attr});
     }
 
-    char name[32];
-    entry->get_filename(name, sizeof(name));
-
-    return bridge->cb(
-        {name, entry->is_directory() ? vfs::NodeType::Directory : vfs::NodeType::File, entry->file_size, entry->attr},
-        bridge->arg);
-}
+private:
+    vfs::DirVisitor& outer_;
+};
 
 class FatFile : public vfs::File {
 public:
     FatFile(FatInfo* fat, const FatDirEntry& entry) : fat_(fat), entry_(entry) {}
 
     int read(void* buf, size_t size, size_t offset) override {
-        if (!fat_ || !buf) {
+        if (!is_valid(buf, size, offset))
             return -1;
-        }
-
-        if (size > 0xFFFFFFFFU || offset > 0xFFFFFFFFU) {
-            return -1;
-        }
 
         return fat_->read_file(&entry_, static_cast<uint8_t*>(buf), static_cast<uint32_t>(offset),
                                static_cast<uint32_t>(size));
     }
 
     int write(const void* buf, size_t size, size_t offset) override {
-        if (!fat_ || !buf) {
+        if (!is_valid(buf, size, offset))
             return -1;
-        }
-
-        if (size > 0xFFFFFFFFU || offset > 0xFFFFFFFFU) {
-            return -1;
-        }
 
         return fat_->write_file(&entry_, static_cast<const uint8_t*>(buf), static_cast<uint32_t>(offset),
                                 static_cast<uint32_t>(size));
@@ -66,6 +53,16 @@ public:
     }
 
 private:
+    bool is_valid(const void* buf, size_t size, size_t offset) const {
+        if (!fat_ || !buf)
+            return false;
+
+        if (size > 0xFFFFFFFFU || offset > 0xFFFFFFFFU)
+            return false;
+
+        return true;
+    }
+
     FatInfo* fat_{};
     FatDirEntry entry_{};
 };
@@ -73,7 +70,6 @@ private:
 class FatFileSystem : public vfs::FileSystem {
 public:
     int mount(BlockDevice* dev) override { return fat_.mount(dev); }
-
     void unmount() override { fat_.unmount(); }
 
     int open(const char* relpath, vfs::File** out_file) override {
@@ -118,16 +114,13 @@ public:
         return 0;
     }
 
-    int readdir(const char* relpath, vfs::fnReadDir cb, void* arg) override {
-        if (!relpath || !cb) {
+    int readdir(const char* relpath, vfs::DirVisitor& visitor) override {
+        if (!relpath) {
             return -1;
         }
 
-        ReadDirBridge bridge{};
-        bridge.cb = cb;
-        bridge.arg = arg;
-
-        return fat_.read_dir(relpath, fat_readdir_bridge, &bridge);
+        VfsDirVisitor bridge(visitor);
+        return fat_.read_dir(relpath, bridge);
     }
 
     void print() override { fat_.print(); }

@@ -1,7 +1,7 @@
 /**
- * PLIC driver for RISC-V QEMU virt machine.
+ * PLIC driver for RISC-V.
  *
- * Memory map (physical, QEMU virt):
+ * Memory map (physical):
  *   0x0C000000 base
  *
  *   Priority register for source N:
@@ -13,8 +13,6 @@
  *     …
  *
  *   Enable registers for hart H, mode M (context = 2*H + M):
- *     context 0 = hart 0 M-mode
- *     context 1 = hart 0 S-mode  ← we use this
  *     base + 0x2000 + context * 0x80
  *
  *   Priority threshold for context C:
@@ -26,6 +24,7 @@
 
 #include "plic.h"
 #include <asm/memlayout.h>
+#include <asm/board.h>
 #include <asm/arch.h>
 #include <base/types.h>
 
@@ -34,8 +33,8 @@ namespace {
 constexpr uintptr_t PLIC_PHYS = 0x0C000000UL;
 constexpr uintptr_t PLIC_BASE = PLIC_PHYS + KERNEL_BASE;
 
-/* S-mode context for hart 0 */
-constexpr int PLIC_CONTEXT = 1;
+/* S-mode context (board-specific: hart 0 ctx 1 on QEMU, hart 1 ctx 3 on VF2) */
+constexpr int PLIC_CONTEXT = BOARD_PLIC_S_CONTEXT;
 
 constexpr uintptr_t PLIC_PRIORITY = PLIC_BASE;
 constexpr uintptr_t PLIC_PENDING = PLIC_BASE + 0x1000;

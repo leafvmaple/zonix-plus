@@ -102,7 +102,7 @@ int FatInfo::do_file_io(FatDirEntry* entry, uint8_t* io_buf, uint32_t offset, ui
     return static_cast<int>(solve_bytes);
 }
 
-int FatInfo::read_dir(uint32_t start_cluster, fnCallback callback, void* arg, bool verbose_read_error) {
+int FatInfo::read_dir(uint32_t start_cluster, DirVisitor& visitor, bool verbose_read_error) {
     if (start_cluster < 2) {
         return -1;
     }
@@ -135,7 +135,7 @@ int FatInfo::read_dir(uint32_t start_cluster, fnCallback callback, void* arg, bo
                     continue;
                 }
 
-                if (callback(&entry, arg) != 0) {
+                if (visitor.visit(&entry) != 0) {
                     return count;
                 }
 
@@ -147,13 +147,13 @@ int FatInfo::read_dir(uint32_t start_cluster, fnCallback callback, void* arg, bo
     return count;
 }
 
-int FatInfo::read_dir(const char* relpath, fnCallback callback, void* arg) {
-    if (!relpath || !callback) {
+int FatInfo::read_dir(const char* relpath, DirVisitor& visitor) {
+    if (!relpath) {
         return -1;
     }
 
     if (relpath[0] == '\0') {
-        return read_dir(root_cluster_, callback, arg, true);
+        return read_dir(root_cluster_, visitor, true);
     }
 
     FatDirEntry dir{};
@@ -166,7 +166,7 @@ int FatInfo::read_dir(const char* relpath, fnCallback callback, void* arg) {
     }
 
     uint32_t start_cluster = dir.get_cluster();
-    return read_dir(start_cluster, callback, arg, false);
+    return read_dir(start_cluster, visitor, false);
 }
 
 bool FatInfo::find_entry(uint32_t start_cluster, const char* name, FatDirEntry* out) {

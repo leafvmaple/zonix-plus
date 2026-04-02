@@ -22,17 +22,13 @@ struct GptGuid {
     uint16_t data3;
     uint8_t data4[8];
 
-    bool operator==(const GptGuid& other) const {
-        return __builtin_memcmp(this, &other, sizeof(GptGuid)) == 0;
-    }
+    bool operator==(const GptGuid& other) const { return __builtin_memcmp(this, &other, sizeof(GptGuid)) == 0; }
 
     bool operator!=(const GptGuid& other) const { return !(*this == other); }
 
 } __attribute__((packed));
 
-inline constexpr GptGuid ESP_GUID = {
-    0xC12A7328, 0xF81F, 0x11D2, {0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E, 0xC9, 0x3B}
-};
+inline constexpr GptGuid ESP_GUID = {0xC12A7328, 0xF81F, 0x11D2, {0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E, 0xC9, 0x3B}};
 
 struct GptPartitionEntry {
     GptGuid type_guid;      // Partition type GUID
@@ -47,7 +43,7 @@ struct GptPartitionEntry {
                __builtin_memcmp(type_guid.data4, "\0\0\0\0\0\0\0\0", 8) == 0;
     }
 
-    [[nodiscard]] inline bool is_esp() const { // EFI System Partition
+    [[nodiscard]] inline bool is_esp() const {  // EFI System Partition
         return type_guid == ESP_GUID;
     }
 } __attribute__((packed));
@@ -68,12 +64,10 @@ struct GptHeader {
     uint32_t partition_entry_size;   // Size of each entry (usually 128)
     uint32_t partition_array_crc32;  // CRC32 of partition entry array
 
-    [[nodiscard]] bool is_valid() const {
-        return signature == GPT_HEADER_SIGNATURE;
-    }
+    [[nodiscard]] bool is_valid() const { return signature == GPT_HEADER_SIGNATURE; }
 
     template<typename Reader>
-    int32_t find_esp_lba(Reader reader) const {
+    [[nodiscard]] int32_t find_esp_lba(Reader reader) const {
         uint8_t buf[512]{};
         const uint32_t entries_per_sector = 512 / partition_entry_size;
 

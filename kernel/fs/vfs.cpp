@@ -206,8 +206,8 @@ int stat(const char* path, Stat* st) {
     return rr.slot->fs->stat(rr.relpath, st);
 }
 
-int readdir(const char* path, fnReadDir cb, void* arg) {
-    if (!path || !cb) {
+int readdir(const char* path, DirVisitor& visitor) {
+    if (!path) {
         return -1;
     }
 
@@ -216,7 +216,7 @@ int readdir(const char* path, fnReadDir cb, void* arg) {
         return -1;
     }
 
-    return rr.slot->fs->readdir(rr.relpath, cb, arg);
+    return rr.slot->fs->readdir(rr.relpath, visitor);
 }
 
 bool is_mounted(const char* mount_point) {
