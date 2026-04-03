@@ -39,13 +39,25 @@ public:
 
     int find_file(const char* filename, FatDirEntry* result);
 
+    int mkdir(const char* relpath);
+    int create_file(const char* relpath);
+    int unlink(const char* relpath);
+    int rmdir(const char* relpath);
+
 private:
     int read_dir(uint32_t start_cluster, DirVisitor& visitor, bool verbose_read_error);
 
     uint32_t read_entry(uint32_t cluster);
     int write_entry(uint32_t cluster, uint32_t value);
 
+    uint32_t alloc_cluster();
+    int free_chain(uint32_t start_cluster);
+
     bool find_entry(uint32_t start_cluster, const char* name, FatDirEntry* out);
+    int resolve_parent(const char* relpath, uint32_t* parent_cluster, char* child_name, size_t name_size);
+    int add_dir_entry(uint32_t dir_cluster, const FatDirEntry* entry);
+    int remove_dir_entry(uint32_t dir_cluster, const char* name);
+    void make_83_name(const char* name, char out_name[8], char out_ext[3]);
 
     void do_init_state(BlockDevice* dev, uint32_t partition_start, const Fat32BootSector& bs);
     int do_file_io(FatDirEntry* entry, uint8_t* io_buf, uint32_t offset, uint32_t size, const char* op, bool writeback);

@@ -219,6 +219,58 @@ int readdir(const char* path, DirVisitor& visitor) {
     return rr.slot->fs->readdir(rr.relpath, visitor);
 }
 
+int mkdir(const char* path) {
+    if (!path) {
+        return -1;
+    }
+
+    ResolveResult rr{};
+    if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
+        return -1;
+    }
+
+    return rr.slot->fs->mkdir(rr.relpath);
+}
+
+int create(const char* path) {
+    if (!path) {
+        return -1;
+    }
+
+    ResolveResult rr{};
+    if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
+        return -1;
+    }
+
+    return rr.slot->fs->create(rr.relpath);
+}
+
+int unlink(const char* path) {
+    if (!path) {
+        return -1;
+    }
+
+    ResolveResult rr{};
+    if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
+        return -1;
+    }
+
+    return rr.slot->fs->unlink(rr.relpath);
+}
+
+int rmdir(const char* path) {
+    if (!path) {
+        return -1;
+    }
+
+    ResolveResult rr{};
+    if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
+        return -1;
+    }
+
+    return rr.slot->fs->rmdir(rr.relpath);
+}
+
 bool is_mounted(const char* mount_point) {
     MountSlot* slot = find_slot(mount_point);
     return slot != nullptr && slot->fs != nullptr;

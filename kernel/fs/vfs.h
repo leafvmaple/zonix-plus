@@ -65,6 +65,11 @@ void close(File* file);
 int stat(const char* path, Stat* st);
 int readdir(const char* path, DirVisitor& visitor);
 
+int mkdir(const char* path);
+int create(const char* path);
+int unlink(const char* path);
+int rmdir(const char* path);
+
 bool is_mounted(const char* mount_point);
 const char* mounted_device(const char* mount_point);
 void print_mount_info(const char* mount_point);

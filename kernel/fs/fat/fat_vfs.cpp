@@ -123,6 +123,34 @@ public:
         return fat_.read_dir(relpath, bridge);
     }
 
+    int mkdir(const char* relpath) override {
+        if (!relpath || relpath[0] == '\0') {
+            return -1;
+        }
+        return fat_.mkdir(relpath);
+    }
+
+    int create(const char* relpath) override {
+        if (!relpath || relpath[0] == '\0') {
+            return -1;
+        }
+        return fat_.create_file(relpath);
+    }
+
+    int unlink(const char* relpath) override {
+        if (!relpath || relpath[0] == '\0') {
+            return -1;
+        }
+        return fat_.unlink(relpath);
+    }
+
+    int rmdir(const char* relpath) override {
+        if (!relpath || relpath[0] == '\0') {
+            return -1;
+        }
+        return fat_.rmdir(relpath);
+    }
+
     void print() override { fat_.print(); }
 
 private:

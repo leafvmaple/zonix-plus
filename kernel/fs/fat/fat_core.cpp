@@ -18,12 +18,12 @@ int32_t find_partition_start(BlockDevice* dev) {
         return -1;
     }
 
-    if (mbr.signature != 0xAA55) {
-        cprintf("fat_mount: invalid boot signature: 0x%04x\n", mbr.signature);
+    if (!mbr.is_valid()) {
+        cprintf("fat_mount: invalid MBR boot signature: 0x%04x\n", mbr.signature);
         return -1;
     }
 
-    if (mbr.partitions[0].type == GPT_PROTECTIVE_MBR_TYPE) {
+    if (mbr.partitions[0].is_gpt()) {
         uint8_t buf[512]{};
         if (dev->read(1, buf, 1) != 0) {
             cprintf("fat_mount: failed to read GPT header\n");
@@ -44,7 +44,7 @@ int32_t find_partition_start(BlockDevice* dev) {
     }
 
     // Traditional MBR.
-    if (mbr.partitions[0].type == PART_TYPE_FAT32_LBA || mbr.partitions[0].type == PART_TYPE_FAT32) {
+    if (mbr.partitions[0].is_fat32()) {
         cprintf("fat_mount: MBR detected, partition starts at LBA %d\n", mbr.partitions[0].start_lba);
         return static_cast<int32_t>(mbr.partitions[0].start_lba);
     }
@@ -157,10 +157,6 @@ uint32_t FatInfo::read_entry(uint32_t cluster) {
         return 0;
     }
 
-    if (fat_type_ != fat::TYPE_FAT32) {
-        return 0;
-    }
-
     uint32_t fat_offset = cluster << 2;
     uint32_t fat_sector = fat_start_ + (fat_offset / bytes_per_sector_);
     uint32_t ent_offset = fat_offset % bytes_per_sector_;
@@ -177,10 +173,76 @@ uint32_t FatInfo::read_entry(uint32_t cluster) {
 }
 
 int FatInfo::write_entry(uint32_t cluster, uint32_t value) {
-    // TODO: Implement FAT write support.
-    static_cast<void>(cluster);
-    static_cast<void>(value);
-    return -1;
+    if (cluster < 2 || cluster >= cluster_count_ + 2) {
+        return -1;
+    }
+
+    uint32_t fat_offset = cluster << 2;
+    uint32_t fat_sector = fat_start_ + (fat_offset / bytes_per_sector_);
+    uint32_t ent_offset = fat_offset % bytes_per_sector_;
+
+    if (fat_sector != buffer_sector_) {
+        if (buffer_dirty_ && buffer_sector_ != FAT_INVALID_SECTOR) {
+            for (uint32_t i = 0; i < num_fats_; i++) {
+                uint32_t abs_sector = partition_start_ + buffer_sector_ + (i * fat_size_);
+                if (dev_->write(abs_sector, buffer_, 1) != 0) {
+                    return -1;
+                }
+            }
+            buffer_dirty_ = false;
+        }
+
+        if (dev_->read(partition_start_ + fat_sector, buffer_, 1) != 0) {
+            return -1;
+        }
+        buffer_sector_ = fat_sector;
+    }
+
+    // Preserve top 4 reserved bits.
+    uint32_t old = *reinterpret_cast<uint32_t*>(&buffer_[ent_offset]);
+    *reinterpret_cast<uint32_t*>(&buffer_[ent_offset]) = (old & 0xF0000000) | (value & fat::FAT32_CLUSTER_MASK);
+    buffer_dirty_ = true;
+
+    // Write through to all FAT copies immediately.
+    for (uint32_t i = 0; i < num_fats_; i++) {
+        uint32_t abs_sector = partition_start_ + fat_sector + (i * fat_size_);
+        if (dev_->write(abs_sector, buffer_, 1) != 0) {
+            return -1;
+        }
+    }
+    buffer_dirty_ = false;
+
+    return 0;
+}
+
+uint32_t FatInfo::alloc_cluster() {
+    for (uint32_t c = 2; c < cluster_count_ + 2; c++) {
+        if (read_entry(c) == fat::FAT32_FREE) {
+            if (write_entry(c, fat::FAT32_EOC_MAX) != 0)
+                return 0;
+
+            uint8_t zero[512]{};
+            uint32_t sector = cluster_to_sector(c);
+            for (uint32_t s = 0; s < sectors_per_cluster_; s++) {
+                if (dev_->write(partition_start_ + sector + s, zero, 1) != 0)
+                    return 0;
+            }
+            return c;
+        }
+    }
+    return 0;  // No free cluster.
+}
+
+int FatInfo::free_chain(uint32_t start_cluster) {
+    uint32_t cluster = start_cluster;
+    while (cluster >= 2 && cluster < fat::FAT32_EOC_MIN) {
+        uint32_t next = read_entry(cluster);
+        if (write_entry(cluster, fat::FAT32_FREE) != 0) {
+            return -1;
+        }
+        cluster = next;
+    }
+    return 0;
 }
 
 uint32_t FatInfo::cluster_to_sector(uint32_t cluster) const {
