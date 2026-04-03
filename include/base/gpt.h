@@ -68,24 +68,23 @@ struct GptHeader {
 
     template<typename Reader>
     [[nodiscard]] int32_t find_esp_lba(Reader reader) const {
-        uint8_t buf[512]{};
-        const uint32_t entries_per_sector = 512 / partition_entry_size;
+        using Sector = SectorArray<GptPartitionEntry>;
+        Sector sector_buf{};
 
-        for (uint32_t i = 0; i < num_partition_entries; i++) {
-            uint32_t sector = static_cast<uint32_t>(partition_entry_lba) + (i / entries_per_sector);
-            uint32_t offset = (i % entries_per_sector) * partition_entry_size;
-
-            if (reader(sector, buf) != 0) {
-                break;
+        int entries_number = 0;
+        while (entries_number < num_partition_entries) {
+            uint32_t lba = static_cast<uint32_t>(partition_entry_lba) + (entries_number / Sector::COUNT);
+            if (reader(lba, &sector_buf) != 0) {
+                return -1;
             }
 
-            const auto* entry = reinterpret_cast<const GptPartitionEntry*>(buf + offset);
-            if (entry->is_empty()) {
-                continue;
-            }
+            for (uint32_t i = 0; i < Sector::COUNT && entries_number < num_partition_entries; i++, entries_number++) {
+                const auto& entry = sector_buf.entries[i];
+                if (entry.is_empty())
+                    continue;
 
-            if (entry->is_esp()) {
-                return static_cast<int32_t>(entry->starting_lba);
+                if (entry.is_esp())
+                    return static_cast<int32_t>(entry.starting_lba);
             }
         }
 

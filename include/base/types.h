@@ -31,6 +31,14 @@ constexpr size_t array_size(const T (&)[N]) noexcept {
     return N;
 }
 
+inline constexpr size_t SECTOR_SIZE = 512;
+
+template<typename T, size_t SectorBytes = SECTOR_SIZE>
+struct SectorArray {
+    static constexpr size_t COUNT = SectorBytes / sizeof(T);
+    T entries[COUNT];
+} __attribute__((packed));
+
 constexpr int ARCH_INIT_OK = 0;
 
 #endif /* !__ASSEMBLER__ */

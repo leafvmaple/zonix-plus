@@ -35,12 +35,19 @@ struct MbrPartition {
     uint8_t end_chs[3];   /* Ending CHS address */
     uint32_t start_lba;   /* Starting LBA address */
     uint32_t size;        /* Size in sectors */
+
+    inline bool is_gpt() const { return type == GPT_PROTECTIVE_MBR_TYPE; }
+    inline bool is_fat32() const { return type == PART_TYPE_FAT32 || type == PART_TYPE_FAT32_LBA; }
+
 } __attribute__((packed));
 
 struct MbrHeader {
     uint8_t boot_code[446];
     MbrPartition partitions[MBR_PARTITION_COUNT];
     uint16_t signature; /* 0xAA55 */
+
+    inline bool is_valid() const { return signature == MBR_SIGNATURE; }
+
 } __attribute__((packed));
 
 #endif /* __ASSEMBLER__ */
