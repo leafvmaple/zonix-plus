@@ -87,6 +87,12 @@ static inline void arch_invlpg(void* addr) {
     __asm__ volatile("sfence.vma %0, zero" : : "r"(addr) : "memory");
 }
 
+static inline void arch_flush_tlb_range(uintptr_t va, size_t size) {
+    (void)va;
+    (void)size;
+    __asm__ volatile("sfence.vma zero, zero" ::: "memory");
+}
+
 /* ------------------------------------------------------------------ */
 /* I/O ports — RISC-V has none; all stubs                             */
 /* ------------------------------------------------------------------ */

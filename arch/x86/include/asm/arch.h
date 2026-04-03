@@ -39,6 +39,11 @@ static inline void arch_invlpg(void* addr) {
     invlpg(addr);
 }
 
+static inline void arch_flush_tlb_range(uintptr_t va, size_t size) {
+    for (size_t offset = 0; offset < size; offset += 4096)
+        invlpg(reinterpret_cast<void*>(va + offset));
+}
+
 static inline uint8_t arch_port_inb(uint16_t port) {
     return inb(port);
 }

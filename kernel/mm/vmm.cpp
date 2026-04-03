@@ -96,11 +96,7 @@ uintptr_t mmio_map(uintptr_t phys_addr, size_t size, uint32_t perm) {
     }
     // Flush TLB for the newly mapped range so that stale entries
     // (e.g. from split 2MB blocks) don't interfere.
-#if defined(__aarch64__)
-    __asm__ volatile("dsb ishst; tlbi vmalle1is; dsb ish; isb" ::: "memory");
-#elif defined(__riscv)
-    __asm__ volatile("sfence.vma zero, zero" ::: "memory");
-#endif
+    arch_flush_tlb_range(va, size);
     mmio_next_va += size;
     return va;
 }
@@ -118,11 +114,7 @@ int init() {
         return -1;
     }
 
-#if defined(__aarch64__)
-    __asm__ volatile("dsb ishst; tlbi vmalle1is; dsb ish; isb" ::: "memory");
-#elif defined(__riscv)
-    __asm__ volatile("sfence.vma zero, zero" ::: "memory");
-#endif
+    arch_flush_tlb_range(KERNEL_BASE, KERNEL_MEM_SIZE);
 
     mm_init(&init_mm);
     init_mm.pgdir = boot_pgdir;

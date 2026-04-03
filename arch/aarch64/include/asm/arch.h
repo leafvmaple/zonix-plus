@@ -55,6 +55,12 @@ static inline void arch_invlpg(void* addr) {
                      : "memory");
 }
 
+static inline void arch_flush_tlb_range(uintptr_t va, size_t size) {
+    (void)va;
+    (void)size;
+    __asm__ volatile("dsb ishst; tlbi vmalle1is; dsb ish; isb" ::: "memory");
+}
+
 static inline uint8_t arch_port_inb(uint16_t) {
     return 0;
 }
