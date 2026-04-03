@@ -76,7 +76,8 @@ char getc() {
 }
 
 void putc(int c) {
-    cga::putc(c);
+    if (!fbcons::is_active())
+        cga::putc(c);
     fbcons::putc(c);
     uart8250::putc(c);
     arch_port_outb(0xe9, c);
