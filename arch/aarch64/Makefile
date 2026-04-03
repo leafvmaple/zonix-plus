@@ -24,6 +24,7 @@ KSRCDIR := kernel              \
            arch/aarch64/kernel/drivers \
            kernel/debug        \
            kernel/cons         \
+           kernel/cons/cmd     \
 		   kernel/trap         \
            kernel/sched        \
            kernel/mm           \

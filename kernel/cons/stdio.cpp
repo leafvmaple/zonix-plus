@@ -116,8 +116,13 @@ int vformat(Sink& sink, const char* fmt, va_list args) {
                             width = width * 10 + (c - '0');
                         break;
                     case 'l': long_flag = true; break;
-                    case 'x':
                     case 'p': {
+                        auto num = reinterpret_cast<uintptr_t>(va_arg(args, void*));
+                        put_int(sink, num, 16, false, width, pad_chr, left_align);
+                        state = FmtState::None;
+                        break;
+                    }
+                    case 'x': {
                         uint64_t num = long_flag ? va_arg(args, uint64_t) : va_arg(args, uint32_t);
                         put_int(sink, num, 16, false, width, pad_chr, left_align);
                         state = FmtState::None;

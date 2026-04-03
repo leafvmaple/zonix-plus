@@ -35,6 +35,7 @@ KSRCDIR := kernel              \
            arch/x86/kernel/drivers \
            kernel/debug        \
            kernel/cons         \
+           kernel/cons/cmd     \
            kernel/trap         \
            kernel/drivers      \
            kernel/block        \
