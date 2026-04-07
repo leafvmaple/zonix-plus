@@ -1,5 +1,6 @@
 #include "cons/shell.h"
 #include "block/blk.h"
+#include "lib/result.h"
 #include "test/unit/mm/swap_test.h"
 
 #include "lib/stdio.h"
@@ -28,8 +29,8 @@ static void run_generic_disktest() {
         }
 
         uint8_t buf[BlockDevice::SIZE] = {};
-        int rc = dev->read(0, buf, 1);
-        cprintf("  %s: read sector 0 %s\n", dev->name, rc == 0 ? "OK" : "FAILED");
+        Error rc = dev->read(0, buf, 1);
+        cprintf("  %s: read sector 0 %s\n", dev->name, rc == Error::None ? "OK" : "FAILED");
     }
     cprintf("=== Test Complete ===\n\n");
 }
@@ -51,8 +52,8 @@ static void run_generic_intrtest() {
         }
 
         uint8_t buf[BlockDevice::SIZE] = {};
-        int rc = dev->read(0, buf, 1);
-        cprintf("  %s: completion path %s\n", dev->name, rc == 0 ? "OK" : "FAILED");
+        Error rc = dev->read(0, buf, 1);
+        cprintf("  %s: completion path %s\n", dev->name, rc == Error::None ? "OK" : "FAILED");
     }
     cprintf("=== Test Complete ===\n\n");
 }

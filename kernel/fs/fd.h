@@ -1,6 +1,7 @@
 #pragma once
 
 #include <base/types.h>
+#include "lib/result.h"
 
 namespace vfs {
 class File;
@@ -31,11 +32,11 @@ struct Entry {
 class Table {
 public:
     void init();
-    int alloc(vfs::File* file);
+    Result<int> alloc(vfs::File* file);
     Entry* get(int fd);
-    int close(int fd);
+    Error close(int fd);
     void close_all();
-    int fork_from(const Table& parent, ForkPolicy policy);
+    Error fork_from(const Table& parent, ForkPolicy policy);
 
 private:
     Entry entries_[MAX_FD]{};

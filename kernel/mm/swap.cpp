@@ -21,10 +21,10 @@ BlockDevice* swap_device = nullptr;
 namespace swap {
 
 int init() {
-    int rc = swap_mgr.init();
-    if (rc != 0) {
-        cprintf("swap: swap manager '%s' init failed (rc=%d)\n", swap_mgr.name, rc);
-        return rc;
+    Error rc = swap_mgr.init();
+    if (rc != Error::None) {
+        cprintf("swap: swap manager '%s' init failed (%s)\n", swap_mgr.name, error_str(rc));
+        return -1;
     }
 
     if (swapfs_init() != 0) {
@@ -58,29 +58,29 @@ int init() {
     return 0;
 }
 
-int init_mm(MemoryDesc* mm) {
+Error init_mm(MemoryDesc* mm) {
     return swap_mgr.init_mm(mm);
 }
 
-int in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr) {
+Error in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr) {
     Page* page = pmm::alloc_pages(1);
     if (page == nullptr) {
         cprintf("swap_in: failed to allocate page\n");
-        return -1;
+        return Error::NoMem;
     }
 
     pte_t* ptep = pmm::get_pte(mm->pgdir, addr, 0);
     if (ptep == nullptr) {
         cprintf("swap_in: no page table entry\n");
         pmm::free_pages(page, 1);
-        return -1;
+        return Error::NotFound;
     }
 
     uintptr_t swap_entry = *ptep;
-    if (swapfs_read(swap_entry, page) != 0) {
+    if (swapfs_read(swap_entry, page) != Error::None) {
         cprintf("swap_in: failed to read from swap\n");
         pmm::free_pages(page, 1);
-        return -1;
+        return Error::IO;
     }
 
     cprintf("swap_in: loaded addr 0x%x from swap entry 0x%x to page %p\n", addr, swap_entry, page);
@@ -90,7 +90,7 @@ int in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr) {
     swap_mgr.map_swappable(mm, addr, page, 1);
 
     *page_ptr = page;
-    return 0;
+    return Error::None;
 }
 
 }  // namespace swap
@@ -148,7 +148,7 @@ int out(MemoryDesc* mm, int n, int in_tick) {
 
     for (i = 0; i < n; i++) {
         Page* victim = nullptr;
-        if (swap_mgr.swap_out_victim(mm, &victim, in_tick) != 0) {
+        if (swap_mgr.swap_out_victim(mm, &victim, in_tick) != Error::None) {
             cprintf("swap_out: no victim page found\n");
             break;
         }
@@ -173,7 +173,7 @@ int out(MemoryDesc* mm, int n, int in_tick) {
         }
 
         uintptr_t swap_entry = (swap_offset << 8);  // Create swap entry (present bit = 0)
-        if (swapfs_write(swap_entry, victim) != 0) {
+        if (swapfs_write(swap_entry, victim) != Error::None) {
             cprintf("swap_out: failed to write to swap\n");
             continue;
         }
@@ -210,7 +210,7 @@ int swap::swapfs_init() {
 }
 
 
-int swap::swapfs_read(uintptr_t entry, Page* page) {
+Error swap::swapfs_read(uintptr_t entry, Page* page) {
     // Calculate disk sector number
     // +--------------------------------+--------+---+
     // |    Swap Offset (24 bits)       | Reserved| P |
@@ -220,25 +220,19 @@ int swap::swapfs_read(uintptr_t entry, Page* page) {
     uint32_t sector = SWAP_START_SECTOR + (offset * SECTORS_PER_PAGE);
 
     void* kva = pmm::page_to_kva(page);
-    if (swap_device->read(sector, kva, SECTORS_PER_PAGE) != 0) {
-        cprintf("swapfs_read: disk read failed (sector=%d)\n", sector);
-        return -1;
-    }
+    TRY_LOG(swap_device->read(sector, kva, SECTORS_PER_PAGE), "swapfs_read: disk read failed (sector=%d)", sector);
 
     cprintf("swapfs_read: read page from swap entry 0x%x (sector %d)\n", entry, sector);
-    return 0;
+    return Error::None;
 }
 
-int swap::swapfs_write(uintptr_t entry, Page* page) {
+Error swap::swapfs_write(uintptr_t entry, Page* page) {
     uint32_t offset = (entry >> 8) & 0xFFFFFF;  // Extract offset from swap entry
     uint32_t sector = SWAP_START_SECTOR + (offset * SECTORS_PER_PAGE);
 
     void* kva = pmm::page_to_kva(page);
-    if (swap_device->write(sector, kva, SECTORS_PER_PAGE) != 0) {
-        cprintf("swapfs_write: disk write failed (sector=%d)\n", sector);
-        return -1;
-    }
+    TRY_LOG(swap_device->write(sector, kva, SECTORS_PER_PAGE), "swapfs_write: disk write failed (sector=%d)", sector);
 
     cprintf("swapfs_write: wrote page to swap entry 0x%x (sector %d)\n", entry, sector);
-    return 0;
+    return Error::None;
 }

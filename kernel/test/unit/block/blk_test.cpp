@@ -1,5 +1,6 @@
 #include "test/test_defs.h"
 #include "block/blk.h"
+#include "lib/result.h"
 #include "lib/string.h"
 #include "lib/memory.h"
 
@@ -22,16 +23,16 @@ public:
         size = dev_size;
     }
 
-    int read(uint32_t, void* buf, size_t) override {
+    Error read(uint32_t, void* buf, size_t) override {
         read_count++;
         memcpy(buf, backing, 512);
-        return 0;
+        return Error::None;
     }
 
-    int write(uint32_t, const void* buf, size_t) override {
+    Error write(uint32_t, const void* buf, size_t) override {
         write_count++;
         memcpy(backing, buf, 512);
-        return 0;
+        return Error::None;
     }
 };
 
@@ -62,12 +63,12 @@ static void test_mock_readwrite() {
     for (int i = 0; i < 512; i++)
         wbuf[i] = static_cast<uint8_t>(i & 0xFF);
 
-    int rc = mock.write(0, wbuf, 1);
-    TEST_ASSERT(rc == 0, "Mock write returns 0");
+    Error rc = mock.write(0, wbuf, 1);
+    TEST_ASSERT(rc == Error::None, "Mock write returns None");
     TEST_ASSERT(mock.write_count == 1, "Write count incremented");
 
     rc = mock.read(0, rbuf, 1);
-    TEST_ASSERT(rc == 0, "Mock read returns 0");
+    TEST_ASSERT(rc == Error::None, "Mock read returns None");
     TEST_ASSERT(mock.read_count == 1, "Read count incremented");
     TEST_ASSERT(memcmp(wbuf, rbuf, 512) == 0, "Read data matches written data");
 

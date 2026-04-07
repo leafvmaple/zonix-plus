@@ -2,6 +2,7 @@
 
 #include <base/types.h>
 #include "lib/array.h"
+#include "lib/result.h"
 
 namespace blk {
 
@@ -20,8 +21,8 @@ struct BlockDevice {
     uint32_t size{};         // Size in blocks
     char name[8]{};          // Device name
 
-    virtual int read(uint32_t block_number, void* buf, size_t block_count) = 0;
-    virtual int write(uint32_t block_number, const void* buf, size_t block_count) = 0;
+    virtual Error read(uint32_t block_number, void* buf, size_t block_count) = 0;
+    virtual Error write(uint32_t block_number, const void* buf, size_t block_count) = 0;
     virtual void print_info();
 };
 
@@ -37,6 +38,7 @@ public:
     static int get_device_count();
     static void print();
 
+
 private:
     inline static Array<BlockDevice*, MAX_DEV> s_devices{};
 };
@@ -47,6 +49,6 @@ int init();
 
 // Register architecture/platform-specific block backends
 int probe_backends();
-int register_device(BlockDevice* device);
+Error register_device(BlockDevice* device);
 
 }  // namespace blk

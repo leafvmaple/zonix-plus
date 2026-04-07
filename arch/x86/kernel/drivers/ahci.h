@@ -2,6 +2,7 @@
 
 #include <base/types.h>
 #include "block/blk.h"
+#include "lib/result.h"
 #include "asm/trap_numbers.h"
 
 namespace pci {
@@ -213,14 +214,14 @@ struct AhciDevice : public BlockDevice {
     int identify();
     void interrupt();
 
-    int read(uint32_t block_number, void* buf, size_t block_count) override;
-    int write(uint32_t block_number, const void* buf, size_t block_count) override;
+    Error read(uint32_t block_number, void* buf, size_t block_count) override;
+    Error write(uint32_t block_number, const void* buf, size_t block_count) override;
     void print_info() override;
 
 private:
     int issue_cmd(uint8_t command, uint32_t lba, uint16_t count, bool write);
     int wait_cmd_complete(int timeout_ms) const;
-    int transfer_blocks(uint32_t block_number, size_t block_count, void* buf, bool write);
+    Error transfer_blocks(uint32_t block_number, size_t block_count, void* buf, bool write);
 
     int present_{};
     uintptr_t port_base_{};
@@ -236,7 +237,7 @@ private:
 class AhciManager {
 public:
     static int init();
-    static int probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*);
+    static Error probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*);
 
     static AhciDevice* get_device(int device_id);
     static int get_device_count();

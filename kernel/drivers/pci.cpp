@@ -109,23 +109,18 @@ const pci::DriverId* find_matching_id(const pci::Driver* driver, const pci::Devi
 
 namespace pci {
 
-int register_driver(const Driver* driver) {
-    if (driver == nullptr || driver->probe == nullptr || driver->id_table == nullptr || driver->id_count <= 0) {
-        return -1;
-    }
+Error register_driver(const Driver* driver) {
+    ENSURE(driver && driver->probe && driver->id_table && driver->id_count > 0, Error::Invalid);
 
     for (const pci::Driver* d : s_drivers) {
         if (d == driver) {
-            return 0;
+            return Error::None;
         }
     }
 
-    if (!s_drivers.push_back(driver)) {
-        cprintf("pci: driver table full, max=%d\n", MAX_REGISTERED_DRIVERS);
-        return -1;
-    }
+    ENSURE_LOG(s_drivers.push_back(driver), Error::Full, "pci: driver table full, max=%d", MAX_REGISTERED_DRIVERS);
 
-    return 0;
+    return Error::None;
 }
 
 int probe_drivers() {
@@ -143,8 +138,8 @@ int probe_drivers() {
                 continue;
             }
 
-            int rc = drv->probe(&s_devices[i], matched);
-            if (rc == 0) {
+            Error rc = drv->probe(&s_devices[i], matched);
+            if (rc == Error::None) {
                 s_bound_driver[i] = static_cast<int>(d);
                 break;
             }

@@ -18,52 +18,46 @@ Array<CharDevEntry, MAX_CHAR_DEVS> s_char_dev_registry{};
 
 class DevFileSystem : public vfs::FileSystem {
 public:
-    int mount(BlockDevice*) override { return 0; }
+    Error mount(BlockDevice*) override { return Error::None; }
 
     void unmount() override {}
 
-    int open(const char* relpath, vfs::File** out_file) override {
-        if (!relpath || !out_file || relpath[0] == '\0') {
-            return -1;
-        }
+    Error open(const char* relpath, vfs::File** out_file) override {
+        ENSURE(relpath && out_file && relpath[0] != '\0', Error::Invalid);
 
         for (const auto& entry : s_char_dev_registry) {
             if (strcmp(entry.name, relpath) == 0) {
                 *out_file = entry.create();
-                return *out_file ? 0 : -1;
+                return *out_file ? Error::None : Error::NoMem;
             }
         }
 
-        return -1;
+        return Error::NotFound;
     }
 
-    int stat(const char* relpath, vfs::Stat* st) override {
-        if (!relpath || !st) {
-            return -1;
-        }
+    Error stat(const char* relpath, vfs::Stat* st) override {
+        ENSURE(relpath && st, Error::Invalid);
 
         if (relpath[0] == '\0') {
             st->set(vfs::NodeType::Directory, 0, 0);
-            return 0;
+            return Error::None;
         }
 
         for (const auto& entry : s_char_dev_registry) {
             if (strcmp(entry.name, relpath) == 0) {
                 st->set(vfs::NodeType::CharDevice, 0, 0);
-                return 0;
+                return Error::None;
             }
         }
 
-        return -1;
+        return Error::NotFound;
     }
 
-    int readdir(const char* relpath, vfs::DirVisitor& visitor) override {
-        if (!relpath) {
-            return -1;
-        }
+    Result<int> readdir(const char* relpath, vfs::DirVisitor& visitor) override {
+        ENSURE(relpath, Error::Invalid);
 
         if (relpath[0] != '\0') {
-            return -1;
+            return Error::NotFound;
         }
 
         int count = 0;
@@ -94,18 +88,16 @@ struct DevFsRegistrar {
 
 namespace vfs {
 
-int register_char_dev(const char* name, CharDevFactory factory) {
-    if (!name || !factory) {
-        return -1;
-    }
+Error register_char_dev(const char* name, CharDevFactory factory) {
+    ENSURE(name && factory, Error::Invalid);
 
     if (s_char_dev_registry.full()) {
         cprintf("devfs: registry full, cannot register '%s'\n", name);
-        return -1;
+        return Error::Full;
     }
 
     s_char_dev_registry.push_back({name, factory});
-    return 0;
+    return Error::None;
 }
 
 }  // namespace vfs

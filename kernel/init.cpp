@@ -95,7 +95,7 @@ extern "C" [[noreturn]] int kern_init(struct BootInfo* boot_info) {
     run_steps(KERN_STEPS, sizeof(KERN_STEPS) / sizeof(KERN_STEPS[0]));
 
 #ifdef TEST_MODE
-    sched::kernel_thread(test_run_all, nullptr);
+    (void)sched::kernel_thread(test_run_all, nullptr);
 #endif
 
     intr::enable();

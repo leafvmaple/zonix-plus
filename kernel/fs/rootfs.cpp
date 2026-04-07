@@ -15,7 +15,7 @@ int init() {
             continue;
         }
 
-        if (vfs::mount("/", dev, "fat") == 0) {
+        if (vfs::mount("/", dev, "fat") == Error::None) {
             cprintf("rootfs: mounted %s at /\n", dev->name);
             return 0;
         }

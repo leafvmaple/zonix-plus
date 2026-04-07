@@ -1,6 +1,7 @@
 #pragma once
 
 #include <base/types.h>
+#include "lib/result.h"
 #include "lib/string.h"
 
 struct BlockDevice;
@@ -42,9 +43,9 @@ class File {
 public:
     virtual ~File() = default;
 
-    virtual int read(void* buf, size_t size, size_t offset) = 0;
-    virtual int write(const void* buf, size_t size, size_t offset) = 0;
-    virtual int stat(Stat* st) = 0;
+    virtual Result<int> read(void* buf, size_t size, size_t offset) = 0;
+    virtual Result<int> write(const void* buf, size_t size, size_t offset) = 0;
+    virtual Error stat(Stat* st) = 0;
 };
 
 class DirVisitor {
@@ -54,21 +55,21 @@ public:
 };
 
 int init();
-int mount(const char* mount_point, BlockDevice* dev, const char* fs_type);
-int umount(const char* mount_point);
+Error mount(const char* mount_point, BlockDevice* dev, const char* fs_type);
+Error umount(const char* mount_point);
 
-int open(const char* path, File** out_file);
-int read(File* file, void* buf, size_t size, size_t offset);
-int write(File* file, const void* buf, size_t size, size_t offset);
+Error open(const char* path, File** out_file);
+Result<int> read(File* file, void* buf, size_t size, size_t offset);
+Result<int> write(File* file, const void* buf, size_t size, size_t offset);
 void close(File* file);
 
-int stat(const char* path, Stat* st);
-int readdir(const char* path, DirVisitor& visitor);
+Error stat(const char* path, Stat* st);
+Result<int> readdir(const char* path, DirVisitor& visitor);
 
-int mkdir(const char* path);
-int create(const char* path);
-int unlink(const char* path);
-int rmdir(const char* path);
+Error mkdir(const char* path);
+Error create(const char* path);
+Error unlink(const char* path);
+Error rmdir(const char* path);
 
 bool is_mounted(const char* mount_point);
 const char* mounted_device(const char* mount_point);

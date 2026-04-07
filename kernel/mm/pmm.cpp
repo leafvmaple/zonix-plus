@@ -300,16 +300,16 @@ Page* pmm::pgdir_alloc_page(pde_t* pgdir, uintptr_t la, uint32_t perm) {
     return page;
 }
 
-int pmm::page_insert(pde_t* pgdir, Page* page, uintptr_t la, uint32_t perm) {
+Error pmm::page_insert(pde_t* pgdir, Page* page, uintptr_t la, uint32_t perm) {
     pte_t* ptep = pmm::get_pte(pgdir, la, true);
     if (!ptep) {
-        return -1;
+        return Error::NoMem;
     }
     page->ref++;
     *ptep = make_pte_page(pmm::page_to_phys(page), perm);
 
     pmm::tlb_invl(pgdir, la);
-    return 0;
+    return Error::None;
 }
 
 void pmm::free_user_pgdir(pde_t* pgdir) {
@@ -365,10 +365,10 @@ int pmm::init() {
     size_t free_pages = Factory::s_allocator.free_page_count();
     if (free_pages == 0) {
         cprintf("pmm: no free pages after initialization\n");
-        return FAILURE;
+        return -1;
     }
 
     cprintf("pmm: initialized, %d free pages (%d MB)\n", static_cast<int>(free_pages),
             static_cast<int>((free_pages * PG_SIZE) / (1024ULL * 1024)));
-    return SUCCESS;
+    return 0;
 }

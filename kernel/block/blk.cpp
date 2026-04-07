@@ -92,12 +92,10 @@ int init() {
     return 0;
 }
 
-int register_device(BlockDevice* device) {
-    if (!device) {
-        return -1;
-    }
+Error register_device(BlockDevice* device) {
+    ENSURE(device, Error::Invalid);
     BlockManager::register_device(device);
-    return 0;
+    return Error::None;
 }
 
 }  // namespace blk

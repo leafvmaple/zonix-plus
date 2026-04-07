@@ -3,6 +3,7 @@
 #include "block/blk.h"
 #include "fs/vfs.h"
 #include "lib/memory.h"
+#include "lib/result.h"
 #include "lib/stdio.h"
 #include "lib/string.h"
 
@@ -113,7 +114,7 @@ static void cmd_mount(int argc, char** argv) {
 
     cprintf("Mounting %s at /mnt...\n", dev->name);
 
-    if (vfs::mount("/mnt", dev, "fat") == 0) {
+    if (vfs::mount("/mnt", dev, "fat") == Error::None) {
         s_mnt_device = dev->name;
         s_mnt_mounted = 1;
         cprintf("Successfully mounted %s at /mnt\n", dev->name);
@@ -134,7 +135,7 @@ static void cmd_umount(int argc, char** argv) {
         return;
     }
 
-    if (vfs::umount("/mnt") != 0) {
+    if (vfs::umount("/mnt") != Error::None) {
         cprintf("Failed to unmount /mnt\n");
         return;
     }

@@ -1,10 +1,9 @@
-// SDHCI (SD Host Controller Interface) driver
-
 #pragma once
 
 #include <base/types.h>
 #include "block/blk.h"
 #include "lib/array.h"
+#include "lib/result.h"
 
 namespace pci {
 struct DeviceInfo;
@@ -13,9 +12,9 @@ struct DriverId;
 
 class SdDevice : public BlockDevice {
 public:
-    int init(volatile uint8_t* base, int index);
-    int read(uint32_t block_number, void* buf, size_t block_count) override;
-    int write(uint32_t block_number, const void* buf, size_t block_count) override;
+    Error init(volatile uint8_t* base, int index);
+    Error read(uint32_t block_number, void* buf, size_t block_count) override;
+    Error write(uint32_t block_number, const void* buf, size_t block_count) override;
     void print_info() override;
 
 private:
@@ -23,18 +22,18 @@ private:
     uint16_t rca_{};
     bool sdhc_{};
 
-    int reset();
-    int clock_setup();
-    int power_on();
-    int send_cmd(uint8_t index, uint32_t arg, uint16_t flags);
-    int wait_cmd_done();
-    int wait_xfer_done();
+    Error reset();
+    Error clock_setup();
+    Error power_on();
+    Error send_cmd(uint8_t index, uint32_t arg, uint16_t flags);
+    Error wait_cmd_done();
+    Error wait_xfer_done();
     uint32_t read_response(int idx);
 
-    int card_identify();
-    int read_csd();
-    int read_single(uint32_t lba, void* buf);
-    int write_single(uint32_t lba, const void* buf);
+    Error card_identify();
+    Error read_csd();
+    Error read_single(uint32_t lba, void* buf);
+    Error write_single(uint32_t lba, const void* buf);
 };
 
 namespace sdhci {
@@ -47,7 +46,7 @@ public:
     static int device_count();
     static SdDevice* get_device(int index);
 
-    static int probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*);
+    static Error probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*);
 
 private:
     inline static bool s_initialized{};

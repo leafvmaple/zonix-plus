@@ -4,6 +4,7 @@
 // #include "swap_clock.h"
 // #include "swap_lru.h"
 #include "mm/pmm.h"
+#include "lib/result.h"
 #include "lib/stdio.h"
 
 #include <asm/page.h>
@@ -69,10 +70,10 @@ void test_fifo_basic() {
     // Verify FIFO order: should select page 0, then 1, then 2...
     for (int i = 0; i < 5; i++) {
         Page* victim = nullptr;
-        int ret = fifo.swap_out_victim(init_mm, &victim, 0);
+        Error ret = fifo.swap_out_victim(init_mm, &victim, 0);
 
         // Simple message without snprintf for now
-        if (ret == 0 && victim == &pages[i]) {
+        if (ret == Error::None && victim == &pages[i]) {
             cprintf("  [OK] Victim %d is page %d\n", i, i);
         } else {
             cprintf("  [FAIL] Victim %d is not page %d\n", i, i);
@@ -82,8 +83,8 @@ void test_fifo_basic() {
 
     // Test empty list
     Page* victim = nullptr;
-    int ret = fifo.swap_out_victim(init_mm, &victim, 0);
-    TEST_ASSERT(ret != 0, "Empty list returns error");
+    Error ret = fifo.swap_out_victim(init_mm, &victim, 0);
+    TEST_ASSERT(ret != Error::None, "Empty list returns error");
 
     TEST_END();
 }
@@ -199,8 +200,8 @@ void test_clock_basic() {
     
     // Should select pages in order (simplified clock without accessed bit)
     Page *victim;
-    int ret = swap_mgr_clock.swap_out_victim(init_mm, &victim, 0);
-    TEST_ASSERT(ret == 0 && victim != nullptr, "Clock selects a victim");
+    Error ret = swap_mgr_clock.swap_out_victim(init_mm, &victim, 0);
+    TEST_ASSERT(ret == Error::None && victim != nullptr, "Clock selects a victim");
     
     TEST_END();
 }
@@ -217,8 +218,8 @@ void test_swap_init() {
     TEST_ASSERT(1, "Swap system initialized");
 
     MemoryDesc mm;
-    int ret = swap::init_mm(init_mm);
-    TEST_ASSERT(ret == 0, "swap::init_mm succeeds");
+    Error ret = swap::init_mm(init_mm);
+    TEST_ASSERT(ret == Error::None, "swap::init_mm succeeds");
     TEST_ASSERT(mm.swap_list.empty(), "Swap list created");
 
     TEST_END();
@@ -239,9 +240,9 @@ void test_swap_in_basic() {
         *ptep = 0x100;  // Fake swap entry (present bit = 0, offset = 1)
 
         Page* page = nullptr;
-        int ret = swap::in(init_mm, addr, &page);
+        Error ret = swap::in(init_mm, addr, &page);
 
-        TEST_ASSERT(ret == 0, "swap::in returns success");
+        TEST_ASSERT(ret == Error::None, "swap::in returns success");
         TEST_ASSERT(page != nullptr, "Page allocated");
 
         // Check that PTE was updated
@@ -329,7 +330,7 @@ void test_algorithm_comparison() {
         int removed = 0;
         for (int j = 0; j < 10; j++) {
             Page* victim{};
-            if (algorithms[i]->swap_out_victim(init_mm, &victim, 0) == 0) {
+            if (algorithms[i]->swap_out_victim(init_mm, &victim, 0) == Error::None) {
                 removed++;
             }
         }
@@ -453,8 +454,8 @@ void test_swap_disk_io() {
 
     // 4. Swap in the page
     Page* new_page = nullptr;
-    int ret = swap::in(init_mm, test_addr, &new_page);
-    TEST_ASSERT(ret == 0, "Page swapped in");
+    Error ret = swap::in(init_mm, test_addr, &new_page);
+    TEST_ASSERT(ret == Error::None, "Page swapped in");
     TEST_ASSERT(new_page != nullptr, "New page allocated");
 
     // 5. Verify data integrity
@@ -530,9 +531,9 @@ void test_swap_multiple_pages() {
         if (ptep && !(*ptep & VM_PRESENT)) {
             // This page was swapped out, swap it back in
             Page* page = nullptr;
-            int ret = swap::in(init_mm, addr, &page);
+            Error ret = swap::in(init_mm, addr, &page);
 
-            if (ret == 0 && page) {
+            if (ret == Error::None && page) {
                 // Verify data
                 void* kva = pmm::page_to_kva(page);
                 int errors = 0;

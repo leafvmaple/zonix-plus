@@ -15,7 +15,7 @@ int init() {
         set_trap_gate(&__idt[i], __vectors[i]);
     set_sys_gate(&__idt[T_SYSCALL], __vectors[T_SYSCALL]);
 
-    return ARCH_INIT_OK;
+    return 0;
 }
 
 }  // namespace idt

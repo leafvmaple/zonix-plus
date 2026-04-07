@@ -7,6 +7,7 @@
 
 #include "drivers/fbcons.h"
 #include "fs/vfs.h"
+#include "lib/result.h"
 #include "mm/vmm.h"
 #include "sched/sched.h"
 
@@ -69,17 +70,17 @@ long sys_open(TaskStruct* cur, const char* user_path, int flags, int mode) {
     }
 
     vfs::File* file = nullptr;
-    if (vfs::open(path, &file) != 0 || !file) {
+    if (vfs::open(path, &file) != Error::None || !file) {
         return -1;
     }
 
-    int fd = cur->files().alloc(file);
-    if (fd < 0) {
+    auto fd_r = cur->files().alloc(file);
+    if (!fd_r.ok()) {
         vfs::close(file);
         return -1;
     }
 
-    return fd;
+    return fd_r.value();
 }
 
 long sys_read(TaskStruct* cur, int fd, void* user_buf, size_t count) {
@@ -105,13 +106,13 @@ long sys_read(TaskStruct* cur, int fd, void* user_buf, size_t count) {
         return -1;
     }
 
-    int bytes = vfs::read(entry->file, user_buf, count, entry->offset);
-    if (bytes < 0) {
+    auto bytes_r = vfs::read(entry->file, user_buf, count, entry->offset);
+    if (!bytes_r.ok()) {
         return -1;
     }
 
-    entry->offset += static_cast<size_t>(bytes);
-    return bytes;
+    entry->offset += static_cast<size_t>(bytes_r.value());
+    return bytes_r.value();
 }
 
 long sys_close(TaskStruct* cur, int fd) {
@@ -119,7 +120,7 @@ long sys_close(TaskStruct* cur, int fd) {
         return -1;
     }
 
-    return cur->files().close(fd);
+    return cur->files().close(fd) == Error::None ? 0 : -1;
 }
 
 long sys_write(TaskStruct* cur, int fd, const char* user_buf, size_t count) {
@@ -145,13 +146,13 @@ long sys_write(TaskStruct* cur, int fd, const char* user_buf, size_t count) {
         return -1;
     }
 
-    int bytes = vfs::write(entry->file, user_buf, count, entry->offset);
-    if (bytes < 0) {
+    auto bytes_r = vfs::write(entry->file, user_buf, count, entry->offset);
+    if (!bytes_r.ok()) {
         return -1;
     }
 
-    entry->offset += static_cast<size_t>(bytes);
-    return bytes;
+    entry->offset += static_cast<size_t>(bytes_r.value());
+    return bytes_r.value();
 }
 
 }  // namespace

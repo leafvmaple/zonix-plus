@@ -1,12 +1,13 @@
 #include "test/test_defs.h"
 #include "lib/memory.h"
+#include "lib/result.h"
 
 #include <base/elf.h>
 
 // Only validate/is_elf — no actual loading (would need pgdir setup)
 namespace elf {
 bool is_elf(const uint8_t* data, size_t size);
-int validate(const ElfHdr* eh, size_t file_size);
+Error validate(const ElfHdr* eh, size_t file_size);
 }  // namespace elf
 
 static int tests_passed = 0;
@@ -96,8 +97,8 @@ static void test_validate_valid() {
     auto* eh = reinterpret_cast<ElfHdr*>(buf);
     make_valid_elf64(eh);
 
-    int rc = elf::validate(eh, sizeof(buf));
-    TEST_ASSERT(rc == 0, "Valid ELF64 header passes validation");
+    Error rc = elf::validate(eh, sizeof(buf));
+    TEST_ASSERT(rc == Error::None, "Valid ELF64 header passes validation");
 
     TEST_END();
 }
@@ -116,8 +117,8 @@ static void test_validate_wrong_class() {
     make_valid_elf64(eh);
     eh->e_elf[0] = 1;  // 32-bit
 
-    int rc = elf::validate(eh, sizeof(buf));
-    TEST_ASSERT(rc != 0, "32-bit ELF rejected");
+    Error rc = elf::validate(eh, sizeof(buf));
+    TEST_ASSERT(rc != Error::None, "32-bit ELF rejected");
 
     TEST_END();
 }
@@ -136,8 +137,8 @@ static void test_validate_not_exec() {
     make_valid_elf64(eh);
     eh->e_type = 1;  // Relocatable, not executable
 
-    int rc = elf::validate(eh, sizeof(buf));
-    TEST_ASSERT(rc != 0, "Relocatable ELF rejected");
+    Error rc = elf::validate(eh, sizeof(buf));
+    TEST_ASSERT(rc != Error::None, "Relocatable ELF rejected");
 
     TEST_END();
 }
@@ -156,8 +157,8 @@ static void test_validate_wrong_machine() {
     make_valid_elf64(eh);
     eh->e_machine = 0x28;  // ARM instead of x86_64
 
-    int rc = elf::validate(eh, sizeof(buf));
-    TEST_ASSERT(rc != 0, "ARM machine type rejected");
+    Error rc = elf::validate(eh, sizeof(buf));
+    TEST_ASSERT(rc != Error::None, "ARM machine type rejected");
 
     TEST_END();
 }
@@ -197,8 +198,8 @@ static void test_validate_phdr_overflow() {
     make_valid_elf64(eh);
     eh->e_phnum = 100;  // Would need 100*56 = 5600 bytes, but file is 128
 
-    int rc = elf::validate(eh, sizeof(buf));
-    TEST_ASSERT(rc != 0, "phdr table overflow rejected");
+    Error rc = elf::validate(eh, sizeof(buf));
+    TEST_ASSERT(rc != Error::None, "phdr table overflow rejected");
 
     TEST_END();
 }
@@ -213,8 +214,8 @@ static void test_validate_too_small() {
     uint8_t buf[8] = {};
     auto* eh = reinterpret_cast<ElfHdr*>(buf);
 
-    int rc = elf::validate(eh, sizeof(buf));
-    TEST_ASSERT(rc != 0, "Tiny file rejected");
+    Error rc = elf::validate(eh, sizeof(buf));
+    TEST_ASSERT(rc != Error::None, "Tiny file rejected");
 
     TEST_END();
 }

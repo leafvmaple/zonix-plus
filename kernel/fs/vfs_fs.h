@@ -9,34 +9,34 @@ class FileSystem {
 public:
     virtual ~FileSystem() = default;
 
-    virtual int mount(BlockDevice* dev) = 0;
+    virtual Error mount(BlockDevice* dev) = 0;
     virtual void unmount() = 0;
-    virtual int open(const char* relpath, File** out_file) = 0;
-    virtual int stat(const char* relpath, Stat* st) = 0;
-    virtual int readdir(const char* relpath, DirVisitor& visitor) = 0;
-    virtual int mkdir(const char* relpath) {
+    virtual Error open(const char* relpath, File** out_file) = 0;
+    virtual Error stat(const char* relpath, Stat* st) = 0;
+    virtual Result<int> readdir(const char* relpath, DirVisitor& visitor) = 0;
+    virtual Error mkdir(const char* relpath) {
         static_cast<void>(relpath);
-        return -1;
+        return Error::NotSupported;
     }
-    virtual int create(const char* relpath) {
+    virtual Error create(const char* relpath) {
         static_cast<void>(relpath);
-        return -1;
+        return Error::NotSupported;
     }
-    virtual int unlink(const char* relpath) {
+    virtual Error unlink(const char* relpath) {
         static_cast<void>(relpath);
-        return -1;
+        return Error::NotSupported;
     }
-    virtual int rmdir(const char* relpath) {
+    virtual Error rmdir(const char* relpath) {
         static_cast<void>(relpath);
-        return -1;
+        return Error::NotSupported;
     }
     virtual void print() = 0;
 };
 
 using FsFactory = FileSystem* (*)();
-int register_fs(const char* name, FsFactory factory);
+Error register_fs(const char* name, FsFactory factory);
 
 using CharDevFactory = File* (*)();
-int register_char_dev(const char* name, CharDevFactory factory);
+Error register_char_dev(const char* name, CharDevFactory factory);
 
 }  // namespace vfs

@@ -35,21 +35,14 @@ static bool next_part(const char*& path, char (&buf)[N]) {
 
 }  // namespace
 
-int FatInfo::do_file_io(FatDirEntry* entry, uint8_t* io_buf, uint32_t offset, uint32_t size, const char* op,
-                        bool writeback) {
-    if (!entry || !io_buf || !op) {
-        return -1;
-    }
+Result<int> FatInfo::do_file_io(FatDirEntry* entry, uint8_t* io_buf, uint32_t offset, uint32_t size, const char* op,
+                                bool writeback) {
+    ENSURE(entry && io_buf && op, Error::Invalid);
 
     // TODO
-    if (entry->is_directory()) {
-        cprintf("fat_%s_file: cannot %s directory\n", op, op);
-        return -1;
-    }
+    ENSURE_LOG(!entry->is_directory(), Error::Invalid, "fat_%s_file: cannot %s directory", op, op);
 
-    if (offset >= entry->file_size) {
-        return -1;
-    }
+    ENSURE(offset < entry->file_size, Error::Invalid);
 
     uint32_t max_size = entry->file_size - offset;
     if (size > max_size) {
@@ -67,10 +60,8 @@ int FatInfo::do_file_io(FatDirEntry* entry, uint8_t* io_buf, uint32_t offset, ui
 
     for (; cluster >= 2 && cluster < fat::FAT32_EOC_MIN && solve_bytes < size; cluster = read_entry(cluster)) {
         uint32_t sector = cluster_to_sector(cluster);
-        if (dev_->read(partition_start_ + sector, cluster_buf, sectors_per_cluster_) != 0) {
-            cprintf("fat_%s_file: failed to read cluster %d\n", op, cluster);
-            return -1;
-        }
+        TRY_LOG(dev_->read(partition_start_ + sector, cluster_buf, sectors_per_cluster_),
+                "fat_%s_file: failed to read cluster %d", op, cluster);
 
         uint32_t cluster_offset = 0;
         uint32_t cluster_bytes = bytes_per_cluster_;
@@ -88,10 +79,8 @@ int FatInfo::do_file_io(FatDirEntry* entry, uint8_t* io_buf, uint32_t offset, ui
         uint32_t count = min(cluster_bytes, size - solve_bytes);
         if (writeback) {
             memcpy(cluster_buf + cluster_offset, io_buf + solve_bytes, count);
-            if (dev_->write(partition_start_ + sector, cluster_buf, sectors_per_cluster_) != 0) {
-                cprintf("fat_%s_file: failed to write cluster %d\n", op, cluster);
-                return -1;
-            }
+            TRY_LOG(dev_->write(partition_start_ + sector, cluster_buf, sectors_per_cluster_),
+                    "fat_%s_file: failed to write cluster %d", op, cluster);
         } else {
             memcpy(io_buf + solve_bytes, cluster_buf + cluster_offset, count);
         }
@@ -102,7 +91,7 @@ int FatInfo::do_file_io(FatDirEntry* entry, uint8_t* io_buf, uint32_t offset, ui
     return static_cast<int>(solve_bytes);
 }
 
-int FatInfo::read_dir(uint32_t start_cluster, DirVisitor& visitor, bool verbose_read_error) {
+Result<int> FatInfo::read_dir(uint32_t start_cluster, DirVisitor& visitor, bool verbose_read_error) {
     int count{};
     SectorArray<FatDirEntry> sector_buf{};
 
@@ -112,11 +101,11 @@ int FatInfo::read_dir(uint32_t start_cluster, DirVisitor& visitor, bool verbose_
 
         for (uint32_t i = 0; i < sectors_per_cluster_; i++) {
             uint32_t sector = base_sector + i;
-            if (dev_->read(partition_start_ + sector, &sector_buf, 1) != 0) {
+            if (dev_->read(partition_start_ + sector, &sector_buf, 1) != Error::None) {
                 if (verbose_read_error) {
                     cprintf("fat_read_dir: failed to read sector %d\n", sector);
                 }
-                return -1;
+                return Error::IO;
             }
 
             for (auto& entry : sector_buf.entries) {
@@ -140,23 +129,17 @@ int FatInfo::read_dir(uint32_t start_cluster, DirVisitor& visitor, bool verbose_
     return count;
 }
 
-int FatInfo::read_dir(const char* relpath, DirVisitor& visitor) {
-    if (!relpath) {
-        return -1;
-    }
+Result<int> FatInfo::read_dir(const char* relpath, DirVisitor& visitor) {
+    ENSURE(relpath, Error::Invalid);
 
     if (relpath[0] == '\0') {
         return read_dir(root_cluster_, visitor, true);
     }
 
     FatDirEntry dir{};
-    if (find_file(relpath, &dir) != 0) {
-        return -1;
-    }
+    TRY(find_file(relpath, &dir));
 
-    if ((dir.attr & FAT_ATTR_DIRECTORY) == 0) {
-        return -1;
-    }
+    ENSURE(dir.attr & FAT_ATTR_DIRECTORY, Error::Invalid);
 
     uint32_t start_cluster = dir.get_cluster();
     return read_dir(start_cluster, visitor, false);
@@ -169,7 +152,7 @@ bool FatInfo::find_entry(uint32_t start_cluster, const char* name, FatDirEntry* 
          cluster = read_entry(cluster)) {
         uint32_t base_sector = cluster_to_sector(cluster);
         for (uint32_t i = 0; i < sectors_per_cluster_; i++) {
-            if (dev_->read(partition_start_ + base_sector + i, &sector_buf, 1) != 0)
+            if (dev_->read(partition_start_ + base_sector + i, &sector_buf, 1) != Error::None)
                 return false;
 
             for (auto& entry : sector_buf.entries) {
@@ -196,21 +179,16 @@ bool FatInfo::find_entry(uint32_t start_cluster, const char* name, FatDirEntry* 
     return false;
 }
 
-int FatInfo::find_file(const char* filename, FatDirEntry* result) {
-    if (!filename || !result) {
-        return -1;
-    }
+Error FatInfo::find_file(const char* filename, FatDirEntry* result) {
+    ENSURE(filename && result, Error::Invalid);
 
     const char* path = str_skip_char(filename, '/');
-    if (!path || path[0] == '\0') {
-        return -1;
-    }
+    ENSURE(path && path[0] != '\0', Error::Invalid);
 
     Array<char[MAX_PART_LEN], MAX_DEPTH> parts{};
     while (*path) {
         char part[MAX_PART_LEN]{};
-        if (!next_part(path, part))
-            return -1;
+        ENSURE(next_part(path, part), Error::Invalid);
 
         if (!strcmp(part, "."))
             continue;
@@ -220,30 +198,28 @@ int FatInfo::find_file(const char* filename, FatDirEntry* result) {
             continue;
         }
 
-        if (!parts.push_back(part))
-            return -1;
+        ENSURE(parts.push_back(part), Error::Invalid);
     }
 
-    if (parts.empty())
-        return -1;
+    ENSURE(!parts.empty(), Error::Invalid);
 
     uint32_t cluster = root_cluster_;
     for (size_t i = 0; i < parts.size(); i++, cluster = result->get_cluster()) {
         if (!find_entry(cluster, parts[i], result))
-            return -1;
+            return Error::NotFound;
 
         if (i + 1 < parts.size() && !result->is_directory())
-            return -1;
+            return Error::NotFound;
     }
 
-    return 0;
+    return Error::None;
 }
 
-int FatInfo::read_file(FatDirEntry* entry, uint8_t* buf, uint32_t offset, uint32_t size) {
+Result<int> FatInfo::read_file(FatDirEntry* entry, uint8_t* buf, uint32_t offset, uint32_t size) {
     return do_file_io(entry, buf, offset, size, "read", false);
 }
 
-int FatInfo::write_file(FatDirEntry* entry, const uint8_t* buf, uint32_t offset, uint32_t size) {
+Result<int> FatInfo::write_file(FatDirEntry* entry, const uint8_t* buf, uint32_t offset, uint32_t size) {
     return do_file_io(entry, const_cast<uint8_t*>(buf), offset, size, "write", true);
 }
 
@@ -262,23 +238,17 @@ void FatInfo::make_83_name(const char* name, char out_name[8], char out_ext[3]) 
         out_ext[i++] = to_upper(*p++);
 }
 
-int FatInfo::resolve_parent(const char* relpath, uint32_t* parent_cluster, char* child_name, size_t name_size) {
-    if (!relpath || !parent_cluster || !child_name || name_size == 0) {
-        return -1;
-    }
+Error FatInfo::resolve_parent(const char* relpath, uint32_t* parent_cluster, char* child_name, size_t name_size) {
+    ENSURE(relpath && parent_cluster && child_name && name_size > 0, Error::Invalid);
 
     const char* path = str_skip_char(relpath, '/');
-    if (!path || path[0] == '\0') {
-        return -1;
-    }
+    ENSURE(path && path[0] != '\0', Error::Invalid);
 
     Array<char[MAX_PART_LEN], MAX_DEPTH> parts{};
     const char* cursor = path;
     while (*cursor) {
         char part[MAX_PART_LEN]{};
-        if (!next_part(cursor, part)) {
-            return -1;
-        }
+        ENSURE(next_part(cursor, part), Error::Invalid);
         if (!strcmp(part, ".")) {
             continue;
         }
@@ -286,14 +256,10 @@ int FatInfo::resolve_parent(const char* relpath, uint32_t* parent_cluster, char*
             parts.pop_back();
             continue;
         }
-        if (!parts.push_back(part)) {
-            return -1;
-        }
+        ENSURE(parts.push_back(part), Error::Invalid);
     }
 
-    if (parts.empty()) {
-        return -1;
-    }
+    ENSURE(!parts.empty(), Error::Invalid);
 
     strncpy(child_name, parts[parts.size() - 1], name_size - 1);
     child_name[name_size - 1] = '\0';
@@ -302,19 +268,19 @@ int FatInfo::resolve_parent(const char* relpath, uint32_t* parent_cluster, char*
     for (size_t i = 0; i + 1 < parts.size(); i++) {
         FatDirEntry entry{};
         if (!find_entry(cluster, parts[i], &entry))
-            return -1;
+            return Error::NotFound;
 
         if (!entry.is_directory())
-            return -1;
+            return Error::NotFound;
 
         cluster = entry.get_cluster();
     }
 
     *parent_cluster = cluster;
-    return 0;
+    return Error::None;
 }
 
-int FatInfo::add_dir_entry(uint32_t dir_cluster, const FatDirEntry* new_entry) {
+Error FatInfo::add_dir_entry(uint32_t dir_cluster, const FatDirEntry* new_entry) {
     using Sector = SectorArray<FatDirEntry>;
     Sector sector_buf{};
 
@@ -322,9 +288,7 @@ int FatInfo::add_dir_entry(uint32_t dir_cluster, const FatDirEntry* new_entry) {
         uint32_t base_sector = cluster_to_sector(cluster);
         for (uint32_t i = 0; i < sectors_per_cluster_; i++) {
             uint32_t abs_sector = partition_start_ + base_sector + i;
-            if (dev_->read(abs_sector, &sector_buf, 1) != 0) {
-                return -1;
-            }
+            TRY(dev_->read(abs_sector, &sector_buf, 1));
 
             for (int j = 0; j < Sector::COUNT; j++) {
                 if (sector_buf.entries[j].is_end() || sector_buf.entries[j].is_deleted()) {
@@ -333,10 +297,8 @@ int FatInfo::add_dir_entry(uint32_t dir_cluster, const FatDirEntry* new_entry) {
                     if (was_end && j + 1 < Sector::COUNT) {
                         sector_buf.entries[j + 1] = {};
                     }
-                    if (dev_->write(abs_sector, &sector_buf, 1) != 0) {
-                        return -1;
-                    }
-                    return 0;
+                    TRY(dev_->write(abs_sector, &sector_buf, 1));
+                    return Error::None;
                 }
             }
         }
@@ -345,11 +307,11 @@ int FatInfo::add_dir_entry(uint32_t dir_cluster, const FatDirEntry* new_entry) {
         if (next >= fat::FAT32_EOC_MIN) {
             uint32_t new_cluster = alloc_cluster();
             if (new_cluster == 0)
-                return -1;
+                return Error::Full;
 
-            if (write_entry(cluster, new_cluster) != 0) {
+            if (write_entry(cluster, new_cluster) != Error::None) {
                 free_chain(new_cluster);
-                return -1;
+                return Error::IO;
             }
 
             uint32_t new_base_sector = partition_start_ + cluster_to_sector(new_cluster);
@@ -357,22 +319,22 @@ int FatInfo::add_dir_entry(uint32_t dir_cluster, const FatDirEntry* new_entry) {
             sector_buf.entries[0] = *new_entry;
 
             for (uint32_t s = 0; s < sectors_per_cluster_; s++) {
-                if (dev_->write(new_base_sector + s, &sector_buf, 1) != 0) {
+                if (dev_->write(new_base_sector + s, &sector_buf, 1) != Error::None) {
                     free_chain(new_cluster);
-                    return -1;
+                    return Error::IO;
                 }
                 if (s == 0) {
                     memset(&sector_buf, 0, sizeof(sector_buf));
                 }
             }
-            return 0;
+            return Error::None;
         }
     }
 
-    return -1;
+    return Error::Full;
 }
 
-int FatInfo::remove_dir_entry(uint32_t dir_cluster, const char* name) {
+Error FatInfo::remove_dir_entry(uint32_t dir_cluster, const char* name) {
     using Sector = SectorArray<FatDirEntry>;
     Sector sector_buf{};
 
@@ -380,14 +342,12 @@ int FatInfo::remove_dir_entry(uint32_t dir_cluster, const char* name) {
         uint32_t base_sector = cluster_to_sector(cluster);
         for (uint32_t i = 0; i < sectors_per_cluster_; i++) {
             uint32_t abs_sector = partition_start_ + base_sector + i;
-            if (dev_->read(abs_sector, &sector_buf, 1) != 0) {
-                return -1;
-            }
+            TRY(dev_->read(abs_sector, &sector_buf, 1));
 
             auto& entries = sector_buf.entries;
             for (uint32_t j = 0; j < Sector::COUNT; j++) {
                 if (entries[j].is_end()) {
-                    return -1;  // Not found.
+                    return Error::NotFound;
                 }
 
                 if (!entries[j].is_valid()) {
@@ -402,37 +362,33 @@ int FatInfo::remove_dir_entry(uint32_t dir_cluster, const char* name) {
 
                 if (strcmp(entry_name, name) == 0) {
                     entries[j].name[0] = static_cast<char>(0xE5);  // Mark deleted.
-                    if (dev_->write(abs_sector, &sector_buf, 1) != 0) {
-                        return -1;
-                    }
-                    return 0;
+                    TRY(dev_->write(abs_sector, &sector_buf, 1));
+                    return Error::None;
                 }
             }
         }
     }
 
-    return -1;
+    return Error::NotFound;
 }
 
-int FatInfo::mkdir(const char* relpath) {
-    if (!relpath) {
-        return -1;
-    }
+Error FatInfo::mkdir(const char* relpath) {
+    ENSURE(relpath, Error::Invalid);
 
     uint32_t parent_cluster{};
     char child_name[MAX_PART_LEN]{};
-    if (resolve_parent(relpath, &parent_cluster, child_name, sizeof(child_name)) != 0) {
-        return -1;
+    if (resolve_parent(relpath, &parent_cluster, child_name, sizeof(child_name)) != Error::None) {
+        return Error::NotFound;
     }
 
     FatDirEntry existing{};
     if (find_entry(parent_cluster, child_name, &existing)) {
-        return -1;  // Already exists.
+        return Error::Exists;
     }
 
     uint32_t new_cluster = alloc_cluster();
     if (new_cluster == 0) {
-        return -1;
+        return Error::Full;
     }
 
     FatDirEntry dir_entry{};
@@ -469,34 +425,32 @@ int FatInfo::mkdir(const char* relpath) {
     entries[1].first_cluster_low = static_cast<uint16_t>(parent_val & 0xFFFF);
 
     uint32_t sector = partition_start_ + cluster_to_sector(new_cluster);
-    if (dev_->write(sector, sector_buf, 1) != 0) {
+    if (dev_->write(sector, sector_buf, 1) != Error::None) {
         free_chain(new_cluster);
-        return -1;
+        return Error::IO;
     }
 
     // Add the entry to the parent directory.
-    if (add_dir_entry(parent_cluster, &dir_entry) != 0) {
+    if (add_dir_entry(parent_cluster, &dir_entry) != Error::None) {
         free_chain(new_cluster);
-        return -1;
+        return Error::IO;
     }
 
-    return 0;
+    return Error::None;
 }
 
-int FatInfo::create_file(const char* relpath) {
-    if (!relpath) {
-        return -1;
-    }
+Error FatInfo::create_file(const char* relpath) {
+    ENSURE(relpath, Error::Invalid);
 
     uint32_t parent_cluster{};
     char child_name[MAX_PART_LEN]{};
-    if (resolve_parent(relpath, &parent_cluster, child_name, sizeof(child_name)) != 0) {
-        return -1;
+    if (resolve_parent(relpath, &parent_cluster, child_name, sizeof(child_name)) != Error::None) {
+        return Error::NotFound;
     }
 
     FatDirEntry existing{};
     if (find_entry(parent_cluster, child_name, &existing)) {
-        return -1;
+        return Error::Exists;
     }
 
     FatDirEntry file_entry{};
@@ -510,56 +464,46 @@ int FatInfo::create_file(const char* relpath) {
     return add_dir_entry(parent_cluster, &file_entry);
 }
 
-int FatInfo::unlink(const char* relpath) {
-    if (!relpath) {
-        return -1;
-    }
+Error FatInfo::unlink(const char* relpath) {
+    ENSURE(relpath, Error::Invalid);
 
     uint32_t parent_cluster{};
     char child_name[MAX_PART_LEN]{};
-    if (resolve_parent(relpath, &parent_cluster, child_name, sizeof(child_name)) != 0) {
-        return -1;
+    if (resolve_parent(relpath, &parent_cluster, child_name, sizeof(child_name)) != Error::None) {
+        return Error::NotFound;
     }
 
     FatDirEntry entry{};
     if (!find_entry(parent_cluster, child_name, &entry)) {
-        return -1;  // Not found.
+        return Error::NotFound;
     }
 
-    if (entry.is_directory()) {
-        return -1;  // Use rmdir for directories.
-    }
+    ENSURE(!entry.is_directory(), Error::Invalid);  // Use rmdir for directories.
 
     // Free the cluster chain if present.
     uint32_t cluster = entry.get_cluster();
     if (cluster >= 2) {
-        if (free_chain(cluster) != 0) {
-            return -1;
-        }
+        TRY(free_chain(cluster));
     }
 
     return remove_dir_entry(parent_cluster, child_name);
 }
 
-int FatInfo::rmdir(const char* relpath) {
-    if (!relpath) {
-        return -1;
-    }
+Error FatInfo::rmdir(const char* relpath) {
+    ENSURE(relpath, Error::Invalid);
 
     uint32_t parent_cluster{};
     char child_name[MAX_PART_LEN]{};
-    if (resolve_parent(relpath, &parent_cluster, child_name, sizeof(child_name)) != 0) {
-        return -1;
+    if (resolve_parent(relpath, &parent_cluster, child_name, sizeof(child_name)) != Error::None) {
+        return Error::NotFound;
     }
 
     FatDirEntry entry{};
     if (!find_entry(parent_cluster, child_name, &entry)) {
-        return -1;
+        return Error::NotFound;
     }
 
-    if (!entry.is_directory()) {
-        return -1;  // Not a directory.
-    }
+    ENSURE(!entry.is_directory(), Error::Invalid);  // Not a directory.
 
     // Check that directory is empty (only . and .. allowed).
     uint32_t dir_cluster = entry.get_cluster();
@@ -570,9 +514,7 @@ int FatInfo::rmdir(const char* relpath) {
          cluster = read_entry(cluster)) {
         uint32_t base_sector = cluster_to_sector(cluster);
         for (uint32_t i = 0; i < sectors_per_cluster_ && empty; i++) {
-            if (dev_->read(partition_start_ + base_sector + i, sector_buf, 1) != 0) {
-                return -1;
-            }
+            TRY(dev_->read(partition_start_ + base_sector + i, sector_buf, 1));
             auto* dir_entries = reinterpret_cast<FatDirEntry*>(sector_buf);
             for (uint32_t j = 0; j < bytes_per_sector_ / 32; j++) {
                 if (dir_entries[j].is_end()) {
@@ -593,15 +535,10 @@ int FatInfo::rmdir(const char* relpath) {
         }
     }
 
-    if (!empty) {
-        cprintf("fat_rmdir: directory not empty\n");
-        return -1;
-    }
+    ENSURE_LOG(empty, Error::NotEmpty, "fat_rmdir: directory not empty");
 
     // Free the directory's cluster chain.
-    if (free_chain(dir_cluster) != 0) {
-        return -1;
-    }
+    TRY(free_chain(dir_cluster));
 
     return remove_dir_entry(parent_cluster, child_name);
 }

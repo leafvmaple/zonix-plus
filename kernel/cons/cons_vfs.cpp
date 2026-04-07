@@ -8,11 +8,9 @@ namespace {
 
 class ConsoleFile : public vfs::File {
 public:
-    int read(void* buf, size_t size, size_t offset) override {
+    Result<int> read(void* buf, size_t size, size_t offset) override {
         static_cast<void>(offset);
-        if (!buf) {
-            return -1;
-        }
+        ENSURE(buf, Error::Invalid);
 
         auto* out = static_cast<char*>(buf);
         for (size_t i = 0; i < size; i++) {
@@ -21,11 +19,9 @@ public:
         return static_cast<int>(size);
     }
 
-    int write(const void* buf, size_t size, size_t offset) override {
+    Result<int> write(const void* buf, size_t size, size_t offset) override {
         static_cast<void>(offset);
-        if (!buf) {
-            return -1;
-        }
+        ENSURE(buf, Error::Invalid);
 
         const auto* in = static_cast<const char*>(buf);
         for (size_t i = 0; i < size; i++) {
@@ -34,12 +30,10 @@ public:
         return static_cast<int>(size);
     }
 
-    int stat(vfs::Stat* st) override {
-        if (!st) {
-            return -1;
-        }
+    Error stat(vfs::Stat* st) override {
+        ENSURE(st, Error::Invalid);
         st->set(vfs::NodeType::CharDevice, 0, 0);
-        return 0;
+        return Error::None;
     }
 };
 

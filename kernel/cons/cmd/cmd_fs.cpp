@@ -3,6 +3,7 @@
 #include "cons/cons.h"
 #include "fs/vfs.h"
 #include "lib/memory.h"
+#include "lib/result.h"
 #include "lib/stdio.h"
 #include "lib/string.h"
 
@@ -58,12 +59,12 @@ static void cmd_ls(int argc, char** argv) {
     cprintf("-------- -------- ------------\n");
 
     LsVisitor visitor;
-    int count = vfs::readdir(path, visitor);
+    auto count = vfs::readdir(path, visitor);
 
-    if (count < 0) {
+    if (!count.ok()) {
         cprintf("Failed to read directory\n");
     } else {
-        cprintf("\nTotal: %d file(s)\n", count);
+        cprintf("\nTotal: %d file(s)\n", count.value());
     }
 }
 
@@ -101,13 +102,13 @@ static void cmd_cat(int argc, char** argv) {
     }
 
     vfs::File* file = nullptr;
-    if (vfs::open(path_buf, &file) != 0 || !file) {
+    if (vfs::open(path_buf, &file) != Error::None || !file) {
         cprintf("File not found: %s\n", filename);
         return;
     }
 
     vfs::Stat st{};
-    if (file->stat(&st) != 0) {
+    if (file->stat(&st) != Error::None) {
         vfs::close(file);
         cprintf("Failed to stat file: %s\n", filename);
         return;
@@ -143,11 +144,12 @@ static void cmd_cat(int argc, char** argv) {
             chunk_size = sizeof(file_buf);
         }
 
-        int read = vfs::read(file, file_buf, chunk_size, offset);
-        if (read <= 0) {
+        auto rd = vfs::read(file, file_buf, chunk_size, offset);
+        if (!rd.ok() || rd.value() <= 0) {
             cprintf("\nError reading file at offset %d\n", offset);
             break;
         }
+        int read = rd.value();
 
         for (int i = 0; i < read; i++) {
             char c = file_buf[i];
@@ -194,7 +196,7 @@ static void cmd_mkdir(int argc, char** argv) {
         return;
     }
 
-    if (vfs::mkdir(path_buf) != 0) {
+    if (vfs::mkdir(path_buf) != Error::None) {
         cprintf("Failed to create directory: %s\n", dirname);
     }
 }
@@ -224,7 +226,7 @@ static void cmd_touch(int argc, char** argv) {
         return;
     }
 
-    if (vfs::create(path_buf) != 0) {
+    if (vfs::create(path_buf) != Error::None) {
         cprintf("Failed to create file: %s\n", filename);
     }
 }
@@ -254,7 +256,7 @@ static void cmd_rm(int argc, char** argv) {
         return;
     }
 
-    if (vfs::unlink(path_buf) != 0) {
+    if (vfs::unlink(path_buf) != Error::None) {
         cprintf("Failed to remove file: %s\n", filename);
     }
 }
@@ -284,7 +286,7 @@ static void cmd_rmdir(int argc, char** argv) {
         return;
     }
 
-    if (vfs::rmdir(path_buf) != 0) {
+    if (vfs::rmdir(path_buf) != Error::None) {
         cprintf("Failed to remove directory: %s\n", dirname);
     }
 }

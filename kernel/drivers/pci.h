@@ -1,6 +1,7 @@
 #pragma once
 
 #include <base/types.h>
+#include "lib/result.h"
 
 namespace pci {
 
@@ -62,7 +63,7 @@ struct DriverId {
     uint8_t iface;
 };
 
-using ProbeFn = int (*)(const DeviceInfo* dev, const DriverId* id);
+using ProbeFn = Error (*)(const DeviceInfo* dev, const DriverId* id);
 
 struct Driver {
     const char* name;
@@ -71,7 +72,7 @@ struct Driver {
     ProbeFn probe;
 };
 
-int register_driver(const Driver* driver);
+Error register_driver(const Driver* driver);
 int probe_drivers();
 
 uint32_t read_bar(int bus, int dev, int func, int bar_index);

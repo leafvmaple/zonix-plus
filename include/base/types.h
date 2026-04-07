@@ -39,6 +39,4 @@ struct SectorArray {
     T entries[COUNT];
 } __attribute__((packed));
 
-constexpr int ARCH_INIT_OK = 0;
-
 #endif /* !__ASSEMBLER__ */

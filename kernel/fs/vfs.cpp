@@ -98,18 +98,16 @@ void DirEntry::set(const char* n, NodeType t, uint32_t s, uint32_t a) {
 }
 
 int init() {
-    return mount("/dev", nullptr, "devfs");
+    return static_cast<int>(mount("/dev", nullptr, "devfs"));
 }
 
 // dev may be nullptr for virtual filesystems (e.g. devfs).
-int mount(const char* mount_point, BlockDevice* dev, const char* fs_type) {
-    if (!mount_point || !fs_type) {
-        return -1;
-    }
+Error mount(const char* mount_point, BlockDevice* dev, const char* fs_type) {
+    ENSURE(mount_point && fs_type, Error::Invalid);
 
     MountSlot* slot = find_slot(mount_point);
     if (!slot || slot->fs != nullptr) {
-        return -1;
+        return Error::NotFound;
     }
 
     FileSystem* fs = nullptr;
@@ -121,12 +119,13 @@ int mount(const char* mount_point, BlockDevice* dev, const char* fs_type) {
     }
 
     if (!fs) {
-        return -1;
+        return Error::NotFound;
     }
 
-    if (fs->mount(dev) != 0) {
+    Error rc = fs->mount(dev);
+    if (rc != Error::None) {
         delete fs;
-        return -1;
+        return rc;
     }
 
     slot->fs = fs;
@@ -134,13 +133,13 @@ int mount(const char* mount_point, BlockDevice* dev, const char* fs_type) {
     slot->device = dev;
     slot->device_name = dev ? dev->name : nullptr;
 
-    return 0;
+    return Error::None;
 }
 
-int umount(const char* mount_point) {
+Error umount(const char* mount_point) {
     MountSlot* slot = find_slot(mount_point);
     if (!slot || !slot->fs) {
-        return -1;
+        return Error::NotFound;
     }
 
     slot->fs->unmount();
@@ -151,40 +150,34 @@ int umount(const char* mount_point) {
     slot->device = nullptr;
     slot->device_name = nullptr;
 
-    return 0;
+    return Error::None;
 }
 
-int open(const char* path, File** out_file) {
-    if (!path || !out_file) {
-        return -1;
-    }
+Error open(const char* path, File** out_file) {
+    ENSURE(path && out_file, Error::Invalid);
 
     *out_file = nullptr;
 
     ResolveResult rr{};
     if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
-        return -1;
+        return Error::NotFound;
     }
 
     if (rr.relpath[0] == '\0') {
-        return -1;
+        return Error::Invalid;
     }
 
     return rr.slot->fs->open(rr.relpath, out_file);
 }
 
-int read(File* file, void* buf, size_t size, size_t offset) {
-    if (!file || !buf) {
-        return -1;
-    }
+Result<int> read(File* file, void* buf, size_t size, size_t offset) {
+    ENSURE(file && buf, Error::Invalid);
 
     return file->read(buf, size, offset);
 }
 
-int write(File* file, const void* buf, size_t size, size_t offset) {
-    if (!file || !buf) {
-        return -1;
-    }
+Result<int> write(File* file, const void* buf, size_t size, size_t offset) {
+    ENSURE(file && buf, Error::Invalid);
 
     return file->write(buf, size, offset);
 }
@@ -193,79 +186,67 @@ void close(File* file) {
     delete file;
 }
 
-int stat(const char* path, Stat* st) {
-    if (!path || !st) {
-        return -1;
-    }
+Error stat(const char* path, Stat* st) {
+    ENSURE(path && st, Error::Invalid);
 
     ResolveResult rr{};
     if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
-        return -1;
+        return Error::NotFound;
     }
 
     return rr.slot->fs->stat(rr.relpath, st);
 }
 
-int readdir(const char* path, DirVisitor& visitor) {
-    if (!path) {
-        return -1;
-    }
+Result<int> readdir(const char* path, DirVisitor& visitor) {
+    ENSURE(path, Error::Invalid);
 
     ResolveResult rr{};
     if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
-        return -1;
+        return Error::NotFound;
     }
 
     return rr.slot->fs->readdir(rr.relpath, visitor);
 }
 
-int mkdir(const char* path) {
-    if (!path) {
-        return -1;
-    }
+Error mkdir(const char* path) {
+    ENSURE(path, Error::Invalid);
 
     ResolveResult rr{};
     if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
-        return -1;
+        return Error::NotFound;
     }
 
     return rr.slot->fs->mkdir(rr.relpath);
 }
 
-int create(const char* path) {
-    if (!path) {
-        return -1;
-    }
+Error create(const char* path) {
+    ENSURE(path, Error::Invalid);
 
     ResolveResult rr{};
     if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
-        return -1;
+        return Error::NotFound;
     }
 
     return rr.slot->fs->create(rr.relpath);
 }
 
-int unlink(const char* path) {
-    if (!path) {
-        return -1;
-    }
+Error unlink(const char* path) {
+    ENSURE(path, Error::Invalid);
 
     ResolveResult rr{};
     if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
-        return -1;
+        return Error::NotFound;
     }
 
     return rr.slot->fs->unlink(rr.relpath);
 }
 
-int rmdir(const char* path) {
-    if (!path) {
-        return -1;
-    }
+Error rmdir(const char* path) {
+    ENSURE(path, Error::Invalid);
 
     ResolveResult rr{};
     if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
-        return -1;
+        return Error::NotFound;
     }
 
     return rr.slot->fs->rmdir(rr.relpath);
@@ -299,18 +280,12 @@ void print_mount_info(const char* mount_point) {
     slot->fs->print();
 }
 
-int register_fs(const char* name, FsFactory factory) {
-    if (!name || !factory) {
-        return -1;
-    }
-
-    if (s_fs_registry.full()) {
-        cprintf("vfs: register_fs: registry full, cannot register '%s'\n", name);
-        return -1;
-    }
+Error register_fs(const char* name, FsFactory factory) {
+    ENSURE(name && factory, Error::Invalid);
+    ENSURE_LOG(!s_fs_registry.full(), Error::Full, "vfs: register_fs: registry full, cannot register '%s'", name);
 
     s_fs_registry.push_back({name, factory});
-    return 0;
+    return Error::None;
 }
 
 }  // namespace vfs

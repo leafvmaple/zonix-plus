@@ -1,4 +1,5 @@
 #include "ide.h"
+#include "lib/result.h"
 #include "lib/stdio.h"
 #include "lib/string.h"
 
@@ -182,16 +183,10 @@ void IdeDevice::print_info() {
     cprintf("\n");
 }
 
-int IdeDevice::read(uint32_t block_number, void* buf, size_t block_count) {
-    if (!present) {
-        cprintf("IdeDevice::read: device %s not present\n", name);
-        return -1;
-    }
-
-    if (block_number + block_count > info.size) {
-        cprintf("IdeDevice::read: out of range (block %d + %d > %d)\n", block_number, block_count, info.size);
-        return -1;
-    }
+Error IdeDevice::read(uint32_t block_number, void* buf, size_t block_count) {
+    ENSURE_LOG(present, Error::NoDevice, "IdeDevice::read: device %s not present", name);
+    ENSURE_LOG(block_number + block_count <= info.size, Error::Invalid,
+               "IdeDevice::read: out of range (block %d + %d > %d)", block_number, block_count, info.size);
 
     uint8_t drive_sel = config->drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
 
@@ -202,10 +197,7 @@ int IdeDevice::read(uint32_t block_number, void* buf, size_t block_count) {
         // Select drive first, then wait for it to become ready
         arch_port_outb(config->base + ide::REG_DEVICE, drive_sel);
         arch_io_wait();
-        if (hd_wait_ready_on_base(config->base) != 0) {
-            cprintf("IdeDevice::read: device %s not ready\n", name);
-            return -1;
-        }
+        ENSURE_LOG(hd_wait_ready_on_base(config->base) == 0, Error::IO, "IdeDevice::read: device %s not ready", name);
 
         // Disable IDE interrupt for this PIO transfer (nIEN bit)
         arch_port_outb(config->ctrl, ide::CTRL_nIEN);
@@ -220,7 +212,7 @@ int IdeDevice::read(uint32_t block_number, void* buf, size_t block_count) {
         if (hd_wait_drq(config->base) != 0) {
             arch_port_outb(config->ctrl, 0);
             cprintf("IdeDevice::read: DRQ timeout on %s (LBA %d)\n", name, lba);
-            return -1;
+            return Error::Timeout;
         }
 
         arch_port_insw(config->base + ide::REG_DATA, reinterpret_cast<uint8_t*>(buf) + i * ide::SECTOR_SIZE,
@@ -229,19 +221,13 @@ int IdeDevice::read(uint32_t block_number, void* buf, size_t block_count) {
         arch_port_outb(config->ctrl, 0);  // Re-enable IDE interrupt
     }
 
-    return 0;
+    return Error::None;
 }
 
-int IdeDevice::write(uint32_t block_number, const void* buf, size_t block_count) {
-    if (!present) {
-        cprintf("IdeDevice::write: device %s not present\n", name);
-        return -1;
-    }
-
-    if (block_number + block_count > info.size) {
-        cprintf("IdeDevice::write: out of range (block %d + %d > %d)\n", block_number, block_count, info.size);
-        return -1;
-    }
+Error IdeDevice::write(uint32_t block_number, const void* buf, size_t block_count) {
+    ENSURE_LOG(present, Error::NoDevice, "IdeDevice::write: device %s not present", name);
+    ENSURE_LOG(block_number + block_count <= info.size, Error::Invalid,
+               "IdeDevice::write: out of range (block %d + %d > %d)", block_number, block_count, info.size);
 
     uint8_t drive_sel = config->drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
 
@@ -252,10 +238,7 @@ int IdeDevice::write(uint32_t block_number, const void* buf, size_t block_count)
         // Select drive first, then wait for it to become ready
         arch_port_outb(config->base + ide::REG_DEVICE, drive_sel);
         arch_io_wait();
-        if (hd_wait_ready_on_base(config->base) != 0) {
-            cprintf("IdeDevice::write: device %s not ready\n", name);
-            return -1;
-        }
+        ENSURE_LOG(hd_wait_ready_on_base(config->base) == 0, Error::IO, "IdeDevice::write: device %s not ready", name);
 
         // Disable IDE interrupt for this PIO transfer (nIEN bit)
         arch_port_outb(config->ctrl, ide::CTRL_nIEN);
@@ -271,7 +254,7 @@ int IdeDevice::write(uint32_t block_number, const void* buf, size_t block_count)
         if (hd_wait_drq(config->base) != 0) {
             arch_port_outb(config->ctrl, 0);
             cprintf("IdeDevice::write: DRQ timeout on %s (LBA %d)\n", name, lba);
-            return -1;
+            return Error::Timeout;
         }
 
         arch_port_outsw(config->base + ide::REG_DATA,
@@ -282,13 +265,13 @@ int IdeDevice::write(uint32_t block_number, const void* buf, size_t block_count)
         if (hd_wait_ready_on_base(config->base) != 0) {
             arch_port_outb(config->ctrl, 0);
             cprintf("IdeDevice::write: completion timeout on %s (LBA %d)\n", name, lba);
-            return -1;
+            return Error::Timeout;
         }
 
         arch_port_outb(config->ctrl, 0);  // Re-enable IDE interrupt
     }
 
-    return 0;
+    return Error::None;
 }
 
 void IdeManager::interrupt_handler(int channel) {

@@ -65,7 +65,7 @@ int pg_fault(MemoryDesc* mm, uint32_t error_code, uintptr_t addr) {
 }
 
 // Map virtual pages to physical pages in 4-level page table
-int pgdir_init(pde_t* pgdir, uintptr_t la, size_t size, uintptr_t pa, uint32_t perm) {
+Error pgdir_init(pde_t* pgdir, uintptr_t la, size_t size, uintptr_t pa, uint32_t perm) {
     size_t n = round_up(size, PG_SIZE) / PG_SIZE;
     la = round_down(la, PG_SIZE);
     pa = round_down(pa, PG_SIZE);
@@ -73,11 +73,11 @@ int pgdir_init(pde_t* pgdir, uintptr_t la, size_t size, uintptr_t pa, uint32_t p
         pte_t* ptep = pmm::get_pte(pgdir, la, 1);
         if (!ptep) {
             cprintf("vmm: pgdir_init failed to allocate PTE for va=0x%lx\n", la);
-            return -1;
+            return Error::NoMem;
         }
         *ptep = make_pte_page(pa, perm);
     }
-    return 0;
+    return Error::None;
 }
 
 // -------------------------------------------------------------------------
@@ -90,7 +90,7 @@ static uintptr_t mmio_next_va = KERNEL_DEVIO_BASE;
 uintptr_t mmio_map(uintptr_t phys_addr, size_t size, uint32_t perm) {
     size = round_up(size, PG_SIZE);
     uintptr_t va = mmio_next_va;
-    if (pgdir_init(boot_pgdir, va, size, phys_addr, perm) != 0) {
+    if (pgdir_init(boot_pgdir, va, size, phys_addr, perm) != Error::None) {
         cprintf("vmm: mmio_map failed for phys=0x%lx size=0x%lx\n", phys_addr, size);
         return 0;
     }
@@ -109,7 +109,7 @@ int init() {
 
     cprintf("PML4 (Page Map Level 4): [0x%p]\n", boot_pgdir);
 
-    if (pgdir_init(boot_pgdir, KERNEL_BASE, KERNEL_MEM_SIZE, 0, VM_WRITE) != 0) {
+    if (pgdir_init(boot_pgdir, KERNEL_BASE, KERNEL_MEM_SIZE, 0, VM_WRITE) != Error::None) {
         cprintf("vmm: failed to map kernel address space\n");
         return -1;
     }

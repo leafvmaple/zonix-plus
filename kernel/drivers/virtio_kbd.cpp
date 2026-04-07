@@ -21,6 +21,7 @@
 #include "drivers/mmio.h"
 #include "drivers/pci.h"
 #include "cons/cons.h"
+#include "lib/result.h"
 #include "lib/stdio.h"
 #include "lib/memory.h"
 #include "mm/vmm.h"
@@ -398,16 +399,17 @@ int init_from_pci_device(int bus, int dev, int func) {
     return 0;
 }
 
-int probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*) {
+Error probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*) {
     if (s_initialized) {
-        return -1;
+        return Error::Busy;
     }
 
     int rc = init_from_pci_device(pdev->bus, pdev->dev, pdev->func);
     if (rc == 0) {
         s_initialized = true;
+        return Error::None;
     }
-    return rc;
+    return Error::Fail;
 }
 
 const pci::DriverId VIRTIO_KBD_IDS[] = {
@@ -434,7 +436,7 @@ int init() {
         return 0;
     }
 
-    if (pci::register_driver(&VIRTIO_KBD_DRIVER) != 0) {
+    if (pci::register_driver(&VIRTIO_KBD_DRIVER) != Error::None) {
         cprintf("virtio_kbd: failed to register PCI driver\n");
         return -1;
     }

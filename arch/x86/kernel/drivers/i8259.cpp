@@ -58,7 +58,7 @@ int init() {
     // Ensure cascade (slave PIC) is enabled
     enable(IRQ_SLAVE);
 
-    return ARCH_INIT_OK;
+    return 0;
 }
 
 }  // namespace i8259

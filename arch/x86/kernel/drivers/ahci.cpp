@@ -180,7 +180,7 @@ int AhciManager::init() {
 
     cprintf("ahci: registering PCI driver...\n");
 
-    if (pci::register_driver(&AHCI_DRIVER) != 0) {
+    if (pci::register_driver(&AHCI_DRIVER) != Error::None) {
         cprintf("ahci: failed to register PCI driver\n");
         return -1;
     }
@@ -190,32 +190,25 @@ int AhciManager::init() {
     return 0;
 }
 
-int AhciManager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*) {
-    if (s_ctrl_ready) {
-        return -1;
-    }
+Error AhciManager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*) {
+    ENSURE(!s_ctrl_ready, Error::Busy);
 
     uint32_t bar5 = pci::read_bar(pdev->bus, pdev->dev, pdev->func, 5);
-    if (bar5 == 0 || (bar5 & 1)) {
-        cprintf("ahci: invalid BAR5 for PCI %02x:%02x.%x = 0x%08x\n", pdev->bus, pdev->dev, pdev->func, bar5);
-        return -1;
-    }
+    ENSURE_LOG(bar5 != 0 && !(bar5 & 1), Error::Invalid, "ahci: invalid BAR5 for PCI %02x:%02x.%x = 0x%08x", pdev->bus,
+               pdev->dev, pdev->func, bar5);
 
     pci::enable_bus_master(pdev->bus, pdev->dev, pdev->func);
     uint32_t phys_base = bar5 & 0xFFFFFFF0;
     cprintf("ahci: Found controller at PCI %02x:%02x.%x, ABAR=0x%08x\n", pdev->bus, pdev->dev, pdev->func, phys_base);
 
     s_base = vmm::mmio_map(phys_base, ahci::AHCI_BAR_SIZE, VM_WRITE | VM_NOCACHE);
-    if (s_base == 0) {
-        cprintf("ahci: failed to map MMIO region at phys=0x%08x\n", phys_base);
-        return -1;
-    }
+    ENSURE_LOG(s_base != 0, Error::NoMem, "ahci: failed to map MMIO region at phys=0x%08x", phys_base);
 
     uint32_t version = mmio::read32(s_base, ahci::AHCI_VS);
     if (version == 0x00000000 || version == 0xFFFFFFFF) {
         cprintf("ahci: controller not responding (version: 0x%08x)\n", version);
         s_base = 0;
-        return -1;
+        return Error::NoDevice;
     }
 
     uint32_t cap = mmio::read32(s_base, ahci::AHCI_CAP);
@@ -256,7 +249,7 @@ int AhciManager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId
 
     cprintf("ahci: initialization complete, %d device(s)\n", s_devices_count);
     s_ctrl_ready = true;
-    return 0;
+    return Error::None;
 }
 
 AhciDevice* AhciManager::get_device(int device_id) {
@@ -280,17 +273,17 @@ void AhciDevice::print_info() {
     cprintf("\n");
 }
 
-int AhciDevice::transfer_blocks(uint32_t block_number, size_t block_count, void* buf, bool write) {
+Error AhciDevice::transfer_blocks(uint32_t block_number, size_t block_count, void* buf, bool write) {
     const char* op_name = write ? "write" : "read";
 
     if (!present_) {
         cprintf("AhciDevice::%s: device %s not present\n", op_name, name);
-        return -1;
+        return Error::NoDevice;
     }
 
     if (block_number + block_count > info.size) {
         cprintf("AhciDevice::%s: out of range (block %d + %d > %d)\n", op_name, block_number, block_count, info.size);
-        return -1;
+        return Error::Invalid;
     }
 
     uint8_t* data = static_cast<uint8_t*>(buf);
@@ -309,13 +302,13 @@ int AhciDevice::transfer_blocks(uint32_t block_number, size_t block_count, void*
 
         if (issue_cmd(command, lba, count, write) != 0) {
             cprintf("AhciDevice::%s: failed to issue command for LBA %d\n", op_name, lba);
-            return -1;
+            return Error::IO;
         }
 
         if (wait_cmd_complete(1000) != 0) {
             cprintf("AhciDevice::%s: timeout %s LBA %d %s %s\n", op_name, write ? "writing" : "reading", lba,
                     write ? "to" : "from", name);
-            return -1;
+            return Error::Timeout;
         }
 
         if (!write) {
@@ -327,14 +320,14 @@ int AhciDevice::transfer_blocks(uint32_t block_number, size_t block_count, void*
         remaining -= count;
     }
 
-    return 0;
+    return Error::None;
 }
 
-int AhciDevice::read(uint32_t block_number, void* buf, size_t block_count) {
+Error AhciDevice::read(uint32_t block_number, void* buf, size_t block_count) {
     return transfer_blocks(block_number, block_count, buf, false);
 }
 
-int AhciDevice::write(uint32_t block_number, const void* buf, size_t block_count) {
+Error AhciDevice::write(uint32_t block_number, const void* buf, size_t block_count) {
     return transfer_blocks(block_number, block_count, const_cast<void*>(buf), true);
 }
 

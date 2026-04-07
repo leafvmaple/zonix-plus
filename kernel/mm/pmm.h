@@ -4,6 +4,7 @@
 #include <asm/cpu.h>
 
 #include "lib/list.h"
+#include "lib/result.h"
 
 using pte_t = uintptr_t;  // Page Table Entry
 using pde_t = uintptr_t;  // Page Directory Entry
@@ -52,10 +53,6 @@ public:
 
 namespace pmm {
 
-inline constexpr int SUCCESS = 0;
-inline constexpr int FAILURE = -1;
-inline constexpr Page* INVALID_PTR = nullptr;
-
 int init();
 
 // TLB and page table operations
@@ -63,7 +60,7 @@ void tlb_invl(pde_t* pgdir, uintptr_t la);
 
 Page* pgdir_alloc_page(pde_t* pgdir, uintptr_t la, uint32_t perm);
 pte_t* get_pte(pde_t* pml4, uintptr_t la, bool create);
-int page_insert(pde_t* pgdir, Page* page, uintptr_t la, uint32_t perm);
+Error page_insert(pde_t* pgdir, Page* page, uintptr_t la, uint32_t perm);
 
 Page* alloc_pages(size_t n = 1);
 void free_pages(Page* base, size_t n = 1);

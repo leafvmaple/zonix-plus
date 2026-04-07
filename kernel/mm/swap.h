@@ -1,5 +1,6 @@
 #pragma once
 
+#include "lib/result.h"
 #include "pmm.h"
 #include "vmm.h"
 
@@ -8,10 +9,10 @@ class SwapManager {
 public:
     const char* name{};
 
-    int init();
-    int init_mm(MemoryDesc* mm);
-    int map_swappable(MemoryDesc* mm, uintptr_t addr, Page* page, int swap_in);
-    int swap_out_victim(MemoryDesc* mm, Page** page_ptr, int in_tick);
+    Error init();
+    Error init_mm(MemoryDesc* mm);
+    Error map_swappable(MemoryDesc* mm, uintptr_t addr, Page* page, int swap_in);
+    Error swap_out_victim(MemoryDesc* mm, Page** page_ptr, int in_tick);
 };
 
 // Page-to-address mapping entry (for reverse lookup)
@@ -29,14 +30,14 @@ namespace swap {
 inline constexpr size_t MAX_OFFSET_LIMIT = 1 << 24;  // 16 GB swap space limit
 
 int init();
-int init_mm(MemoryDesc* mm);
-int in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr);
+Error init_mm(MemoryDesc* mm);
+Error in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr);
 int out(MemoryDesc* mm, int n, int in_tick);
 
 // Swap disk operations
 int swapfs_init();
-int swapfs_read(uintptr_t entry, Page* page);
-int swapfs_write(uintptr_t entry, Page* page);
+Error swapfs_read(uintptr_t entry, Page* page);
+Error swapfs_write(uintptr_t entry, Page* page);
 
 // Helper function to find virtual address for a page
 uintptr_t find_vaddr_for_page(MemoryDesc* mm, Page* page);

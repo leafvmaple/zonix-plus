@@ -3,6 +3,7 @@
 #include "cons/cons.h"
 #include "exec/exec.h"
 #include "fs/vfs.h"
+#include "lib/result.h"
 #include "lib/stdio.h"
 #include "lib/string.h"
 #include "mm/vmm.h"
@@ -91,11 +92,11 @@ static void cmd_exec(int argc, char** argv) {
         return;
     }
 
-    int pid = exec::exec(path_buf);
-    if (pid > 0) {
-        cprintf("Process started (PID %d)\n", pid);
+    auto pid_r = exec::exec(path_buf);
+    if (pid_r.ok()) {
+        cprintf("Process started (PID %d)\n", pid_r.value());
         int exit_code = 0;
-        sched::wait(pid, &exit_code);
+        (void)sched::wait(pid_r.value(), &exit_code);
     } else {
         cprintf("Failed to execute: %s\n", filename);
     }

@@ -24,19 +24,19 @@ int setup_stdio(fd::Table& files) {
 
     for (int expected_fd = 0; expected_fd < 3; expected_fd++) {
         vfs::File* file = nullptr;
-        if (vfs::open(console_path, &file) != 0 || !file) {
+        if (vfs::open(console_path, &file) != Error::None || !file) {
             files.close_all();
             return -1;
         }
 
-        int fd = files.alloc(file);
-        if (fd < 0) {
+        auto fd_r = files.alloc(file);
+        if (!fd_r.ok()) {
             vfs::close(file);
             files.close_all();
             return -1;
         }
 
-        if (fd != expected_fd) {
+        if (fd_r.value() != expected_fd) {
             files.close_all();
             return -1;
         }
@@ -77,10 +77,11 @@ static int get_pid() {
 
 // PID 2
 static int init_main(void* arg) {
-    int shell_pid = TaskManager::kernel_thread(shell::main, nullptr);
-    if (shell_pid <= 0) {
+    auto shell_pid_r = TaskManager::kernel_thread(shell::main, nullptr);
+    if (!shell_pid_r.ok()) {
         panic("init: failed to create shell process!");
     }
+    int shell_pid = shell_pid_r.value();
 
     TaskStruct* shell_proc = TaskManager::find_proc(shell_pid);
     if (shell_proc) {
@@ -91,9 +92,9 @@ static int init_main(void* arg) {
 
     while (true) {
         int exit_code{};
-        int pid = TaskManager::wait(0, &exit_code);
-        if (pid > 0) {
-            cprintf("init: reaped child PID %d (exit code %d)\n", pid, exit_code);
+        auto pid_r = TaskManager::wait(0, &exit_code);
+        if (pid_r.ok() && pid_r.value() > 0) {
+            cprintf("init: reaped child PID %d (exit code %d)\n", pid_r.value(), exit_code);
         }
     }
 
@@ -324,18 +325,18 @@ void TaskManager::schedule() {
     }
 }
 
-int TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_frame) {
+Result<int> TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_frame) {
     TaskStruct* proc = new TaskStruct();
     if (!proc) {
         cprintf("sched: fork: failed to allocate TaskStruct\n");
-        return -1;
+        return Error::NoMem;
     }
     proc->parent = get_current();
     if (proc->parent) {
-        if (proc->files().fork_from(proc->parent->files(), fd::ForkPolicy::Reset) != 0) {
+        if (proc->files().fork_from(proc->parent->files(), fd::ForkPolicy::Reset) != Error::None) {
             cprintf("sched: fork: failed to clone file table\n");
             delete proc;
-            return -1;
+            return Error::Fail;
         }
     } else {
         proc->files().init();
@@ -344,14 +345,14 @@ int TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_fra
     if (setup_stdio(proc->files()) != 0) {
         cprintf("sched: fork: failed to set up stdio\n");
         delete proc;
-        return -1;
+        return Error::Fail;
     }
 
     if (proc->setup_kernel_stack() != 0) {
         cprintf("sched: fork: failed to allocate kernel stack\n");
         proc->files().close_all();
         delete proc;
-        return -1;
+        return Error::NoMem;
     }
     proc->copy_mm(clone_flags);
     proc->copy_thread(stack, trap_frame);
@@ -370,7 +371,7 @@ int TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_fra
     return proc->pid;
 }
 
-int TaskManager::kernel_thread(fnThread fn, void* arg) {
+Result<int> TaskManager::kernel_thread(fnThread fn, void* arg) {
     TrapFrame tf{};
 
     arch_setup_kthread_tf(&tf, reinterpret_cast<uintptr_t>(kernel_thread_entry), reinterpret_cast<uintptr_t>(fn),
@@ -415,7 +416,7 @@ int TaskManager::exit(int error_code) {
     return 0;  // Never reached
 }
 
-int TaskManager::wait(int pid, int* code_store) {
+Result<int> TaskManager::wait(int pid, int* code_store) {
     TaskStruct* current = get_current();
 
     while (true) {
@@ -454,7 +455,7 @@ int TaskManager::wait(int pid, int* code_store) {
         }
 
         if (!has_children) {
-            return -1;
+            return Error::NotFound;
         }
 
         current->wait_state = 1;
@@ -495,15 +496,15 @@ int TaskManager::init_init_proc() {
 
     arch_setup_kthread_tf(&trap_frame, reinterpret_cast<uintptr_t>(init_main), 0, 0);
 
-    int ret = fork(0, 0, &trap_frame);
-    if (ret <= 0) {
-        cprintf("sched: init_init_proc: fork failed (ret=%d)\n", ret);
+    auto ret = fork(0, 0, &trap_frame);
+    if (!ret.ok()) {
+        cprintf("sched: init_init_proc: fork failed (%s)\n", error_str(ret.error()));
         return -1;
     }
 
-    s_init_proc = find_proc(ret);
+    s_init_proc = find_proc(ret.value());
     if (!s_init_proc) {
-        cprintf("sched: init_init_proc: find_proc(%d) returned null\n", ret);
+        cprintf("sched: init_init_proc: find_proc(%d) returned null\n", ret.value());
         return -1;
     }
 
@@ -526,11 +527,11 @@ void tick() {
     TaskManager::tick();
 }
 
-int fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* tf) {
+Result<int> fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* tf) {
     return TaskManager::fork(clone_flags, stack, tf);
 }
 
-int kernel_thread(fnThread fn, void* arg) {
+Result<int> kernel_thread(fnThread fn, void* arg) {
     return TaskManager::kernel_thread(fn, arg);
 }
 
@@ -538,7 +539,7 @@ int exit(int error_code) {
     return TaskManager::exit(error_code);
 }
 
-int wait(int pid, int* code_store) {
+Result<int> wait(int pid, int* code_store) {
     return TaskManager::wait(pid, code_store);
 }
 

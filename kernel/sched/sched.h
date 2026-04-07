@@ -4,6 +4,7 @@
 #include <base/types.h>
 
 #include "lib/list.h"
+#include "lib/result.h"
 #include "fs/fd.h"
 #include "mm/vmm.h"
 #include "trap/trap.h"
@@ -138,10 +139,10 @@ public:
     // Scheduling and process lifecycle
     static void schedule();
     static void tick();  // Called from timer ISR each tick
-    static int fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_frame);
-    static int kernel_thread(int (*fn)(void*), void* arg);
+    static Result<int> fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_frame);
+    static Result<int> kernel_thread(int (*fn)(void*), void* arg);
     static int exit(int error_code);
-    static int wait(int pid, int* code_store);
+    static Result<int> wait(int pid, int* code_store);
 
 private:
     inline static TaskStruct* s_current{};
@@ -168,10 +169,10 @@ int init();
 
 void schedule();
 void tick();  // Called from timer ISR each tick
-int fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* tf);
-int kernel_thread(int (*fn)(void*), void* arg);
+Result<int> fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* tf);
+Result<int> kernel_thread(int (*fn)(void*), void* arg);
 int exit(int error_code);
-int wait(int pid, int* code_store);
+Result<int> wait(int pid, int* code_store);
 
 TaskStruct* current();
 TaskStruct* find_proc(int pid);

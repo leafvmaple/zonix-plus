@@ -1,4 +1,5 @@
 #include "drivers/ide.h"
+#include "lib/result.h"
 #include "lib/stdio.h"
 
 #include <asm/arch.h>
@@ -36,7 +37,7 @@ void driver_test_disktest() {
 
         // Keep test non-destructive by restoring original sector after verification.
         static uint8_t backup_buff[ide::SECTOR_SIZE]{};
-        if (dev->read(test_sector, backup_buff, 1) != 0) {
+        if (dev->read(test_sector, backup_buff, 1) != Error::None) {
             cprintf("  SKIP: failed to read backup sector %d\n\n", test_sector);
             continue;
         }
@@ -47,14 +48,14 @@ void driver_test_disktest() {
         }
 
         cprintf("  Test 1: Write sector %d...\n", test_sector);
-        if (dev->write(test_sector, write_buff, 1) != 0) {
+        if (dev->write(test_sector, write_buff, 1) != Error::None) {
             cprintf("    FAILED: write error\n");
             continue;
         }
         cprintf("    OK\n");
 
         cprintf("  Test 2: Read sector %d...\n", test_sector);
-        if (dev->read(test_sector, read_buff, 1) != 0) {
+        if (dev->read(test_sector, read_buff, 1) != Error::None) {
             cprintf("    FAILED: read error\n");
             continue;
         }
@@ -78,7 +79,7 @@ void driver_test_disktest() {
         }
 
         cprintf("  Test 4: Restore original sector...\n");
-        if (dev->write(test_sector, backup_buff, 1) != 0) {
+        if (dev->write(test_sector, backup_buff, 1) != Error::None) {
             cprintf("    WARNING: failed to restore sector %d\n", test_sector);
         } else {
             cprintf("    OK\n");
@@ -117,8 +118,8 @@ void driver_test_intrtest() {
     // Try a simple read with interrupt
     cprintf("  Attempting interrupt-driven read of sector 0...\n");
     static uint8_t buf[ide::SECTOR_SIZE]{};
-    int result = dev->read(0, buf, 1);
-    if (result == 0) {
+    Error result = dev->read(0, buf, 1);
+    if (result == Error::None) {
         cprintf("  SUCCESS: Read completed\n");
     } else {
         cprintf("  FAILED: Read failed\n");

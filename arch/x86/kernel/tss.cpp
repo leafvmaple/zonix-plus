@@ -42,7 +42,7 @@ int init() {
 
     cprintf("tss: initialised (base=0x%lx, limit=%d)\n", base, limit);
 
-    return ARCH_INIT_OK;
+    return 0;
 }
 
 void set_rsp0(uintptr_t rsp0) {

@@ -92,69 +92,66 @@ static uintptr_t load_binary(const uint8_t* data, size_t size, pde_t* pgdir) {
     return 0;
 }
 
-int exec(const char* path) {
+Result<int> exec(const char* path) {
     if (!path) {
         cprintf("exec: invalid arguments\n");
-        return -1;
+        return Error::Invalid;
     }
 
     OpenFile file;
-    if (vfs::open(path, &file.handle) != 0 || file.handle == nullptr) {
+    if (vfs::open(path, &file.handle) != Error::None || file.handle == nullptr) {
         cprintf("exec: file not found: %s\n", path);
-        return -1;
+        return Error::NotFound;
     }
 
     vfs::Stat st{};
-    if (file.handle->stat(&st) != 0) {
-        cprintf("exec: failed to stat file: %s\n", path);
-        return -1;
-    }
+    TRY_LOG(file.handle->stat(&st), "exec: failed to stat file: %s", path);
 
     if (st.type != vfs::NodeType::File) {
         cprintf("exec: cannot execute directory: %s\n", path);
-        return -1;
+        return Error::Invalid;
     }
 
     uint32_t file_size = st.size;
     if (file_size == 0) {
         cprintf("exec: empty file: %s\n", path);
-        return -1;
+        return Error::Invalid;
     }
     if (file_size > MAX_BINARY_SIZE) {
         cprintf("exec: file too large (%d bytes, max %d)\n", file_size, MAX_BINARY_SIZE);
-        return -1;
+        return Error::Invalid;
     }
 
     KernelBuf buf;
     if (!buf.alloc(file_size)) {
         cprintf("exec: out of memory for binary buffer (%d bytes)\n", file_size);
-        return -1;
+        return Error::NoMem;
     }
 
-    int bytes_read = vfs::read(file.handle, buf.ptr, file_size, 0);
-    if (bytes_read < static_cast<int>(file_size)) {
-        cprintf("exec: failed to read file (%d/%d bytes)\n", bytes_read, file_size);
-        return -1;
+    auto rd = vfs::read(file.handle, buf.ptr, file_size, 0);
+    if (!rd.ok() || rd.value() < static_cast<int>(file_size)) {
+        cprintf("exec: failed to read file (%d/%d bytes)\n", rd.ok() ? rd.value() : -1, file_size);
+        return Error::IO;
     }
 
     pde_t* user_pgdir = create_user_pgdir();
     if (!user_pgdir) {
         cprintf("exec: failed to create user page directory\n");
-        return -1;
+        return Error::NoMem;
     }
 
     uintptr_t entry = load_binary(buf.ptr, file_size, user_pgdir);
     if (entry == 0) {
         cprintf("exec: failed to load binary\n");
         pmm::free_user_pgdir(user_pgdir);
-        return -1;
+        return Error::Fail;
     }
 
     uintptr_t user_rsp = setup_user_stack(user_pgdir);
     if (user_rsp == 0) {
         cprintf("exec: failed to set up user stack\n");
         pmm::free_user_pgdir(user_pgdir);
-        return -1;
+        return Error::NoMem;
     }
 
     TrapFrame tf{};
@@ -164,12 +161,13 @@ int exec(const char* path) {
     mm->pgdir = user_pgdir;
     mm->map_count = 0;
 
-    int pid = sched::fork(0, 0, &tf);
-    if (pid <= 0) {
+    auto pid_r = sched::fork(0, 0, &tf);
+    if (!pid_r.ok()) {
         cprintf("exec: fork failed\n");
         delete mm;
-        return -1;
+        return pid_r.error();
     }
+    int pid = pid_r.value();
 
     TaskStruct* proc = sched::find_proc(pid);
     if (proc) {

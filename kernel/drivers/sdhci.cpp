@@ -79,19 +79,19 @@ constexpr uint32_t OCR_CCS = (1U << 30);   // Card Capacity Status (SDHC)
 constexpr int CMD_TIMEOUT_US = 1000000;  // 1 second in busy-loop iterations
 constexpr int ACMD41_RETRIES = 100;
 
-int SdDevice::reset() {
+Error SdDevice::reset() {
     mmio::write8(base_, reg::SW_RESET, RST_ALL);
 
     for (int i = 0; i < CMD_TIMEOUT_US; i++) {
         if ((mmio::read8(base_, reg::SW_RESET) & RST_ALL) == 0)
-            return 0;
+            return Error::None;
     }
 
     cprintf("sdhci: reset timeout\n");
-    return -1;
+    return Error::Timeout;
 }
 
-int SdDevice::clock_setup() {
+Error SdDevice::clock_setup() {
     // Disable clock first
     mmio::write16(base_, reg::CLOCK_CTRL, 0);
 
@@ -105,15 +105,15 @@ int SdDevice::clock_setup() {
         if (mmio::read16(base_, reg::CLOCK_CTRL) & CLK_INT_STABLE) {
             // Enable SD clock output
             mmio::write16(base_, reg::CLOCK_CTRL, mmio::read16(base_, reg::CLOCK_CTRL) | CLK_SD_EN);
-            return 0;
+            return Error::None;
         }
     }
 
     cprintf("sdhci: clock not stable\n");
-    return -1;
+    return Error::Timeout;
 }
 
-int SdDevice::power_on() {
+Error SdDevice::power_on() {
     mmio::write8(base_, reg::POWER_CTRL, PWR_3V3 | PWR_ON);
 
     mmio::write8(base_, reg::TIMEOUT_CTRL, 0x0E);
@@ -126,10 +126,10 @@ int SdDevice::power_on() {
     mmio::write16(base_, reg::INT_SIGNAL, 0);
     mmio::write16(base_, reg::ERR_SIGNAL, 0);
 
-    return 0;
+    return Error::None;
 }
 
-int SdDevice::send_cmd(uint8_t index, uint32_t arg, uint16_t flags) {
+Error SdDevice::send_cmd(uint8_t index, uint32_t arg, uint16_t flags) {
     int wait_time{};
 
     for (wait_time = 0; wait_time < CMD_TIMEOUT_US; wait_time++) {
@@ -138,7 +138,7 @@ int SdDevice::send_cmd(uint8_t index, uint32_t arg, uint16_t flags) {
     }
     if (wait_time == CMD_TIMEOUT_US) {
         cprintf("sdhci: CMD%d cmd inhibit timeout\n", index);
-        return -1;
+        return Error::Timeout;
     }
 
     if (flags & CMD_DATA) {
@@ -148,7 +148,7 @@ int SdDevice::send_cmd(uint8_t index, uint32_t arg, uint16_t flags) {
         }
         if (wait_time == CMD_TIMEOUT_US) {
             cprintf("sdhci: CMD%d dat inhibit timeout\n", index);
-            return -1;
+            return Error::Timeout;
         }
     }
 
@@ -163,7 +163,7 @@ int SdDevice::send_cmd(uint8_t index, uint32_t arg, uint16_t flags) {
     return wait_cmd_done();
 }
 
-int SdDevice::wait_cmd_done() {
+Error SdDevice::wait_cmd_done() {
     for (int i = 0; i < CMD_TIMEOUT_US; i++) {
         uint16_t status = mmio::read16(base_, reg::INT_STATUS);
         if (status & INT_ERROR) {
@@ -171,19 +171,19 @@ int SdDevice::wait_cmd_done() {
             mmio::write16(base_, reg::INT_STATUS, status);
             mmio::write16(base_, reg::ERR_STATUS, err);
             cprintf("sdhci: command error, status=0x%x err=0x%x\n", status, err);
-            return -1;
+            return Error::IO;
         }
         if (status & INT_CMD_DONE) {
             mmio::write16(base_, reg::INT_STATUS, INT_CMD_DONE);
-            return 0;
+            return Error::None;
         }
     }
 
     cprintf("sdhci: command complete timeout\n");
-    return -1;
+    return Error::Timeout;
 }
 
-int SdDevice::wait_xfer_done() {
+Error SdDevice::wait_xfer_done() {
     for (int i = 0; i < CMD_TIMEOUT_US; i++) {
         uint16_t status = mmio::read16(base_, reg::INT_STATUS);
         if (status & INT_ERROR) {
@@ -191,23 +191,23 @@ int SdDevice::wait_xfer_done() {
             mmio::write16(base_, reg::INT_STATUS, status);
             mmio::write16(base_, reg::ERR_STATUS, err);
             cprintf("sdhci: transfer error, status=0x%x err=0x%x\n", status, err);
-            return -1;
+            return Error::IO;
         }
         if (status & INT_XFER_DONE) {
             mmio::write16(base_, reg::INT_STATUS, INT_XFER_DONE);
-            return 0;
+            return Error::None;
         }
     }
 
     cprintf("sdhci: transfer complete timeout\n");
-    return -1;
+    return Error::Timeout;
 }
 
 uint32_t SdDevice::read_response(int idx) {
     return mmio::read32(base_, reg::RESPONSE0 + idx * 4);
 }
 
-int SdDevice::read_csd() {
+Error SdDevice::read_csd() {
     // CMD9: SEND_CSD — must be called while card is in Stand-by State (after CMD3, before CMD7).
     // R2 response (136-bit): SDHCI strips bits[7:0] (CRC+end) and stores CSD[127:8] in
     // RESPONSE[119:0], so registers map as:
@@ -215,10 +215,8 @@ int SdDevice::read_csd() {
     //   RESPONSE2[31:0] = CSD[103:72]
     //   RESPONSE1[31:0] = CSD[71:40]
     //   RESPONSE0[31:0] = CSD[39:8]
-    if (send_cmd(SD_CMD9_SEND_CSD, static_cast<uint32_t>(rca_) << 16, CMD_RESP_136 | CMD_CRC_EN) != 0) {
-        cprintf("sdhci: CMD9 failed\n");
-        return -1;
-    }
+    TRY_LOG(send_cmd(SD_CMD9_SEND_CSD, static_cast<uint32_t>(rca_) << 16, CMD_RESP_136 | CMD_CRC_EN),
+            "sdhci: CMD9 failed");
 
     uint32_t r3 = read_response(3);
     uint32_t r2 = read_response(2);
@@ -249,39 +247,28 @@ int SdDevice::read_csd() {
         size = 131072;
     }
 
-    return 0;
+    return Error::None;
 }
 
-int SdDevice::card_identify() {
-    if (send_cmd(SD_CMD0_GO_IDLE, 0, CMD_RESP_NONE) != 0) {
-        cprintf("sdhci: CMD0 failed\n");
-        return -1;
-    }
+Error SdDevice::card_identify() {
+    TRY_LOG(send_cmd(SD_CMD0_GO_IDLE, 0, CMD_RESP_NONE), "sdhci: CMD0 failed");
 
-    if (send_cmd(SD_CMD8_SEND_IF, 0x1AA, CMD_RESP_48 | CMD_CRC_EN | CMD_IDX_EN) != 0) {
-        cprintf("sdhci: CMD8 failed (not SD v2 card?)\n");
-        return -1;
-    }
+    TRY_LOG(send_cmd(SD_CMD8_SEND_IF, 0x1AA, CMD_RESP_48 | CMD_CRC_EN | CMD_IDX_EN),
+            "sdhci: CMD8 failed (not SD v2 card?)");
 
     uint32_t r7 = read_response(0);
     if ((r7 & 0xFF) != 0xAA) {
         cprintf("sdhci: CMD8 check pattern mismatch: 0x%x\n", r7);
-        return -1;
+        return Error::IO;
     }
 
     sdhc_ = false;
 
     int retry{};
     for (retry = 0; retry < ACMD41_RETRIES; retry++) {
-        if (send_cmd(SD_CMD55_APP, 0, CMD_RESP_48 | CMD_CRC_EN | CMD_IDX_EN) != 0) {
-            cprintf("sdhci: CMD55 failed\n");
-            return -1;
-        }
+        TRY_LOG(send_cmd(SD_CMD55_APP, 0, CMD_RESP_48 | CMD_CRC_EN | CMD_IDX_EN), "sdhci: CMD55 failed");
 
-        if (send_cmd(SD_ACMD41_OP_COND, ACMD41_HCS | ACMD41_VOLTAGE, CMD_RESP_48) != 0) {
-            cprintf("sdhci: ACMD41 failed\n");
-            return -1;
-        }
+        TRY_LOG(send_cmd(SD_ACMD41_OP_COND, ACMD41_HCS | ACMD41_VOLTAGE, CMD_RESP_48), "sdhci: ACMD41 failed");
 
         uint32_t ocr = read_response(0);
         if (ocr & OCR_BUSY) {
@@ -293,40 +280,28 @@ int SdDevice::card_identify() {
 
     if (retry == ACMD41_RETRIES) {
         cprintf("sdhci: ACMD41 timeout — card not ready\n");
-        return -1;
+        return Error::Timeout;
     }
 
-    if (send_cmd(SD_CMD2_ALL_CID, 0, CMD_RESP_136 | CMD_CRC_EN) != 0) {
-        cprintf("sdhci: CMD2 failed\n");
-        return -1;
-    }
+    TRY_LOG(send_cmd(SD_CMD2_ALL_CID, 0, CMD_RESP_136 | CMD_CRC_EN), "sdhci: CMD2 failed");
 
-    if (send_cmd(SD_CMD3_SEND_RCA, 0, CMD_RESP_48 | CMD_CRC_EN | CMD_IDX_EN) != 0) {
-        cprintf("sdhci: CMD3 failed\n");
-        return -1;
-    }
+    TRY_LOG(send_cmd(SD_CMD3_SEND_RCA, 0, CMD_RESP_48 | CMD_CRC_EN | CMD_IDX_EN), "sdhci: CMD3 failed");
 
     rca_ = static_cast<uint16_t>(read_response(0) >> 16);
     cprintf("sdhci: RCA = 0x%x\n", rca_);
 
-    if (read_csd() != 0)
-        return -1;
+    TRY(read_csd());
 
-    if (send_cmd(SD_CMD7_SELECT, static_cast<uint32_t>(rca_) << 16, CMD_RESP_48_BUSY | CMD_CRC_EN | CMD_IDX_EN) != 0) {
-        cprintf("sdhci: CMD7 (SELECT) failed\n");
-        return -1;
-    }
+    TRY_LOG(send_cmd(SD_CMD7_SELECT, static_cast<uint32_t>(rca_) << 16, CMD_RESP_48_BUSY | CMD_CRC_EN | CMD_IDX_EN),
+            "sdhci: CMD7 (SELECT) failed");
 
     // CMD16: SET_BLOCKLEN = 512 (for SDSC; harmless for SDHC)
-    if (send_cmd(SD_CMD16_SET_BLKLEN, 512, CMD_RESP_48 | CMD_CRC_EN | CMD_IDX_EN) != 0) {
-        cprintf("sdhci: CMD16 failed\n");
-        return -1;
-    }
+    TRY_LOG(send_cmd(SD_CMD16_SET_BLKLEN, 512, CMD_RESP_48 | CMD_CRC_EN | CMD_IDX_EN), "sdhci: CMD16 failed");
 
-    return 0;
+    return Error::None;
 }
 
-int SdDevice::read_single(uint32_t lba, void* buf) {
+Error SdDevice::read_single(uint32_t lba, void* buf) {
     uint32_t addr = sdhc_ ? lba : lba * 512;
 
     mmio::write16(base_, reg::BLOCK_SIZE, 512);
@@ -334,14 +309,13 @@ int SdDevice::read_single(uint32_t lba, void* buf) {
 
     mmio::write16(base_, reg::XFER_MODE, XFER_READ);
 
-    if (send_cmd(SD_CMD17_READ, addr, CMD_RESP_48 | CMD_CRC_EN | CMD_IDX_EN | CMD_DATA) != 0)
-        return -1;
+    TRY(send_cmd(SD_CMD17_READ, addr, CMD_RESP_48 | CMD_CRC_EN | CMD_IDX_EN | CMD_DATA));
 
     for (int i = 0; i < CMD_TIMEOUT_US; i++) {
         uint16_t status = mmio::read16(base_, reg::INT_STATUS);
         if (status & INT_ERROR) {
             cprintf("sdhci: read data error\n");
-            return -1;
+            return Error::IO;
         }
         if (status & INT_BUF_RD_READY) {
             mmio::write16(base_, reg::INT_STATUS, INT_BUF_RD_READY);
@@ -349,7 +323,7 @@ int SdDevice::read_single(uint32_t lba, void* buf) {
         }
         if (i == CMD_TIMEOUT_US - 1) {
             cprintf("sdhci: read buffer ready timeout\n");
-            return -1;
+            return Error::Timeout;
         }
     }
 
@@ -361,7 +335,7 @@ int SdDevice::read_single(uint32_t lba, void* buf) {
     return wait_xfer_done();
 }
 
-int SdDevice::write_single(uint32_t lba, const void* buf) {
+Error SdDevice::write_single(uint32_t lba, const void* buf) {
     uint32_t addr = sdhc_ ? lba : lba * 512;
 
     mmio::write16(base_, reg::BLOCK_SIZE, 512);
@@ -369,14 +343,13 @@ int SdDevice::write_single(uint32_t lba, const void* buf) {
 
     mmio::write16(base_, reg::XFER_MODE, 0);
 
-    if (send_cmd(SD_CMD24_WRITE, addr, CMD_RESP_48 | CMD_CRC_EN | CMD_IDX_EN | CMD_DATA) != 0)
-        return -1;
+    TRY(send_cmd(SD_CMD24_WRITE, addr, CMD_RESP_48 | CMD_CRC_EN | CMD_IDX_EN | CMD_DATA));
 
     for (int i = 0; i < CMD_TIMEOUT_US; i++) {
         uint16_t status = mmio::read16(base_, reg::INT_STATUS);
         if (status & INT_ERROR) {
             cprintf("sdhci: write data error\n");
-            return -1;
+            return Error::IO;
         }
         if (status & INT_BUF_WR_READY) {
             mmio::write16(base_, reg::INT_STATUS, INT_BUF_WR_READY);
@@ -384,7 +357,7 @@ int SdDevice::write_single(uint32_t lba, const void* buf) {
         }
         if (i == CMD_TIMEOUT_US - 1) {
             cprintf("sdhci: write buffer ready timeout\n");
-            return -1;
+            return Error::Timeout;
         }
     }
 
@@ -396,20 +369,16 @@ int SdDevice::write_single(uint32_t lba, const void* buf) {
     return wait_xfer_done();
 }
 
-int SdDevice::init(volatile uint8_t* base, int index) {
+Error SdDevice::init(volatile uint8_t* base, int index) {
     base_ = base;
 
     uint16_t ver = mmio::read16(base_, reg::HOST_VERSION);
     cprintf("sdhci: controller version %d.%02d\n", (ver >> 8) + 1, ver & 0xFF);
 
-    if (reset() != 0)
-        return -1;
-    if (clock_setup() != 0)
-        return -1;
-    if (power_on() != 0)
-        return -1;
-    if (card_identify() != 0)
-        return -1;
+    TRY(reset());
+    TRY(clock_setup());
+    TRY(power_on());
+    TRY(card_identify());
 
     type = blk::DeviceType::Disk;
     name[0] = 's';
@@ -418,25 +387,25 @@ int SdDevice::init(volatile uint8_t* base, int index) {
     name[3] = '\0';
 
     cprintf("sdhci: SD card initialized as '%s'\n", name);
-    return 0;
+    return Error::None;
 }
 
-int SdDevice::read(uint32_t block_number, void* buf, size_t block_count) {
+Error SdDevice::read(uint32_t block_number, void* buf, size_t block_count) {
     auto* p = static_cast<uint8_t*>(buf);
     for (size_t i = 0; i < block_count; i++) {
-        if (read_single(block_number + i, p + i * 512) != 0)
-            return -1;
+        if (read_single(block_number + i, p + i * 512) != Error::None)
+            return Error::IO;
     }
-    return 0;
+    return Error::None;
 }
 
-int SdDevice::write(uint32_t block_number, const void* buf, size_t block_count) {
+Error SdDevice::write(uint32_t block_number, const void* buf, size_t block_count) {
     auto const* p = static_cast<const uint8_t*>(buf);
     for (size_t i = 0; i < block_count; i++) {
-        if (write_single(block_number + i, p + i * 512) != 0)
-            return -1;
+        if (write_single(block_number + i, p + i * 512) != Error::None)
+            return Error::IO;
     }
-    return 0;
+    return Error::None;
 }
 
 void SdDevice::print_info() {
@@ -478,7 +447,7 @@ static int probe_one_controller(SdDevice* dev, int device_index, int bus, int de
     cprintf("sdhci: MMIO %d:%d.%d at PA 0x%lx -> VA 0x%lx\n", bus, dev_id, func, static_cast<unsigned long>(phys),
             static_cast<unsigned long>(va));
 
-    if (dev->init(reinterpret_cast<volatile uint8_t*>(va), device_index) != 0) {
+    if (dev->init(reinterpret_cast<volatile uint8_t*>(va), device_index) != Error::None) {
         cprintf("sdhci: controller %d:%d.%d init failed\n", bus, dev_id, func);
         return -1;
     }
@@ -503,7 +472,7 @@ int Manager::init() {
         return 0;
     }
 
-    if (pci::register_driver(&SDHCI_DRIVER) != 0) {
+    if (pci::register_driver(&SDHCI_DRIVER) != Error::None) {
         cprintf("sdhci: failed to register PCI driver\n");
         return -1;
     }
@@ -523,20 +492,20 @@ SdDevice* Manager::get_device(int index) {
     return &s_devices[index];
 }
 
-int Manager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*) {
+Error Manager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*) {
     if (s_devices.full()) {
         cprintf("sdhci: too many controllers, max=%d\n", MAX_DEVICES);
-        return -1;
+        return Error::Full;
     }
 
     int index = static_cast<int>(s_devices.size());
     int rc = probe_one_controller(&s_devices[index], index, pdev->bus, pdev->dev, pdev->func);
     if (rc != 0) {
-        return rc;
+        return Error::Fail;
     }
 
     s_devices.commit_back();
-    return 0;
+    return Error::None;
 }
 
 int init() {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "lib/list.h"
+#include "lib/result.h"
 #include "pmm.h"
 
 // like Linux's mm_struct
@@ -21,7 +22,7 @@ namespace vmm {
 
 int init();
 int pg_fault(MemoryDesc* mm, uint32_t error_code, uintptr_t addr);
-int pgdir_init(pde_t* pgdir, uintptr_t la, size_t size, uintptr_t pa, uint32_t perm);
+Error pgdir_init(pde_t* pgdir, uintptr_t la, size_t size, uintptr_t pa, uint32_t perm);
 uintptr_t mmio_map(uintptr_t phys_addr, size_t size, uint32_t perm);
 void print_pgdir();
 
