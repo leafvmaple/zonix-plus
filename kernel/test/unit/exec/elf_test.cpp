@@ -20,9 +20,9 @@ static int tests_failed = 0;
 static void make_valid_elf64(ElfHdr* eh) {
     memset(eh, 0, sizeof(*eh));
     eh->e_magic = ELF_MAGIC;
-    eh->e_elf[0] = 2;      // 64-bit
-    eh->e_type = 2;        // Executable
-    eh->e_machine = 0x3E;  // x86_64
+    eh->e_elf[0] = 2;            // 64-bit
+    eh->e_type = 2;              // Executable
+    eh->e_machine = EM_CURRENT;  // Current architecture
     eh->e_version = 1;
     eh->e_entry = 0x400000;
     eh->e_phoff = sizeof(ElfHdr);
@@ -155,10 +155,10 @@ static void test_validate_wrong_machine() {
 
     auto* eh = reinterpret_cast<ElfHdr*>(buf);
     make_valid_elf64(eh);
-    eh->e_machine = 0x28;  // ARM instead of x86_64
+    eh->e_machine = 0xFFFF;  // Invalid machine type
 
     Error rc = elf::validate(eh, sizeof(buf));
-    TEST_ASSERT(rc != Error::None, "ARM machine type rejected");
+    TEST_ASSERT(rc != Error::None, "Wrong machine type rejected");
 
     TEST_END();
 }
@@ -178,8 +178,8 @@ static void test_validate_no_phdr() {
     eh->e_phoff = 0;
     eh->e_phnum = 0;
 
-    int rc = elf::validate(eh, sizeof(buf));
-    TEST_ASSERT(rc != 0, "ELF with no program headers rejected");
+    Error rc = elf::validate(eh, sizeof(buf));
+    TEST_ASSERT(rc != Error::None, "ELF with no program headers rejected");
 
     TEST_END();
 }
