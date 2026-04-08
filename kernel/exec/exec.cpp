@@ -93,10 +93,7 @@ static uintptr_t load_binary(const uint8_t* data, size_t size, pde_t* pgdir) {
 }
 
 Result<int> exec(const char* path) {
-    if (!path) {
-        cprintf("exec: invalid arguments\n");
-        return Error::Invalid;
-    }
+    ENSURE(path);
 
     OpenFile file;
     if (vfs::open(path, &file.handle) != Error::None || file.handle == nullptr) {
@@ -107,26 +104,15 @@ Result<int> exec(const char* path) {
     vfs::Stat st{};
     TRY_LOG(file.handle->stat(&st), "exec: failed to stat file: %s", path);
 
-    if (st.type != vfs::NodeType::File) {
-        cprintf("exec: cannot execute directory: %s\n", path);
-        return Error::Invalid;
-    }
+    ENSURE_LOG(st.type != vfs::NodeType::Directory, Error::Invalid, "exec: cannot execute directory: %s", path);
 
     uint32_t file_size = st.size;
-    if (file_size == 0) {
-        cprintf("exec: empty file: %s\n", path);
-        return Error::Invalid;
-    }
-    if (file_size > MAX_BINARY_SIZE) {
-        cprintf("exec: file too large (%d bytes, max %d)\n", file_size, MAX_BINARY_SIZE);
-        return Error::Invalid;
-    }
+    ENSURE_LOG(file_size > 0, Error::Invalid, "exec: empty file: %s", path);
+    ENSURE_LOG(file_size <= MAX_BINARY_SIZE, Error::Invalid, "exec: file too large (%d bytes, max %d): %s", file_size,
+               MAX_BINARY_SIZE, path);
 
     KernelBuf buf;
-    if (!buf.alloc(file_size)) {
-        cprintf("exec: out of memory for binary buffer (%d bytes)\n", file_size);
-        return Error::NoMem;
-    }
+    ENSURE_LOG(buf.alloc(file_size), Error::NoMem, "exec: failed to allocate kernel buffer for file: %s", path);
 
     auto rd = vfs::read(file.handle, buf.ptr, file_size, 0);
     if (!rd.ok() || rd.value() < static_cast<int>(file_size)) {
@@ -161,18 +147,22 @@ Result<int> exec(const char* path) {
     mm->pgdir = user_pgdir;
     mm->map_count = 0;
 
-    auto pid_r = sched::fork(0, 0, &tf);
-    if (!pid_r.ok()) {
-        cprintf("exec: fork failed\n");
-        delete mm;
-        return pid_r.error();
-    }
-    int pid = pid_r.value();
+    int pid{};
+    {
+        intr::Guard guard;
+        auto pid_r = sched::fork(0, user_rsp, &tf);
+        if (!pid_r.ok()) {
+            cprintf("exec: fork failed\n");
+            delete mm;
+            return pid_r.error();
+        }
+        pid = pid_r.value();
 
-    TaskStruct* proc = sched::find_proc(pid);
-    if (proc) {
-        proc->memory = mm;
-        proc->set_name(path);
+        TaskStruct* proc = sched::find_proc(pid);
+        if (proc) {
+            proc->memory = mm;
+            proc->set_name(path);
+        }
     }
 
     cprintf("exec: started user process '%s' (PID %d) entry=0x%lx rsp=0x%lx\n", path, pid, entry, user_rsp);

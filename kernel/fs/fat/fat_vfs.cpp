@@ -28,21 +28,21 @@ public:
     FatFile(FatInfo* fat, const FatDirEntry& entry) : fat_(fat), entry_(entry) {}
 
     Result<int> read(void* buf, size_t size, size_t offset) override {
-        ENSURE(is_valid(buf, size, offset), Error::Invalid);
+        ENSURE(is_valid(buf, size, offset));
 
         return fat_->read_file(&entry_, static_cast<uint8_t*>(buf), static_cast<uint32_t>(offset),
                                static_cast<uint32_t>(size));
     }
 
     Result<int> write(const void* buf, size_t size, size_t offset) override {
-        ENSURE(is_valid(buf, size, offset), Error::Invalid);
+        ENSURE(is_valid(buf, size, offset));
 
         return fat_->write_file(&entry_, static_cast<const uint8_t*>(buf), static_cast<uint32_t>(offset),
                                 static_cast<uint32_t>(size));
     }
 
     Error stat(vfs::Stat* st) override {
-        ENSURE(st, Error::Invalid);
+        ENSURE(st);
 
         st->set(entry_.is_directory() ? vfs::NodeType::Directory : vfs::NodeType::File, entry_.file_size, entry_.attr);
         return Error::None;
@@ -69,16 +69,11 @@ public:
     void unmount() override { fat_.unmount(); }
 
     Error open(const char* relpath, vfs::File** out_file) override {
-        ENSURE(relpath && out_file && relpath[0] != '\0', Error::Invalid);
+        ENSURE(relpath && out_file && relpath[0] != '\0');
 
         FatDirEntry entry{};
-        if (fat_.find_file(relpath, &entry) != Error::None) {
-            return Error::NotFound;
-        }
-
-        if (entry.is_directory()) {
-            return Error::Invalid;
-        }
+        TRY(fat_.find_file(relpath, &entry));
+        ENSURE(!entry.is_directory());  // Use open for files only.
 
         auto* file = new (std::nothrow) FatFile(&fat_, entry);
         if (!file) {
@@ -98,38 +93,36 @@ public:
         }
 
         FatDirEntry entry{};
-        if (fat_.find_file(relpath, &entry) != Error::None) {
-            return Error::NotFound;
-        }
+        TRY(fat_.find_file(relpath, &entry));
 
         st->set(entry.is_directory() ? vfs::NodeType::Directory : vfs::NodeType::File, entry.file_size, entry.attr);
         return Error::None;
     }
 
     Result<int> readdir(const char* relpath, vfs::DirVisitor& visitor) override {
-        ENSURE(relpath, Error::Invalid);
+        ENSURE(relpath);
 
         VfsDirVisitor bridge(visitor);
         return fat_.read_dir(relpath, bridge);
     }
 
     Error mkdir(const char* relpath) override {
-        ENSURE(relpath && relpath[0] != '\0', Error::Invalid);
+        ENSURE(relpath && relpath[0] != '\0');
         return fat_.mkdir(relpath);
     }
 
     Error create(const char* relpath) override {
-        ENSURE(relpath && relpath[0] != '\0', Error::Invalid);
+        ENSURE(relpath && relpath[0] != '\0');
         return fat_.create_file(relpath);
     }
 
     Error unlink(const char* relpath) override {
-        ENSURE(relpath && relpath[0] != '\0', Error::Invalid);
+        ENSURE(relpath && relpath[0] != '\0');
         return fat_.unlink(relpath);
     }
 
     Error rmdir(const char* relpath) override {
-        ENSURE(relpath && relpath[0] != '\0', Error::Invalid);
+        ENSURE(relpath && relpath[0] != '\0');
         return fat_.rmdir(relpath);
     }
 

@@ -39,7 +39,7 @@ Result<uint32_t> find_partition_start(BlockDevice* dev) {
     }
 
     // No partition table: assume BPB is at LBA 0.
-    return 0u;
+    return 0U;
 }
 
 }  // namespace
@@ -68,16 +68,16 @@ void FatInfo::do_init_state(BlockDevice* dev, uint32_t partition_start, const Fa
 }
 
 Error FatInfo::mount(BlockDevice* dev) {
-    ENSURE(dev, Error::Invalid);
+    ENSURE(dev);
 
-    auto partition_start = TRY(find_partition_start(dev));
+    auto part_start = TRY(find_partition_start(dev));
 
     Fat32BootSector bs{};
-    TRY_LOG(dev->read(partition_start, &bs, 1), "fat_mount: failed to read boot sector at LBA %d", partition_start);
+    TRY_LOG(dev->read(part_start, &bs, 1), "fat_mount: failed to read boot sector at LBA %d", part_start);
 
     ENSURE_LOG(bs.is_fat32(), Error::BadFS, "fat_mount: invalid boot signature: 0x%04x", bs.boot_signature_word);
 
-    do_init_state(dev, partition_start, bs);
+    do_init_state(dev, part_start, bs);
 
     char oem[9]{};
     char label[12]{};
@@ -87,7 +87,7 @@ Error FatInfo::mount(BlockDevice* dev) {
 
     cprintf("FAT%d mounted: %s\n", fat_type_, label);
     cprintf("  OEM: %s\n", oem);
-    cprintf("  Partition Start: LBA %d\n", partition_start);
+    cprintf("  Partition Start: LBA %d\n", part_start);
 
     return Error::None;
 }
@@ -144,7 +144,7 @@ uint32_t FatInfo::read_entry(uint32_t cluster) {
 }
 
 Error FatInfo::write_entry(uint32_t cluster, uint32_t value) {
-    ENSURE(cluster >= 2 && cluster < cluster_count_ + 2, Error::Invalid);
+    ENSURE(cluster >= 2 && cluster < cluster_count_ + 2);
 
     uint32_t fat_offset = cluster << 2;
     uint32_t fat_sector = fat_start_ + (fat_offset / bytes_per_sector_);

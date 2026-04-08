@@ -54,7 +54,7 @@ private:
     uint32_t alloc_cluster();
     Error free_chain(uint32_t start_cluster);
 
-    bool find_entry(uint32_t start_cluster, const char* name, FatDirEntry* out);
+    Error find_entry(uint32_t start_cluster, const char* name, FatDirEntry* out);
     Error resolve_parent(const char* relpath, uint32_t* parent_cluster, char* child_name, size_t name_size);
     Error add_dir_entry(uint32_t dir_cluster, const FatDirEntry* entry);
     Error remove_dir_entry(uint32_t dir_cluster, const char* name);
