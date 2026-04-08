@@ -8,8 +8,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- **x86 UEFI toolchain**: `BOOTX64.EFI` now builds with `clang --target=x86_64-pc-windows-msvc` + `lld-link` instead of MinGW GCC.
-- **Documentation cleanup**: synchronized README/DEVELOPMENT toolchain and dependency notes with current build behavior.
+- **Documentation refresh**: synchronized README, DEVELOPMENT, TODO docs with current v0.11.1 state; updated architecture support status, feature inventory, and completion metrics.
+
+## [0.11.1] - 2026-04-02
+
+### Summary
+**riscv64 stabilization and multi-arch CI** — Completed riscv64 UEFI boot pipeline, added VirtIO keyboard driver, enabled automated QEMU test scripts for all three architectures.
+
+### Added
+- **VirtIO Keyboard driver** (`kernel/drivers/virtio_kbd.cpp`): MMIO-based VirtIO input device for riscv64 QEMU virt.
+- **riscv64 CI test script** (`scripts/ci_qemu_test_riscv64.sh`): Automated QEMU boot-and-test for riscv64.
+- **Prebuilt riscv64 UEFI firmware** (`bin/riscv64/BOOTRISCV64.EFI`): UEFI bootloader binary.
+
+### Fixed
+- riscv64 SDHCI probe and block device registration on QEMU virt.
+- riscv64 timer interrupt frequency alignment with scheduler tick.
+
+## [0.11.0] - 2026-03-28
+
+### Summary
+**riscv64 architecture bring-up** — Full RISC-V 64-bit support: UEFI boot, Sv39 page tables, PLIC/16550 UART/SBI Timer drivers, context switching, and trap handling. Runs on QEMU virt and targets VisionFive2 hardware.
+
+### Added
+- **riscv64 boot pipeline**: UEFI bootloader (`BOOTRISCV64.EFI`) with kernel load and boot_info handoff.
+- **Sv39 MMU**: 3-level page tables (39-bit virtual addressing), kernel mapped at `0xFFFFFFC000000000`.
+- **Context switch** (`arch/riscv64/kernel/switch.S`): Callee-saved registers + `satp` switch.
+- **Trap handling** (`arch/riscv64/kernel/trapentry.S`, `trap.cpp`): Supervisor-mode exception/interrupt dispatch via `scause`/`stval`.
+- **PLIC driver** (`arch/riscv64/kernel/drivers/plic.cpp`): Platform-Level Interrupt Controller for external IRQs.
+- **16550 UART driver** (`arch/riscv64/kernel/drivers/uart16550.cpp`): Serial console for QEMU virt and VisionFive2.
+- **SBI Timer** (`arch/riscv64/kernel/drivers/timer.cpp`): Timer interrupts via SBI ecall.
+- **riscv64 PCI** (`arch/riscv64/kernel/drivers/pci.cpp`): ECAM-based PCI enumeration.
+- **Multi-board support**: QEMU virt (default, phys load at `0x80200000`) and VisionFive2 (`0x40200000`).
+- **Syscall interface** (`kernel/trap/trap.cpp`): `handle_syscall()` dispatch with 6 syscalls — `NR_EXIT(1)`, `NR_READ(3)`, `NR_WRITE(4)`, `NR_OPEN(5)`, `NR_CLOSE(6)`, `NR_PAUSE(29)`.
+- **User address validation**: `user_range_valid()` and `copy_user_cstr()` for safe kernel↔user data transfer.
+- **exec()** (`kernel/exec/exec.cpp`): Full user program loader — ELF64 parse → user page table → segment mapping → user stack → fork.
+- **User-mode hello** (`user/hello/hello.S`): Minimal x86_64 user program using `int $0x80` for sys_write and sys_exit.
+- **Syscall wrappers** (`kernel/lib/unistd.h`): C++ template-based syscall stubs for x86 (`int $0x80`) and aarch64 (`svc #0`).
+- **Linker scripts**: `scripts/kernel-riscv64.ld`, `scripts/uefi-riscv64.ld` for riscv64 targets.
+- **QEMU config**: `qemu-uefi-riscv64.cfg` for riscv64 UEFI + virt emulation.
 
 ## [0.10.0] - 2026-03-24
 

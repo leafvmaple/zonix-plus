@@ -1,7 +1,7 @@
 # Zonix OS — Development Notes
 
 > 本文档记录项目当前的架构状态、已完成的优化、遗留问题和后续计划。
-> 最后更新: 2026-03-24 (post-v0.9.3)
+> 最后更新: 2026-04-08 (v0.11.1)
 
 ---
 
@@ -11,10 +11,13 @@
 zonix-plus/
 ├── arch/                       # 多架构目录
 │   ├── x86/                    # x86_64 相关代码
+│   ├── aarch64/                # aarch64 相关代码（UEFI + QEMU virt）
+│   └── riscv64/                # riscv64 相关代码（UEFI + QEMU virt / VisionFive2）
+│   [each arch]:
 │   ├── boot/
 │   │   ├── Makefile            # 转发到 bios/ 和 uefi/
 │   │   ├── bootlib.h           # boot 共享库 (memcpy/memset)
-│   │   ├── bios/
+│   │   ├── bios/               # BIOS 引导（仅 x86）
 │   │   │   ├── Makefile        # clang -m32: MBR + VBR + Bootloader
 │   │   │   ├── mbr.S           # Master Boot Record (512B, 16-bit)
 │   │   │   ├── vbr.S           # Volume Boot Record (512B, 16-bit)
@@ -24,41 +27,44 @@ zonix-plus/
 │   │       ├── Makefile        # clang + lld-link: PE32+ cross-compile (UEFI)
 │   │       └── bootload.c      # UEFI bootloader (efi_main)
 │   ├── include/asm/            # <asm/xxx.h> 头文件
-│   │   ├── arch.h, cpu.h, cr.h, io.h, memlayout.h, mmu.h, pg.h, ports.h
-│   │   ├── seg.h, segments.h
-│   │   └── drivers/            # 硬件寄存器定义 (i8042, i8254, i8259)
 │   └── kernel/                 # 架构相关 kernel 代码
-│       ├── head.S              # 64-bit 入口 + 页表初始化
-│       ├── idt.cpp/h           # IDT 初始化 (idt::init)
+│       ├── head.S              # 入口 + 页表初始化
 │       ├── switch.S            # 上下文切换
 │       ├── trapentry.S         # 中断入口 stub
-│       └── vectors.S           # 256 个中断向量
-│   └── aarch64/                # aarch64 相关代码（UEFI + QEMU virt）
+│       └── drivers/            # 架构相关驱动
+│
 ├── kernel/                     # 架构无关 kernel (C++17, 64-bit)
 │   ├── init.cpp                # kern_init() 入口
 │   ├── lib/                    # 内核基础库
 │   ├── block/                  # 块设备抽象层
 │   ├── cons/                   # 控制台 + shell
 │   ├── debug/                  # panic / assert
-│   ├── drivers/                # 设备驱动 (IDE, AHCI, PCI, PIC, PIT, ...)
-│   ├── fs/                     # FAT32 文件系统
+│   ├── drivers/                # 通用设备驱动 (fbcons, intr, pci, sdhci)
+│   ├── exec/                   # ELF 加载
+│   ├── fs/                     # VFS + FAT32 文件系统
 │   ├── mm/                     # 物理/虚拟内存管理 + swap
-│   ├── sched/                  # 调度器 (Round-Robin)
+│   ├── sched/                  # 调度器 (Priority Round-Robin)
+│   ├── sync/                   # 同步原语 (spinlock, waitqueue, semaphore, mutex)
+│   ├── test/                   # 内核单元测试框架 + 测试套件
 │   └── trap/                   # 中断/异常分发
 ├── include/                    # 架构无关公共头文件
 │   ├── base/                   # 基础类型 (types.h, elf.h, bpb.h, mbr.h)
 │   ├── kernel/                 # 内核配置 (config.h, bootinfo.h, version.h, ...)
 │   └── uefi/                   # UEFI 类型定义
+├── boot/                       # 通用 UEFI 引导 (uefi_boot.cpp)
+├── user/                       # 用户态程序 (hello, ...)
 ├── fonts/console.psf           # 内嵌控制台字体 (llvm-objcopy → .rodata)
 ├── scripts/                    # 构建辅助
-│   ├── kernel.ld, mbr.ld, boot.ld, bootload.ld, uefi.ld  # 链接脚本
+│   ├── kernel.ld, kernel-aarch64.ld, kernel-riscv64.ld  # 内核链接脚本
+│   ├── mbr.ld, boot.ld, bootload.ld, uefi.ld, uefi-riscv64.ld  # 引导链接脚本
 │   ├── create_zonix_image.sh   # FAT32 磁盘镜像
 │   ├── create_uefi_image.sh    # GPT+ESP UEFI 镜像
 │   ├── create_userdata_image.sh  # 用户数据盘
+│   ├── ci_qemu_test*.sh        # CI 自动化测试脚本 (x86, aarch64, riscv64)
 │   └── gdbinit                 # GDB 调试脚本
 ├── docs/                       # 文档
 ├── Makefile                    # 顶层构建 (~310 行)
-└── qemu*.cfg                   # 模拟器配置
+└── qemu*.cfg                   # 模拟器配置 (x86, aarch64, riscv64)
 ```
 
 ## 2. 构建系统
@@ -67,8 +73,9 @@ zonix-plus/
 
 | 目标 | 编译器 | 位宽 | 语言 |
 |------|--------|------|------|
-| Kernel | `clang++` | 64-bit | C++17 freestanding |
-| arch/x86/kernel/ | `clang++` | 64-bit | C++17 / ASM |
+| Kernel (x86) | `clang++` | 64-bit | C++17 freestanding |
+| Kernel (aarch64) | `clang++ --target=aarch64` | 64-bit | C++17 freestanding |
+| Kernel (riscv64) | `clang++ --target=riscv64` | 64-bit | C++17 freestanding |
 | BIOS boot (MBR/VBR/Bootloader) | `clang -m32` | 32-bit | C / ASM |
 | UEFI boot (BOOTX64.EFI) | `clang --target=x86_64-pc-windows-msvc` + `lld-link` | 64-bit | C (PE32+) |
 | Linker | `ld.lld` | — | LLVM linker |
@@ -245,10 +252,12 @@ swap::init() → sched::init() → intr::enable()
 ```bash
 make ARCH=x86               # x86 全量构建
 make ARCH=aarch64           # aarch64 全量构建
+make ARCH=riscv64           # riscv64 全量构建
 make ARCH=x86 TEST=1        # 构建并启用内核单元测试
 make qemu ARCH=x86          # x86 UEFI + AHCI（默认）
 make qemu-bios ARCH=x86     # x86 BIOS + IDE 回退路径
 make qemu ARCH=aarch64      # aarch64 UEFI (QEMU virt)
+make qemu ARCH=riscv64      # riscv64 UEFI (QEMU virt)
 make debug ARCH=x86         # x86 QEMU + GDB
 make disasm ARCH=x86        # 生成 x86 反汇编
 make format                 # clang-format 格式化

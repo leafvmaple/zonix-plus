@@ -1,18 +1,19 @@
 # Zonix OS
 
-A teaching operating system kernel with active x86_64 and aarch64 bring-up, featuring BIOS/UEFI boot paths, process management, virtual memory with swap, synchronization primitives, preemptive scheduling, VFS-backed file syscalls, and FAT filesystem support.
+A teaching operating system kernel targeting **x86_64**, **aarch64**, and **riscv64**, featuring BIOS/UEFI boot paths, process management, virtual memory with swap, synchronization primitives, preemptive scheduling, VFS-backed file syscalls, and FAT filesystem support.
 
-**Current Version**: 0.10.0
+**Current Version**: 0.11.1
 
 ## Features
 
 ### Boot & Architecture
-- **x86_64 + aarch64**: Shared kernel core with architecture-specific hooks under `arch/`
+- **Three Architectures**: x86_64, aarch64, riscv64 — shared kernel core with architecture-specific hooks under `arch/`
 - **Dual Boot on x86**: BIOS (MBR → VBR → bootloader) and UEFI (BOOTX64.EFI)
 - **UEFI on aarch64**: BOOTAA64.EFI + QEMU virt machine support
+- **UEFI on riscv64**: BOOTRISCV64.EFI + QEMU virt / VisionFive2 board support
 - **Kconfig-style Configuration**: Modular `CONFIG_*` toggles in `include/kernel/config.h`
 - **C++17 Freestanding**: Kernel written in C++17 with global `new`/`delete` operator support
-- **Clang/LLVM Toolchain**: Built with Clang, LLD, and LLVM utilities (including x86/aarch64 UEFI paths)
+- **Clang/LLVM Toolchain**: Built with Clang, LLD, and LLVM utilities (including x86/aarch64/riscv64 UEFI paths)
 
 ### Process Management
 - **Preemptive Round-Robin Scheduler**: Priority-aware scheduling with per-tick timeslice decrement
@@ -43,19 +44,23 @@ A teaching operating system kernel with active x86_64 and aarch64 bring-up, feat
 ### Drivers
 - **IDE/ATA**: 4-device PIO mode with interrupt-driven sleep/wakeup I/O
 - **AHCI (SATA)**: MMIO-based SATA controller via PCI BAR discovery
-- **SDHCI (aarch64)**: SD card backend for QEMU virt UEFI flow
+- **SDHCI (aarch64/riscv64)**: SD card backend for QEMU virt UEFI flow
 - **PL011 UART (aarch64)**: Serial console and early boot diagnostics
+- **16550 UART (riscv64)**: Serial console for QEMU virt and VisionFive2
 - **PCI**: Configuration space read/write, device enumeration by class/subclass
-- **8259 PIC / 8254 PIT**: Full initialization, EOI handling, timer ticks
-- **PS/2 Keyboard**: Scancode mapping with interrupt-driven input
+- **PLIC (riscv64)**: Platform-Level Interrupt Controller for external interrupts
+- **8259 PIC / 8254 PIT**: Full initialization, EOI handling, timer ticks (x86)
+- **PS/2 Keyboard**: Scancode mapping with interrupt-driven input (x86)
+- **VirtIO Keyboard (riscv64)**: MMIO-based VirtIO input device
 - **Display**: CGA text mode + GOP/VESA framebuffer console (PSF font rendering)
 - **Serial**: COM1 debug output at 115200 baud
 
 ### Interrupt & Trap
-- **IDT**: 256 entries with full x86_64 TrapFrame (all GPRs + hardware-pushed context)
-- **Exceptions**: Named handlers for 20 CPU exceptions including page fault with CR2 output
+- **IDT (x86)**: 256 entries with full x86_64 TrapFrame (all GPRs + hardware-pushed context)
+- **Trap (riscv64)**: RISC-V supervisor trap handling with scause/stval dispatch
+- **Exceptions**: Named handlers for CPU exceptions including page fault
 - **IRQ Dispatch**: Timer, keyboard, IDE (primary + secondary) with automatic EOI
-- **Architecture Abstraction**: `arch_*()` wrappers for interrupts, I/O, spin hints (portable to other ISAs)
+- **Architecture Abstraction**: `arch_*()` wrappers for interrupts, I/O, spin hints (portable across ISAs)
 
 ### Interactive Shell
 - 20+ built-in commands including `ps`, `ls`, `cat`, `mount`, `lsblk`, `hdparm`
@@ -72,7 +77,8 @@ sudo apt install make clang lld llvm nasm dosfstools mtools
 sudo apt install lld-18
 
 # Emulators
-sudo apt install qemu-system-x86 qemu-system-arm ovmf qemu-efi-aarch64 bochs-x
+sudo apt install qemu-system-x86 qemu-system-arm qemu-system-misc \
+                 ovmf qemu-efi-aarch64 qemu-efi-riscv64 bochs-x
 ```
 
 ## Build
@@ -80,6 +86,7 @@ sudo apt install qemu-system-x86 qemu-system-arm ovmf qemu-efi-aarch64 bochs-x
 ```bash
 make ARCH=x86
 make ARCH=aarch64
+make ARCH=riscv64
 
 # Include in-kernel unit tests
 make ARCH=x86 TEST=1
@@ -96,6 +103,9 @@ make qemu-bios ARCH=x86
 
 # aarch64 UEFI (QEMU virt)
 make qemu ARCH=aarch64
+
+# riscv64 UEFI (QEMU virt)
+make qemu ARCH=riscv64
 
 # Debug with GDB
 make debug ARCH=x86

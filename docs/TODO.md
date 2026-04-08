@@ -4,40 +4,47 @@
 
 ## 📋 项目概览
 
-### 最近更新 (2026-03-24) — 文件系统分层收敛 + FAT 模块化
+### 最近更新 (2026-04-08) — riscv64 架构支持 + 多架构 CI
 
-**近期主线完成了 fd 管理从调度层解耦、FAT 代码拆分与目录遍历去重，并补齐了 VFS 参数健壮性。**
+**近期主线完成了 riscv64 完整 UEFI 引导流水线、Sv39 页表、PLIC/UART16550/SBI Timer 驱动，并新增 VirtIO 键盘支持和三架构 CI 联调。**
 
-#### 自 v0.8.0 以来的主要成就
-- ✨ **Spinlock**：中断安全的原子自旋锁，架构抽象 `arch_spin_hint()`
-- ✨ **WaitQueue**：结构化 sleep/wakeup 机制（类 Linux `wait_queue_head_t`）
-- ✨ **Semaphore**：基于 Spinlock + WaitQueue 的计数信号量
-- ✨ **Mutex**：带 ownership 追踪和断言的互斥锁
-- ✨ **LockGuard\<T\>**：泛型 RAII 锁守卫模板
-- ✨ **抢占式调度**：优先级感知 Round-Robin + 每 tick 时间片递减
-- ✨ **架构抽象层**：`arch_*()` 包装中断控制、自旋提示等平台原语
-- ✨ **驱动适配**：kbd、ide 驱动改用 WaitQueue 替代 ad-hoc 等待模式
-- ✨ **Timer ISR 修正**：EOI 后再调度，避免 PIC 死锁
+#### 自 v0.10.0 以来的主要成就
+- ✨ **riscv64 架构支持**：完整 UEFI 引导、Sv39 MMU、上下文切换、trap 处理
+- ✨ **PLIC 驱动**：riscv64 平台级中断控制器
+- ✨ **UART16550 驱动**：riscv64 串口控制台（QEMU virt + VisionFive2）
+- ✨ **SBI Timer**：riscv64 定时器中断（SBI ecall）
+- ✨ **VirtIO 键盘**：riscv64 MMIO VirtIO 输入设备
+- ✨ **多板支持**：QEMU virt（默认）+ VisionFive2 硬件
+- ✨ **三架构 CI**：x86 + aarch64 + riscv64 自动 QEMU 测试脚本
 
 Zonix 是一个教学型操作系统，当前主线已实现：
+- ✅ 三架构支持（x86_64 + aarch64 + riscv64）
 - ✅ 双引导加载（BIOS + UEFI）
 - ✅ x86_64 长模式（64 位内核）
+- ✅ aarch64 UEFI 引导（QEMU virt）
+- ✅ riscv64 UEFI 引导（QEMU virt + VisionFive2）
 - ✅ 物理内存管理器（First-Fit 页分配 + 引用计数）
 - ✅ 虚拟内存管理（页表、MMIO 映射、缺页处理）
 - ✅ 页面置换/交换系统（FIFO 算法 + 磁盘后端）
-- ✅ 中断和异常处理框架（IDT 256 项 + 完整 TrapFrame）
-- ✅ 进程调度（Round-Robin + fork/exit/wait + 上下文切换）
+- ✅ 中断和异常处理框架（IDT/PLIC/GIC + 完整 TrapFrame）
+- ✅ 进程调度（Priority Round-Robin + fork/exit/wait + 上下文切换）
 - ✅ 多输出控制台（CGA + 帧缓冲 + 串口）
 - ✅ 交互式 Shell（20+ 命令 + 参数解析）
-- ✅ PS/2 键盘驱动（中断驱动 + 扫描码映射）
+- ✅ 键盘驱动（PS/2 中断驱动 + VirtIO 键盘）
 - ✅ 完整的多磁盘 IDE/ATA 驱动（4 设备 + 中断 I/O）
 - ✅ AHCI/SATA 驱动（MMIO + PCI 枚举）
+- ✅ SDHCI 驱动（aarch64 / riscv64 SD 卡）
 - ✅ 块设备抽象层（多设备注册与管理）
 - ✅ FAT32 只读文件系统（MBR 分区 + 双挂载点）
 - ✅ kmalloc/kfree + C++ new/delete 运算符重载
 - ✅ 同步原语（Spinlock、WaitQueue、Semaphore、Mutex、LockGuard\<T\>）
 - ✅ 抢占式优先级调度（timeslice + priority-aware Round-Robin）
 - ✅ CONFIG_* 模块化内核配置
+- ✅ Syscall 接口（exit/open/read/write/close + 三架构 trap 入口）
+- ✅ exec() 用户程序加载（ELF64 → 用户页表 → 用户栈 → fork）
+- ✅ 用户态 hello 程序（x86 `int $0x80` 调用 sys_write + sys_exit）
+- ✅ 内核单元测试框架 + ~60 个测试用例
+- ✅ 三架构 CI 自动化测试（QEMU）
 
 ---
 
@@ -94,10 +101,10 @@ Zonix 是一个教学型操作系统，当前主线已实现：
   - 完成：`kernel/sched/sched.cpp` — `TaskManager::fork()`
   - 完成：内存空间复制、内核栈设置
 
-- [ ] **实现进程执行**
-  - 实现：`exec()` 系统调用族
-  - 学习点：ELF 加载、用户栈初始化
-  - 参考：`arch/x86/boot/bios/bootload.c` 中的 ELF 加载
+- [x] **实现进程执行** ✅ (v0.11.0)
+  - 完成：`exec::exec()` — VFS 读取 ELF → 创建用户页表 → 加载段 → 设置用户栈 → fork
+  - 完成：`arch_setup_user_tf()` 构造用户态 TrapFrame
+  - 学习点：ELF 加载、用户栈初始化、ring 切换
 
 - [x] **实现进程等待与退出** ✅ (v0.8.0)
   - 完成：`TaskManager::exit()` — 状态设为 Zombie、唤醒父进程
@@ -278,26 +285,18 @@ Zonix 是一个教学型操作系统，当前主线已实现：
 
 ### 3.1 系统调用接口
 
-- [ ] **设计系统调用表**
-  - 文件：`kernel/trap/syscall.cpp`
-  - 定义：系统调用号
-  - 实现：系统调用分发
+- [x] **设计系统调用表** ✅ (v0.11.0)
+  - 完成：`kernel/trap/trap.cpp` — `handle_syscall()` 分发 + `kernel/lib/unistd.h` 定义系统调用号
+  - 完成：NR_EXIT(1), NR_READ(3), NR_WRITE(4), NR_OPEN(5), NR_CLOSE(6), NR_PAUSE(29)
 
-- [ ] **实现进程相关系统调用**
-  ```c
-  fork(), exec(), exit(), wait()
-  getpid(), getppid()
-  sleep(), alarm()
-  ```
+- [x] **实现进程相关系统调用** ✅ (v0.11.0, 部分)
+  - 完成：`exit()` syscall
+  - 完成：`exec()` — ELF 加载 + 用户页表 + 用户栈 + fork（`kernel/exec/exec.cpp`）
+  - 待完成：`fork()`, `wait()`, `getpid()`, `getppid()`, `sleep()`, `alarm()` syscall
 
-- [ ] **实现文件相关系统调用**
-  ```c
-  open(), read(), write(), close()
-  creat(), unlink(), link()
-  mkdir(), rmdir(), chdir()
-  stat(), fstat(), chmod()
-  dup(), dup2(), pipe()
-  ```
+- [x] **实现文件相关系统调用** ✅ (v0.11.0, 部分)
+  - 完成：`open()`, `read()`, `write()`, `close()` — 含用户地址校验（`user_range_valid`, `copy_user_cstr`）
+  - 待完成：`creat()`, `unlink()`, `link()`, `mkdir()`, `rmdir()`, `chdir()`, `stat()`, `fstat()`, `dup()`, `dup2()`, `pipe()`
 
 - [ ] **实现内存相关系统调用**
   ```c
@@ -318,18 +317,20 @@ Zonix 是一个教学型操作系统，当前主线已实现：
 
 ### 3.2 用户态支持
 
-- [ ] **实现用户态切换**
-  - 实现：ring3 → ring0 切换
-  - 实现：用户栈、内核栈切换
+- [x] **实现用户态切换** ✅ (v0.11.0)
+  - 完成：x86 `int $0x80` / aarch64 `svc #0` / riscv64 `ecall` → S-mode trap
+  - 完成：`arch_setup_user_tf()` 设置用户态 TrapFrame
+  - 完成：用户栈初始化 `setup_user_stack()`
 
-- [ ] **实现用户程序加载器**
-  - 解析：ELF 文件格式
-  - 参考：`arch/x86/boot/bios/bootload.c`
-  - 初始化：用户栈、参数传递
+- [x] **实现用户程序加载器** ✅ (v0.11.0)
+  - 完成：`kernel/exec/exec.cpp` — ELF64 加载 + 用户页表创建 + 段映射
+  - 完成：`kernel/exec/elf_loader.cpp` — ELF segment 解析与内存映射
+  - 完成：用户栈初始化（`USER_STACK_TOP` 向下分配）
+  - 待完成：argv/envp 参数传递
 
-- [ ] **创建简单用户程序**
-  - 目录：`user/`
-  - 示例：hello、ls、cat、sh
+- [x] **创建简单用户程序** ✅ (v0.11.0, 部分)
+  - 完成：`user/hello/hello.S` — 通过 `int $0x80` 调用 `sys_write` + `sys_exit`
+  - 待完成：更多用户程序（ls、cat、sh）
 
 - [ ] **实现动态链接**
   - 实现：动态链接器
@@ -491,6 +492,12 @@ Zonix 是一个教学型操作系统，当前主线已实现：
   - 完成：x86_64 长模式内核，高半核映射 `0xFFFFFFFF80000000`
   - 完成：64 位 TrapFrame、Context（RAX-R15）
   - 完成：引导代码 32→64 模式切换
+
+- [x] **多架构支持** ✅ (v0.11.0)
+  - 完成：aarch64 UEFI 引导 + QEMU virt (v0.10.0)
+  - 完成：riscv64 UEFI 引导 + QEMU virt / VisionFive2 (v0.11.0)
+  - 完成：Sv39 页表（riscv64）、AArch64 页表
+  - 完成：三架构 CI 自动化测试
 
 - [ ] **支持大内存**
   - 支持：超过 4GB 物理内存
@@ -691,8 +698,8 @@ sudo apt install clang-format cppcheck
 ### 统计信息
 - **总任务数**：约 150+ 个子任务
 - **预计完成时间**：6-12 个月（取决于学习深度）
-- **当前完成度**：约 60%（同步原语 + 多架构联调 + 自动化测试）
-- **最近完成**：x86/aarch64 QEMU 测试链路与调度器/链表重构 (2026-03-23)
+- **当前完成度**：约 70%（三架构引导 + syscall/用户态 + 同步原语 + 文件系统分层 + CI 联调）
+- **最近完成**：riscv64 完整架构支持 + VirtIO 键盘 + 三架构 CI (2026-04-02)
 
 ### 里程碑
 
@@ -702,8 +709,8 @@ sudo apt install clang-format cppcheck
 - [x] **Milestone 3**：✅ 实现交互式 Shell — 20+ 命令 (v0.8.0)
 - [x] **Milestone 4**：✅ 同步原语 + 抢占式调度 (v0.9.3)
 - [x] **Milestone 4.5**：✅ 多架构 CI 联调（x86 BIOS/UEFI + aarch64 UEFI）
-- [ ] **Milestone 5**：用户态进程 (Ring 3) + syscall 表 + ELF 加载
-- [ ] **Milestone 6**：VFS + 文件描述符 + 管道
+- [x] **Milestone 4.8**：✅ riscv64 完整架构支持 (v0.11.0)
+- [x] **Milestone 5**：✅ 用户态进程 (Ring 3 / U-mode) + syscall 表 + ELF 加载 (v0.11.0)
 - [ ] **Milestone 6**：VFS/FD 增强（写路径、pipe、fcntl、stdio 语义）
 - [ ] **Milestone 7**：支持网络通信
 
@@ -714,26 +721,34 @@ sudo apt install clang-format cppcheck
 ### 项目结构
 ```
 zonix-plus/
-├── arch/x86/
-│   ├── boot/           # 引导加载程序（BIOS + UEFI）
-│   ├── include/asm/    # 架构相关头文件
-│   └── kernel/         # 架构相关内核代码（head.S, IDT, 上下文切换）
-├── kernel/             # 内核代码
-│   ├── cons/           # 控制台和 Shell
-│   ├── debug/          # 调试工具
-│   ├── drivers/        # 设备驱动
-│   ├── block/          # 块设备抽象
-│   ├── fs/             # 文件系统
-│   ├── lib/            # 内核库函数
-│   ├── mm/             # 内存管理
-│   ├── sched/          # 调度器
-│   ├── sync/           # 同步原语（spinlock, waitqueue, semaphore, mutex）
-│   └── trap/           # 中断处理
-├── include/            # 公共头文件（base/, kernel/, uefi/）
-├── fonts/              # 控制台字体 (PSF)
-├── scripts/            # 构建工具和链接脚本
-├── docs/               # 文档
-└── tests/              # 测试（待创建）
+├── arch/
+│   ├── x86/                # x86_64 (BIOS + UEFI)
+│   ├── aarch64/            # aarch64 (UEFI + QEMU virt)
+│   └── riscv64/            # riscv64 (UEFI + QEMU virt / VisionFive2)
+│   [each arch]:
+│   ├── boot/               # 引导加载程序
+│   ├── include/asm/        # 架构相关头文件
+│   └── kernel/             # 架构相关内核代码
+├── kernel/                 # 架构无关内核代码
+│   ├── cons/               # 控制台和 Shell
+│   ├── debug/              # 调试工具
+│   ├── drivers/            # 通用设备驱动
+│   ├── block/              # 块设备抽象
+│   ├── exec/               # ELF 加载
+│   ├── fs/                 # 文件系统 (VFS + FAT)
+│   │   └── fat/            # FAT 驱动 (core/dir/vfs_adapter)
+│   ├── lib/                # 内核库函数
+│   ├── mm/                 # 内存管理
+│   ├── sched/              # 调度器
+│   ├── sync/               # 同步原语（spinlock, waitqueue, semaphore, mutex）
+│   ├── test/               # 单元测试框架 + 测试套件
+│   └── trap/               # 中断处理
+├── include/                # 公共头文件（base/, kernel/, uefi/）
+├── boot/                   # 通用 UEFI 引导代码
+├── user/                   # 用户态程序
+├── fonts/                  # 控制台字体 (PSF)
+├── scripts/                # 构建工具和链接脚本
+└── docs/                   # 文档
 ```
 
 ### 重要文件
