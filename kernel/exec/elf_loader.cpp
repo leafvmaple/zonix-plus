@@ -42,8 +42,8 @@ Error validate(const ElfHdr* eh, size_t file_size) {
         return Error::Invalid;
     }
 
-    if (eh->e_machine != 0x3E) {
-        cprintf("elf: wrong architecture (machine=0x%x, expected 0x3E)\n", eh->e_machine);
+    if (eh->e_machine != EM_CURRENT) {
+        cprintf("elf: wrong architecture (machine=0x%x, expected 0x%x)\n", eh->e_machine, EM_CURRENT);
         return Error::Invalid;
     }
 

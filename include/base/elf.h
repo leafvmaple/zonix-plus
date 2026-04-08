@@ -41,3 +41,15 @@ inline constexpr uint32_t ELF_PT_LOAD = 1;
 inline constexpr uint32_t ELF_PF_X = 1;
 inline constexpr uint32_t ELF_PF_W = 2;
 inline constexpr uint32_t ELF_PF_R = 4;
+
+inline constexpr uint16_t EM_AARCH64 = 0xB7;
+inline constexpr uint16_t EM_RISCV = 0xF3;
+inline constexpr uint16_t EM_X86_64 = 0x3E;
+
+#if defined(__x86_64__) || defined(__i386__)
+inline constexpr uint16_t EM_CURRENT = EM_X86_64;
+#elif defined(__aarch64__)
+inline constexpr uint16_t EM_CURRENT = EM_AARCH64;
+#elif defined(__riscv)
+inline constexpr uint16_t EM_CURRENT = EM_RISCV;
+#endif
