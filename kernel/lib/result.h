@@ -72,13 +72,6 @@ public:
     Error release_error() { return err_; }
 };
 
-// TRY(expr) — early-return on error, yields value on success.
-//
-// For Result<T>:  auto x = TRY(foo());  // unwraps T or returns error
-// For Error:      TRY(bar());           // returns error if != None
-//
-// Uses GCC/Clang statement expressions (__extension__ ({...})).
-
 struct ErrorResult {
     Error err;
 
@@ -122,13 +115,24 @@ Result<T> wrap_tryable(Result<T> r) {
         _try_r.release_value();                           \
     })
 
+// ENSURE(cond) — return Error::Invalid if cond is false.
 // ENSURE(cond, err) — return err if cond is false.
 // ENSURE_LOG(cond, err, fmt, ...) — log + return err if cond is false.
-#define ENSURE(cond, err)         \
+
+#define _ENSURE1(cond)             \
+    do {                           \
+        if (!(cond)) [[unlikely]]  \
+            return Error::Invalid; \
+    } while (0)
+
+#define _ENSURE2(cond, err)       \
     do {                          \
         if (!(cond)) [[unlikely]] \
             return (err);         \
     } while (0)
+
+#define _ENSURE_SELECT(_1, _2, NAME, ...) NAME
+#define ENSURE(...)                       _ENSURE_SELECT(__VA_ARGS__, _ENSURE2, _ENSURE1)(__VA_ARGS__)
 
 #define ENSURE_LOG(cond, err, fmt, ...)                   \
     do {                                                  \

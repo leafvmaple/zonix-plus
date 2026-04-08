@@ -1,13 +1,7 @@
 #pragma once
 
 #include <asm/trap_numbers.h>
-
-inline constexpr int NR_EXIT = 1;
-inline constexpr int NR_READ = 3;
-inline constexpr int NR_WRITE = 4;
-inline constexpr int NR_OPEN = 5;
-inline constexpr int NR_CLOSE = 6;
-inline constexpr int NR_PAUSE = 29;
+#include <abi/syscall.h>
 
 // Syscall wrappers using C++ inline functions
 // nr: syscall number, returns the result or -1 on error

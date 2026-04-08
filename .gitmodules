@@ -1,0 +1,3 @@
+[submodule "user/zcc"]
+	path = user/zcc
+	url = https://github.com/leafvmaple/zcc.git
