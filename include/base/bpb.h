@@ -172,11 +172,11 @@ struct Fat32BootSector {
     uint8_t boot_code[420];       /* 0x5A: Boot code */
     uint16_t boot_signature_word; /* 0x1FE: Boot signature (0xAA55) */
 
-    inline bool is_valid() const {
+    [[nodiscard]] inline bool is_valid() const {
         return boot_signature_word == BOOT_SIGNATURE && boot_signature == BPB_BOOT_SIGNATURE;
     }
 
-    inline bool is_fat32() const { return is_valid() && total_sectors_32 != 0; }
+    [[nodiscard]] inline bool is_fat32() const { return is_valid() && total_sectors_32 != 0; }
 
 } __attribute__((packed));
 

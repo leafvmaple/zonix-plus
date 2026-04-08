@@ -46,7 +46,7 @@ volatile int64_t ticks = 0;
 namespace i8253 {
 
 int init() {
-    struct Timer time{};
+    struct Timer time {};
     int retries{};
     constexpr int MAX_CMOS_RETRIES = 1000;
 

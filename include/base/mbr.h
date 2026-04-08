@@ -36,8 +36,8 @@ struct MbrPartition {
     uint32_t start_lba;   /* Starting LBA address */
     uint32_t size;        /* Size in sectors */
 
-    inline bool is_gpt() const { return type == GPT_PROTECTIVE_MBR_TYPE; }
-    inline bool is_fat32() const { return type == PART_TYPE_FAT32 || type == PART_TYPE_FAT32_LBA; }
+    [[nodiscard]] inline bool is_gpt() const { return type == GPT_PROTECTIVE_MBR_TYPE; }
+    [[nodiscard]] inline bool is_fat32() const { return type == PART_TYPE_FAT32 || type == PART_TYPE_FAT32_LBA; }
 
 } __attribute__((packed));
 
@@ -46,7 +46,7 @@ struct MbrHeader {
     MbrPartition partitions[MBR_PARTITION_COUNT];
     uint16_t signature; /* 0xAA55 */
 
-    inline bool is_valid() const { return signature == MBR_SIGNATURE; }
+    [[nodiscard]] inline bool is_valid() const { return signature == MBR_SIGNATURE; }
 
 } __attribute__((packed));
 
