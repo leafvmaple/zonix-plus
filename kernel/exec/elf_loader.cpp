@@ -18,45 +18,22 @@ bool is_elf(const uint8_t* data, size_t size) {
         return false;
     }
     const auto* eh = reinterpret_cast<const ElfHdr*>(data);
-    return eh->e_magic == ELF_MAGIC;
+    return eh->is_valid();
 }
 
 Error validate(const ElfHdr* eh, size_t file_size) {
-    if (file_size < sizeof(ElfHdr)) {
-        cprintf("elf: file too small for ELF header (%d bytes)\n", file_size);
-        return Error::Invalid;
-    }
+    ENSURE_LOG(eh, Error::Invalid, "elf: null ELF header");
+    ENSURE_LOG(file_size >= sizeof(ElfHdr), Error::Invalid, "elf: file too small (%d bytes)", file_size);
 
-    if (eh->e_magic != ELF_MAGIC) {
-        cprintf("elf: bad magic: 0x%08x (expected 0x%08x)\n", eh->e_magic, ELF_MAGIC);
-        return Error::Invalid;
-    }
+    ENSURE_LOG(eh->is_valid(), Error::Invalid,
+               "elf: invalid ELF header (magic=0x%08x, class=%d, version=%d, machine=0x%04x)", eh->e_magic,
+               eh->e_elf[0], eh->e_version, eh->e_machine);
 
-    if (eh->e_elf[0] != 2) {
-        cprintf("elf: not a 64-bit ELF (class=%d)\n", eh->e_elf[0]);
-        return Error::Invalid;
-    }
-
-    if (eh->e_type != 2) {
-        cprintf("elf: not an executable (type=%d)\n", eh->e_type);
-        return Error::Invalid;
-    }
-
-    if (eh->e_machine != EM_CURRENT) {
-        cprintf("elf: wrong architecture (machine=0x%x, expected 0x%x)\n", eh->e_machine, EM_CURRENT);
-        return Error::Invalid;
-    }
-
-    if (eh->e_phoff == 0 || eh->e_phnum == 0) {
-        cprintf("elf: no program headers\n");
-        return Error::Invalid;
-    }
+    ENSURE_LOG(eh->is_executable(), Error::Invalid, "elf: not an executable ELF file");
 
     size_t ph_end = eh->e_phoff + static_cast<size_t>(eh->e_phnum) * eh->e_phentsize;
-    if (ph_end > file_size) {
-        cprintf("elf: program header table exceeds file size\n");
-        return Error::Invalid;
-    }
+    ENSURE_LOG(ph_end <= file_size, Error::Invalid,
+               "elf: program header table exceeds file size (end=0x%lx, file_size=0x%lx)", ph_end, file_size);
 
     return Error::None;
 }

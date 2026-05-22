@@ -2,6 +2,24 @@
 
 #include <base/types.h>
 
+inline constexpr uint32_t ELF_PT_LOAD = 1;
+
+inline constexpr uint32_t ELF_PF_X = 1;
+inline constexpr uint32_t ELF_PF_W = 2;
+inline constexpr uint32_t ELF_PF_R = 4;
+
+inline constexpr uint16_t EM_AARCH64 = 0xB7;
+inline constexpr uint16_t EM_RISCV = 0xF3;
+inline constexpr uint16_t EM_X86_64 = 0x3E;
+
+#if defined(__x86_64__) || defined(__i386__)
+inline constexpr uint16_t EM_CURRENT = EM_X86_64;
+#elif defined(__aarch64__)
+inline constexpr uint16_t EM_CURRENT = EM_AARCH64;
+#elif defined(__riscv)
+inline constexpr uint16_t EM_CURRENT = EM_RISCV;
+#endif
+
 inline constexpr uint32_t ELF_MAGIC = 0x464C457FU;
 
 struct ElfHdr64 {
@@ -20,6 +38,14 @@ struct ElfHdr64 {
     uint16_t e_shentsize;  // size of an entry in section header
     uint16_t e_shnum;      // number of entries in section header or 0
     uint16_t e_shstrndx;   // section number that contains section name strings
+
+    [[nodiscard]] inline bool is_valid() const {
+        return e_magic == ELF_MAGIC && e_elf[0] == 2 && e_version == 1 && e_machine == EM_CURRENT;
+    }
+
+    [[nodiscard]] inline bool is_executable() const {
+        return is_valid() && e_type == 2 && e_phoff != 0 && e_phnum != 0;
+    }
 };
 
 struct ProgHdr64 {
@@ -35,21 +61,3 @@ struct ProgHdr64 {
 
 using ElfHdr = ElfHdr64;
 using ProgHdr = ProgHdr64;
-
-inline constexpr uint32_t ELF_PT_LOAD = 1;
-
-inline constexpr uint32_t ELF_PF_X = 1;
-inline constexpr uint32_t ELF_PF_W = 2;
-inline constexpr uint32_t ELF_PF_R = 4;
-
-inline constexpr uint16_t EM_AARCH64 = 0xB7;
-inline constexpr uint16_t EM_RISCV = 0xF3;
-inline constexpr uint16_t EM_X86_64 = 0x3E;
-
-#if defined(__x86_64__) || defined(__i386__)
-inline constexpr uint16_t EM_CURRENT = EM_X86_64;
-#elif defined(__aarch64__)
-inline constexpr uint16_t EM_CURRENT = EM_AARCH64;
-#elif defined(__riscv)
-inline constexpr uint16_t EM_CURRENT = EM_RISCV;
-#endif
