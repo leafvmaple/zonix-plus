@@ -13,6 +13,19 @@ static int tests_failed = 0;
 // The first disk is the boot disk; the second is userdata.
 // ============================================================================
 
+// Count attached Disk-type block devices.
+static int count_disks() {
+    int count = BlockManager::get_device_count();
+    int disks = 0;
+    for (int i = 0; i < count; i++) {
+        BlockDevice* dev = BlockManager::get_device(i);
+        if (dev && dev->type == blk::DeviceType::Disk) {
+            disks++;
+        }
+    }
+    return disks;
+}
+
 static bool ensure_mnt_mounted() {
     if (vfs::is_mounted("/mnt")) {
         return true;
@@ -43,6 +56,14 @@ static bool ensure_mnt_mounted() {
 
 static void test_exec_zcc_hello() {
     TEST_START("exec — run ZHELLO.ELF from userdata disk");
+
+    // Some targets (e.g. aarch64/riscv64 single-disk QEMU configs) have no
+    // separate userdata disk. Skip the test in that case so CI still passes.
+    if (count_disks() < 2) {
+        cprintf("  [SKIP] no userdata disk attached\n");
+        TEST_END();
+        return;
+    }
 
     bool mounted = ensure_mnt_mounted();
     TEST_ASSERT(mounted, "Userdata disk mounted at /mnt");
