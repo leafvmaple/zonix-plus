@@ -18,13 +18,12 @@ Result<uint32_t> find_partition_start(BlockDevice* dev) {
     ENSURE_LOG(mbr.is_valid(), Error::BadFS, "fat_mount: invalid MBR boot signature: 0x%04x", mbr.signature);
 
     if (mbr.partitions[0].is_gpt()) {
-        uint8_t buf[512]{};
-        TRY_LOG(dev->read(1, buf, 1), "fat_mount: failed to read GPT header");
+        GptHeader gpt{};
+        TRY_LOG(dev->read(1, &gpt, 1), "fat_mount: failed to read GPT header");
 
-        auto* gpt = reinterpret_cast<GptHeader*>(buf);
-        ENSURE_LOG(gpt->is_valid(), Error::BadFS, "fat_mount: bad GPT signature");
+        ENSURE_LOG(gpt.is_valid(), Error::BadFS, "fat_mount: bad GPT signature");
 
-        int32_t esp_lba = gpt->find_esp_lba(
+        int32_t esp_lba = gpt.find_esp_lba(
             [dev](uint32_t lba, void* sector_buf) { return static_cast<int>(dev->read(lba, sector_buf, 1)); });
         ENSURE_LOG(esp_lba >= 0, Error::NotFound, "fat_mount: ESP partition not found");
 

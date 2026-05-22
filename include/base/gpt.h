@@ -63,6 +63,7 @@ struct GptHeader {
     uint32_t num_partition_entries;  // Number of partition entries
     uint32_t partition_entry_size;   // Size of each entry (usually 128)
     uint32_t partition_array_crc32;  // CRC32 of partition entry array
+    uint8_t reserved2[420];          // Reserved; (pad to 512 bytes)
 
     [[nodiscard]] bool is_valid() const { return signature == GPT_HEADER_SIGNATURE; }
 
