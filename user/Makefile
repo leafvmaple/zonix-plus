@@ -134,5 +134,15 @@ ifneq ($(ZCC_TARGET),)
   $(foreach p,$(ZCC_PROG_NAMES),$(eval $(call zcc_program_template,$(p))))
 endif
 
+# ---------- ABI contract check ----------
+# Both the kernel (include/abi/syscall.h) and the zcc runtime
+# (user/zcc/src/runtime/syscall.h) need to agree on syscall numbers, or
+# user programs compiled by zcc will hit the wrong handler. We keep two
+# physical files (zcc has to build standalone), so this script enforces
+# the contract before any user ELF is built.
+.PHONY: check-syscall-abi
+check-syscall-abi:
+	$(Q)bash scripts/check_syscall_abi_sync.sh
+
 # ---------- final user target (after all USER_ELFS have been collected) ----------
-user: $(USER_ELFS)
+user: check-syscall-abi $(USER_ELFS)
