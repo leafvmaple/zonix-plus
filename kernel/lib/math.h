@@ -2,18 +2,18 @@
 
 // Type trait for pointer detection
 template<typename T>
-struct is_pointer {
-    static constexpr bool value = false;
+struct IsPointer {
+    static constexpr bool VALUE = false;
 };
 template<typename T>
-struct is_pointer<T*> {
-    static constexpr bool value = true;
+struct IsPointer<T*> {
+    static constexpr bool VALUE = true;
 };
 
 // Helper to convert any type to uintptr_t
 template<typename T>
 inline uintptr_t to_uint(T a) {
-    if constexpr (is_pointer<T>::value) {
+    if constexpr (IsPointer<T>::VALUE) {
         return reinterpret_cast<uintptr_t>(a);
     } else {
         return static_cast<uintptr_t>(a);
@@ -23,7 +23,7 @@ inline uintptr_t to_uint(T a) {
 // Helper to convert uintptr_t back to original type
 template<typename T>
 inline T from_uint(uintptr_t val) {
-    if constexpr (is_pointer<T>::value) {
+    if constexpr (IsPointer<T>::VALUE) {
         return reinterpret_cast<T>(val);
     } else {
         return static_cast<T>(val);

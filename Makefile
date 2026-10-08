@@ -177,7 +177,7 @@ endif
 # ==========================================================================
 # Top-level targets
 # ==========================================================================
-.PHONY: all clean format lint compdb help FORCE check check-kernel-rules kernel-rule-config install-hooks
+.PHONY: all clean format lint compdb help FORCE check check-kernel-rules kernel-rule-config naming-boot-config naming-user-config install-hooks
 
 all: $(ALL_PREREQS)
 .DEFAULT_GOAL := all
@@ -198,6 +198,18 @@ check-kernel-rules:
 # Machine-readable compiler settings for the AST checker; no duplicated flags.
 kernel-rule-config:
 	@printf '%s\n' '$(CXX)' '$(CXXFLAGS)' '$(call listf_cxx,$(KSRCDIR))'
+
+# Boot firmware has different targets/flags; naming checks use its actual toolchains.
+naming-boot-config:
+ifeq ($(ARCH),x86)
+	@printf '%s\n' '$(CXX)' '$(BOOT_CXXFLAGS) $(BOOT_INC)' '$(BOOT_BIOS_DIR)/bootload.cpp'
+endif
+	@printf '%s\n' '$(UEFI_CXX)' '$(UEFI_CXXFLAGS)' '$(UEFI_COMMON_SRC) $(BOOT_UEFI_DIR)/bootload.cpp'
+
+naming-user-config:
+ifneq ($(strip $(foreach program,$(USER_PROGRAMS),$(wildcard $(USER_DIR)/$(program)/*.c))),)
+	@printf '%s\n' '$(CC)' '$(USER_CFLAGS)' '$(foreach program,$(USER_PROGRAMS),$(wildcard $(USER_DIR)/$(program)/*.c))'
+endif
 
 format:
 	@echo "  FORMAT  kernel/ arch/"
@@ -244,7 +256,7 @@ help:
 	@echo ""
 	@echo "Quality:"
 	@echo "  make install-hooks   Install mandatory local pre-commit checks (once per clone)"
-	@echo "  make check           Enforce kernel architecture and state ownership rules"
+	@echo "  make check           Enforce architecture, state ownership and project naming rules"
 	@echo "  make format          Run clang-format on all sources"
 	@echo "  make lint            Run clang-tidy on all sources"
 	@echo "  make compdb          Generate compile_commands.json (needs bear)"

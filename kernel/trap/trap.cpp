@@ -21,7 +21,7 @@ namespace {
 
 constexpr size_t SYSCALL_PATH_MAX = 128;
 
-int copy_user_cstr(TaskStruct* cur, const char* user, char* out, size_t out_size) {
+int copy_user_cstr(Task* cur, const char* user, char* out, size_t out_size) {
     if (!cur || !user || !out || out_size == 0) {
         return -1;
     }
@@ -51,7 +51,7 @@ int copy_user_cstr(TaskStruct* cur, const char* user, char* out, size_t out_size
     return -1;
 }
 
-long sys_open(TaskStruct* cur, const char* user_path, int flags, int mode) {
+long sys_open(Task* cur, const char* user_path, int flags, int mode) {
     static_cast<void>(flags);
     static_cast<void>(mode);
 
@@ -80,7 +80,7 @@ long sys_open(TaskStruct* cur, const char* user_path, int flags, int mode) {
 
 enum class FileIo { Read, Write };
 
-long sys_file_io(TaskStruct* cur, int fd, uintptr_t user_buf, size_t count, FileIo operation) {
+long sys_file_io(Task* cur, int fd, uintptr_t user_buf, size_t count, FileIo operation) {
     if (count == 0) {
         return 0;
     }
@@ -129,21 +129,21 @@ long sys_file_io(TaskStruct* cur, int fd, uintptr_t user_buf, size_t count, File
     return failed && done == 0 ? -1 : static_cast<long>(done);
 }
 
-long sys_read(TaskStruct* cur, int fd, void* user_buf, size_t count) {
+long sys_read(Task* cur, int fd, void* user_buf, size_t count) {
     if (!cur) {
         return -1;
     }
     return sys_file_io(cur, fd, reinterpret_cast<uintptr_t>(user_buf), count, FileIo::Read);
 }
 
-long sys_close(TaskStruct* cur, int fd) {
+long sys_close(Task* cur, int fd) {
     if (!cur) {
         return -1;
     }
     return cur->files().close(fd) == Error::None ? 0 : -1;
 }
 
-long sys_write(TaskStruct* cur, int fd, const char* user_buf, size_t count) {
+long sys_write(Task* cur, int fd, const char* user_buf, size_t count) {
     return sys_file_io(cur, fd, reinterpret_cast<uintptr_t>(user_buf), count, FileIo::Write);
 }
 
@@ -165,7 +165,7 @@ int handle_page_fault(TrapFrame* tf, uint32_t err, uintptr_t fault_addr) {
     tf->print();
     tf->print_pgfault();
 
-    TaskStruct* current = sched::current();
+    Task* current = sched::current();
     if (!current || !current->memory) {
         return -1;
     }
@@ -179,7 +179,7 @@ bool handle_syscall(TrapFrame* tf) {
     }
 
     int nr = static_cast<int>(tf->syscall_nr());
-    TaskStruct* cur = sched::current();
+    Task* cur = sched::current();
 
     switch (nr) {
         case NR_EXIT:
@@ -236,7 +236,7 @@ extern "C" void trap_dispatch(TrapFrame* tf) {
             if (err & 4) {
                 sched::exit(-1);
             }
-            panic("unrecoverable kernel page fault at 0x%lx", fault_addr);
+            PANIC("unrecoverable kernel page fault at 0x%lx", fault_addr);
         }
         trap::arch_post_dispatch(tf);
     } else if (trap::arch_is_syscall(tf)) {
@@ -252,7 +252,7 @@ extern "C" void trap_dispatch(TrapFrame* tf) {
         trap::arch_post_dispatch(tf);
     }
 
-    TaskStruct* cur = sched::current();
+    Task* cur = sched::current();
     if (cur && cur->need_resched) {
         sched::schedule();
     }

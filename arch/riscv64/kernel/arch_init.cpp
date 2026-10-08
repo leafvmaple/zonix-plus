@@ -61,7 +61,7 @@ const InitStep* arch_pci_steps(size_t* count) {
     return PCI_STEPS;
 }
 
-void arch_switch_rsp0(uintptr_t sp0) {
+void arch_set_kernel_stack(uintptr_t sp0) {
     __asm__ volatile("csrw sscratch, %0" : : "r"(sp0) : "memory");
 }
 

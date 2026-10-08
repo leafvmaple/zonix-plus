@@ -46,8 +46,8 @@ inline T* phys_to_virt(uintptr_t pa) {
     return reinterpret_cast<T*>(pa + KERNEL_BASE);
 }
 
-template<typename TFunc>
-inline void iterate_pages(uintptr_t va, size_t size, TFunc&& func) {
+template<typename Callback>
+inline void iterate_pages(uintptr_t va, size_t size, Callback&& func) {
     while (size > 0) {
         size_t offset = va & PG_MASK;
         size_t chunk = PG_SIZE - offset;

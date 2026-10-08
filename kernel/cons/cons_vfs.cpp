@@ -43,6 +43,6 @@ vfs::File* create_console_file() {
 
 struct ConsoleDevRegistrar {
     ConsoleDevRegistrar() { vfs::register_char_dev("console", create_console_file); }
-} s_console_registrar;
+} console_registrar;
 
 }  // namespace

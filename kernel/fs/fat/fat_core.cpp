@@ -15,13 +15,13 @@ Result<uint32_t> find_partition_start(BlockDevice* dev) {
     MbrHeader mbr{};
     TRY_LOG(dev->read(0, &mbr, 1), "fat_mount: failed to read sector 0");
 
-    ENSURE_LOG(mbr.is_valid(), Error::BadFS, "fat_mount: invalid MBR boot signature: 0x%04x", mbr.signature);
+    ENSURE_LOG(mbr.is_valid(), Error::BadFs, "fat_mount: invalid MBR boot signature: 0x%04x", mbr.signature);
 
     if (mbr.partitions[0].is_gpt()) {
         GptHeader gpt{};
         TRY_LOG(dev->read(1, &gpt, 1), "fat_mount: failed to read GPT header");
 
-        ENSURE_LOG(gpt.is_valid(), Error::BadFS, "fat_mount: bad GPT signature");
+        ENSURE_LOG(gpt.is_valid(), Error::BadFs, "fat_mount: bad GPT signature");
 
         int32_t esp_lba = gpt.find_esp_lba(
             [dev](uint32_t lba, void* sector_buf) { return static_cast<int>(dev->read(lba, sector_buf, 1)); });
@@ -74,7 +74,7 @@ Error FatInfo::mount(BlockDevice* dev) {
     Fat32BootSector bs{};
     TRY_LOG(dev->read(part_start, &bs, 1), "fat_mount: failed to read boot sector at LBA %d", part_start);
 
-    ENSURE_LOG(bs.is_fat32(), Error::BadFS, "fat_mount: invalid boot signature: 0x%04x", bs.boot_signature_word);
+    ENSURE_LOG(bs.is_fat32(), Error::BadFs, "fat_mount: invalid boot signature: 0x%04x", bs.boot_signature_word);
 
     do_init_state(dev, part_start, bs);
 

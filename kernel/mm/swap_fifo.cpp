@@ -26,7 +26,7 @@ Error SwapManager::swap_out_victim(MemoryDesc* mm, Page** page_ptr, int in_tick)
         return Error::NotFound;
     }
 
-    ListNode* victim = mm->swap_list.get_next();
+    ListNode* victim = mm->swap_list.next_node();
 
     // Remove from list
     victim->unlink();

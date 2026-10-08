@@ -229,11 +229,11 @@ PIT 中断 (每 10ms, IRQ0)
         │
         ├─ sched::tick()
         │   └─ TaskManager::tick()
-        │       ├─ if (!s_current) return
-        │       ├─ if (s_current == idle) return
-        │       ├─ s_current->time_slice--
+        │       ├─ if (!current_) return
+        │       ├─ if (current_ == idle) return
+        │       ├─ current_->time_slice--
         │       └─ if (time_slice <= 0)
-        │           s_current->need_resched = 1  ── 标记需要调度
+        │           current_->need_resched = 1  ── 标记需要调度
         │
         ├─ if (cur->need_resched)
         │   └─ sched::schedule()                 ── 触发调度 ↓
@@ -276,13 +276,13 @@ TaskManager::schedule()
 │         └─ prio 20 (最低) → ~1 tick  (10ms)
 │
 ├─ Step 5: 上下文切换
-│   if (next != s_current)
-│     ├─ s_current->state = Runnable     ── 当前进程入就绪队列
-│     ├─ s_current->need_resched = 0
+│   if (next != current_)
+│     ├─ current_->state = Runnable     ── 当前进程入就绪队列
+│     ├─ current_->need_resched = 0
 │     └─ next->run()
 │         ├─ set_current(next)
 │         ├─ next->state = Running
-│         ├─ arch_load_cr3(next->cr3)    ── 切换页表
+│         ├─ arch_load_page_table_root(next->page_table_root_pa())    ── 切换页表
 │         ├─ tss::set_rsp0(next->kstack) ── 更新 Ring0 栈
 │         └─ switch_to(&prev->ctx, &next->ctx)
 │             ├─ 保存 prev: rip,rsp,rbx,rbp,r12-r15

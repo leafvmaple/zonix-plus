@@ -12,12 +12,12 @@ namespace pci {
 
 // PCI configuration space register offsets
 enum ConfigOffset : uint8_t {
-    VENDOR_ID = 0x00,
-    COMMAND = 0x04,
-    CLASS_REVISION = 0x08,
-    BAR0 = 0x10,
-    BAR1 = 0x14,
-    CAP_PTR = 0x34,
+    VendorId = 0x00,
+    Command = 0x04,
+    ClassRevision = 0x08,
+    Bar0 = 0x10,
+    Bar1 = 0x14,
+    CapabilitiesPointer = 0x34,
 };
 
 // PCI command register bits

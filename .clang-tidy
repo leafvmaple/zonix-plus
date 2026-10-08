@@ -41,9 +41,9 @@ Checks: >
   readability-static-accessed-through-instance,
   readability-uppercase-literal-suffix,
 
-WarningsAsErrors: ''
+WarningsAsErrors: 'readability-identifier-naming'
 
-HeaderFilterRegex: '(kernel|boot|include)/.*\.(h|hpp)$'
+HeaderFilterRegex: '(kernel|boot|include|arch)/.*\.(h|hpp)$'
 
 CheckOptions:
   # --- Namespace: lowercase ---
@@ -62,11 +62,15 @@ CheckOptions:
   - key: readability-identifier-naming.EnumConstantCase
     value: CamelCase
 
-  # --- Type alias: CamelCase or lower_case_t ---
+  # Project aliases are types; preserve only canonical runtime/container names.
   - key: readability-identifier-naming.TypeAliasCase
-    value: aNy_CasE
+    value: CamelCase
   - key: readability-identifier-naming.TypedefCase
-    value: aNy_CasE
+    value: CamelCase
+  - key: readability-identifier-naming.TypeAliasIgnoredRegexp
+    value: '^(u?int(8|16|32|64|ptr)_t|size_t|va_list|p[dt]e_t|iterator|const_iterator|reverse_iterator|const_reverse_iterator|value_type|size_type|difference_type|pointer|const_pointer|reference|const_reference)$'
+  - key: readability-identifier-naming.TypedefIgnoredRegexp
+    value: '^(p[dt]e_t|va_list)$'
 
   # --- Functions / Methods: lower_case ---
   - key: readability-identifier-naming.FunctionCase
@@ -102,26 +106,21 @@ CheckOptions:
   - key: readability-identifier-naming.ProtectedMemberSuffix
     value: '_'
 
-  # --- Static class members: lower_case with s_ prefix ---
+  # Singleton mutable state is private and follows the same member suffix.
   - key: readability-identifier-naming.ClassMemberCase
     value: lower_case
-  - key: readability-identifier-naming.ClassMemberPrefix
-    value: 's_'
-  
-  - key: readability-identifier-naming.StructMemberCase
-    value: lower_case
-  - key: readability-identifier-naming.StructMemberPrefix
-    value: ''
-  - key: readability-identifier-naming.PublicStructMemberPrefix
-    value: ''
-  - key: readability-identifier-naming.PrivateStructMemberPrefix
-    value: ''
+  - key: readability-identifier-naming.ClassMemberSuffix
+    value: '_'
 
-  # --- Constants / constexpr: UPPER_CASE ---
+  # Scope determines constant naming; local constexpr values remain locals.
   - key: readability-identifier-naming.ConstexprVariableCase
+    value: lower_case
+  - key: readability-identifier-naming.GlobalConstexprVariableCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.ClassConstexprCase
     value: UPPER_CASE
   - key: readability-identifier-naming.StaticConstantCase
-    value: UPPER_CASE
+    value: lower_case
   - key: readability-identifier-naming.ClassConstantCase
     value: UPPER_CASE
   - key: readability-identifier-naming.GlobalConstantCase
@@ -139,9 +138,13 @@ CheckOptions:
   - key: readability-identifier-naming.MacroDefinitionCase
     value: UPPER_CASE
 
-  # --- Template parameters: CamelCase ---
-  - key: readability-identifier-naming.TemplateParameterCase
+  # Types and compile-time values have distinct forms.
+  - key: readability-identifier-naming.TypeTemplateParameterCase
     value: CamelCase
+  - key: readability-identifier-naming.TemplateTemplateParameterCase
+    value: CamelCase
+  - key: readability-identifier-naming.ValueTemplateParameterCase
+    value: UPPER_CASE
 
   # --- modernize-use-auto: conservative (only iterators etc.) ---
   - key: modernize-use-auto.MinTypeNameLength

@@ -51,10 +51,10 @@ static inline bool arch_irq_is_enabled(void) {
 /* ------------------------------------------------------------------ */
 
 /*
- * arch_load_cr3 — Write the satp register (Sv39 mode, root page table PA).
+ * arch_load_page_table_root — Write the satp register (Sv39 mode, root page table PA).
  * Caller must pass a value already formatted by MAKE_SATP().
  */
-static inline void arch_load_cr3(uintptr_t satp_val) {
+static inline void arch_load_page_table_root(uintptr_t satp_val) {
     __asm__ volatile("csrw satp, %0\n\t"
                      "sfence.vma"
                      :
@@ -62,24 +62,20 @@ static inline void arch_load_cr3(uintptr_t satp_val) {
                      : "memory");
 }
 
-static inline uintptr_t arch_read_cr3(void) {
+static inline uintptr_t arch_read_page_table_root(void) {
     uintptr_t v;
     __asm__ volatile("csrr %0, satp" : "=r"(v));
     return v;
 }
 
 /*
- * arch_read_cr2 — Fault address (stval on RISC-V).
+ * arch_fault_address — Fault address (stval on RISC-V).
  * Valid for page-fault exceptions; may be 0 for other traps.
  */
-static inline uintptr_t arch_read_cr2(void) {
+static inline uintptr_t arch_fault_address(void) {
     uintptr_t v;
     __asm__ volatile("csrr %0, stval" : "=r"(v));
     return v;
-}
-
-static inline uintptr_t arch_fault_addr(void) {
-    return arch_read_cr2();
 }
 
 /* Shoot a single virtual page from the TLB. */
@@ -191,7 +187,7 @@ struct InitStep {
 const InitStep* arch_early_steps(size_t* count);
 const InitStep* arch_pci_steps(size_t* count);
 
-void arch_switch_rsp0(uintptr_t sp0);
+void arch_set_kernel_stack(uintptr_t sp0);
 
 void arch_irq_eoi(int irq);
 

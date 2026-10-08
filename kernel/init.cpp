@@ -20,9 +20,9 @@ extern int test_run_all(void*);
 
 // Call C++ global constructors registered in .init_array
 extern "C" {
-using ctor_func = void (*)();
-extern ctor_func __init_array_start[];
-extern ctor_func __init_array_end[];
+using InitFunction = void (*)();
+extern InitFunction __init_array_start[];
+extern InitFunction __init_array_end[];
 }
 
 static void cxx_init() {

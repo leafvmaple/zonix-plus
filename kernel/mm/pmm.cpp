@@ -30,14 +30,23 @@ namespace {
 class Factory {
 public:
     static int init() {
-        s_allocator.init();
-        cprintf("pmm: allocator = %s\n", s_allocator.get_name());
+        allocator_.init();
+        cprintf("pmm: allocator = %s\n", allocator_.name());
         return 0;
     }
 
-    inline static PageAllocator s_allocator{};
-    inline static Page* s_page_desc{};
-    inline static uint32_t s_page_count{};
+    static PageAllocator& allocator() { return allocator_; }
+    static Page* page_descriptors() { return page_desc_; }
+    static uint32_t page_count() { return page_count_; }
+    static void set_page_descriptors(Page* pages, uint32_t count) {
+        page_desc_ = pages;
+        page_count_ = count;
+    }
+
+private:
+    inline static PageAllocator allocator_{};
+    inline static Page* page_desc_{};
+    inline static uint32_t page_count_{};
 };
 
 constexpr int PAGE_REF_INIT = 1;
@@ -182,7 +191,7 @@ inline size_t page_num(uintptr_t addr) {
 }
 
 uintptr_t pmm::page_to_phys(Page* page) {
-    return static_cast<uintptr_t>((page - Factory::s_page_desc) << PG_SHIFT);
+    return static_cast<uintptr_t>((page - Factory::page_descriptors()) << PG_SHIFT);
 }
 
 void* pmm::page_to_kva(Page* page) {
@@ -190,7 +199,7 @@ void* pmm::page_to_kva(Page* page) {
 }
 
 Page* pmm::phys_to_page(uintptr_t pa) {
-    return Factory::s_page_desc + page_num(pa);
+    return Factory::page_descriptors() + page_num(pa);
 }
 
 Page* pmm::kva_to_page(void* kva) {
@@ -199,12 +208,12 @@ Page* pmm::kva_to_page(void* kva) {
 
 Page* pmm::alloc_pages(size_t n /*= 1*/) {
     intr::Guard guard;
-    return Factory::s_allocator.alloc(n);
+    return Factory::allocator().alloc(n);
 }
 
 void pmm::free_pages(Page* base, size_t n /*= 1*/) {
     intr::Guard guard;
-    Factory::s_allocator.free(base, n);
+    Factory::allocator().free(base, n);
 }
 
 /*
@@ -271,22 +280,23 @@ static int page_init() {
 
     extern uint8_t KERNEL_END[];
 
-    Factory::s_page_count = page_num(round_up(max_pa, PG_SIZE));
-    if (Factory::s_page_count == 0) {
+    uint32_t page_count = page_num(round_up(max_pa, PG_SIZE));
+    if (page_count == 0) {
         cprintf("pmm: max physical address too small (0x%lx)\n", static_cast<uint64_t>(max_pa));
         return -1;
     }
 
-    Factory::s_page_desc = reinterpret_cast<Page*>(round_up(reinterpret_cast<void*>(KERNEL_END), PG_SIZE));
+    Factory::set_page_descriptors(reinterpret_cast<Page*>(round_up(reinterpret_cast<void*>(KERNEL_END), PG_SIZE)),
+                                  page_count);
 
-    cprintf("pmm: %d pages, page array at [0x%p], max_pa=0x%lx\n", Factory::s_page_count, Factory::s_page_desc,
+    cprintf("pmm: %d pages, page array at [0x%p], max_pa=0x%lx\n", Factory::page_count(), Factory::page_descriptors(),
             static_cast<uint64_t>(max_pa));
 
-    for (uint32_t i = 0; i < Factory::s_page_count; i++) {
-        Factory::s_page_desc[i].set_reserved();
+    for (uint32_t i = 0; i < Factory::page_count(); i++) {
+        Factory::page_descriptors()[i].set_reserved();
     }
 
-    uintptr_t valid_mem = virt_to_phys(reinterpret_cast<uintptr_t>(Factory::s_page_desc + Factory::s_page_count));
+    uintptr_t valid_mem = virt_to_phys(reinterpret_cast<uintptr_t>(Factory::page_descriptors() + Factory::page_count()));
     traverse_boot_mmap([valid_mem](uint64_t addr, uint64_t size, uint32_t type) {
         if (type != BOOT_MEM_AVAILABLE)
             return;
@@ -297,14 +307,14 @@ static int page_init() {
             return;
 
         cprintf("pmm: free region [0x%016lx, 0x%016lx]\n", static_cast<uint64_t>(begin), static_cast<uint64_t>(limit));
-        Factory::s_allocator.init_memmap(pmm::phys_to_page(begin), page_num(limit - begin));
+        Factory::allocator().init_memmap(pmm::phys_to_page(begin), page_num(limit - begin));
     });
 
     return 0;
 }
 
 void pmm::tlb_invl(pde_t* pgdir, uintptr_t la) {
-    if (arch_read_cr3() == virt_to_phys(pgdir)) {
+    if (arch_read_page_table_root() == virt_to_phys(pgdir)) {
         arch_invlpg(reinterpret_cast<void*>(la));
     }
 }
@@ -344,7 +354,7 @@ void pmm::free_user_pgdir(pde_t* pgdir) {
 
         pde_t* child = phys_to_virt<pde_t>(pte_addr(entry));
         free_user_pt_subtree(child, USER_PT_SUBTREE_DEPTH);
-        pmm::free_pages(phys_to_page(pte_addr(entry)));
+        pmm::free_pages(pmm::phys_to_page(pte_addr(entry)));
     }
 
     kfree(pgdir);
@@ -383,7 +393,7 @@ int pmm::init() {
         return rc;
     }
 
-    size_t free_pages = Factory::s_allocator.free_page_count();
+    size_t free_pages = Factory::allocator().free_page_count();
     if (free_pages == 0) {
         cprintf("pmm: no free pages after initialization\n");
         return -1;

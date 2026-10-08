@@ -48,7 +48,7 @@ namespace i8253 {
 int init() {
     struct Timer time {};
     int retries{};
-    constexpr int MAX_CMOS_RETRIES = 1000;
+    constexpr int max_cmos_retries = 1000;
 
     do {
         time.tm_sec = cmos_read(0);
@@ -57,8 +57,8 @@ int init() {
         time.tm_mday = cmos_read(7);
         time.tm_mon = cmos_read(8);
         time.tm_year = cmos_read(9);
-        if (++retries > MAX_CMOS_RETRIES) {
-            cprintf("i8253: CMOS read unstable after %d retries\n", MAX_CMOS_RETRIES);
+        if (++retries > max_cmos_retries) {
+            cprintf("i8253: CMOS read unstable after %d retries\n", max_cmos_retries);
             return -1;
         }
     } while (time.tm_sec != cmos_read(0));

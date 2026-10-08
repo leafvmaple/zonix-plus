@@ -15,7 +15,7 @@ void test();
 namespace {
 
 static void run_generic_disktest() {
-    int count = BlockManager::get_device_count();
+    int count = BlockManager::device_count();
     if (count == 0) {
         cprintf("No block devices found\n");
         return;
@@ -23,7 +23,7 @@ static void run_generic_disktest() {
 
     cprintf("\n=== Generic Disk Read Test ===\n");
     for (int i = 0; i < count; i++) {
-        BlockDevice* dev = BlockManager::get_device(i);
+        BlockDevice* dev = BlockManager::find_device(i);
         if (!dev || dev->type != blk::DeviceType::Disk) {
             continue;
         }
@@ -36,7 +36,7 @@ static void run_generic_disktest() {
 }
 
 static void run_generic_intrtest() {
-    int count = BlockManager::get_device_count();
+    int count = BlockManager::device_count();
     if (count == 0) {
         cprintf("No block devices found\n");
         return;
@@ -46,7 +46,7 @@ static void run_generic_intrtest() {
     cprintf("Reading sector 0 to exercise each driver's normal I/O completion path.\n");
 
     for (int i = 0; i < count; i++) {
-        BlockDevice* dev = BlockManager::get_device(i);
+        BlockDevice* dev = BlockManager::find_device(i);
         if (!dev || dev->type != blk::DeviceType::Disk) {
             continue;
         }
@@ -94,7 +94,7 @@ void cmd_schedtest(int argc, char** argv) {
     sched::test();
 }
 
-void register_test_command(const char* name, const char* desc, shell::fnCommand func) {
+void register_test_command(const char* name, const char* desc, shell::CommandCallback func) {
     if (shell::register_command(name, desc, func) != 0) {
         cprintf("shell test ext: failed to register '%s'\n", name);
     }

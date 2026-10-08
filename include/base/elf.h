@@ -15,7 +15,7 @@ inline constexpr uint16_t EM_X86_64 = 0x3E;
 
 inline constexpr uint32_t ELF_MAGIC = 0x464C457FU;
 
-struct ElfHdr64 {
+struct ElfHeader64 {
     uint32_t e_magic;  // must equal ELF_MAGIC
     uint8_t e_elf[12];
     uint16_t e_type;       // 1=relocatable, 2=executable, 3=shared object, 4=core image
@@ -41,7 +41,7 @@ struct ElfHdr64 {
     }
 };
 
-struct ProgHdr64 {
+struct ProgramHeader64 {
     uint32_t p_type;    // loadable code or data, dynamic linking info,etc.
     uint32_t p_flags;   // read/write/execute bits
     uint64_t p_offset;  // file offset of segment
@@ -52,5 +52,5 @@ struct ProgHdr64 {
     uint64_t p_align;   // required alignment
 };
 
-using ElfHdr = ElfHdr64;
-using ProgHdr = ProgHdr64;
+using ElfHeader = ElfHeader64;
+using ProgramHeader = ProgramHeader64;

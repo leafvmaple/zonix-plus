@@ -11,25 +11,25 @@ namespace cmd {
 
 namespace {
 
-const char* s_mnt_device{};
-int s_mnt_mounted{};
+const char* mounted_device{};
+int mount_is_active{};
 
 }  // namespace
 
 const char* mnt_device() {
-    return s_mnt_device;
+    return mounted_device;
 }
 
 int mnt_mounted() {
-    return s_mnt_mounted;
+    return mount_is_active;
 }
 
 void set_mnt_device(const char* name) {
-    s_mnt_device = name;
+    mounted_device = name;
 }
 
 void set_mnt_mounted(int val) {
-    s_mnt_mounted = val;
+    mount_is_active = val;
 }
 
 int build_path(const char* filename, int use_mnt, char* out, size_t out_size) {
@@ -61,14 +61,14 @@ static void cmd_hdparm(int argc, char** argv) {
     static_cast<void>(argc);
     static_cast<void>(argv);
 
-    int count = BlockManager::get_device_count();
+    int count = BlockManager::device_count();
     if (count == 0) {
         cprintf("No disk devices found\n");
         return;
     }
 
     for (int i = 0; i < count; i++) {
-        BlockDevice* dev = BlockManager::get_device(i);
+        BlockDevice* dev = BlockManager::find_device(i);
         if (!dev || dev->type != blk::DeviceType::Disk)
             continue;
 
@@ -84,8 +84,8 @@ static void cmd_dd(int argc, char** argv) {
 }
 
 static void cmd_mount(int argc, char** argv) {
-    if (s_mnt_mounted || vfs::is_mounted("/mnt")) {
-        const char* mounted = s_mnt_device ? s_mnt_device : vfs::mounted_device("/mnt");
+    if (mount_is_active || vfs::is_mounted("/mnt")) {
+        const char* mounted = mounted_device ? mounted_device : vfs::mounted_device("/mnt");
         cprintf("Device already mounted at /mnt: %s\n", mounted ? mounted : "(unknown)");
         cprintf("Use 'umount' to unmount first\n");
         return;
@@ -105,7 +105,7 @@ static void cmd_mount(int argc, char** argv) {
         return;
     }
 
-    BlockDevice* dev = BlockManager::get_device(dev_name);
+    BlockDevice* dev = BlockManager::find_device(dev_name);
     if (!dev) {
         cprintf("Device not found: %s\n", dev_name);
         cprintf("Use 'lsblk' to see available devices\n");
@@ -115,8 +115,8 @@ static void cmd_mount(int argc, char** argv) {
     cprintf("Mounting %s at /mnt...\n", dev->name);
 
     if (vfs::mount("/mnt", dev, "fat") == Error::None) {
-        s_mnt_device = dev->name;
-        s_mnt_mounted = 1;
+        mounted_device = dev->name;
+        mount_is_active = 1;
         cprintf("Successfully mounted %s at /mnt\n", dev->name);
     } else {
         cprintf("Failed to mount file system\n");
@@ -128,10 +128,10 @@ static void cmd_umount(int argc, char** argv) {
     static_cast<void>(argc);
     static_cast<void>(argv);
 
-    if (!s_mnt_mounted || !vfs::is_mounted("/mnt")) {
+    if (!mount_is_active || !vfs::is_mounted("/mnt")) {
         cprintf("Nothing mounted at /mnt\n");
-        s_mnt_mounted = 0;
-        s_mnt_device = nullptr;
+        mount_is_active = 0;
+        mounted_device = nullptr;
         return;
     }
 
@@ -140,9 +140,9 @@ static void cmd_umount(int argc, char** argv) {
         return;
     }
 
-    cprintf("Unmounting %s from /mnt...\n", s_mnt_device);
-    s_mnt_device = nullptr;
-    s_mnt_mounted = 0;
+    cprintf("Unmounting %s from /mnt...\n", mounted_device);
+    mounted_device = nullptr;
+    mount_is_active = 0;
     cprintf("Successfully unmounted /mnt\n");
 }
 
@@ -163,9 +163,9 @@ static void cmd_info(int argc, char** argv) {
     cprintf("  Mount Point: /\n");
     vfs::print_mount_info("/");
 
-    if (s_mnt_mounted) {
+    if (mount_is_active) {
         cprintf("\n/mnt Information:\n");
-        cprintf("  Device: %s\n", s_mnt_device);
+        cprintf("  Device: %s\n", mounted_device);
         cprintf("  Mount Point: /mnt\n");
         vfs::print_mount_info("/mnt");
     }

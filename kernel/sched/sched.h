@@ -13,7 +13,7 @@ namespace vfs {
 class File;
 }
 
-enum class ProcessState : uint8_t {
+enum class TaskState : uint8_t {
     Uninit = 0,    // uninitialized
     Sleeping = 1,  // sleeping (blocked, waiting for event)
     Runnable = 2,  // runnable (might be in run queue)
@@ -22,29 +22,29 @@ enum class ProcessState : uint8_t {
 };
 
 namespace sched_prio {
-inline constexpr int MAX_PRIO = 0;    // Highest priority
+inline constexpr int HIGHEST_PRIORITY = 0;    // Highest priority
 inline constexpr int DEFAULT = 10;    // Normal processes
-inline constexpr int MIN_PRIO = 20;   // Lowest priority
+inline constexpr int LOWEST_PRIORITY = 20;   // Lowest priority
 inline constexpr int IDLE_PRIO = 31;  // Idle process only
 
 inline constexpr int BASE_TIMESLICE = 10;  // 100ms default
 }  // namespace sched_prio
 
-struct TaskStruct;
+struct Task;
 
 class SchedulerPolicy {
 public:
-    [[nodiscard]] const char* get_name() const;
+    [[nodiscard]] const char* name() const;
     [[nodiscard]] int calc_time_slice(int priority) const;
-    void tick(TaskStruct* current, TaskStruct* idle) const;
-    [[nodiscard]] TaskStruct* pick_next(ListNode& proc_list, TaskStruct* idle);
+    void tick(Task* current, Task* idle) const;
+    [[nodiscard]] Task* pick_next(ListNode& proc_list, Task* idle);
 
 private:
     ListNode* cursor_{};
 };
 
 // Process control block - modeling Linux's task_struct
-struct TaskStruct {
+struct Task {
     static constexpr size_t KSTACK_SIZE = 4096;  // 4KB kernel stack
 
     int pid{};  // Process ID
@@ -53,9 +53,9 @@ private:
     char name_[32]{};                // Process name
     Context context_{};              // Process context for switching
     uintptr_t kernel_stack_{};       // Kernel stack bottom
-    volatile ProcessState state_{};  // Process state
+    volatile TaskState state_{};  // Process state
     fd::Table files_{};
-    friend struct TaskStructAccess;
+    friend struct TaskAccess;
 
 public:
     MemoryDesc* memory{};     // Memory management
@@ -68,7 +68,7 @@ public:
     int exit_code{};        // Exit code (for zombie processes)
     uint32_t wait_state{};  // Waiting state
 
-    TaskStruct* parent{};   // Parent process
+    Task* parent{};   // Parent process
     ListNode child_list{};  // Head of child process list
 
     // Scheduling fields
@@ -82,27 +82,27 @@ public:
     void mark_running();
     void mark_zombie(int code);
     void set_name(const char* name);
-    [[nodiscard]] ProcessState get_state() const { return state_; }
-    [[nodiscard]] uintptr_t get_cr3() const;
+    [[nodiscard]] TaskState state() const { return state_; }
+    [[nodiscard]] uintptr_t page_table_root_pa() const;
 
     void copy_mm(uint32_t clone_flags);
-    void copy_thread(uintptr_t esp, TrapFrame* src_tf);
+    void copy_thread(uintptr_t stack_pointer, TrapFrame* src_tf);
     int setup_kernel_stack();
     [[nodiscard]] fd::Table& files() { return files_; }
     [[nodiscard]] const fd::Table& files() const { return files_; }
 
     ListNode* node() { return &list_node; }
 
-    static TaskStruct* from_list_link(ListNode* node) {
-        return reinterpret_cast<TaskStruct*>(reinterpret_cast<char*>(node) - offset_of(&TaskStruct::list_node));
+    static Task* from_list_link(ListNode* node) {
+        return reinterpret_cast<Task*>(reinterpret_cast<char*>(node) - offset_of(&Task::list_node));
     }
 
-    static TaskStruct* from_hash_link(ListNode* node) {
-        return reinterpret_cast<TaskStruct*>(reinterpret_cast<char*>(node) - offset_of(&TaskStruct::hash_node));
+    static Task* from_hash_link(ListNode* node) {
+        return reinterpret_cast<Task*>(reinterpret_cast<char*>(node) - offset_of(&Task::hash_node));
     }
 
-    static TaskStruct* from_child_link(ListNode* node) {
-        return reinterpret_cast<TaskStruct*>(reinterpret_cast<char*>(node) - offset_of(&TaskStruct::child_node));
+    static Task* from_child_link(ListNode* node) {
+        return reinterpret_cast<Task*>(reinterpret_cast<char*>(node) - offset_of(&Task::child_node));
     }
 
     void set_links();
@@ -117,24 +117,22 @@ public:
     static constexpr int HASH_SHIFT = 10;
     static constexpr size_t HASH_LIST_SIZE = 1 << HASH_SHIFT;
 
-    inline static ListNode s_proc_list{};
-    inline static ListNode s_hash_list[HASH_LIST_SIZE]{};
-
-    inline static TaskStruct* s_idle_proc{};  // Idle process (PID 0)
-    inline static TaskStruct* s_init_proc{};  // Init process (PID 1)
-    inline static int s_process_count{};      // Number of processes
-
     static int init();
 
-    static inline ListNode& get_hash_node(int pid) { return s_hash_list[pid_hash(pid)]; }
+    static ListNode& task_list() { return proc_list_; }
+    static Task* idle_task() { return idle_proc_; }
+    static Task* init_task() { return init_proc_; }
+    static int process_count() { return process_count_; }
 
-    static inline TaskStruct* get_current() { return s_current; }
-    static inline void set_current(TaskStruct* proc) { s_current = proc; }
+    static inline ListNode& hash_node(int pid) { return hash_list_[pid_hash(pid)]; }
 
-    static void add_process(TaskStruct* proc);
-    static void remove_process(TaskStruct* proc);
+    static inline Task* current() { return current_; }
+    static inline void set_current(Task* proc) { current_ = proc; }
 
-    static TaskStruct* find_proc(int pid);
+    static void add_process(Task* proc);
+    static void remove_process(Task* proc);
+
+    static Task* find_process(int pid);
 
     static void print();
     static void print_stats();
@@ -148,18 +146,24 @@ public:
     static Result<int> wait(int pid, int* code_store);
 
 private:
-    inline static TaskStruct* s_current{};
-    inline static SchedulerPolicy s_policy{};
-    inline static int s_next_pid = 1;
+    friend struct Task;
+    inline static ListNode proc_list_{};
+    inline static ListNode hash_list_[HASH_LIST_SIZE]{};
+    inline static Task* idle_proc_{};  // Idle process (PID 0)
+    inline static Task* init_proc_{};  // Init process (PID 1)
+    inline static int process_count_{};
+    inline static Task* current_{};
+    inline static SchedulerPolicy policy_{};
+    inline static int next_pid_ = 1;
 
     // Scheduler telemetry counters (monotonic since boot)
-    inline static uint64_t s_tick_count{};
-    inline static uint64_t s_schedule_calls{};
-    inline static uint64_t s_need_resched_events{};
-    inline static uint64_t s_context_switches{};
-    inline static uint64_t s_same_task_runs{};
-    inline static uint64_t s_pick_idle{};
-    inline static uint64_t s_pick_non_idle{};
+    inline static uint64_t tick_count_{};
+    inline static uint64_t schedule_calls_{};
+    inline static uint64_t need_resched_events_{};
+    inline static uint64_t context_switches_{};
+    inline static uint64_t same_task_runs_{};
+    inline static uint64_t pick_idle_{};
+    inline static uint64_t pick_non_idle_{};
 
     static uint32_t pid_hash(int x);
 
@@ -179,8 +183,8 @@ Result<int> kernel_thread(int (*fn)(void*), void* arg);
 int exit(int error_code);
 Result<int> wait(int pid, int* code_store);
 
-TaskStruct* current();
-TaskStruct* find_proc(int pid);
+Task* current();
+Task* find_process(int pid);
 void print();
 void print_stats();
 

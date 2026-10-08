@@ -10,7 +10,7 @@ static int tests_failed = 0;
 
 static int list_count(ListNode* head) {
     int n = 0;
-    for (auto* le = head->get_next(); le != head; le = le->get_next())
+    for (auto* le = head->next_node(); le != head; le = le->next_node())
         n++;
     return n;
 }
@@ -25,8 +25,8 @@ static void test_init_and_empty() {
     ListNode head{};
 
     TEST_ASSERT(head.empty(), "Freshly initialized list is empty");
-    TEST_ASSERT(head.get_next() == &head, "next points to self");
-    TEST_ASSERT(head.get_prev() == &head, "prev points to self");
+    TEST_ASSERT(head.next_node() == &head, "next points to self");
+    TEST_ASSERT(head.previous_node() == &head, "prev points to self");
     TEST_ASSERT(list_count(&head) == 0, "Count is 0");
 
     TEST_END();
@@ -45,13 +45,13 @@ static void test_add() {
     head.add(a);
 
     TEST_ASSERT(!head.empty(), "List not empty after add");
-    TEST_ASSERT(head.get_next() == &a, "head->next is a");
-    TEST_ASSERT(a.get_next() == &head, "a->next is head");
+    TEST_ASSERT(head.next_node() == &a, "head->next is a");
+    TEST_ASSERT(a.next_node() == &head, "a->next is head");
     TEST_ASSERT(list_count(&head) == 1, "Count is 1");
 
     head.add(b);
-    TEST_ASSERT(head.get_next() == &b, "head->next is b after second add");
-    TEST_ASSERT(b.get_next() == &a, "b->next is a");
+    TEST_ASSERT(head.next_node() == &b, "head->next is b after second add");
+    TEST_ASSERT(b.next_node() == &a, "b->next is a");
     TEST_ASSERT(list_count(&head) == 2, "Count is 2");
 
     head.add(c);
@@ -72,15 +72,15 @@ static void test_add_before() {
     ListNode a, b, c;
 
     head.add_before(a);
-    TEST_ASSERT(head.get_prev() == &a, "a is before head (tail)");
-    TEST_ASSERT(head.get_next() == &a, "a is also after head (only element)");
+    TEST_ASSERT(head.previous_node() == &a, "a is before head (tail)");
+    TEST_ASSERT(head.next_node() == &a, "a is also after head (only element)");
 
     head.add_before(b);
-    TEST_ASSERT(head.get_prev() == &b, "b is now tail");
-    TEST_ASSERT(a.get_next() == &b, "a->next is b");
+    TEST_ASSERT(head.previous_node() == &b, "b is now tail");
+    TEST_ASSERT(a.next_node() == &b, "a->next is b");
 
     head.add_before(c);
-    TEST_ASSERT(head.get_prev() == &c, "c is now tail");
+    TEST_ASSERT(head.previous_node() == &c, "c is now tail");
     TEST_ASSERT(list_count(&head) == 3, "Count is 3");
 
     TEST_END();
@@ -104,11 +104,11 @@ static void test_unlink() {
 
     b.unlink();
     TEST_ASSERT(list_count(&head) == 2, "After unlink b, count is 2");
-    TEST_ASSERT(c.get_next() == &a, "c->next is a (b removed)");
+    TEST_ASSERT(c.next_node() == &a, "c->next is a (b removed)");
 
     a.unlink();
     TEST_ASSERT(list_count(&head) == 1, "After unlink a, count is 1");
-    TEST_ASSERT(head.get_next() == &c, "Only c remains");
+    TEST_ASSERT(head.next_node() == &c, "Only c remains");
 
     c.unlink();
     TEST_ASSERT(head.empty(), "List empty after removing all");
@@ -132,7 +132,7 @@ static void test_fifo_order() {
 
     int idx = 0;
     bool correct_order = true;
-    for (auto* le = head.get_next(); le != &head; le = le->get_next()) {
+    for (auto* le = head.next_node(); le != &head; le = le->next_node()) {
         if (le != &nodes[idx]) {
             correct_order = false;
             break;
@@ -161,7 +161,7 @@ static void test_lifo_order() {
 
     int idx = 4;
     bool correct_order = true;
-    for (auto* le = head.get_next(); le != &head; le = le->get_next()) {
+    for (auto* le = head.next_node(); le != &head; le = le->next_node()) {
         if (le != &nodes[idx]) {
             correct_order = false;
             break;
@@ -192,7 +192,7 @@ static void test_unlink_readd() {
 
     head.add_before(a);
     TEST_ASSERT(list_count(&head) == 2, "Count 2 after re-add");
-    TEST_ASSERT(head.get_prev() == &a, "a is at tail after add_before");
+    TEST_ASSERT(head.previous_node() == &a, "a is at tail after add_before");
 
     TEST_END();
 }

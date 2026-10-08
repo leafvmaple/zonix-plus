@@ -7,10 +7,10 @@
 namespace rootfs {
 
 int init() {
-    int count = BlockManager::get_device_count();
+    int count = BlockManager::device_count();
 
     for (int i = 0; i < count; i++) {
-        BlockDevice* dev = BlockManager::get_device(i);
+        BlockDevice* dev = BlockManager::find_device(i);
         if (!dev || dev->type != blk::DeviceType::Disk) {
             continue;
         }

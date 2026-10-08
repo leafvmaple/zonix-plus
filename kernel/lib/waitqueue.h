@@ -3,8 +3,8 @@
 #include "lib/list.h"
 #include "lib/spinlock.h"
 
-struct TaskStruct;
-enum class ProcessState : uint8_t;
+struct Task;
+enum class TaskState : uint8_t;
 
 class WaitQueue {
 public:

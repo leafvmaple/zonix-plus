@@ -8,17 +8,17 @@ void BlockManager::init() {
 }
 
 void BlockManager::register_device(BlockDevice* device) {
-    if (!s_devices.push_back(device)) {
+    if (!devices_.push_back(device)) {
         cprintf("BlockManager::register_device: too many devices\n");
     }
 }
 
-BlockDevice* BlockManager::get_device(const char* device_name) {
+BlockDevice* BlockManager::find_device(const char* device_name) {
     if (!device_name) {
         return nullptr;
     }
 
-    for (BlockDevice* dev : s_devices) {
+    for (BlockDevice* dev : devices_) {
         if (dev && strcmp(dev->name, device_name) == 0) {
             return dev;
         }
@@ -26,15 +26,15 @@ BlockDevice* BlockManager::get_device(const char* device_name) {
     return nullptr;
 }
 
-BlockDevice* BlockManager::get_device(int index) {
-    if (index < 0 || static_cast<size_t>(index) >= s_devices.size()) {
+BlockDevice* BlockManager::find_device(int index) {
+    if (index < 0 || static_cast<size_t>(index) >= devices_.size()) {
         return nullptr;
     }
-    return s_devices[index];
+    return devices_[index];
 }
 
-BlockDevice* BlockManager::get_device(blk::DeviceType type) {
-    for (BlockDevice* dev : s_devices) {
+BlockDevice* BlockManager::find_device(blk::DeviceType type) {
+    for (BlockDevice* dev : devices_) {
         if (dev && dev->type == type) {
             return dev;
         }
@@ -42,8 +42,8 @@ BlockDevice* BlockManager::get_device(blk::DeviceType type) {
     return nullptr;
 }
 
-int BlockManager::get_device_count() {
-    return static_cast<int>(s_devices.size());
+int BlockManager::device_count() {
+    return static_cast<int>(devices_.size());
 }
 
 void BlockDevice::print_info() {
@@ -55,8 +55,8 @@ void BlockDevice::print_info() {
 void BlockManager::print() {
     cprintf("NAME   MAJ:MIN RM  SIZE RO TYPE MOUNTPOINTS\n");
 
-    for (size_t i = 0; i < s_devices.size(); i++) {
-        BlockDevice* dev = s_devices[i];
+    for (size_t i = 0; i < devices_.size(); i++) {
+        BlockDevice* dev = devices_[i];
         if (dev) {
             const char* type_string = "disk";
             const char* mount_string = "";
@@ -87,7 +87,7 @@ int init() {
         return rc;
     }
 
-    int count = BlockManager::get_device_count();
+    int count = BlockManager::device_count();
     cprintf("blk: %d device(s) registered (before PCI probe)\n", count);
     return 0;
 }

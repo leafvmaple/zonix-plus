@@ -7,7 +7,7 @@
 
 extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_table) {
     const UefiBootConfig cfg = {
-        .banner = UEFI_STR(L"\r\nZonix UEFI Bootloader (x86_64) v1.0\r\n\r\n"),
+        .banner = uefi_string(L"\r\nZonix UEFI Bootloader (x86_64) v1.0\r\n\r\n"),
         .loader_name = "Zonix UEFI",
         .kernel_virt_base = 0xFFFFFFFF80000000ULL,
         .boot_info_addr = SAFE_BOOT_INFO_ADDR,

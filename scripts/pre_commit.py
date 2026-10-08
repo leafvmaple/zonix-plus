@@ -10,13 +10,16 @@ import tempfile
 
 ARCHES = ("x86", "aarch64", "riscv64")
 REQUIRED = ("scripts/check_kernel_rules.py", "scripts/kernel_rule_exceptions.json",
-            "scripts/tests/test_kernel_rules.py", "Makefile")
+            "scripts/naming_exceptions.json", "scripts/tests/test_kernel_rules.py",
+            "scripts/tests/test_naming_rules.py", "docs/NAMING.md", ".clang-tidy", "Makefile")
 
 
 def relevant(path):
-    return path.startswith(("kernel/", "arch/", "include/", ".githooks/", "scripts/tests/")) or path in {
+    return (path.startswith(("kernel/", "arch/", "include/", "boot/", "user/", ".githooks/", "scripts/tests/"))
+            and not path.startswith("user/zcc/")) or path in {
         "Makefile", "AGENTS.md", "scripts/check_kernel_rules.py",
         "scripts/kernel_rule_exceptions.json", "scripts/pre_commit.py",
+        "scripts/naming_exceptions.json", "docs/NAMING.md", ".clang-tidy",
     }
 
 
@@ -45,7 +48,7 @@ def check_index(repo, index=None):
             print("Pre-commit: required harness files are missing from the index; "
                   "stage them with the change:\n  " + "\n  ".join(missing), file=sys.stderr)
             return 1
-        print("Pre-commit: checking staged snapshot (x86, aarch64, riscv64)", flush=True)
+        print("Pre-commit: checking staged architecture, state and naming rules (x86, aarch64, riscv64)", flush=True)
         commands = [[sys.executable, "-m", "unittest", "discover", "-s", "scripts/tests",
                      "-p", "test_*.py"]]
         commands.extend(["make", "check", f"ARCH={arch}"] for arch in ARCHES)

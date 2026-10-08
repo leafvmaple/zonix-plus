@@ -71,17 +71,17 @@ static void test_builtin_commands_registered() {
         "help", "pgdir", "clear",  "lsblk", "hdparm", "dd",  "uname",
         "ps",   "mount", "umount", "info",  "ls",     "cat", "exec",
     };
-    constexpr int N = sizeof(builtins) / sizeof(builtins[0]);
+    constexpr int command_count = sizeof(builtins) / sizeof(builtins[0]);
 
     int registered = 0;
-    for (int i = 0; i < N; i++) {
+    for (int i = 0; i < command_count; i++) {
         int rc = shell::register_command(builtins[i], "probe", dummy_cmd_a);
         if (rc != 0) {
             registered++;
         }
     }
 
-    TEST_ASSERT(registered == N, "All 14 builtin names already registered");
+    TEST_ASSERT(registered == command_count, "All 14 builtin names already registered");
 
     TEST_END();
 }

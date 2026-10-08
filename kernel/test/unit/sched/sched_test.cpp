@@ -7,8 +7,8 @@
 // External symbols
 extern long user_stack[];
 
-struct TaskStructAccess {
-    static uintptr_t kernel_stack(const TaskStruct* proc) { return proc->kernel_stack_; }
+struct TaskAccess {
+    static uintptr_t kernel_stack(const Task* proc) { return proc->kernel_stack_; }
 };
 
 // Test statistics
@@ -17,18 +17,18 @@ static int tests_failed = 0;
 
 #define TEST_START(name)            \
     cprintf("\n[TEST] %s\n", name); \
-    int __test_result = 1;
+    int zonix_test_result = 1;
 
 #define TEST_ASSERT(cond, msg)         \
     if (!(cond)) {                     \
         cprintf("  [FAIL] %s\n", msg); \
-        __test_result = 0;             \
+        zonix_test_result = 0;             \
     } else {                           \
         cprintf("  [OK] %s\n", msg);   \
     }
 
 #define TEST_END()               \
-    if (__test_result) {         \
+    if (zonix_test_result) {         \
         cprintf("  [PASSED]\n"); \
         tests_passed++;          \
     } else {                     \
@@ -36,10 +36,10 @@ static int tests_failed = 0;
         tests_failed++;          \
     }
 
-// Helper: set up a test TaskStruct so it won't crash the scheduler.
-// The real scheduler calls get_cr3() which asserts memory->pgdir != nullptr.
+// Helper: set up a test Task so it won't crash the scheduler.
+// The real scheduler calls page_table_root_pa() which asserts memory->pgdir != nullptr.
 // Without this, a timer interrupt during the test would panic the kernel.
-static void init_test_proc(TaskStruct* proc, int pid) {
+static void init_test_proc(Task* proc, int pid) {
     proc->pid = pid;
     proc->memory = &vmm::Manager::kernel_mm();
     proc->priority = sched_prio::IDLE_PRIO;
@@ -54,24 +54,24 @@ static void test_process_creation() {
     TEST_START("Process Creation");
 
     // Create a new process
-    TaskStruct* proc = new TaskStruct();
-    TEST_ASSERT(proc != nullptr, "TaskStruct allocation succeeds");
+    Task* proc = new Task();
+    TEST_ASSERT(proc != nullptr, "Task allocation succeeds");
 
     // Check default state
-    TEST_ASSERT(proc->get_state() == ProcessState::Uninit, "Initial state is Uninit");
+    TEST_ASSERT(proc->state() == TaskState::Uninit, "Initial state is Uninit");
     TEST_ASSERT(proc->pid == 0, "Initial PID is 0");
     TEST_ASSERT(proc->parent == nullptr, "Initial parent is nullptr");
-    TEST_ASSERT(TaskStructAccess::kernel_stack(proc) == 0, "Initial kernel stack is 0");
+    TEST_ASSERT(TaskAccess::kernel_stack(proc) == 0, "Initial kernel stack is 0");
     TEST_ASSERT(proc->memory == nullptr, "Initial memory is nullptr");
 
     // Setup kernel stack
     int ret = proc->setup_kernel_stack();
     TEST_ASSERT(ret == 0, "Kernel stack setup succeeds");
-    TEST_ASSERT(TaskStructAccess::kernel_stack(proc) != 0, "Kernel stack is allocated");
+    TEST_ASSERT(TaskAccess::kernel_stack(proc) != 0, "Kernel stack is allocated");
     TEST_ASSERT(proc->child_list.empty(), "Child list is empty after init");
 
     // Clean up - free the kernel stack
-    kfree(reinterpret_cast<void*>(TaskStructAccess::kernel_stack(proc)));
+    kfree(reinterpret_cast<void*>(TaskAccess::kernel_stack(proc)));
     delete proc;
 
     TEST_END();
@@ -84,19 +84,19 @@ static void test_process_creation() {
 static void test_process_state_transitions() {
     TEST_START("Process State Transitions");
 
-    TaskStruct* proc = new TaskStruct();
+    Task* proc = new Task();
 
     // Test initial state
-    TEST_ASSERT(proc->get_state() == ProcessState::Uninit, "Initial state is Uninit");
+    TEST_ASSERT(proc->state() == TaskState::Uninit, "Initial state is Uninit");
 
     // Transition: Uninit -> Runnable (via wakeup)
     proc->sleep();  // Set to sleeping first
     proc->wakeup();
-    TEST_ASSERT(proc->get_state() == ProcessState::Runnable, "wakeup() sets state to Runnable");
+    TEST_ASSERT(proc->state() == TaskState::Runnable, "wakeup() sets state to Runnable");
 
     // Multiple wakeup calls should keep it Runnable
     proc->wakeup();
-    TEST_ASSERT(proc->get_state() == ProcessState::Runnable, "Multiple wakeup() keeps state Runnable");
+    TEST_ASSERT(proc->state() == TaskState::Runnable, "Multiple wakeup() keeps state Runnable");
 
     delete proc;
 
@@ -110,12 +110,12 @@ static void test_process_state_transitions() {
 static void test_process_list_management() {
     TEST_START("Process List Management");
 
-    int initial_count = TaskManager::s_process_count;
+    int initial_count = TaskManager::process_count();
 
     // Create test processes
-    TaskStruct* proc1 = new TaskStruct();
-    TaskStruct* proc2 = new TaskStruct();
-    TaskStruct* proc3 = new TaskStruct();
+    Task* proc1 = new Task();
+    Task* proc2 = new Task();
+    Task* proc3 = new Task();
 
     init_test_proc(proc1, 100);
     init_test_proc(proc2, 101);
@@ -123,42 +123,42 @@ static void test_process_list_management() {
 
     // Add processes
     TaskManager::add_process(proc1);
-    TEST_ASSERT(TaskManager::s_process_count == initial_count + 1, "Process count increases after add");
+    TEST_ASSERT(TaskManager::process_count() == initial_count + 1, "Process count increases after add");
 
     TaskManager::add_process(proc2);
     TaskManager::add_process(proc3);
-    TEST_ASSERT(TaskManager::s_process_count == initial_count + 3, "Process count correct after adding 3");
+    TEST_ASSERT(TaskManager::process_count() == initial_count + 3, "Process count correct after adding 3");
 
     // Find processes
-    TaskStruct* found = TaskManager::find_proc(100);
-    TEST_ASSERT(found == proc1, "find_proc returns correct process (PID 100)");
+    Task* found = TaskManager::find_process(100);
+    TEST_ASSERT(found == proc1, "find_process returns correct process (PID 100)");
 
-    found = TaskManager::find_proc(101);
-    TEST_ASSERT(found == proc2, "find_proc returns correct process (PID 101)");
+    found = TaskManager::find_process(101);
+    TEST_ASSERT(found == proc2, "find_process returns correct process (PID 101)");
 
-    found = TaskManager::find_proc(102);
-    TEST_ASSERT(found == proc3, "find_proc returns correct process (PID 102)");
+    found = TaskManager::find_process(102);
+    TEST_ASSERT(found == proc3, "find_process returns correct process (PID 102)");
 
-    found = TaskManager::find_proc(999);
-    TEST_ASSERT(found == nullptr, "find_proc returns nullptr for non-existent PID");
+    found = TaskManager::find_process(999);
+    TEST_ASSERT(found == nullptr, "find_process returns nullptr for non-existent PID");
 
-    found = TaskManager::find_proc(0);
-    TEST_ASSERT(found == nullptr, "find_proc returns nullptr for PID 0");
+    found = TaskManager::find_process(0);
+    TEST_ASSERT(found == nullptr, "find_process returns nullptr for PID 0");
 
-    found = TaskManager::find_proc(-1);
-    TEST_ASSERT(found == nullptr, "find_proc returns nullptr for negative PID");
+    found = TaskManager::find_process(-1);
+    TEST_ASSERT(found == nullptr, "find_process returns nullptr for negative PID");
 
     // Remove processes
     TaskManager::remove_process(proc2);
-    TEST_ASSERT(TaskManager::s_process_count == initial_count + 2, "Process count decreases after remove");
+    TEST_ASSERT(TaskManager::process_count() == initial_count + 2, "Process count decreases after remove");
 
-    found = TaskManager::find_proc(101);
+    found = TaskManager::find_process(101);
     TEST_ASSERT(found == nullptr, "Removed process not found");
 
     // Clean up remaining processes
     TaskManager::remove_process(proc1);
     TaskManager::remove_process(proc3);
-    TEST_ASSERT(TaskManager::s_process_count == initial_count, "Process count restored after cleanup");
+    TEST_ASSERT(TaskManager::process_count() == initial_count, "Process count restored after cleanup");
 
     delete proc1;
     delete proc2;
@@ -174,22 +174,22 @@ static void test_process_list_management() {
 static void test_hash_table() {
     TEST_START("Hash Table Functionality");
 
-    int initial_count = TaskManager::s_process_count;
+    int initial_count = TaskManager::process_count();
 
     // Create processes with different PIDs that may hash to same/different buckets
-    TaskStruct* procs[10];
+    Task* procs[10];
     for (int i = 0; i < 10; i++) {
-        procs[i] = new TaskStruct();
+        procs[i] = new Task();
         init_test_proc(procs[i], 1000 + i * 17);
         TaskManager::add_process(procs[i]);
     }
 
-    TEST_ASSERT(TaskManager::s_process_count == initial_count + 10, "10 processes added");
+    TEST_ASSERT(TaskManager::process_count() == initial_count + 10, "10 processes added");
 
     // Verify all can be found
     bool all_found = true;
     for (int i = 0; i < 10; i++) {
-        TaskStruct* found = TaskManager::find_proc(1000 + i * 17);
+        Task* found = TaskManager::find_process(1000 + i * 17);
         if (found != procs[i]) {
             all_found = false;
             break;
@@ -199,11 +199,11 @@ static void test_hash_table() {
 
     // Remove and verify
     TaskManager::remove_process(procs[5]);
-    TaskStruct* found = TaskManager::find_proc(1000 + 5 * 17);
+    Task* found = TaskManager::find_process(1000 + 5 * 17);
     TEST_ASSERT(found == nullptr, "Removed process not found in hash table");
 
     // Other processes still findable
-    found = TaskManager::find_proc(1000 + 4 * 17);
+    found = TaskManager::find_process(1000 + 4 * 17);
     TEST_ASSERT(found == procs[4], "Adjacent process still findable after removal");
 
     // Clean up
@@ -214,7 +214,7 @@ static void test_hash_table() {
         delete procs[i];
     }
 
-    TEST_ASSERT(TaskManager::s_process_count == initial_count, "Process count restored");
+    TEST_ASSERT(TaskManager::process_count() == initial_count, "Process count restored");
 
     TEST_END();
 }
@@ -226,16 +226,16 @@ static void test_hash_table() {
 static void test_parent_child_relationships() {
     TEST_START("Parent-Child Relationships");
 
-    int initial_count = TaskManager::s_process_count;
+    int initial_count = TaskManager::process_count();
 
     // Create parent process
-    TaskStruct* parent = new TaskStruct();
+    Task* parent = new Task();
     init_test_proc(parent, 200);
     TaskManager::add_process(parent);
 
     // Create child processes
-    TaskStruct* child1 = new TaskStruct();
-    TaskStruct* child2 = new TaskStruct();
+    Task* child1 = new Task();
+    Task* child2 = new Task();
 
     init_test_proc(child1, 201);
     init_test_proc(child2, 202);
@@ -255,7 +255,7 @@ static void test_parent_child_relationships() {
     // Verify children through list traversal
     int child_count = 0;
     ListNode* head = &parent->child_list;
-    for (auto* le = head->get_next(); le != head; le = le->get_next()) {
+    for (auto* le = head->next_node(); le != head; le = le->next_node()) {
         child_count++;
     }
     TEST_ASSERT(child_count == 2, "Parent has 2 children in list");
@@ -278,7 +278,7 @@ static void test_parent_child_relationships() {
     delete child2;
     delete parent;
 
-    TEST_ASSERT(TaskManager::s_process_count == initial_count, "Process count restored");
+    TEST_ASSERT(TaskManager::process_count() == initial_count, "Process count restored");
 
     TEST_END();
 }
@@ -291,19 +291,19 @@ static void test_idle_init_processes() {
     TEST_START("Idle and Init Processes");
 
     // Verify idle process
-    TEST_ASSERT(TaskManager::s_idle_proc != nullptr, "Idle process exists");
-    TEST_ASSERT(TaskManager::s_idle_proc->pid == 0, "Idle process has PID 0");
+    TEST_ASSERT(TaskManager::idle_task() != nullptr, "Idle process exists");
+    TEST_ASSERT(TaskManager::idle_task()->pid == 0, "Idle process has PID 0");
 
     // Verify init process
-    TEST_ASSERT(TaskManager::s_init_proc != nullptr, "Init process exists");
-    TEST_ASSERT(TaskManager::s_init_proc->pid == 1, "Init process has PID 1");
+    TEST_ASSERT(TaskManager::init_task() != nullptr, "Init process exists");
+    TEST_ASSERT(TaskManager::init_task()->pid == 1, "Init process has PID 1");
 
     // Verify current process
-    TaskStruct* current = TaskManager::get_current();
+    Task* current = TaskManager::current();
     TEST_ASSERT(current != nullptr, "Current process is set");
 
     // Verify init is child of idle (or has idle as parent based on fork)
-    TEST_ASSERT(TaskManager::s_init_proc->parent == TaskManager::s_idle_proc, "Init process parent is idle");
+    TEST_ASSERT(TaskManager::init_task()->parent == TaskManager::idle_task(), "Init process parent is idle");
 
     TEST_END();
 }
@@ -317,8 +317,8 @@ static void test_context_structure() {
 
     Context ctx{};
 
-    TEST_ASSERT(ctx.get_entry() == 0, "Context entry initialized to 0");
-    TEST_ASSERT(ctx.get_stack() == 0, "Context stack initialized to 0");
+    TEST_ASSERT(ctx.entry() == 0, "Context entry initialized to 0");
+    TEST_ASSERT(ctx.stack() == 0, "Context stack initialized to 0");
     bool zero = true;
     const auto* bytes = reinterpret_cast<const uint8_t*>(&ctx);
     for (size_t i = 0; i < sizeof(ctx); ++i) {
@@ -328,8 +328,8 @@ static void test_context_structure() {
 
     ctx.set_entry(0x12345678);
     ctx.set_stack(0xDEADBEEF);
-    TEST_ASSERT(ctx.get_entry() == 0x12345678, "Context entry set correctly");
-    TEST_ASSERT(ctx.get_stack() == 0xDEADBEEF, "Context stack set correctly");
+    TEST_ASSERT(ctx.entry() == 0x12345678, "Context entry set correctly");
+    TEST_ASSERT(ctx.stack() == 0xDEADBEEF, "Context stack set correctly");
 
     TEST_END();
 }
@@ -341,28 +341,28 @@ static void test_context_structure() {
 static void test_process_destruction() {
     TEST_START("Process Destruction");
 
-    int initial_count = TaskManager::s_process_count;
+    int initial_count = TaskManager::process_count();
 
     // Create a process with kernel stack
-    TaskStruct* proc = new TaskStruct();
+    Task* proc = new Task();
     init_test_proc(proc, 300);
 
     int ret = proc->setup_kernel_stack();
     TEST_ASSERT(ret == 0, "Kernel stack allocated for destruction test");
 
-    uintptr_t kstack_addr = TaskStructAccess::kernel_stack(proc);
+    uintptr_t kstack_addr = TaskAccess::kernel_stack(proc);
     TEST_ASSERT(kstack_addr != 0, "Kernel stack address is non-zero");
     TEST_ASSERT(kstack_addr != reinterpret_cast<uintptr_t>(user_stack), "Kernel stack is not boot stack");
 
     TaskManager::add_process(proc);
-    TEST_ASSERT(TaskManager::s_process_count == initial_count + 1, "Process added");
+    TEST_ASSERT(TaskManager::process_count() == initial_count + 1, "Process added");
 
     // Simulate destruction (without calling destroy() which would delete)
     TaskManager::remove_process(proc);
-    TEST_ASSERT(TaskManager::s_process_count == initial_count, "Process removed from list");
+    TEST_ASSERT(TaskManager::process_count() == initial_count, "Process removed from list");
 
     // Free kernel stack manually
-    kfree(reinterpret_cast<void*>(TaskStructAccess::kernel_stack(proc)));
+    kfree(reinterpret_cast<void*>(TaskAccess::kernel_stack(proc)));
     delete proc;
 
     TEST_END();
@@ -375,12 +375,12 @@ static void test_process_destruction() {
 static void test_scheduler_selection() {
     TEST_START("Scheduler Process Selection");
 
-    int initial_count = TaskManager::s_process_count;
+    int initial_count = TaskManager::process_count();
 
     // Create multiple processes with different states
-    TaskStruct* proc1 = new TaskStruct();
-    TaskStruct* proc2 = new TaskStruct();
-    TaskStruct* proc3 = new TaskStruct();
+    Task* proc1 = new Task();
+    Task* proc2 = new Task();
+    Task* proc3 = new Task();
 
     init_test_proc(proc1, 500);
     init_test_proc(proc2, 501);
@@ -396,18 +396,18 @@ static void test_scheduler_selection() {
     TaskManager::add_process(proc3);
 
     // Verify process states
-    TEST_ASSERT(proc1->get_state() == ProcessState::Sleeping, "proc1 is Sleeping");
-    TEST_ASSERT(proc2->get_state() == ProcessState::Runnable, "proc2 is Runnable");
-    TEST_ASSERT(proc3->get_state() == ProcessState::Runnable, "proc3 is Runnable");
+    TEST_ASSERT(proc1->state() == TaskState::Sleeping, "proc1 is Sleeping");
+    TEST_ASSERT(proc2->state() == TaskState::Runnable, "proc2 is Runnable");
+    TEST_ASSERT(proc3->state() == TaskState::Runnable, "proc3 is Runnable");
 
     // Test that schedule would select first runnable process
     // We can't call schedule() directly as it would switch context,
     // so we simulate the selection logic
-    TaskStruct* next = TaskManager::s_idle_proc;
-    ListNode* head = &TaskManager::s_proc_list;
-    for (auto* le = head->get_next(); le != head; le = le->get_next()) {
-        TaskStruct* proc = TaskStruct::from_list_link(le);
-        if (proc->get_state() == ProcessState::Runnable) {
+    Task* next = TaskManager::idle_task();
+    ListNode* head = &TaskManager::task_list();
+    for (auto* le = head->next_node(); le != head; le = le->next_node()) {
+        Task* proc = Task::from_list_link(le);
+        if (proc->state() == TaskState::Runnable) {
             next = proc;
             break;
         }
@@ -415,7 +415,7 @@ static void test_scheduler_selection() {
 
     // The first runnable in our test processes should be found
     // (Note: idle/init are also in the list, so we just verify a runnable is selected)
-    TEST_ASSERT(next->get_state() == ProcessState::Runnable, "Scheduler selects a runnable process");
+    TEST_ASSERT(next->state() == TaskState::Runnable, "Scheduler selects a runnable process");
 
     // Clean up
     TaskManager::remove_process(proc1);
@@ -426,7 +426,7 @@ static void test_scheduler_selection() {
     delete proc2;
     delete proc3;
 
-    TEST_ASSERT(TaskManager::s_process_count == initial_count, "Process count restored");
+    TEST_ASSERT(TaskManager::process_count() == initial_count, "Process count restored");
 
     TEST_END();
 }
@@ -438,19 +438,19 @@ static void test_scheduler_selection() {
 static void test_process_state_scheduling() {
     TEST_START("Process State During Scheduling");
 
-    TaskStruct* current = TaskManager::get_current();
+    Task* current = TaskManager::current();
     TEST_ASSERT(current != nullptr, "Current process exists");
 
     // Current process should be Running
-    TEST_ASSERT(current->get_state() == ProcessState::Running || current->get_state() == ProcessState::Runnable,
+    TEST_ASSERT(current->state() == TaskState::Running || current->state() == TaskState::Runnable,
                 "Current process is Running or Runnable");
 
     // Verify idle process state
-    TEST_ASSERT(TaskManager::s_idle_proc != nullptr, "Idle process exists");
+    TEST_ASSERT(TaskManager::idle_task() != nullptr, "Idle process exists");
 
     // Verify init process state
-    TEST_ASSERT(TaskManager::s_init_proc != nullptr, "Init process exists");
-    TEST_ASSERT(TaskManager::s_init_proc->get_state() != ProcessState::Zombie, "Init process is not Zombie");
+    TEST_ASSERT(TaskManager::init_task() != nullptr, "Init process exists");
+    TEST_ASSERT(TaskManager::init_task()->state() != TaskState::Zombie, "Init process is not Zombie");
 
     TEST_END();
 }
@@ -462,42 +462,42 @@ static void test_process_state_scheduling() {
 static void test_runnable_queue() {
     TEST_START("Runnable Queue Behavior");
 
-    int initial_count = TaskManager::s_process_count;
+    int initial_count = TaskManager::process_count();
 
     // Create processes and add to runnable queue
-    constexpr int NUM_PROCS = 5;
-    TaskStruct* procs[NUM_PROCS];
+    constexpr int process_count = 5;
+    Task* procs[process_count];
 
-    for (int i = 0; i < NUM_PROCS; i++) {
-        procs[i] = new TaskStruct();
+    for (int i = 0; i < process_count; i++) {
+        procs[i] = new Task();
         init_test_proc(procs[i], 600 + i);
         procs[i]->wakeup();
         TaskManager::add_process(procs[i]);
     }
 
-    TEST_ASSERT(TaskManager::s_process_count == initial_count + NUM_PROCS, "All processes added to queue");
+    TEST_ASSERT(TaskManager::process_count() == initial_count + process_count, "All processes added to queue");
 
     // Count runnable processes (excluding our test procs, count only new ones)
     int runnable_count = 0;
-    ListNode* head = &TaskManager::s_proc_list;
-    for (auto* le = head->get_next(); le != head; le = le->get_next()) {
-        TaskStruct* proc = TaskStruct::from_list_link(le);
-        if (proc->get_state() == ProcessState::Runnable) {
+    ListNode* head = &TaskManager::task_list();
+    for (auto* le = head->next_node(); le != head; le = le->next_node()) {
+        Task* proc = Task::from_list_link(le);
+        if (proc->state() == TaskState::Runnable) {
             runnable_count++;
         }
     }
-    TEST_ASSERT(runnable_count >= NUM_PROCS, "At least NUM_PROCS runnable processes");
+    TEST_ASSERT(runnable_count >= process_count, "At least process_count runnable processes");
 
     // Set some to sleeping, verify they won't be scheduled
     procs[0]->sleep();
     procs[2]->sleep();
 
     runnable_count = 0;
-    for (auto* le = head->get_next(); le != head; le = le->get_next()) {
-        TaskStruct* proc = TaskStruct::from_list_link(le);
+    for (auto* le = head->next_node(); le != head; le = le->next_node()) {
+        Task* proc = Task::from_list_link(le);
         // Only count our test procs
-        if (proc->pid >= 600 && proc->pid < 600 + NUM_PROCS) {
-            if (proc->get_state() == ProcessState::Runnable) {
+        if (proc->pid >= 600 && proc->pid < 600 + process_count) {
+            if (proc->state() == TaskState::Runnable) {
                 runnable_count++;
             }
         }
@@ -505,12 +505,12 @@ static void test_runnable_queue() {
     TEST_ASSERT(runnable_count == 3, "Only 3 of our test procs are runnable after sleeping 2");
 
     // Clean up
-    for (int i = 0; i < NUM_PROCS; i++) {
+    for (int i = 0; i < process_count; i++) {
         TaskManager::remove_process(procs[i]);
         delete procs[i];
     }
 
-    TEST_ASSERT(TaskManager::s_process_count == initial_count, "Process count restored");
+    TEST_ASSERT(TaskManager::process_count() == initial_count, "Process count restored");
 
     TEST_END();
 }
@@ -522,23 +522,23 @@ static void test_runnable_queue() {
 static void test_sleep_wakeup() {
     TEST_START("Sleep and Wakeup");
 
-    int initial_count = TaskManager::s_process_count;
+    int initial_count = TaskManager::process_count();
 
-    TaskStruct* proc = new TaskStruct();
+    Task* proc = new Task();
     init_test_proc(proc, 700);
     proc->wakeup();
     TaskManager::add_process(proc);
 
     // Test sleep transition
     proc->sleep();
-    TEST_ASSERT(proc->get_state() == ProcessState::Sleeping, "Process is sleeping");
+    TEST_ASSERT(proc->state() == TaskState::Sleeping, "Process is sleeping");
 
     // Verify sleeping process won't be selected by scheduler
     bool would_be_selected = false;
-    ListNode* head = &TaskManager::s_proc_list;
-    for (auto* le = head->get_next(); le != head; le = le->get_next()) {
-        TaskStruct* p = TaskStruct::from_list_link(le);
-        if (p == proc && p->get_state() == ProcessState::Runnable) {
+    ListNode* head = &TaskManager::task_list();
+    for (auto* le = head->next_node(); le != head; le = le->next_node()) {
+        Task* p = Task::from_list_link(le);
+        if (p == proc && p->state() == TaskState::Runnable) {
             would_be_selected = true;
             break;
         }
@@ -547,13 +547,13 @@ static void test_sleep_wakeup() {
 
     // Test wakeup
     proc->wakeup();
-    TEST_ASSERT(proc->get_state() == ProcessState::Runnable, "Process woken up to Runnable");
+    TEST_ASSERT(proc->state() == TaskState::Runnable, "Process woken up to Runnable");
 
     // Now it should be selectable
     would_be_selected = false;
-    for (auto* le = head->get_next(); le != head; le = le->get_next()) {
-        TaskStruct* p = TaskStruct::from_list_link(le);
-        if (p == proc && p->get_state() == ProcessState::Runnable) {
+    for (auto* le = head->next_node(); le != head; le = le->next_node()) {
+        Task* p = Task::from_list_link(le);
+        if (p == proc && p->state() == TaskState::Runnable) {
             would_be_selected = true;
             break;
         }
@@ -564,7 +564,7 @@ static void test_sleep_wakeup() {
     TaskManager::remove_process(proc);
     delete proc;
 
-    TEST_ASSERT(TaskManager::s_process_count == initial_count, "Process count restored");
+    TEST_ASSERT(TaskManager::process_count() == initial_count, "Process count restored");
 
     TEST_END();
 }
@@ -576,17 +576,17 @@ static void test_sleep_wakeup() {
 static void test_wait_state() {
     TEST_START("Wait State Management");
 
-    int initial_count = TaskManager::s_process_count;
+    int initial_count = TaskManager::process_count();
 
     // Create parent
-    TaskStruct* parent = new TaskStruct();
+    Task* parent = new Task();
     init_test_proc(parent, 800);
     parent->wakeup();
     parent->wait_state = 0;
     TaskManager::add_process(parent);
 
     // Create child
-    TaskStruct* child = new TaskStruct();
+    Task* child = new Task();
     init_test_proc(child, 801);
     child->parent = parent;
     child->wakeup();
@@ -598,19 +598,19 @@ static void test_wait_state() {
     parent->sleep();
 
     TEST_ASSERT(parent->wait_state == 1, "Parent wait_state is set");
-    TEST_ASSERT(parent->get_state() == ProcessState::Sleeping, "Parent is sleeping while waiting");
+    TEST_ASSERT(parent->state() == TaskState::Sleeping, "Parent is sleeping while waiting");
 
     // Simulate child exit (becomes zombie)
     child->mark_zombie(42);
 
-    TEST_ASSERT(child->get_state() == ProcessState::Zombie, "Child is zombie");
+    TEST_ASSERT(child->state() == TaskState::Zombie, "Child is zombie");
     TEST_ASSERT(child->exit_code == 42, "Child exit code preserved");
 
     // Parent wakes up when child exits (simulated)
     if (parent->wait_state) {
         parent->wakeup();
     }
-    TEST_ASSERT(parent->get_state() == ProcessState::Runnable, "Parent woken up after child exit");
+    TEST_ASSERT(parent->state() == TaskState::Runnable, "Parent woken up after child exit");
 
     // Reset wait state
     parent->wait_state = 0;
@@ -626,7 +626,7 @@ static void test_wait_state() {
     delete child;
     delete parent;
 
-    TEST_ASSERT(TaskManager::s_process_count == initial_count, "Process count restored");
+    TEST_ASSERT(TaskManager::process_count() == initial_count, "Process count restored");
 
     TEST_END();
 }
@@ -638,14 +638,14 @@ static void test_wait_state() {
 static void test_round_robin_simulation() {
     TEST_START("Round Robin Fairness (Simulated)");
 
-    int initial_count = TaskManager::s_process_count;
+    int initial_count = TaskManager::process_count();
 
     // Create multiple runnable processes
-    constexpr int NUM_PROCS = 4;
-    TaskStruct* procs[NUM_PROCS];
+    constexpr int process_count = 4;
+    Task* procs[process_count];
 
-    for (int i = 0; i < NUM_PROCS; i++) {
-        procs[i] = new TaskStruct();
+    for (int i = 0; i < process_count; i++) {
+        procs[i] = new Task();
         init_test_proc(procs[i], 900 + i);
         procs[i]->wakeup();
         TaskManager::add_process(procs[i]);
@@ -653,19 +653,19 @@ static void test_round_robin_simulation() {
 
     // Simulate multiple schedule cycles
     // In round-robin, each process should get a chance
-    int selection_count[NUM_PROCS] = {0};
+    int selection_count[process_count] = {0};
     int total_selections = 0;
 
-    for (int cycle = 0; cycle < NUM_PROCS * 2; cycle++) {
+    for (int cycle = 0; cycle < process_count * 2; cycle++) {
         // Find first runnable among OUR test procs only
         // (This simulates the scheduler's behavior for our processes)
-        ListNode* head = &TaskManager::s_proc_list;
-        for (auto* le = head->get_next(); le != head; le = le->get_next()) {
-            TaskStruct* proc = TaskStruct::from_list_link(le);
+        ListNode* head = &TaskManager::task_list();
+        for (auto* le = head->next_node(); le != head; le = le->next_node()) {
+            Task* proc = Task::from_list_link(le);
 
             // Only consider our test processes (PID 900-903)
-            if (proc->pid >= 900 && proc->pid < 900 + NUM_PROCS) {
-                if (proc->get_state() == ProcessState::Runnable) {
+            if (proc->pid >= 900 && proc->pid < 900 + process_count) {
+                if (proc->state() == TaskState::Runnable) {
                     int idx = proc->pid - 900;
                     selection_count[idx]++;
                     total_selections++;
@@ -677,7 +677,7 @@ static void test_round_robin_simulation() {
                     // Unlink and re-add to end to simulate round-robin rotation
                     // Note: add_before(head) puts it at the END of the list
                     proc->list_node.unlink();
-                    TaskManager::s_proc_list.add_before(proc->list_node);
+                    TaskManager::task_list().add_before(proc->list_node);
 
                     proc->wakeup();
                     break;
@@ -687,11 +687,11 @@ static void test_round_robin_simulation() {
     }
 
     // Verify that selections happened
-    TEST_ASSERT(total_selections == NUM_PROCS * 2, "All schedule cycles made a selection");
+    TEST_ASSERT(total_selections == process_count * 2, "All schedule cycles made a selection");
 
     // Verify round-robin fairness: each process should be selected at least once
     bool all_selected = true;
-    for (int i = 0; i < NUM_PROCS; i++) {
+    for (int i = 0; i < process_count; i++) {
         if (selection_count[i] == 0) {
             all_selected = false;
             break;
@@ -700,12 +700,12 @@ static void test_round_robin_simulation() {
     TEST_ASSERT(all_selected, "All processes got at least one turn (round-robin)");
 
     // Clean up
-    for (int i = 0; i < NUM_PROCS; i++) {
+    for (int i = 0; i < process_count; i++) {
         TaskManager::remove_process(procs[i]);
         delete procs[i];
     }
 
-    TEST_ASSERT(TaskManager::s_process_count == initial_count, "Process count restored");
+    TEST_ASSERT(TaskManager::process_count() == initial_count, "Process count restored");
 
     TEST_END();
 }
@@ -718,7 +718,7 @@ namespace sched {
 
 void test() {
     // Disable interrupts for the entire test suite.
-    // Tests add fake TaskStruct objects (no valid context/stack) to the process
+    // Tests add fake Task objects (no valid context/stack) to the process
     // list with state = Runnable.  If a timer interrupt fires, the real
     // scheduler could select one and crash on context-switch.
     intr::Guard guard;

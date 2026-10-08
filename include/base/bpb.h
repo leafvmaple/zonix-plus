@@ -85,7 +85,7 @@ struct FatDirEntry {
         return (attr & FAT_ATTR_VOLUME_ID) == 0 && (attr & FAT_ATTR_LFN) != FAT_ATTR_LFN;
     }
 
-    [[nodiscard]] inline uint32_t get_cluster() const {
+    [[nodiscard]] inline uint32_t cluster() const {
         return (static_cast<uint32_t>(first_cluster_high) << 16) + first_cluster_low;
     }
 

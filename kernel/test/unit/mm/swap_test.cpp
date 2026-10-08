@@ -29,18 +29,18 @@ static SwapManager& test_swap_mgr() {
 
 #define TEST_START(name)            \
     cprintf("\n[TEST] %s\n", name); \
-    int __test_result = 1;
+    int zonix_test_result = 1;
 
 #define TEST_ASSERT(cond, msg)         \
     if (!(cond)) {                     \
         cprintf("  [FAIL] %s\n", msg); \
-        __test_result = 0;             \
+        zonix_test_result = 0;             \
     } else {                           \
         cprintf("  [OK] %s\n", msg);   \
     }
 
 #define TEST_END()               \
-    if (__test_result) {         \
+    if (zonix_test_result) {         \
         cprintf("  [PASSED]\n"); \
         tests_passed++;          \
     } else {                     \
@@ -76,7 +76,7 @@ void test_fifo_basic() {
             cprintf("  [OK] Victim %d is page %d\n", i, i);
         } else {
             cprintf("  [FAIL] Victim %d is not page %d\n", i, i);
-            __test_result = 0;
+            zonix_test_result = 0;
         }
     }
 

@@ -2,9 +2,9 @@
 
 namespace shell {
 
-using fnCommand = void (*)(int argc, char** argv);
+using CommandCallback = void (*)(int argc, char** argv);
 
-int register_command(const char* name, const char* desc, fnCommand func);
+int register_command(const char* name, const char* desc, CommandCallback func);
 void print_commands();
 
 void init();

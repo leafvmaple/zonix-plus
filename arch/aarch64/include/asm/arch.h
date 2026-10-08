@@ -31,17 +31,17 @@ static inline bool arch_irq_is_enabled(void) {
     return (daif & (1 << 7)) == 0; /* bit 7 = IRQ mask */
 }
 
-static inline void arch_load_cr3(uintptr_t ttbr) {
+static inline void arch_load_page_table_root(uintptr_t ttbr) {
     __asm__ volatile("msr ttbr0_el1, %0; isb" ::"r"(ttbr) : "memory");
 }
 
-static inline uintptr_t arch_read_cr3(void) {
+static inline uintptr_t arch_read_page_table_root(void) {
     uintptr_t v = 0;
     __asm__ volatile("mrs %0, ttbr0_el1" : "=r"(v));
     return v;
 }
 
-static inline uintptr_t arch_read_cr2(void) {
+static inline uintptr_t arch_fault_address(void) {
     uintptr_t v = 0;
     __asm__ volatile("mrs %0, far_el1" : "=r"(v));
     return v;
@@ -107,10 +107,6 @@ static inline void arch_idle(void) {
     }
 }
 
-static inline uintptr_t arch_fault_addr(void) {
-    return arch_read_cr2();
-}
-
 using InitStepFn = int (*)();
 
 struct InitStep {
@@ -122,7 +118,7 @@ struct InitStep {
 const InitStep* arch_early_steps(size_t* count);
 const InitStep* arch_pci_steps(size_t* count);
 
-void arch_switch_rsp0(uintptr_t sp0); /* update EL1 stack for current task */
+void arch_set_kernel_stack(uintptr_t sp0); /* update EL1 stack for current task */
 void arch_irq_eoi(int irq);
 void arch_irq_enable_line(int irq);                     /* enable IRQ line in interrupt controller */
 int arch_pci_intx_to_irq(uint8_t dev, uint8_t int_pin); /* PCI INTx → platform IRQ */

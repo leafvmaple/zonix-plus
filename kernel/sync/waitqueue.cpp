@@ -4,7 +4,7 @@
 #include "drivers/intr.h"
 
 struct Entry {
-    TaskStruct* task{};
+    Task* task{};
     ListNode node{};
 
     static Entry* from_node(ListNode* n) {
@@ -37,7 +37,7 @@ void WaitQueue::wakeup_one() {
         return;
     }
 
-    ListNode* first = head_.get_next();
+    ListNode* first = head_.next_node();
     Entry* entry = Entry::from_node(first);
     first->unlink();
     entry->task->wakeup();
@@ -46,7 +46,7 @@ void WaitQueue::wakeup_one() {
 void WaitQueue::wakeup_all() {
     LockGuard<Spinlock> guard(lock_);
     while (!head_.empty()) {
-        ListNode* node = head_.get_next();
+        ListNode* node = head_.next_node();
         Entry* entry = Entry::from_node(node);
         node->unlink();
         entry->task->wakeup();

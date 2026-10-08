@@ -36,7 +36,7 @@
  * sscratch convention:
  *   In S-mode:  sscratch = 0  (sentinel "we are in kernel")
  *   In U-mode:  sscratch = top of kernel stack for this task
- *               (set by arch_switch_rsp0 / trapret before sret to user)
+ *               (set by arch_set_kernel_stack / trapret before sret to user)
  */
 
 #include <asm/trapframe.h>  /* TF_* offsets, TF_SIZE */
@@ -129,7 +129,7 @@ kernel_trap_vec:
  * On entry:
  *   sp       = user stack pointer
  *   sscratch = top of kernel stack for this task
- *              (set by arch_switch_rsp0 / trapret)
+ *              (set by arch_set_kernel_stack / trapret)
  *   All x1-x31 have their original user values.
  *
  * We swap sp and sscratch to get the kernel stack pointer into sp,

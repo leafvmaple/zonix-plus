@@ -46,7 +46,7 @@ Result<int> FatInfo::do_file_io(FatDirEntry* entry, uint8_t* io_buf, uint32_t of
         size = max_size;
     }
 
-    uint32_t cluster = entry->get_cluster();
+    uint32_t cluster = entry->cluster();
     ENSURE(cluster >= 2 && cluster < cluster_count_ + 2);
 
     uint8_t cluster_buf[FAT_IO_MAX_CLUSTER_BUF]{};
@@ -95,7 +95,7 @@ Result<int> FatInfo::read_dir(uint32_t start_cluster, DirVisitor& visitor, bool 
                 if (verbose_read_error) {
                     cprintf("fat_read_dir: failed to read sector %d\n", sector);
                 }
-                return Error::IO;
+                return Error::Io;
             }
 
             for (auto& entry : sector_buf.entries) {
@@ -130,7 +130,7 @@ Result<int> FatInfo::read_dir(const char* relpath, DirVisitor& visitor) {
     TRY(find_file(relpath, &dir));
     ENSURE(dir.attr & FAT_ATTR_DIRECTORY);
 
-    uint32_t start_cluster = dir.get_cluster();
+    uint32_t start_cluster = dir.cluster();
     return read_dir(start_cluster, visitor, false);
 }
 
@@ -192,7 +192,7 @@ Error FatInfo::find_file(const char* filename, FatDirEntry* result) {
     ENSURE(!parts.empty());
 
     uint32_t cluster = root_cluster_;
-    for (size_t i = 0; i < parts.size(); i++, cluster = result->get_cluster()) {
+    for (size_t i = 0; i < parts.size(); i++, cluster = result->cluster()) {
         TRY(find_entry(cluster, parts[i], result));
 
         if (i + 1 < parts.size() && !result->is_directory())
@@ -257,7 +257,7 @@ Error FatInfo::resolve_parent(const char* relpath, uint32_t* parent_cluster, cha
         TRY(find_entry(cluster, parts[i], &entry));
         ENSURE(entry.is_directory(), Error::NotFound);
 
-        cluster = entry.get_cluster();
+        cluster = entry.cluster();
     }
 
     *parent_cluster = cluster;
@@ -295,7 +295,7 @@ Error FatInfo::add_dir_entry(uint32_t dir_cluster, const FatDirEntry* new_entry)
 
             if (write_entry(cluster, new_cluster) != Error::None) {
                 free_chain(new_cluster);
-                return Error::IO;
+                return Error::Io;
             }
 
             uint32_t new_base_sector = partition_start_ + cluster_to_sector(new_cluster);
@@ -305,7 +305,7 @@ Error FatInfo::add_dir_entry(uint32_t dir_cluster, const FatDirEntry* new_entry)
             for (uint32_t s = 0; s < sectors_per_cluster_; s++) {
                 if (dev_->write(new_base_sector + s, &sector_buf, 1) != Error::None) {
                     free_chain(new_cluster);
-                    return Error::IO;
+                    return Error::Io;
                 }
                 if (s == 0) {
                     memset(&sector_buf, 0, sizeof(sector_buf));
@@ -413,13 +413,13 @@ Error FatInfo::mkdir(const char* relpath) {
     uint32_t sector = partition_start_ + cluster_to_sector(new_cluster);
     if (dev_->write(sector, sector_buf, 1) != Error::None) {
         free_chain(new_cluster);
-        return Error::IO;
+        return Error::Io;
     }
 
     // Add the entry to the parent directory.
     if (add_dir_entry(parent_cluster, &dir_entry) != Error::None) {
         free_chain(new_cluster);
-        return Error::IO;
+        return Error::Io;
     }
 
     return Error::None;
@@ -466,7 +466,7 @@ Error FatInfo::unlink(const char* relpath) {
     ENSURE(!entry.is_directory());  // Use rmdir for directories.
 
     // Free the cluster chain if present.
-    uint32_t cluster = entry.get_cluster();
+    uint32_t cluster = entry.cluster();
     if (cluster >= 2) {
         TRY(free_chain(cluster));
     }
@@ -488,7 +488,7 @@ Error FatInfo::rmdir(const char* relpath) {
     ENSURE(entry.is_directory());  // Not a directory.
 
     // Check that directory is empty (only . and .. allowed).
-    uint32_t dir_cluster = entry.get_cluster();
+    uint32_t dir_cluster = entry.cluster();
     uint8_t sector_buf[512]{};
     bool empty = true;
 

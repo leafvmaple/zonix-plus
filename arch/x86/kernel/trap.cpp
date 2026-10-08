@@ -74,7 +74,7 @@ void TrapFrame::print() const {
 }
 
 void TrapFrame::print_pgfault() const {
-    cprintf("Page Fault at 0x%016lx: %c/%c [%s].\n", arch_fault_addr(), (err & 4) ? 'U' : 'K', (err & 2) ? 'W' : 'R',
+    cprintf("Page Fault at 0x%016lx: %c/%c [%s].\n", arch_fault_address(), (err & 4) ? 'U' : 'K', (err & 2) ? 'W' : 'R',
             (err & 1) ? "Protection Fault" : "No Page Found");
 }
 
@@ -110,7 +110,7 @@ uint32_t arch_page_fault_error(const TrapFrame* tf) {
 
 uintptr_t arch_page_fault_addr(const TrapFrame* tf) {
     static_cast<void>(tf);
-    return arch_fault_addr();
+    return arch_fault_address();
 }
 
 bool arch_is_syscall(const TrapFrame* tf) {

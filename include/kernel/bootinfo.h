@@ -43,4 +43,4 @@ struct BootInfo {
     char     loader_name[32];        // "Zonix BIOS" or "Zonix UEFI"
 } __attribute__((packed));
 
-using kernel_entry_t = void (*)(BootInfo *info);
+using KernelEntry = void (*)(BootInfo *info);

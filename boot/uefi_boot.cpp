@@ -31,7 +31,7 @@ static void uefi_print(EFI_SYSTEM_TABLE* st, const wchar_t* str) {
 
 static void uefi_print_hex(EFI_SYSTEM_TABLE* st, uint64_t val) {
     wchar_t buf[21];
-    const wchar_t* hex = UEFI_STR(L"0123456789ABCDEF");
+    const wchar_t* hex = uefi_string(L"0123456789ABCDEF");
     buf[0] = L'0';
     buf[1] = L'x';
     for (int i = 0; i < 16; i++) {
@@ -44,14 +44,14 @@ static void uefi_print_hex(EFI_SYSTEM_TABLE* st, uint64_t val) {
 }
 
 static int uefi_load_elf(void* elf_buffer, struct BootInfo* bi, uint64_t kernel_virt_base) {
-    auto* elf = static_cast<ElfHdr*>(elf_buffer);
+    auto* elf = static_cast<ElfHeader*>(elf_buffer);
     if (elf->e_magic != ELF_MAGIC) {
         return -1;
     }
 
     uint64_t kstart = ~0ULL, kend = 0;
-    auto* ph = reinterpret_cast<ProgHdr*>(reinterpret_cast<uint8_t*>(elf) + elf->e_phoff);
-    ProgHdr* eph = ph + elf->e_phnum;
+    auto* ph = reinterpret_cast<ProgramHeader*>(reinterpret_cast<uint8_t*>(elf) + elf->e_phoff);
+    ProgramHeader* eph = ph + elf->e_phnum;
 
     for (; ph < eph; ph++) {
         if (ph->p_type != ELF_PT_LOAD) {
@@ -190,8 +190,8 @@ static EFI_STATUS uefi_load_kernel_file(EFI_BOOT_SERVICES* bs, EFI_HANDLE image_
         return status;
     }
 
-    const wchar_t* paths[] = {UEFI_STR(L"\\EFI\\ZONIX\\KERNEL.ELF"), UEFI_STR(L"\\KERNEL.ELF"),
-                              UEFI_STR(L"\\KERNEL.SYS"), nullptr};
+    const wchar_t* paths[] = {uefi_string(L"\\EFI\\ZONIX\\KERNEL.ELF"), uefi_string(L"\\KERNEL.ELF"),
+                              uefi_string(L"\\KERNEL.SYS"), nullptr};
     for (int i = 0; paths[i]; i++) {
         status = root->Open(root, &file, const_cast<wchar_t*>(paths[i]), EFI_FILE_MODE_READ, 0);
         if (!EFI_ERROR(status)) {
@@ -296,20 +296,20 @@ EFI_STATUS uefi_boot_setup(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_tab
     bi->magic = BOOT_INFO_MAGIC;
     bi->mmap_addr = cfg.mmap_addr;
 
-    uefi_print(st, UEFI_STR(L"Getting memory map...\r\n"));
+    uefi_print(st, uefi_string(L"Getting memory map...\r\n"));
     EFI_STATUS status =
         uefi_get_memory_map(bs, bi, cfg.mmap_addr, cfg.mmap_max_entries, cfg.mem_lower, cfg.mem_upper_min);
     if (EFI_ERROR(status)) {
-        uefi_print(st, UEFI_STR(L"Memory map failed\r\n"));
+        uefi_print(st, uefi_string(L"Memory map failed\r\n"));
         return status;
     }
 
-    uefi_print(st, UEFI_STR(L"Loading kernel...\r\n"));
+    uefi_print(st, uefi_string(L"Loading kernel...\r\n"));
     void* kernel_buf = nullptr;
     uintptr_t kernel_size = 0;
     status = uefi_load_kernel_file(bs, image_handle, &kernel_buf, &kernel_size);
     if (EFI_ERROR(status)) {
-        uefi_print(st, UEFI_STR(L"Kernel load failed\r\n"));
+        uefi_print(st, uefi_string(L"Kernel load failed\r\n"));
         return status;
     }
 
@@ -317,14 +317,14 @@ EFI_STATUS uefi_boot_setup(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_tab
         EFI_PHYSICAL_ADDRESS kbase = cfg.kernel_alloc_base;
         status = bs->AllocatePages(AllocateAddress, EfiLoaderCode, cfg.kernel_alloc_pages, &kbase);
         if (EFI_ERROR(status)) {
-            uefi_print(st, UEFI_STR(L"AllocatePages for kernel failed\r\n"));
+            uefi_print(st, uefi_string(L"AllocatePages for kernel failed\r\n"));
             return status;
         }
     }
 
-    uefi_print(st, UEFI_STR(L"Parsing ELF kernel...\r\n"));
+    uefi_print(st, uefi_string(L"Parsing ELF kernel...\r\n"));
     if (uefi_load_elf(kernel_buf, bi, cfg.kernel_virt_base) != 0) {
-        uefi_print(st, UEFI_STR(L"ELF parse failed\r\n"));
+        uefi_print(st, uefi_string(L"ELF parse failed\r\n"));
         return EFI_LOAD_ERROR;
     }
 
@@ -334,10 +334,10 @@ EFI_STATUS uefi_boot_setup(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_tab
         bi->loader_name[i] = cfg.loader_name[i];
     }
 
-    uefi_print(st, UEFI_STR(L"Kernel entry (phys): "));
+    uefi_print(st, uefi_string(L"Kernel entry (phys): "));
     uefi_print_hex(st, bi->kernel_entry);
 
-    uefi_print(st, UEFI_STR(L"Exiting Boot Services...\r\n"));
+    uefi_print(st, uefi_string(L"Exiting Boot Services...\r\n"));
     status = uefi_exit_boot_services(bs, image_handle);
     if (EFI_ERROR(status)) {
         return status;

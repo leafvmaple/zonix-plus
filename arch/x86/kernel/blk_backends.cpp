@@ -14,7 +14,7 @@ int probe_backends() {
 
     cprintf("blk: probing IDE devices...\n");
     IdeManager::init();
-    int ide_count = IdeManager::get_device_count();
+    int ide_count = IdeManager::device_count();
     if (ide_count == 0) {
         cprintf("blk: no IDE devices found\n");
     }

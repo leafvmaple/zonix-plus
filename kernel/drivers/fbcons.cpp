@@ -31,8 +31,8 @@ namespace fbcons {
 // PSF bitmap font — parsed at init() from the embedded .psf blob.
 // =========================================================================
 static psf::Font font;
-static int FONT_W = 8;
-static int FONT_H = 16;
+static int font_width = 8;
+static int font_height = 16;
 
 // Framebuffer state
 static uint32_t* fb_base = nullptr;
@@ -66,11 +66,11 @@ static constexpr uint32_t CURSOR_COLOR = 0x00AAAAAA;  // same as FG_COLOR
 static void draw_cursor() {
     if (!active)
         return;
-    uint32_t x0 = cur_x * FONT_W;
-    uint32_t y0 = cur_y * FONT_H + (FONT_H - 2);
+    uint32_t x0 = cur_x * font_width;
+    uint32_t y0 = cur_y * font_height + (font_height - 2);
     for (int row = 0; row < 2; row++) {
         uint32_t* pixel = reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(fb_base) + (y0 + row) * fb_pitch) + x0;
-        for (int col = 0; col < FONT_W; col++)
+        for (int col = 0; col < font_width; col++)
             pixel[col] = CURSOR_COLOR;
     }
 }
@@ -78,23 +78,23 @@ static void draw_cursor() {
 static void erase_cursor() {
     if (!active)
         return;
-    uint32_t x0 = cur_x * FONT_W;
-    uint32_t y0 = cur_y * FONT_H + (FONT_H - 2);
+    uint32_t x0 = cur_x * font_width;
+    uint32_t y0 = cur_y * font_height + (font_height - 2);
     for (int row = 0; row < 2; row++) {
         uint32_t* pixel = reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(fb_base) + (y0 + row) * fb_pitch) + x0;
-        for (int col = 0; col < FONT_W; col++)
+        for (int col = 0; col < font_width; col++)
             pixel[col] = BG_COLOR;
     }
 }
 
 static void draw_char(uint32_t cx, uint32_t cy, int ch) {
     const uint8_t* gl = psf::glyph(&font, ch);
-    uint32_t x0 = cx * FONT_W;
-    uint32_t y0 = cy * FONT_H;
-    for (int row = 0; row < FONT_H; row++) {
+    uint32_t x0 = cx * font_width;
+    uint32_t y0 = cy * font_height;
+    for (int row = 0; row < font_height; row++) {
         uint8_t bits = gl[row];
         uint32_t* pixel = reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(fb_base) + (y0 + row) * fb_pitch) + x0;
-        for (int col = 0; col < FONT_W; col++) {
+        for (int col = 0; col < font_width; col++) {
             *pixel++ = (bits & 0x80) ? FG_COLOR : BG_COLOR;
             bits <<= 1;
         }
@@ -102,13 +102,13 @@ static void draw_char(uint32_t cx, uint32_t cy, int ch) {
 }
 
 static void clear_row(uint32_t cy) {
-    uint32_t y0 = cy * FONT_H;
-    for (int row = 0; row < FONT_H; row++)
+    uint32_t y0 = cy * font_height;
+    for (int row = 0; row < font_height; row++)
         memset(reinterpret_cast<uint8_t*>(fb_base) + (y0 + row) * fb_pitch, 0, fb_width * 4);
 }
 
 static void scroll_up() {
-    uint32_t bytes_per_char_row = fb_pitch * FONT_H;
+    uint32_t bytes_per_char_row = fb_pitch * font_height;
     uint8_t* dst = reinterpret_cast<uint8_t*>(fb_base);
     uint8_t* src = dst + bytes_per_char_row;
     uint32_t total = bytes_per_char_row * (rows - 1);
@@ -126,16 +126,16 @@ void init(uintptr_t fb_vaddr, uint32_t width, uint32_t height, uint32_t pitch, u
 
     if (!psf::parse(_binary_fonts_console_psf_start, &font))
         return;
-    FONT_W = font.width;
-    FONT_H = font.height;
+    font_width = font.width;
+    font_height = font.height;
 
     fb_base = reinterpret_cast<uint32_t*>(fb_vaddr);
     fb_width = width;
     fb_height = height;
     fb_pitch = pitch;
 
-    cols = width / FONT_W;
-    rows = height / FONT_H;
+    cols = width / font_width;
+    rows = height / font_height;
     cur_x = 0;
     cur_y = 0;
 

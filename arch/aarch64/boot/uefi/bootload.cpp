@@ -8,7 +8,7 @@
 
 extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_table) {
     const UefiBootConfig cfg = {
-        .banner = UEFI_STR(L"\r\nZonix UEFI Bootloader (AArch64) v1.0\r\n\r\n"),
+        .banner = uefi_string(L"\r\nZonix UEFI Bootloader (AArch64) v1.0\r\n\r\n"),
         .loader_name = "Zonix UEFI",
         .kernel_virt_base = 0xFFFF000000000000ULL,
         .boot_info_addr = SAFE_BOOT_INFO_ADDR,
@@ -30,8 +30,7 @@ extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE*
      * Jump to kernel.  AArch64 UEFI and kernel both use AAPCS64
      * (first argument in x0), so a direct function call suffices.
      */
-    using kernel_entry_fn = void (*)(BootInfo*);
-    auto entry = reinterpret_cast<kernel_entry_fn>(bi->kernel_entry);
+    auto entry = reinterpret_cast<KernelEntry>(bi->kernel_entry);
     entry(bi);
 
     for (;;) {

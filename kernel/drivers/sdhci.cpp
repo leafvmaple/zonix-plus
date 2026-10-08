@@ -171,7 +171,7 @@ Error SdDevice::wait_cmd_done() {
             mmio::write16(base_, reg::INT_STATUS, status);
             mmio::write16(base_, reg::ERR_STATUS, err);
             cprintf("sdhci: command error, status=0x%x err=0x%x\n", status, err);
-            return Error::IO;
+            return Error::Io;
         }
         if (status & INT_CMD_DONE) {
             mmio::write16(base_, reg::INT_STATUS, INT_CMD_DONE);
@@ -191,7 +191,7 @@ Error SdDevice::wait_xfer_done() {
             mmio::write16(base_, reg::INT_STATUS, status);
             mmio::write16(base_, reg::ERR_STATUS, err);
             cprintf("sdhci: transfer error, status=0x%x err=0x%x\n", status, err);
-            return Error::IO;
+            return Error::Io;
         }
         if (status & INT_XFER_DONE) {
             mmio::write16(base_, reg::INT_STATUS, INT_XFER_DONE);
@@ -259,7 +259,7 @@ Error SdDevice::card_identify() {
     uint32_t r7 = read_response(0);
     if ((r7 & 0xFF) != 0xAA) {
         cprintf("sdhci: CMD8 check pattern mismatch: 0x%x\n", r7);
-        return Error::IO;
+        return Error::Io;
     }
 
     sdhc_ = false;
@@ -315,7 +315,7 @@ Error SdDevice::read_single(uint32_t lba, void* buf) {
         uint16_t status = mmio::read16(base_, reg::INT_STATUS);
         if (status & INT_ERROR) {
             cprintf("sdhci: read data error\n");
-            return Error::IO;
+            return Error::Io;
         }
         if (status & INT_BUF_RD_READY) {
             mmio::write16(base_, reg::INT_STATUS, INT_BUF_RD_READY);
@@ -349,7 +349,7 @@ Error SdDevice::write_single(uint32_t lba, const void* buf) {
         uint16_t status = mmio::read16(base_, reg::INT_STATUS);
         if (status & INT_ERROR) {
             cprintf("sdhci: write data error\n");
-            return Error::IO;
+            return Error::Io;
         }
         if (status & INT_BUF_WR_READY) {
             mmio::write16(base_, reg::INT_STATUS, INT_BUF_WR_READY);
@@ -394,7 +394,7 @@ Error SdDevice::read(uint32_t block_number, void* buf, size_t block_count) {
     auto* p = static_cast<uint8_t*>(buf);
     for (size_t i = 0; i < block_count; i++) {
         if (read_single(block_number + i, p + i * 512) != Error::None)
-            return Error::IO;
+            return Error::Io;
     }
     return Error::None;
 }
@@ -403,7 +403,7 @@ Error SdDevice::write(uint32_t block_number, const void* buf, size_t block_count
     auto const* p = static_cast<const uint8_t*>(buf);
     for (size_t i = 0; i < block_count; i++) {
         if (write_single(block_number + i, p + i * 512) != Error::None)
-            return Error::IO;
+            return Error::Io;
     }
     return Error::None;
 }
@@ -422,7 +422,7 @@ const pci::DriverId SDHCI_IDS[] = {
 };
 
 static int probe_one_controller(SdDevice* dev, int device_index, int bus, int dev_id, int func) {
-    uint32_t id = pci::config_read32(bus, dev_id, func, pci::VENDOR_ID);
+    uint32_t id = pci::config_read32(bus, dev_id, func, pci::VendorId);
     cprintf("sdhci: found controller at PCI %d:%d.%d [%04x:%04x]\n", bus, dev_id, func,
             static_cast<unsigned>(id & 0xFFFF), static_cast<unsigned>(id >> 16));
 
@@ -435,9 +435,9 @@ static int probe_one_controller(SdDevice* dev, int device_index, int bus, int de
     }
 
     uintptr_t phys = bar0 & 0xFFFFF000U;
-    constexpr size_t SDHCI_MMIO_SIZE = 0x1000;
+    constexpr size_t mmio_bytes = 0x1000;
 
-    uintptr_t va = vmm::mmio_map(phys, SDHCI_MMIO_SIZE, VM_WRITE | VM_NOCACHE);
+    uintptr_t va = vmm::mmio_map(phys, mmio_bytes, VM_WRITE | VM_NOCACHE);
     if (va == 0) {
         cprintf("sdhci: failed to map BAR0 for %d:%d.%d at 0x%lx\n", bus, dev_id, func,
                 static_cast<unsigned long>(phys));
@@ -468,7 +468,7 @@ const pci::Driver SDHCI_DRIVER = {
 }  // namespace
 
 int Manager::init() {
-    if (s_initialized) {
+    if (initialized_) {
         return 0;
     }
 
@@ -477,34 +477,34 @@ int Manager::init() {
         return -1;
     }
 
-    s_initialized = true;
+    initialized_ = true;
     return 0;
 }
 
 int Manager::device_count() {
-    return static_cast<int>(s_devices.size());
+    return static_cast<int>(devices_.size());
 }
 
-SdDevice* Manager::get_device(int index) {
-    if (index < 0 || static_cast<size_t>(index) >= s_devices.size()) {
+SdDevice* Manager::find_device(int index) {
+    if (index < 0 || static_cast<size_t>(index) >= devices_.size()) {
         return nullptr;
     }
-    return &s_devices[index];
+    return &devices_[index];
 }
 
 Error Manager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*) {
-    if (s_devices.full()) {
+    if (devices_.full()) {
         cprintf("sdhci: too many controllers, max=%d\n", MAX_DEVICES);
         return Error::Full;
     }
 
-    int index = static_cast<int>(s_devices.size());
-    int rc = probe_one_controller(&s_devices[index], index, pdev->bus, pdev->dev, pdev->func);
+    int index = static_cast<int>(devices_.size());
+    int rc = probe_one_controller(&devices_[index], index, pdev->bus, pdev->dev, pdev->func);
     if (rc != 0) {
         return Error::Fail;
     }
 
-    s_devices.commit_back();
+    devices_.commit_back();
     return Error::None;
 }
 
@@ -516,12 +516,12 @@ int device_count() {
     return Manager::device_count();
 }
 
-SdDevice* get_device() {
-    return Manager::get_device(0);
+SdDevice* find_device() {
+    return Manager::find_device(0);
 }
 
-SdDevice* get_device(int index) {
-    return Manager::get_device(index);
+SdDevice* find_device(int index) {
+    return Manager::find_device(index);
 }
 
 }  // namespace sdhci

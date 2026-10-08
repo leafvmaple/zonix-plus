@@ -61,6 +61,18 @@ existing subsystem design rather than adding a second implementation style.
 
 ## Required verification
 
+- Follow `docs/NAMING.md`, the authoritative project naming convention. Types
+  and scoped enum values use PascalCase; functions/variables/namespaces use
+  snake_case. Private instance and mutable static members use a trailing `_`,
+  never `s_`/`m_`/`g_`. Mutable static members must be private.
+- Local const/constexpr values remain snake_case. Class/namespace constants and
+  macros use UPPER_CASE. Type template parameters use PascalCase; non-type
+  parameters use UPPER_CASE. Pure getters use bare property names; shared arch
+  interfaces name their purpose rather than a specific architecture register.
+- Naming exceptions require an exact path, qualified name and external-contract
+  explanation in `scripts/naming_exceptions.json`. They do not grant ownership
+  exceptions. Preserve actual standard/firmware/linker/assembly interfaces.
+
 - Run `make install-hooks` once per clone. The versioned `.githooks/pre-commit`
   checks an isolated snapshot of the Git index for all three architectures and
   runs the harness regression tests before allowing a local commit. Windows Git

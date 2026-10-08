@@ -2,11 +2,11 @@
 
 enum class Error : int {
     None = 0,
-    IO = -1,
+    Io = -1,
     NoMem = -2,
     Invalid = -3,
     NotFound = -4,
-    BadFS = -5,
+    BadFs = -5,
     Exists = -6,
     NotEmpty = -7,
     Timeout = -8,
@@ -20,11 +20,11 @@ enum class Error : int {
 inline const char* error_str(Error e) {
     switch (e) {
         case Error::None: return "success";
-        case Error::IO: return "I/O error";
+        case Error::Io: return "I/O error";
         case Error::NoMem: return "out of memory";
         case Error::Invalid: return "invalid argument";
         case Error::NotFound: return "not found";
-        case Error::BadFS: return "bad filesystem";
+        case Error::BadFs: return "bad filesystem";
         case Error::Exists: return "already exists";
         case Error::NotEmpty: return "not empty";
         case Error::Timeout: return "timeout";
@@ -99,40 +99,40 @@ Result<T> wrap_tryable(Result<T> r) {
 
 #define TRY(expr)                                   \
     __extension__({                                 \
-        auto _try_r = ::detail::wrap_tryable(expr); \
-        if (!_try_r.ok()) [[unlikely]]              \
-            return _try_r.release_error();          \
-        _try_r.release_value();                     \
+        auto zonix_try_result = ::detail::wrap_tryable(expr); \
+        if (!zonix_try_result.ok()) [[unlikely]]              \
+            return zonix_try_result.release_error();          \
+        zonix_try_result.release_value();                     \
     })
 
 #define TRY_LOG(expr, fmt, ...)                           \
     __extension__({                                       \
-        auto _try_r = ::detail::wrap_tryable(expr);       \
-        if (!_try_r.ok()) [[unlikely]] {                  \
+        auto zonix_try_result = ::detail::wrap_tryable(expr);       \
+        if (!zonix_try_result.ok()) [[unlikely]] {                  \
             cprintf(fmt "\n" __VA_OPT__(, ) __VA_ARGS__); \
-            return _try_r.release_error();                \
+            return zonix_try_result.release_error();                \
         }                                                 \
-        _try_r.release_value();                           \
+        zonix_try_result.release_value();                           \
     })
 
 // ENSURE(cond) — return Error::Invalid if cond is false.
 // ENSURE(cond, err) — return err if cond is false.
 // ENSURE_LOG(cond, err, fmt, ...) — log + return err if cond is false.
 
-#define _ENSURE1(cond)             \
+#define ZONIX_ENSURE1(cond)             \
     do {                           \
         if (!(cond)) [[unlikely]]  \
             return Error::Invalid; \
     } while (0)
 
-#define _ENSURE2(cond, err)       \
+#define ZONIX_ENSURE2(cond, err)       \
     do {                          \
         if (!(cond)) [[unlikely]] \
             return (err);         \
     } while (0)
 
-#define _ENSURE_SELECT(_1, _2, NAME, ...) NAME
-#define ENSURE(...)                       _ENSURE_SELECT(__VA_ARGS__, _ENSURE2, _ENSURE1)(__VA_ARGS__)
+#define ZONIX_ENSURE_SELECT(_1, _2, NAME, ...) NAME
+#define ENSURE(...)                       ZONIX_ENSURE_SELECT(__VA_ARGS__, ZONIX_ENSURE2, ZONIX_ENSURE1)(__VA_ARGS__)
 
 #define ENSURE_LOG(cond, err, fmt, ...)                   \
     do {                                                  \

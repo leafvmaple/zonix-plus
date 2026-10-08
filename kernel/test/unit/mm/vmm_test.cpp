@@ -70,10 +70,10 @@ private:
             case Reply::Empty: return 0;
             case Reply::FailAfterPage:
                 if (offset >= PG_SIZE) {
-                    return Error::IO;
+                    return Error::Io;
                 }
                 break;
-            case Reply::Error: return Error::IO;
+            case Reply::Error: return Error::Io;
             case Reply::Negative: return -1;
             case Reply::Oversized: return static_cast<int>(size + 1);
             case Reply::Full: break;
@@ -101,7 +101,7 @@ static void test_file_io(MemoryDesc& mm, uintptr_t base) {
         TEST_END();
         return;
     }
-    TaskStruct* current = sched::current();
+    Task* current = sched::current();
     auto fd_r = current->files().alloc(file);
     TEST_ASSERT(fd_r.ok(), "Allocated syscall transfer descriptor");
     if (!fd_r.ok()) {
@@ -210,7 +210,7 @@ void test() {
     TEST_ASSERT(!vmm::user_range_valid(&mm, USER_SPACE_TOP - 1, 2, false), "User-space overflow rejected");
     TEST_ASSERT(vmm::copy_from_user(&mm, bytes, 0, 1) == Error::Invalid, "Null user pointer rejected");
 
-    TaskStruct* current = sched::current();
+    Task* current = sched::current();
     MemoryDesc* saved_mm = current->memory;
     current->memory = &mm;
     TEST_ASSERT(syscall(NR_OPEN, base + 2 * PG_SIZE, 0, 0) == -1, "open rejects unmapped path");

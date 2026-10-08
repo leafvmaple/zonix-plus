@@ -18,7 +18,7 @@ size_t cmd_pos = 0;
 struct ShellCommand {
     const char* name{};
     const char* desc{};
-    shell::fnCommand func{};
+    shell::CommandCallback func{};
 };
 
 Array<ShellCommand, MAX_COMMANDS> commands{};
@@ -88,7 +88,7 @@ static void execute_command(const char* cmd) {
 
 }  // namespace
 
-int shell::register_command(const char* name, const char* desc, fnCommand func) {
+int shell::register_command(const char* name, const char* desc, CommandCallback func) {
     if (name == nullptr || desc == nullptr || func == nullptr) {
         return -1;
     }

@@ -14,16 +14,16 @@
 namespace elf {
 
 bool is_elf(const uint8_t* data, size_t size) {
-    if (!data || size < sizeof(ElfHdr)) {
+    if (!data || size < sizeof(ElfHeader)) {
         return false;
     }
-    const auto* eh = reinterpret_cast<const ElfHdr*>(data);
+    const auto* eh = reinterpret_cast<const ElfHeader*>(data);
     return eh->is_valid();
 }
 
-Error validate(const ElfHdr* eh, size_t file_size) {
+Error validate(const ElfHeader* eh, size_t file_size) {
     ENSURE_LOG(eh, Error::Invalid, "elf: null ELF header");
-    ENSURE_LOG(file_size >= sizeof(ElfHdr), Error::Invalid, "elf: file too small (%d bytes)", file_size);
+    ENSURE_LOG(file_size >= sizeof(ElfHeader), Error::Invalid, "elf: file too small (%d bytes)", file_size);
 
     ENSURE_LOG(eh->is_valid(), Error::Invalid,
                "elf: invalid ELF header (magic=0x%08x, class=%d, version=%d, machine=0x%04x)", eh->e_magic,
@@ -31,17 +31,17 @@ Error validate(const ElfHdr* eh, size_t file_size) {
 
     ENSURE_LOG(eh->is_executable(), Error::Invalid, "elf: not an executable ELF file");
 
-    ENSURE(eh->e_ehsize == sizeof(ElfHdr) && eh->e_phentsize == sizeof(ProgHdr));
-    ENSURE(eh->e_phoff >= sizeof(ElfHdr) && eh->e_phoff <= file_size);
-    size_t table_size = static_cast<size_t>(eh->e_phnum) * sizeof(ProgHdr);
+    ENSURE(eh->e_ehsize == sizeof(ElfHeader) && eh->e_phentsize == sizeof(ProgramHeader));
+    ENSURE(eh->e_phoff >= sizeof(ElfHeader) && eh->e_phoff <= file_size);
+    size_t table_size = static_cast<size_t>(eh->e_phnum) * sizeof(ProgramHeader);
     ENSURE(table_size <= file_size - eh->e_phoff);
     ENSURE(eh->e_entry >= PG_SIZE && eh->e_entry < USER_SPACE_TOP);
 
     const auto* data = reinterpret_cast<const uint8_t*>(eh);
     bool executable_entry = false;
     for (uint16_t i = 0; i < eh->e_phnum; ++i) {
-        ProgHdr ph{};
-        memcpy(&ph, data + eh->e_phoff + static_cast<size_t>(i) * sizeof(ProgHdr), sizeof(ph));
+        ProgramHeader ph{};
+        memcpy(&ph, data + eh->e_phoff + static_cast<size_t>(i) * sizeof(ProgramHeader), sizeof(ph));
         if (ph.p_type != ELF_PT_LOAD) {
             continue;
         }
@@ -68,7 +68,7 @@ uintptr_t load(const uint8_t* data, size_t size, pde_t* pgdir) {
     if (!data || !pgdir) {
         return 0;
     }
-    const auto* eh = reinterpret_cast<const ElfHdr*>(data);
+    const auto* eh = reinterpret_cast<const ElfHeader*>(data);
 
     if (validate(eh, size) != Error::None) {
         return 0;
@@ -78,7 +78,7 @@ uintptr_t load(const uint8_t* data, size_t size, pde_t* pgdir) {
 
     for (uint16_t i = 0; i < eh->e_phnum; i++) {
         size_t ph_offset = eh->e_phoff + i * eh->e_phentsize;
-        ProgHdr header{};
+        ProgramHeader header{};
         memcpy(&header, data + ph_offset, sizeof(header));
         const auto* ph = &header;
 

@@ -38,7 +38,7 @@ void AhciPrdt::set_data_buffer(uintptr_t buf_phys, uint32_t data_bytes) {
     dbc = data_bytes - 1;
 }
 
-void FisRegH2D::set_command(uint8_t cmd, uint32_t lba, uint16_t count) {
+void RegisterHostToDeviceFis::set_command(uint8_t cmd, uint32_t lba, uint16_t count) {
     fis_type = ahci::FIS_TYPE_REG_H2D;
     c = 1;
 
@@ -174,7 +174,7 @@ void AhciDevice::interrupt() {
 }
 
 int AhciManager::init() {
-    if (s_registered) {
+    if (registered_) {
         return 0;
     }
 
@@ -185,13 +185,13 @@ int AhciManager::init() {
         return -1;
     }
 
-    s_registered = true;
+    registered_ = true;
 
     return 0;
 }
 
 Error AhciManager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*) {
-    ENSURE(!s_ctrl_ready, Error::Busy);
+    ENSURE(!ctrl_ready_, Error::Busy);
 
     uint32_t bar5 = pci::read_bar(pdev->bus, pdev->dev, pdev->func, 5);
     ENSURE_LOG(bar5 != 0 && !(bar5 & 1), Error::Invalid, "ahci: invalid BAR5 for PCI %02x:%02x.%x = 0x%08x", pdev->bus,
@@ -201,25 +201,25 @@ Error AhciManager::probe_callback(const pci::DeviceInfo* pdev, const pci::Driver
     uint32_t phys_base = bar5 & 0xFFFFFFF0;
     cprintf("ahci: Found controller at PCI %02x:%02x.%x, ABAR=0x%08x\n", pdev->bus, pdev->dev, pdev->func, phys_base);
 
-    s_base = vmm::mmio_map(phys_base, ahci::AHCI_BAR_SIZE, VM_WRITE | VM_NOCACHE);
-    ENSURE_LOG(s_base != 0, Error::NoMem, "ahci: failed to map MMIO region at phys=0x%08x", phys_base);
+    base_ = vmm::mmio_map(phys_base, ahci::AHCI_BAR_SIZE, VM_WRITE | VM_NOCACHE);
+    ENSURE_LOG(base_ != 0, Error::NoMem, "ahci: failed to map MMIO region at phys=0x%08x", phys_base);
 
-    uint32_t version = mmio::read32(s_base, ahci::AHCI_VS);
+    uint32_t version = mmio::read32(base_, ahci::AHCI_VS);
     if (version == 0x00000000 || version == 0xFFFFFFFF) {
         cprintf("ahci: controller not responding (version: 0x%08x)\n", version);
-        s_base = 0;
+        base_ = 0;
         return Error::NoDevice;
     }
 
-    uint32_t cap = mmio::read32(s_base, ahci::AHCI_CAP);
+    uint32_t cap = mmio::read32(base_, ahci::AHCI_CAP);
     cprintf("ahci: version %d.%d%d, CAP 0x%08x\n", (version >> 16) & 0xFFFF, (version >> 8) & 0xFF, version & 0xFF,
             cap);
 
-    uint32_t ghc = mmio::read32(s_base, ahci::AHCI_GHC);
+    uint32_t ghc = mmio::read32(base_, ahci::AHCI_GHC);
     ghc |= ahci::GHC_AHCI_EN | ahci::GHC_IE;
-    mmio::write32(s_base, ahci::AHCI_GHC, ghc);
+    mmio::write32(base_, ahci::AHCI_GHC, ghc);
 
-    uint32_t ports_impl = mmio::read32(s_base, ahci::AHCI_PI);
+    uint32_t ports_impl = mmio::read32(base_, ahci::AHCI_PI);
     cprintf("ahci: ports implemented: 0x%08x\n", ports_impl);
 
     for (int i = 0; i < ahci::MAX_DEVICES; i++) {
@@ -227,43 +227,43 @@ Error AhciManager::probe_callback(const pci::DeviceInfo* pdev, const pci::Driver
             continue;
         }
 
-        auto& config = s_port_configs[i];
-        uintptr_t port_base = s_base + ahci::PORT_BASE_OFFSET + (i * ahci::PORT_REG_SIZE);
+        auto& config = port_configs_[i];
+        uintptr_t port_base = base_ + ahci::PORT_BASE_OFFSET + (i * ahci::PORT_REG_SIZE);
 
         uint32_t ssts = mmio::read32(port_base, ahci::PORT_SATA_STS);
         if ((ssts & ahci::SATA_STS_DET_MASK) != ahci::SATA_STS_DET_PRESENT) {
             continue;
         }
 
-        if (s_devices[s_devices_count].detect(&config, s_base) != 0) {
+        if (devices_[devices_count_].detect(&config, base_) != 0) {
             cprintf("ahci: port %d: device setup failed\n", i);
             continue;
         }
 
-        blk::register_device(&s_devices[s_devices_count]);
+        blk::register_device(&devices_[devices_count_]);
 
-        cprintf("ahci: port %d: '%s' ready (%d sectors, %d MB)\n", i, s_devices[s_devices_count].name,
-                s_devices[s_devices_count].info.size, s_devices[s_devices_count].info.size / 2048);
-        s_devices_count++;
+        cprintf("ahci: port %d: '%s' ready (%d sectors, %d MB)\n", i, devices_[devices_count_].name,
+                devices_[devices_count_].info.size, devices_[devices_count_].info.size / 2048);
+        devices_count_++;
     }
 
-    cprintf("ahci: initialization complete, %d device(s)\n", s_devices_count);
-    s_ctrl_ready = true;
+    cprintf("ahci: initialization complete, %d device(s)\n", devices_count_);
+    ctrl_ready_ = true;
     return Error::None;
 }
 
-AhciDevice* AhciManager::get_device(int device_id) {
-    if (device_id < 0 || device_id >= s_devices_count) {
+AhciDevice* AhciManager::find_device(int device_id) {
+    if (device_id < 0 || device_id >= devices_count_) {
         return nullptr;
     }
-    if (!s_devices[device_id].present_) {
+    if (!devices_[device_id].present_) {
         return nullptr;
     }
-    return &s_devices[device_id];
+    return &devices_[device_id];
 }
 
-int AhciManager::get_device_count() {
-    return s_devices_count;
+int AhciManager::device_count() {
+    return devices_count_;
 }
 
 void AhciDevice::print_info() {
@@ -302,7 +302,7 @@ Error AhciDevice::transfer_blocks(uint32_t block_number, size_t block_count, voi
 
         if (issue_cmd(command, lba, count, write) != 0) {
             cprintf("AhciDevice::%s: failed to issue command for LBA %d\n", op_name, lba);
-            return Error::IO;
+            return Error::Io;
         }
 
         if (wait_cmd_complete(1000) != 0) {
@@ -355,14 +355,14 @@ int AhciDevice::issue_cmd(uint8_t command, uint32_t lba, uint16_t count, bool wr
     const uint32_t data_bytes = static_cast<uint32_t>(count) * ahci::SECTOR_SIZE;
 
     auto& cmd = cmd_list_[0];
-    cmd.cfl = sizeof(FisRegH2D) / 4;
+    cmd.cfl = sizeof(RegisterHostToDeviceFis) / 4;
     cmd.write = write ? 1 : 0;
     cmd.prdtl = 1;
     cmd.prdbc = 0;
 
     cmd_table_ = {};
 
-    auto* fis = reinterpret_cast<FisRegH2D*>(cmd_table_.cfis);
+    auto* fis = reinterpret_cast<RegisterHostToDeviceFis*>(cmd_table_.cfis);
     fis->set_command(command, lba, count);
 
     auto& prdt = cmd_table_.prdt[0];
@@ -400,8 +400,8 @@ int AhciDevice::wait_cmd_complete(int timeout_ms) const {
 }
 
 void AhciManager::interrupt_handler(int port) {
-    for (int i = 0; i < s_devices_count; i++) {
-        AhciDevice& dev = s_devices[i];
+    for (int i = 0; i < devices_count_; i++) {
+        AhciDevice& dev = devices_[i];
 
         if (!dev.present_ || dev.config->port_num != port) {
             continue;

@@ -32,15 +32,15 @@ public:
 
     static void init();
     static void register_device(BlockDevice* device);
-    static BlockDevice* get_device(const char* name);
-    static BlockDevice* get_device(int index);
-    static BlockDevice* get_device(blk::DeviceType type);
-    static int get_device_count();
+    static BlockDevice* find_device(const char* name);
+    static BlockDevice* find_device(int index);
+    static BlockDevice* find_device(blk::DeviceType type);
+    static int device_count();
     static void print();
 
 
 private:
-    inline static Array<BlockDevice*, MAX_DEV> s_devices{};
+    inline static Array<BlockDevice*, MAX_DEV> devices_{};
 };
 
 namespace blk {

@@ -52,15 +52,15 @@ constexpr uint8_t VIRTIO_PCI_CAP_DEVICE_CFG = 4;
 
 // VirtIO-GPU command types
 enum GpuCmd : uint32_t {
-    CMD_GET_DISPLAY_INFO = 0x0100,
-    CMD_RESOURCE_CREATE_2D = 0x0101,
-    CMD_RESOURCE_UNREF = 0x0102,
-    CMD_SET_SCANOUT = 0x0103,
-    CMD_RESOURCE_FLUSH = 0x0104,
-    CMD_TRANSFER_TO_HOST_2D = 0x0105,
-    CMD_RESOURCE_ATTACH_BACKING = 0x0106,
-    RESP_OK_NODATA = 0x1100,
-    RESP_OK_DISPLAY_INFO = 0x1101,
+    GetDisplayInfo = 0x0100,
+    CreateResource2d = 0x0101,
+    UnreferenceResource = 0x0102,
+    SetScanout = 0x0103,
+    FlushResource = 0x0104,
+    TransferToHost2d = 0x0105,
+    AttachResourceBacking = 0x0106,
+    ResponseOkNoData = 0x1100,
+    ResponseOkDisplayInfo = 0x1101,
 };
 
 // VirtIO-GPU pixel formats
@@ -364,7 +364,7 @@ bool find_cap(int bus, int dev, int func, uint8_t cap_type, CapInfo* out) {
     if (!((reg >> 16) & (1 << 4)))
         return false;
 
-    uint8_t ptr = pci::config_read32(bus, dev, func, pci::CAP_PTR) & 0xFF;
+    uint8_t ptr = pci::config_read32(bus, dev, func, pci::CapabilitiesPointer) & 0xFF;
     while (ptr != 0) {
         uint32_t cap_hdr = pci::config_read32(bus, dev, func, ptr);
         uint8_t cap_id = cap_hdr & 0xFF;
@@ -400,7 +400,7 @@ bool find_cap(int bus, int dev, int func, uint8_t cap_type, CapInfo* out) {
 
 // Read the notify_off_multiplier from the NOTIFY cap (at +16 in that cap)
 uint32_t read_notify_multiplier(int bus, int dev, int func) {
-    uint8_t ptr = pci::config_read32(bus, dev, func, pci::CAP_PTR) & 0xFF;
+    uint8_t ptr = pci::config_read32(bus, dev, func, pci::CapabilitiesPointer) & 0xFF;
     while (ptr != 0) {
         uint32_t cap_hdr = pci::config_read32(bus, dev, func, ptr);
         uint8_t cap_id = cap_hdr & 0xFF;
@@ -523,11 +523,11 @@ int init() {
 
     // 6. GET_DISPLAY_INFO to learn native resolution
     GpuCtrlHdr get_info_cmd{};
-    get_info_cmd.type = CMD_GET_DISPLAY_INFO;
+    get_info_cmd.type = GetDisplayInfo;
     GpuDisplayInfo disp_info{};
     gpu_cmd(&get_info_cmd, sizeof(get_info_cmd), &disp_info, sizeof(disp_info));
 
-    if (disp_info.hdr.type != RESP_OK_DISPLAY_INFO) {
+    if (disp_info.hdr.type != ResponseOkDisplayInfo) {
         cprintf("virtio_gpu: GET_DISPLAY_INFO failed (type=0x%x)\n", disp_info.hdr.type);
         return -1;
     }
@@ -556,13 +556,13 @@ int init() {
     // 8. RESOURCE_CREATE_2D
     GpuResourceCreate2d create_cmd{};
     GpuCtrlHdr create_resp{};
-    create_cmd.hdr.type = CMD_RESOURCE_CREATE_2D;
+    create_cmd.hdr.type = CreateResource2d;
     create_cmd.resource_id = 1;
     create_cmd.format = FORMAT_B8G8R8X8_UNORM;
     create_cmd.width = fb_width;
     create_cmd.height = fb_height;
     gpu_cmd(&create_cmd, sizeof(create_cmd), &create_resp, sizeof(create_resp));
-    if (create_resp.type != RESP_OK_NODATA) {
+    if (create_resp.type != ResponseOkNoData) {
         cprintf("virtio_gpu: RESOURCE_CREATE_2D failed (0x%x)\n", create_resp.type);
         return -1;
     }
@@ -576,13 +576,13 @@ int init() {
     } attach_cmd{};
     GpuCtrlHdr attach_resp{};
 
-    attach_cmd.hdr.hdr.type = CMD_RESOURCE_ATTACH_BACKING;
+    attach_cmd.hdr.hdr.type = AttachResourceBacking;
     attach_cmd.hdr.resource_id = 1;
     attach_cmd.hdr.nr_entries = 1;
     attach_cmd.entry.addr = fb_phys;
     attach_cmd.entry.length = fb_size;
     gpu_cmd(&attach_cmd, sizeof(attach_cmd), &attach_resp, sizeof(attach_resp));
-    if (attach_resp.type != RESP_OK_NODATA) {
+    if (attach_resp.type != ResponseOkNoData) {
         cprintf("virtio_gpu: ATTACH_BACKING failed (0x%x)\n", attach_resp.type);
         return -1;
     }
@@ -590,7 +590,7 @@ int init() {
     // 10. SET_SCANOUT
     GpuSetScanout scanout_cmd{};
     GpuCtrlHdr scanout_resp{};
-    scanout_cmd.hdr.type = CMD_SET_SCANOUT;
+    scanout_cmd.hdr.type = SetScanout;
     scanout_cmd.r.x = 0;
     scanout_cmd.r.y = 0;
     scanout_cmd.r.width = fb_width;
@@ -598,7 +598,7 @@ int init() {
     scanout_cmd.scanout_id = 0;
     scanout_cmd.resource_id = 1;
     gpu_cmd(&scanout_cmd, sizeof(scanout_cmd), &scanout_resp, sizeof(scanout_resp));
-    if (scanout_resp.type != RESP_OK_NODATA) {
+    if (scanout_resp.type != ResponseOkNoData) {
         cprintf("virtio_gpu: SET_SCANOUT failed (0x%x)\n", scanout_resp.type);
         return -1;
     }
@@ -606,7 +606,7 @@ int init() {
     // 11. Initial TRANSFER + FLUSH to show cleared screen
     GpuTransferToHost2d xfer_cmd{};
     GpuCtrlHdr xfer_resp{};
-    xfer_cmd.hdr.type = CMD_TRANSFER_TO_HOST_2D;
+    xfer_cmd.hdr.type = TransferToHost2d;
     xfer_cmd.r.width = fb_width;
     xfer_cmd.r.height = fb_height;
     xfer_cmd.resource_id = 1;
@@ -614,7 +614,7 @@ int init() {
 
     GpuResourceFlush flush_cmd{};
     GpuCtrlHdr flush_resp{};
-    flush_cmd.hdr.type = CMD_RESOURCE_FLUSH;
+    flush_cmd.hdr.type = FlushResource;
     flush_cmd.r.width = fb_width;
     flush_cmd.r.height = fb_height;
     flush_cmd.resource_id = 1;
@@ -632,7 +632,7 @@ void flush() {
 
     GpuTransferToHost2d xfer{};
     GpuCtrlHdr xfer_resp{};
-    xfer.hdr.type = CMD_TRANSFER_TO_HOST_2D;
+    xfer.hdr.type = TransferToHost2d;
     xfer.r.width = fb_width;
     xfer.r.height = fb_height;
     xfer.resource_id = 1;
@@ -640,7 +640,7 @@ void flush() {
 
     GpuResourceFlush fl{};
     GpuCtrlHdr fl_resp{};
-    fl.hdr.type = CMD_RESOURCE_FLUSH;
+    fl.hdr.type = FlushResource;
     fl.r.width = fb_width;
     fl.r.height = fb_height;
     fl.resource_id = 1;

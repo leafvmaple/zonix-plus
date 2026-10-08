@@ -97,7 +97,7 @@ static int read_sectors(uint32_t lba, uint32_t count, uint8_t* buffer) {
 }
 
 static int load_elf_kernel(uint8_t* elf_buffer, BootInfo* bi) {
-    auto* elf = reinterpret_cast<ElfHdr64*>(elf_buffer);
+    auto* elf = reinterpret_cast<ElfHeader64*>(elf_buffer);
 
     if (elf->e_magic != ELF_MAGIC) {
         return -1;
@@ -107,7 +107,7 @@ static int load_elf_kernel(uint8_t* elf_buffer, BootInfo* bi) {
     bi->kernel_end = 0;
     bi->kernel_entry = static_cast<uint32_t>(elf->e_entry & 0xFFFFFFFF);  // Physical entry
 
-    auto* ph = reinterpret_cast<ProgHdr64*>(reinterpret_cast<uint8_t*>(elf) + static_cast<uint32_t>(elf->e_phoff));
+    auto* ph = reinterpret_cast<ProgramHeader64*>(reinterpret_cast<uint8_t*>(elf) + static_cast<uint32_t>(elf->e_phoff));
     auto* eph = ph + elf->e_phnum;
 
     for (; ph < eph; ph++) {
@@ -149,7 +149,7 @@ static uint32_t fat_find_file(const char* filename, uint8_t* dir_buffer, uint32_
         }
         // Compare name (8 bytes) and ext (3 bytes) together as 11 bytes
         if (memcmp(&entry[i].name, filename, 11) == 0) {
-            return entry[i].get_cluster();
+            return entry[i].cluster();
         }
     }
     return 0;  // Not found

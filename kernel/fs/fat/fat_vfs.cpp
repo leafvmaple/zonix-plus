@@ -142,7 +142,7 @@ namespace {
 
 struct FatFsRegistrar {
     FatFsRegistrar() { vfs::register_fs("fat", fat::create_vfs_filesystem); }
-} s_fat_registrar;
+} fat_registrar;
 
 }  // namespace
 

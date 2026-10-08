@@ -44,18 +44,18 @@ public:
 
     static int init();
     static int device_count();
-    static SdDevice* get_device(int index);
+    static SdDevice* find_device(int index);
 
     static Error probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*);
 
 private:
-    inline static bool s_initialized{};
-    inline static Array<SdDevice, MAX_DEVICES> s_devices{};
+    inline static bool initialized_{};
+    inline static Array<SdDevice, MAX_DEVICES> devices_{};
 };
 
 int init();
 int device_count();
-SdDevice* get_device();
-SdDevice* get_device(int index);
+SdDevice* find_device();
+SdDevice* find_device(int index);
 
 }  // namespace sdhci

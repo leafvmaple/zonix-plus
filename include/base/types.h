@@ -33,9 +33,9 @@ constexpr size_t array_size(const T (&)[N]) noexcept {
 
 inline constexpr size_t SECTOR_SIZE = 512;
 
-template<typename T, size_t SectorBytes = SECTOR_SIZE>
+template<typename T, size_t SECTOR_BYTES = SECTOR_SIZE>
 struct SectorArray {
-    static constexpr size_t COUNT = SectorBytes / sizeof(T);
+    static constexpr size_t COUNT = SECTOR_BYTES / sizeof(T);
     T entries[COUNT];
 } __attribute__((packed));
 

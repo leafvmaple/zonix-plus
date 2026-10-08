@@ -1,12 +1,12 @@
 #pragma once
 
-void __panic(const char* file, int line, const char* fmt, ...);
+void panic_at(const char* file, int line, const char* fmt, ...);
 
-#define panic(...) __panic(__FILE__, __LINE__, __VA_ARGS__)
+#define PANIC(...) panic_at(__FILE__, __LINE__, __VA_ARGS__)
 
 #define assert(x)                              \
     do {                                       \
         if (!(x)) {                            \
-            panic("assertion failed: %s", #x); \
+            PANIC("assertion failed: %s", #x); \
         }                                      \
     } while (0)

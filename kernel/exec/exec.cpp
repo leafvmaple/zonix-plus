@@ -115,7 +115,7 @@ Result<int> exec(const char* path) {
     auto rd = vfs::read(file.handle, buf.ptr, file_size, 0);
     if (!rd.ok() || rd.value() < static_cast<int>(file_size)) {
         cprintf("exec: failed to read file (%d/%d bytes)\n", rd.ok() ? rd.value() : -1, file_size);
-        return Error::IO;
+        return Error::Io;
     }
 
     pde_t* user_pgdir = create_user_pgdir();
@@ -156,7 +156,7 @@ Result<int> exec(const char* path) {
         }
         pid = pid_r.value();
 
-        TaskStruct* proc = sched::find_proc(pid);
+        Task* proc = sched::find_process(pid);
         if (proc) {
             proc->memory = mm;
             proc->set_name(path);

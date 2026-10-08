@@ -144,17 +144,17 @@ static void test_kmalloc_kfree() {
 static void test_stress_alloc() {
     TEST_START("PMM stress: multiple allocations");
 
-    constexpr int N = 16;
-    Page* pages[N];
+    constexpr int allocation_count = 16;
+    Page* pages[allocation_count];
     int allocated = 0;
 
-    for (int i = 0; i < N; i++) {
+    for (int i = 0; i < allocation_count; i++) {
         pages[i] = pmm::alloc_pages(1);
         if (pages[i])
             allocated++;
     }
 
-    TEST_ASSERT(allocated == N, "All 16 single-page allocations succeed");
+    TEST_ASSERT(allocated == allocation_count, "All 16 single-page allocations succeed");
 
     bool all_distinct = true;
     for (int i = 0; i < allocated && all_distinct; i++) {

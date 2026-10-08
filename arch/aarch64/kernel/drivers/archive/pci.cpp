@@ -47,13 +47,13 @@ void config_write32(int bus, int dev, int func, int offset, uint32_t val) {
 }
 
 uint32_t read_bar(int bus, int dev, int func, int bar_index) {
-    return config_read32(bus, dev, func, pci::BAR0 + bar_index * 4);
+    return config_read32(bus, dev, func, pci::Bar0 + bar_index * 4);
 }
 
 void enable_bus_master(int bus, int dev, int func) {
-    uint32_t cmd = config_read32(bus, dev, func, pci::COMMAND);
+    uint32_t cmd = config_read32(bus, dev, func, pci::Command);
     cmd |= CMD_BUS_MASTER | CMD_MEMORY_SPACE;
-    config_write32(bus, dev, func, pci::COMMAND, cmd);
+    config_write32(bus, dev, func, pci::Command, cmd);
 }
 
 // Simple linear BAR allocator for MMIO32 window
@@ -70,16 +70,16 @@ static uintptr_t alloc_mmio32(size_t size) {
 
 void assign_bars() {
     for (int dev = 0; dev < 32; dev++) {
-        uint32_t id = config_read32(0, dev, 0, VENDOR_ID);
+        uint32_t id = config_read32(0, dev, 0, VendorId);
         if (id == 0xFFFFFFFF || (id & 0xFFFF) == 0xFFFF)
             continue;
 
         // Disable MMIO + bus-master during BAR programming
-        uint32_t cmd = config_read32(0, dev, 0, COMMAND);
-        config_write32(0, dev, 0, COMMAND, cmd & ~(CMD_MEMORY_SPACE | CMD_BUS_MASTER));
+        uint32_t cmd = config_read32(0, dev, 0, Command);
+        config_write32(0, dev, 0, Command, cmd & ~(CMD_MEMORY_SPACE | CMD_BUS_MASTER));
 
         for (int bar = 0; bar < 6; bar++) {
-            int reg = BAR0 + bar * 4;
+            int reg = Bar0 + bar * 4;
             uint32_t orig = config_read32(0, dev, 0, reg);
 
             // Write all 1s to determine size
@@ -115,7 +115,7 @@ void assign_bars() {
         }
 
         // Re-enable MMIO + bus-master
-        config_write32(0, dev, 0, COMMAND, cmd | CMD_MEMORY_SPACE | CMD_BUS_MASTER);
+        config_write32(0, dev, 0, Command, cmd | CMD_MEMORY_SPACE | CMD_BUS_MASTER);
     }
 }
 
@@ -124,10 +124,10 @@ bool find_by_class(uint8_t cls, uint8_t sub, uint8_t iface, int* out_bus, int* o
     for (int bus = 0; bus < 1; bus++) {  // QEMU virt: bus 0 only
         for (int dev = 0; dev < 32; dev++) {
             for (int func = 0; func < 8; func++) {
-                uint32_t id = config_read32(bus, dev, func, VENDOR_ID);
+                uint32_t id = config_read32(bus, dev, func, VendorId);
                 if (id == 0xFFFFFFFF || (id & 0xFFFF) == 0xFFFF)
                     continue;
-                uint32_t cr = config_read32(bus, dev, func, CLASS_REVISION);
+                uint32_t cr = config_read32(bus, dev, func, ClassRevision);
                 if ((cr >> 8) == expected) {
                     *out_bus = bus;
                     *out_dev = dev;
@@ -145,7 +145,7 @@ bool find_by_id(uint16_t vendor, uint16_t device, int* out_bus, int* out_dev, in
     for (int bus = 0; bus < 1; bus++) {
         for (int dev = 0; dev < 32; dev++) {
             for (int func = 0; func < 8; func++) {
-                uint32_t id = config_read32(bus, dev, func, VENDOR_ID);
+                uint32_t id = config_read32(bus, dev, func, VendorId);
                 if (id == expected) {
                     *out_bus = bus;
                     *out_dev = dev;

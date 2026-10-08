@@ -7,7 +7,7 @@
 
 extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_table) {
     const UefiBootConfig cfg = {
-        .banner = UEFI_STR(L"\r\nZonix UEFI Bootloader (RISC-V 64) v1.0\r\n\r\n"),
+        .banner = uefi_string(L"\r\nZonix UEFI Bootloader (RISC-V 64) v1.0\r\n\r\n"),
         .loader_name = "Zonix UEFI RISC-V",
         .kernel_virt_base = 0xFFFFFFC000000000ULL,
         .boot_info_addr = BOARD_BOOT_INFO_ADDR,
@@ -37,8 +37,8 @@ extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE*
     unsigned long hart_id;
     __asm__ volatile("mv %0, tp" : "=r"(hart_id));
 
-    using kernel_entry_fn = void (*)(unsigned long hart_id, BootInfo* bi);
-    auto entry = reinterpret_cast<kernel_entry_fn>(bi->kernel_entry);
+    using HartKernelEntry = void (*)(unsigned long hart_id, BootInfo* bi);
+    auto entry = reinterpret_cast<HartKernelEntry>(bi->kernel_entry);
     entry(hart_id, bi);
 
     for (;;) {

@@ -44,22 +44,22 @@
     .word 0, 0;      \
     .byte 0, 0, 0, 0
 
-/* 64-bit code segment: L=1, D=0, P=1, DPL=0, S=1, Type=Execute/Read */
+/* 64-bit code segment: L=1, D=0, P=1, DPL=0, S=1, TYPE=Execute/Read */
 #define GEN_SEG_CODE64    \
     .word 0xFFFF, 0x0000; \
     .byte 0x00, 0x9A, 0xAF, 0x00
 
-/* 64-bit data segment: P=1, DPL=0, S=1, Type=Read/Write */
+/* 64-bit data segment: P=1, DPL=0, S=1, TYPE=Read/Write */
 #define GEN_SEG_DATA64    \
     .word 0xFFFF, 0x0000; \
     .byte 0x00, 0x92, 0xCF, 0x00
 
-/* 64-bit user code segment: L=1, D=0, P=1, DPL=3, S=1, Type=Execute/Read */
+/* 64-bit user code segment: L=1, D=0, P=1, DPL=3, S=1, TYPE=Execute/Read */
 #define GEN_SEG_UCODE64   \
     .word 0xFFFF, 0x0000; \
     .byte 0x00, 0xFA, 0xAF, 0x00
 
-/* 64-bit user data segment: P=1, DPL=3, S=1, Type=Read/Write */
+/* 64-bit user data segment: P=1, DPL=3, S=1, TYPE=Read/Write */
 #define GEN_SEG_UDATA64   \
     .word 0xFFFF, 0x0000; \
     .byte 0x00, 0xF2, 0xCF, 0x00
@@ -92,11 +92,11 @@ inline void set_gate(GateDesc* gate, uint8_t type, uint16_t sel, uint8_t dpl, ui
     gate->gd_rsv = 0;
 }
 
-template<uint8_t Type, uint16_t Sel, uint8_t Dpl>
+template<uint8_t TYPE, uint16_t SELECTOR, uint8_t DPL>
 inline void set_gate(GateDesc* gate, uintptr_t addr) {
-    static_assert((Type & 0xF) == Type, "gate type must fit in 4 bits");
-    static_assert((Dpl & 0x3) == Dpl, "DPL must fit in 2 bits");
-    set_gate(gate, Type, Sel, Dpl, addr);
+    static_assert((TYPE & 0xF) == TYPE, "gate type must fit in 4 bits");
+    static_assert((DPL & 0x3) == DPL, "DPL must fit in 2 bits");
+    set_gate(gate, TYPE, SELECTOR, DPL, addr);
 }
 
 inline void set_trap_gate(GateDesc* gate, uintptr_t addr) {

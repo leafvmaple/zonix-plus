@@ -95,7 +95,7 @@ Zonix 是一个教学型操作系统，当前主线已实现：
 
 #### 进程基础
 - [x] **设计进程控制块（PCB）** ✅ (v0.8.0)
-  - 完成：`kernel/sched/sched.h` — `TaskStruct`（PID、状态、内存空间、调度信息）
+  - 完成：`kernel/sched/sched.h` — `Task`（PID、状态、内存空间、调度信息）
 
 - [x] **实现进程创建** ✅ (v0.8.0)
   - 完成：`kernel/sched/sched.cpp` — `TaskManager::fork()`
@@ -241,7 +241,7 @@ Zonix 是一个教学型操作系统，当前主线已实现：
 
 - [x] **实现文件描述符管理** ✅ (v0.9.3+)
   - 完成：`kernel/fs/fd.{h,cpp}` 中的 `fd::Table`（分配、查询、关闭、全关闭）
-  - 完成：`TaskStruct::files()` 文件上下文访问器与 syscall 对接
+  - 完成：`Task::files()` 文件上下文访问器与 syscall 对接
   - 待完成：共享 open-file description（`ForkPolicy::Share`）与标准 0/1/2 初始化
 
 #### 具体文件系统

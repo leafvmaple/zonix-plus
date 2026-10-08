@@ -16,13 +16,12 @@ public:
 };
 
 // Page-to-address mapping entry (for reverse lookup)
-struct PageAddrMap {
+struct PageAddressMap {
     Page* page;
     uintptr_t addr;
     ListNode link;
 };
 
-using page_addr_map_t = PageAddrMap;
 
 // Global functions
 namespace swap {

@@ -15,10 +15,10 @@ static int tests_failed = 0;
 
 // Count attached Disk-type block devices.
 static int count_disks() {
-    int count = BlockManager::get_device_count();
+    int count = BlockManager::device_count();
     int disks = 0;
     for (int i = 0; i < count; i++) {
-        BlockDevice* dev = BlockManager::get_device(i);
+        BlockDevice* dev = BlockManager::find_device(i);
         if (dev && dev->type == blk::DeviceType::Disk) {
             disks++;
         }
@@ -31,10 +31,10 @@ static bool ensure_mnt_mounted() {
         return true;
     }
 
-    int count = BlockManager::get_device_count();
+    int count = BlockManager::device_count();
     int disk_index = 0;
     for (int i = 0; i < count; i++) {
-        BlockDevice* dev = BlockManager::get_device(i);
+        BlockDevice* dev = BlockManager::find_device(i);
         if (!dev || dev->type != blk::DeviceType::Disk) {
             continue;
         }

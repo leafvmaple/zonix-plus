@@ -5,7 +5,7 @@
 #include "lib/waitqueue.h"
 
 // Forward declaration
-struct TaskStruct;
+struct Task;
 
 // Mutex — mutual exclusion lock with ownership tracking.
 // Unlike Spinlock, a Mutex blocks (sleeps) when contended.
@@ -25,7 +25,7 @@ public:
 
 private:
     bool held_{false};
-    TaskStruct* owner_{};
+    Task* owner_{};
     Spinlock spin_{};
     WaitQueue waitq_{};
 };

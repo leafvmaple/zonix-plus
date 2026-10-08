@@ -111,9 +111,9 @@ VirtioInputEvent event_bufs[MAX_QUEUE_SIZE];
 // Cached notify address (avoid reading common_cfg in interrupt context)
 volatile uint16_t* vq_notify_addr = nullptr;
 
-int s_irq = -1;
-bool s_initialized = false;
-bool s_registered = false;
+int irq_line = -1;
+bool initialized = false;
+bool registered = false;
 
 // ============================================================================
 // Common config register accessors (VirtIO 1.x §4.1.4.3)
@@ -176,7 +176,7 @@ bool find_cap(int bus, int dev, int func, uint8_t cap_type, CapInfo* out) {
     if (!((reg >> 16) & (1 << 4)))
         return false;
 
-    uint8_t ptr = pci::config_read32(bus, dev, func, pci::CAP_PTR) & 0xFF;
+    uint8_t ptr = pci::config_read32(bus, dev, func, pci::CapabilitiesPointer) & 0xFF;
     while (ptr != 0) {
         uint32_t cap_hdr = pci::config_read32(bus, dev, func, ptr);
         uint8_t cap_id = cap_hdr & 0xFF;
@@ -202,7 +202,7 @@ bool find_cap(int bus, int dev, int func, uint8_t cap_type, CapInfo* out) {
 }
 
 uint32_t read_notify_multiplier(int bus, int dev, int func) {
-    uint8_t ptr = pci::config_read32(bus, dev, func, pci::CAP_PTR) & 0xFF;
+    uint8_t ptr = pci::config_read32(bus, dev, func, pci::CapabilitiesPointer) & 0xFF;
     while (ptr != 0) {
         uint32_t cap_hdr = pci::config_read32(bus, dev, func, ptr);
         uint8_t cap_id = cap_hdr & 0xFF;
@@ -238,7 +238,7 @@ uintptr_t map_bar_region(int bus, int dev, int func, const CapInfo* ci) {
 // Linux keycode → ASCII translation (subset)
 // ============================================================================
 
-static const char keymap_normal[128] = {
+static const char KEYMAP_NORMAL[128] = {
     0,    0x1B, '1', '2',  '3',  '4', '5',  '6',   // 0-7
     '7',  '8',  '9', '0',  '-',  '=', '\b', '\t',  // 8-15
     'q',  'w',  'e', 'r',  't',  'y', 'u',  'i',   // 16-23
@@ -280,9 +280,9 @@ int init_from_pci_device(int bus, int dev, int func) {
     pci::enable_bus_master(bus, dev, func);
 
     // Ensure PCI INTx is not disabled (bit 10 of Command register)
-    uint32_t cmd = pci::config_read32(bus, dev, func, pci::COMMAND);
+    uint32_t cmd = pci::config_read32(bus, dev, func, pci::Command);
     cmd &= ~(1U << 10);  // clear Interrupt Disable
-    pci::config_write32(bus, dev, func, pci::COMMAND, cmd);
+    pci::config_write32(bus, dev, func, pci::Command, cmd);
 
     // Walk PCI capabilities to find modern config regions
     CapInfo common_ci{}, notify_ci{}, isr_ci{};
@@ -392,21 +392,21 @@ int init_from_pci_device(int bus, int dev, int func) {
     uint8_t int_pin = (int_reg >> 8) & 0xFF;  // interrupt pin (1-based)
     if (int_pin == 0)
         int_pin = 1;  // default to INTA
-    s_irq = arch_pci_intx_to_irq(static_cast<uint8_t>(dev), int_pin);
-    arch_irq_enable_line(s_irq);
+    irq_line = arch_pci_intx_to_irq(static_cast<uint8_t>(dev), int_pin);
+    arch_irq_enable_line(irq_line);
 
-    cprintf("virtio_kbd: ready, eventq=%d, IRQ=%d\n", qsz, s_irq);
+    cprintf("virtio_kbd: ready, eventq=%d, IRQ=%d\n", qsz, irq_line);
     return 0;
 }
 
 Error probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*) {
-    if (s_initialized) {
+    if (initialized) {
         return Error::Busy;
     }
 
     int rc = init_from_pci_device(pdev->bus, pdev->dev, pdev->func);
     if (rc == 0) {
-        s_initialized = true;
+        initialized = true;
         return Error::None;
     }
     return Error::Fail;
@@ -432,7 +432,7 @@ const pci::Driver VIRTIO_KBD_DRIVER = {
 namespace virtio_kbd {
 
 int init() {
-    if (s_initialized || s_registered) {
+    if (initialized || registered) {
         return 0;
     }
 
@@ -441,7 +441,7 @@ int init() {
         return -1;
     }
 
-    s_registered = true;
+    registered = true;
     return 0;
 }
 
@@ -462,7 +462,7 @@ void intr() {
         if (ev->type == EV_KEY && ev->value == 1) {
             uint16_t code = ev->code;
             if (code < 128) {
-                char c = keymap_normal[code];
+                char c = KEYMAP_NORMAL[code];
                 if (c != 0) {
                     cons::push_input(c);
                 }
@@ -485,7 +485,7 @@ void intr() {
 }
 
 int irq() {
-    return s_irq;
+    return irq_line;
 }
 
 }  // namespace virtio_kbd

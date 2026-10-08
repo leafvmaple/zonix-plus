@@ -14,8 +14,9 @@ inline constexpr uint32_t PSTATE_I = 1 << 7;  /* IRQ mask */
 inline constexpr uint32_t PSTATE_F = 1 << 6;  /* FIQ mask */
 
 /* Exception level encoding in SPSR_EL1 bits [3:0] */
-inline constexpr uint32_t PSTATE_EL0t = 0x00; /* EL0 with SP_EL0 */
-inline constexpr uint32_t PSTATE_EL1t = 0x04; /* EL1 with SP_EL0 */
-inline constexpr uint32_t PSTATE_EL1h = 0x05; /* EL1 with SP_EL1 */
+inline constexpr uint32_t PSTATE_MODE_MASK = 0x0F;
+inline constexpr uint32_t PSTATE_EL0T = 0x00; /* EL0 with SP_EL0 */
+inline constexpr uint32_t PSTATE_EL1T = 0x04; /* EL1 with SP_EL0 */
+inline constexpr uint32_t PSTATE_EL1H = 0x05; /* EL1 with SP_EL1 */
 
 #endif /* !__ASSEMBLY__ */

@@ -29,7 +29,7 @@ inline constexpr int REG_STATUS = 0x7;        // Status register (read)
 inline constexpr int REG_COMMAND = 0x7;       // Command register (write)
 
 // IDE control register bits
-inline constexpr uint8_t CTRL_nIEN = 0x02;  // Disable interrupts (set to disable)
+inline constexpr uint8_t CTRL_INTERRUPT_DISABLE = 0x02;  // Disable interrupts (set to disable)
 inline constexpr uint8_t CTRL_SRST = 0x04;  // Software reset
 inline constexpr uint8_t CTRL_HOB = 0x80;   // High order byte
 
@@ -108,13 +108,13 @@ class IdeManager {
 public:
     static void init();
 
-    static IdeDevice* get_device(int device_id);
-    static int get_device_count();
+    static IdeDevice* find_device(int device_id);
+    static int device_count();
 
     static void interrupt_handler(int channel);
 
 private:
-    static IdeConfig s_configs[ide::MAX_DEVICES];
-    static IdeDevice s_devices[ide::MAX_DEVICES];
-    static int s_devices_count;
+    static IdeConfig configs_[ide::MAX_DEVICES];
+    static IdeDevice devices_[ide::MAX_DEVICES];
+    static int devices_count_;
 };

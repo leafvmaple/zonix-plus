@@ -10,7 +10,7 @@ using EFI_STATUS = uintptr_t;
 using EFI_HANDLE = void*;
 using EFI_PHYSICAL_ADDRESS = uint64_t;
 
-[[nodiscard]] static constexpr const wchar_t* UEFI_STR(const wchar_t* s) {
+[[nodiscard]] static constexpr const wchar_t* uefi_string(const wchar_t* s) {
     return s;
 }
 
@@ -159,7 +159,7 @@ struct EFI_BOOT_SERVICES {
     void* CreateEventEx;
 };
 
-[[nodiscard]] static inline EFI_STATUS EFI_HandleProtocol(EFI_BOOT_SERVICES* bs, EFI_HANDLE handle, EFI_GUID* guid,
+[[nodiscard]] static inline EFI_STATUS efi_handle_protocol(EFI_BOOT_SERVICES* bs, EFI_HANDLE handle, EFI_GUID* guid,
                                                           void** interface) {
     return bs->HandleProtocol(handle, guid, interface);
 }

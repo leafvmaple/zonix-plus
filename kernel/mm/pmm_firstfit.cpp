@@ -24,7 +24,7 @@
 
 FreeArea free_area{};
 
-const char* PageAllocator::get_name() const {
+const char* PageAllocator::name() const {
     return "First-Fit Page Allocator";
 }
 
@@ -50,7 +50,7 @@ Page* PageAllocator::alloc(size_t n) {
     Page* page{};
 
     ListNode* valid_node = &free_area.free_list;
-    while ((valid_node = valid_node->get_next()) != &free_area.free_list) {
+    while ((valid_node = valid_node->next_node()) != &free_area.free_list) {
         Page* p = valid_node->container<Page>();
         if (p->property >= n) {
             page = p;
@@ -84,7 +84,7 @@ void PageAllocator::free(Page* base, size_t n) {
     ListNode* le = &free_area.free_list;
     ListNode* prev = le;
 
-    while ((le = le->get_next()) != &free_area.free_list) {
+    while ((le = le->next_node()) != &free_area.free_list) {
         Page* p = le->container<Page>();
 
         if (base + base->property == p) {

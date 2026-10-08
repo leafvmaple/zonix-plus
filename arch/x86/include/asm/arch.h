@@ -23,15 +23,15 @@ static inline void arch_irq_restore(uint64_t flags) {
     write_eflags(flags);
 }
 
-static inline void arch_load_cr3(uintptr_t cr3) {
+static inline void arch_load_page_table_root(uintptr_t cr3) {
     lcr3(cr3);
 }
 
-static inline uintptr_t arch_read_cr2(void) {
+static inline uintptr_t arch_fault_address(void) {
     return rcr2();
 }
 
-static inline uintptr_t arch_read_cr3(void) {
+static inline uintptr_t arch_read_page_table_root(void) {
     return rcr3();
 }
 
@@ -109,10 +109,6 @@ static inline void arch_idle(void) {
         __asm__ volatile("hlt");
 }
 
-static inline uintptr_t arch_fault_addr(void) {
-    return rcr2();
-}
-
 using InitStepFn = int (*)();
 
 struct InitStep {
@@ -123,7 +119,7 @@ struct InitStep {
 
 const InitStep* arch_early_steps(size_t* count);
 const InitStep* arch_pci_steps(size_t* count);
-void arch_switch_rsp0(uintptr_t rsp0);
+void arch_set_kernel_stack(uintptr_t rsp0);
 void arch_irq_eoi(int irq);
 void arch_irq_enable_line(int irq);                     /* enable IRQ line in interrupt controller */
 int arch_pci_intx_to_irq(uint8_t dev, uint8_t int_pin); /* PCI INTx → platform IRQ */

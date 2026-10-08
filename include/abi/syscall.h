@@ -10,8 +10,8 @@
  *   - Keep sorted by syscall number.
  */
 
-#ifndef _ZONIX_ABI_SYSCALL_H
-#define _ZONIX_ABI_SYSCALL_H
+#ifndef ZONIX_ABI_SYSCALL_H
+#define ZONIX_ABI_SYSCALL_H
 
 /* ---- Syscall numbers ---- */
 #define NR_EXIT     1
@@ -26,4 +26,4 @@
 #define STDOUT_FD   1
 #define STDERR_FD   2
 
-#endif /* _ZONIX_ABI_SYSCALL_H */
+#endif /* ZONIX_ABI_SYSCALL_H */

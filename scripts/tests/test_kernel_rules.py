@@ -214,20 +214,26 @@ class OwnershipRules(unittest.TestCase):
     def test_cached_success_is_invalidated_by_state_or_inactive_isa_branch(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
-            for name in ("kernel", "include", "arch/x86"):
+            for name in ("kernel", "include", "arch/x86", "docs", "boot", "user"):
                 (root / name).mkdir(parents=True)
             (root / "Makefile").write_text("")
             (root / "arch/x86/Makefile").write_text("")
             exceptions = root / "exceptions.json"
             exceptions.write_text("[]")
+            naming_exceptions = root / "naming-exceptions.json"
+            naming_exceptions.write_text("[]")
+            (root / ".clang-tidy").write_text("")
+            (root / "docs/NAMING.md").write_text("")
             source = root / "kernel/example.cpp"
-            owned = "class Owner { inline static int state{}; };\n"
+            owned = "class Owner { inline static int state_{}; };\n"
             source.write_text(owned)
             cache = root / "check.sha256"
             config = (["clang++"], ["-std=c++17"], ["kernel/example.cpp"])
             with patch.object(rules, "ROOT", root), patch.object(rules, "EXCEPTIONS", exceptions), \
+                    patch.object(rules, "NAMING_EXCEPTIONS", naming_exceptions), \
                     patch.object(rules, "__file__", str(root / "checker.py")), \
-                    patch.object(rules, "build_config", return_value=config), \
+                    patch.object(rules, "build_config", side_effect=lambda arch, target="kernel-rule-config":
+                                 config if target == "kernel-rule-config" else []), \
                     redirect_stdout(StringIO()), redirect_stderr(StringIO()):
                 (root / "checker.py").write_text("")
                 # compile_state's default root is bound on import; supply this fixture root.

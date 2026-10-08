@@ -52,7 +52,7 @@ const InitStep* arch_pci_steps(size_t* count) {
 }
 
 
-void arch_switch_rsp0(uintptr_t) {
+void arch_set_kernel_stack(uintptr_t) {
     // AArch64 EL1 uses SP_EL1 implicitly; no TSS equivalent needed.
     // SP_EL0 is saved/restored by trap entry/exit.
 }

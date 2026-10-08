@@ -6,9 +6,9 @@
 
 void driver_test_disktest() {
     cprintf("\n=== Multi-Disk Test ===\n");
-    cprintf("Testing %d disk device(s)\n\n", IdeManager::get_device_count());
+    cprintf("Testing %d disk device(s)\n\n", IdeManager::device_count());
 
-    if (IdeManager::get_device_count() == 0) {
+    if (IdeManager::device_count() == 0) {
         cprintf("No disk devices found!\n");
         cprintf("=== Test Complete ===\n\n");
         return;
@@ -19,8 +19,8 @@ void driver_test_disktest() {
     static uint8_t read_buff[ide::SECTOR_SIZE]{};
 
     // Test each device
-    for (int i = 0; i < IdeManager::get_device_count(); i++) {
-        IdeDevice* dev = IdeManager::get_device(i);
+    for (int i = 0; i < IdeManager::device_count(); i++) {
+        IdeDevice* dev = IdeManager::find_device(i);
 
         if (dev == nullptr || !dev->present) {
             continue;
@@ -94,12 +94,12 @@ void driver_test_disktest() {
 void driver_test_intrtest() {
     cprintf("\n=== IDE Interrupt Test ===\n");
 
-    if (IdeManager::get_device_count() == 0) {
+    if (IdeManager::device_count() == 0) {
         cprintf("No devices available for testing\n");
         return;
     }
 
-    IdeDevice* dev = IdeManager::get_device(0);
+    IdeDevice* dev = IdeManager::find_device(0);
     if (dev == nullptr) {
         cprintf("Failed to get device 0\n");
         return;
@@ -110,7 +110,7 @@ void driver_test_intrtest() {
 
     // Check interrupt enable status
     uint8_t ctrl = arch_port_inb(dev->config->ctrl);
-    cprintf("  Control register: 0x%02x (interrupts %s)\n", ctrl, (ctrl & ide::CTRL_nIEN) ? "DISABLED" : "ENABLED");
+    cprintf("  Control register: 0x%02x (interrupts %s)\n", ctrl, (ctrl & ide::CTRL_INTERRUPT_DISABLE) ? "DISABLED" : "ENABLED");
 
     // Check PIC mask
     cprintf("  Checking if IRQ %d is enabled in PIC...\n", dev->config->irq);

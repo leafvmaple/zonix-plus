@@ -6,14 +6,14 @@
 
 namespace list_detail {
 
-template<typename NodePtr, bool Reverse = false>
+template<typename NodePtr, bool REVERSE = false>
 struct Iterator {
     NodePtr cur{};
 
     NodePtr operator*() const { return cur; }
 
     Iterator& operator++() {
-        if constexpr (Reverse) {
+        if constexpr (REVERSE) {
             cur = cur->prev;
         } else {
             cur = cur->next;
@@ -91,10 +91,10 @@ struct CircularView {
 struct ListNode {
     using iterator = list_detail::Iterator<ListNode*>;
     using reverse_iterator = list_detail::Iterator<ListNode*, true>;
-    using circular_iterator = list_detail::CircularIterator<ListNode*>;
+    using CircularIterator = list_detail::CircularIterator<ListNode*>;
 
-    using reverse_view = list_detail::ReverseView<ListNode*, reverse_iterator>;
-    using circular_view = list_detail::CircularView<ListNode*, circular_iterator>;
+    using ReverseView = list_detail::ReverseView<ListNode*, reverse_iterator>;
+    using CircularView = list_detail::CircularView<ListNode*, CircularIterator>;
 
     ListNode* prev{};
     ListNode* next{};
@@ -104,11 +104,11 @@ struct ListNode {
     iterator begin() { return iterator{next}; }
     iterator end() { return iterator{this}; }
 
-    [[nodiscard]] reverse_view reversed() { return reverse_view{this}; }
-    [[nodiscard]] circular_view circular_from(ListNode* start) { return circular_view{this, start}; }
+    [[nodiscard]] ReverseView reversed() { return ReverseView{this}; }
+    [[nodiscard]] CircularView circular_from(ListNode* start) { return CircularView{this, start}; }
 
-    [[nodiscard]] inline ListNode* get_next() const { return next; }
-    [[nodiscard]] inline ListNode* get_prev() const { return prev; }
+    [[nodiscard]] inline ListNode* next_node() const { return next; }
+    [[nodiscard]] inline ListNode* previous_node() const { return prev; }
 
     inline void add_before(ListNode& elm) {
         elm.prev = prev;

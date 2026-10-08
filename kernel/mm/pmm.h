@@ -38,7 +38,7 @@ public:
 
 class PageAllocator {
 public:
-    [[nodiscard]] const char* get_name() const;
+    [[nodiscard]] const char* name() const;
 
     void init();
     void init_memmap(Page* base, size_t n);

@@ -128,7 +128,7 @@ struct AhciPrdt {
 } __attribute__((packed));
 
 // Host to Device Register FIS (20 bytes)
-struct FisRegH2D {
+struct RegisterHostToDeviceFis {
     uint8_t fis_type{};  // FIS_TYPE_REG_H2D
     uint8_t pmport : 4;
     uint8_t rsv0 : 3;
@@ -167,7 +167,7 @@ struct AhciCmdTable {
 static_assert(sizeof(AhciCmdHeader) == 32, "AhciCmdHeader must be 32 bytes");
 static_assert(sizeof(AhciCmdTable) <= ahci::DMA_PAGE_SIZE, "AhciCmdTable must fit in one DMA page");
 
-struct TaskStruct;
+struct Task;
 
 struct AhciPortConfig {
     uint8_t port_num{};
@@ -192,7 +192,7 @@ struct AhciRequest {
     volatile int err{};     // Error flag set by ISR
     uint8_t* buffer{};      // Pointer to buffer for current transfer
     Op op{Op::None};        // Operation type
-    TaskStruct* waiting{};  // Sleeping task waiting for completion
+    Task* waiting{};  // Sleeping task waiting for completion
 
     void reset() {
         done = 0;
@@ -239,20 +239,20 @@ public:
     static int init();
     static Error probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*);
 
-    static AhciDevice* get_device(int device_id);
-    static int get_device_count();
+    static AhciDevice* find_device(int device_id);
+    static int device_count();
 
     static void interrupt_handler(int port);
 
 private:
-    inline static uintptr_t s_base{};  // AHCI controller MMIO virtual base
-    inline static AhciDevice s_devices[ahci::MAX_DEVICES]{};
-    inline static int s_devices_count{};
+    inline static uintptr_t base_{};  // AHCI controller MMIO virtual base
+    inline static AhciDevice devices_[ahci::MAX_DEVICES]{};
+    inline static int devices_count_{};
 
-    inline static bool s_ctrl_ready{};
-    inline static bool s_registered{};
+    inline static bool ctrl_ready_{};
+    inline static bool registered_{};
 
-    inline static AhciPortConfig s_port_configs[ahci::MAX_DEVICES] = {
+    inline static AhciPortConfig port_configs_[ahci::MAX_DEVICES] = {
         {0, IRQ_IDE1, "sda"},  // AHCI port 0
         {1, IRQ_IDE1, "sdb"},  // AHCI port 1
         {2, IRQ_IDE1, "sdc"},  // AHCI port 2

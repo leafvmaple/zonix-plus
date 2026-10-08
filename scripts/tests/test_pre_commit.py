@@ -20,7 +20,7 @@ class StagedSnapshotChecks(unittest.TestCase):
         self.repo = Path(self.directory.name).resolve()
         self.env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
         self.git("init", "-q")
-        for directory in ("scripts/tests", "kernel"):
+        for directory in ("scripts/tests", "kernel", "docs"):
             (self.repo / directory).mkdir(parents=True)
         (self.repo / "Makefile").write_text(
             "check:\n\t@python3 scripts/check_kernel_rules.py $(ARCH)\n"
@@ -31,6 +31,10 @@ class StagedSnapshotChecks(unittest.TestCase):
             "sys.exit(1 if 'BAD' in Path('kernel/example.cpp').read_text() else 0)\n"
         )
         (self.repo / "scripts/kernel_rule_exceptions.json").write_text("[]")
+        (self.repo / "scripts/naming_exceptions.json").write_text("[]")
+        (self.repo / "scripts/tests/test_naming_rules.py").write_text("")
+        (self.repo / "docs/NAMING.md").write_text("")
+        (self.repo / ".clang-tidy").write_text("")
         (self.repo / "scripts/tests/test_kernel_rules.py").write_text(
             "import unittest\nclass FixtureHarness(unittest.TestCase):\n"
             "    def test_fixture(self): self.assertTrue(True)\n"
@@ -84,6 +88,17 @@ class StagedSnapshotChecks(unittest.TestCase):
         (self.repo / "README.md").write_text("Documentation")
         self.git("add", "README.md")
         self.assertEqual(self.check(), 0)
+
+    def test_naming_policy_and_configuration_changes_trigger_checks(self):
+        for path in ("docs/NAMING.md", ".clang-tidy", "scripts/naming_exceptions.json",
+                     "boot/example.cpp"):
+            with self.subTest(path=path):
+                self.assertTrue(hook.relevant(path))
+
+    def test_missing_staged_naming_policy_blocks_commit(self):
+        self.git("add", ".")
+        self.git("rm", "--cached", "scripts/naming_exceptions.json")
+        self.assertEqual(self.check(), 1)
 
 
 if __name__ == "__main__":

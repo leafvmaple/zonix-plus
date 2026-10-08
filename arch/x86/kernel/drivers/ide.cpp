@@ -9,10 +9,10 @@
 #include "drivers/intr.h"
 
 // Global IDE devices
-IdeDevice IdeManager::s_devices[ide::MAX_DEVICES] = {};
-int IdeManager::s_devices_count = 0;
+IdeDevice IdeManager::devices_[ide::MAX_DEVICES] = {};
+int IdeManager::devices_count_ = 0;
 
-IdeConfig IdeManager::s_configs[ide::MAX_DEVICES] = {
+IdeConfig IdeManager::configs_[ide::MAX_DEVICES] = {
     {0, 0, ide::IDE0_BASE, ide::IDE0_CTRL, IRQ_IDE1, "hda"},  // Primary Master
     {0, 1, ide::IDE0_BASE, ide::IDE0_CTRL, IRQ_IDE1, "hdb"},  // Primary Slave
     {1, 0, ide::IDE1_BASE, ide::IDE1_CTRL, IRQ_IDE2, "hdc"},  // Secondary Master
@@ -112,7 +112,7 @@ void IdeManager::init() {
 
     // Try to detect all 4 possible devices
     for (int i = 0; i < ide::MAX_DEVICES; i++) {
-        auto& config = s_configs[i];
+        auto& config = configs_[i];
         uint8_t drive_sel = config.drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
 
         // Select drive
@@ -142,35 +142,35 @@ void IdeManager::init() {
             continue;  // Not an ATA device (could be ATAPI or absent)
         }
 
-        s_devices[s_devices_count].detect(&config);
+        devices_[devices_count_].detect(&config);
 
-        if (s_devices[s_devices_count].info.size == 0) {
+        if (devices_[devices_count_].info.size == 0) {
             cprintf("ide: %s: device reports 0 sectors, skipping\n", config.name);
             continue;
         }
 
-        cprintf("ide: %s: detected %d sectors (%d MB)\n", config.name, s_devices[s_devices_count].info.size,
-                s_devices[s_devices_count].info.size / 2048);
+        cprintf("ide: %s: detected %d sectors (%d MB)\n", config.name, devices_[devices_count_].info.size,
+                devices_[devices_count_].info.size / 2048);
 
-        blk::register_device(&s_devices[s_devices_count]);
-        s_devices_count++;
+        blk::register_device(&devices_[devices_count_]);
+        devices_count_++;
     }
 
-    cprintf("ide: found %d device(s)\n", s_devices_count);
+    cprintf("ide: found %d device(s)\n", devices_count_);
 }
 
-IdeDevice* IdeManager::get_device(int device_id) {
-    if (device_id < 0 || device_id >= s_devices_count) {
+IdeDevice* IdeManager::find_device(int device_id) {
+    if (device_id < 0 || device_id >= devices_count_) {
         return nullptr;
     }
-    if (!s_devices[device_id].present) {
+    if (!devices_[device_id].present) {
         return nullptr;
     }
-    return &s_devices[device_id];
+    return &devices_[device_id];
 }
 
-int IdeManager::get_device_count() {
-    return s_devices_count;
+int IdeManager::device_count() {
+    return devices_count_;
 }
 
 void IdeDevice::print_info() {
@@ -197,10 +197,10 @@ Error IdeDevice::read(uint32_t block_number, void* buf, size_t block_count) {
         // Select drive first, then wait for it to become ready
         arch_port_outb(config->base + ide::REG_DEVICE, drive_sel);
         arch_io_wait();
-        ENSURE_LOG(hd_wait_ready_on_base(config->base) == 0, Error::IO, "IdeDevice::read: device %s not ready", name);
+        ENSURE_LOG(hd_wait_ready_on_base(config->base) == 0, Error::Io, "IdeDevice::read: device %s not ready", name);
 
         // Disable IDE interrupt for this PIO transfer (nIEN bit)
-        arch_port_outb(config->ctrl, ide::CTRL_nIEN);
+        arch_port_outb(config->ctrl, ide::CTRL_INTERRUPT_DISABLE);
 
         arch_port_outb(config->base + ide::REG_SECTOR_COUNT, 1);
         arch_port_outb(config->base + ide::REG_LBA_LOW, lba & 0xFF);
@@ -238,10 +238,10 @@ Error IdeDevice::write(uint32_t block_number, const void* buf, size_t block_coun
         // Select drive first, then wait for it to become ready
         arch_port_outb(config->base + ide::REG_DEVICE, drive_sel);
         arch_io_wait();
-        ENSURE_LOG(hd_wait_ready_on_base(config->base) == 0, Error::IO, "IdeDevice::write: device %s not ready", name);
+        ENSURE_LOG(hd_wait_ready_on_base(config->base) == 0, Error::Io, "IdeDevice::write: device %s not ready", name);
 
         // Disable IDE interrupt for this PIO transfer (nIEN bit)
-        arch_port_outb(config->ctrl, ide::CTRL_nIEN);
+        arch_port_outb(config->ctrl, ide::CTRL_INTERRUPT_DISABLE);
 
         arch_port_outb(config->base + ide::REG_SECTOR_COUNT, 1);
         arch_port_outb(config->base + ide::REG_LBA_LOW, lba & 0xFF);
@@ -275,8 +275,8 @@ Error IdeDevice::write(uint32_t block_number, const void* buf, size_t block_coun
 }
 
 void IdeManager::interrupt_handler(int channel) {
-    for (int i = 0; i < s_devices_count; i++) {
-        IdeDevice& dev = s_devices[i];
+    for (int i = 0; i < devices_count_; i++) {
+        IdeDevice& dev = devices_[i];
 
         if (!dev.present || dev.config->channel != channel) {
             continue;

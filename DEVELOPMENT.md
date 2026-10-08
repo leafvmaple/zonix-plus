@@ -160,7 +160,7 @@ Makefile                         # 顶层: 变量、宏、kernel、磁盘镜像�
 ### 3.5 文件系统分层收敛
 
 - 将文件描述符管理从 `sched` 内部迁移至 `kernel/fs/fd.{h,cpp}`，由 `fd::Table` 统一管理。
-- 收敛 `TaskStruct` 对外文件接口，保留 `files()` 访问器，避免调度层承载文件操作语义。
+- 收敛 `Task` 对外文件接口，保留 `files()` 访问器，避免调度层承载文件操作语义。
 - FAT 驱动按职责拆分至 `kernel/fs/fat/`：`fat_core.cpp`（挂载/FAT 入口）、`fat_dir.cpp`（目录与路径遍历）、`fat_vfs_adapter.cpp`（VFS 适配层）。
 - VFS 入参校验加强：`open/stat/readdir` 对空参数与非法输出指针进行快速失败。
 
@@ -223,14 +223,12 @@ Makefile                         # 顶层: 变量、宏、kernel、磁盘镜像�
 
 ### 命名规范
 
-| 类型 | 规范 | 示例 |
-|------|------|------|
-| 命名空间 | `lower_case` | `vmm`, `pmm`, `sched`, `blk`, `cons`, `swap`, `shell` |
-| 类/结构体 | `CamelCase` | `BlockDevice`, `TaskManager`, `Page` |
-| 函数/方法 | `lower_case` | `init()`, `pg_fault()`, `alloc_pages()` |
-| 私有成员 | `lower_case_` | `parent_`, `count_` |
-| 常量 | `UPPER_CASE` | `MAX_DEVICES`, `SECTOR_SIZE` |
-| 宏 | `UPPER_CASE` | `KERNEL_BASE`, `PAGE_SIZE` |
+完整规则以 [docs/NAMING.md](docs/NAMING.md) 为准：类型使用 `PascalCase`，
+函数、变量和命名空间使用 `snake_case`；私有实例及静态成员统一 `_` 后缀；
+类／命名空间常量和宏使用 `UPPER_CASE`，局部 constexpr 仍使用小写。
+纯属性 getter 使用裸属性名，跨架构接口使用功能名称。标准、固件和汇编 ABI
+例外按具体路径和名字记录。命名 harness 在本地 pre-commit 和手动 `make check`
+执行，普通构建及 CI 不自动运行。
 
 ### 公共 API 模式
 

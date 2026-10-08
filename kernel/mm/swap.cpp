@@ -97,7 +97,7 @@ Error in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr) {
     if (swapfs_read(swap_entry, page) != Error::None) {
         cprintf("swap_in: failed to read from swap\n");
         pmm::free_pages(page, 1);
-        return Error::IO;
+        return Error::Io;
     }
 
     cprintf("swap_in: loaded addr 0x%x from swap entry 0x%x to page %p\n", addr, swap_entry, page);
@@ -220,7 +220,7 @@ int out(MemoryDesc* mm, int n, int in_tick) {
 }  // namespace swap
 
 int swap::swapfs_init() {
-    State::device_ = BlockManager::get_device(blk::DeviceType::Disk);
+    State::device_ = BlockManager::find_device(blk::DeviceType::Disk);
     if (State::device_ == nullptr) {
         cprintf("swapfs init: no disk device found for swap\n");
         return -1;
