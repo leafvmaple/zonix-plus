@@ -20,7 +20,7 @@ if [[ ! -f "$ZONIX_HDR" ]]; then
     exit 1
 fi
 if [[ ! -f "$ZCC_HDR" ]]; then
-    echo "ERROR: $ZCC_HDR not found (did you `git submodule update --init`?)" >&2
+    echo "ERROR: $ZCC_HDR not found (run git submodule update --init first)" >&2
     exit 1
 fi
 
