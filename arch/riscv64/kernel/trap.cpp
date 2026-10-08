@@ -129,7 +129,7 @@ void arch_on_unhandled(TrapFrame* tf) {
     }
     cprintf("Unhandled trap: scause=0x%016lx sepc=0x%016lx stval=0x%016lx\n", tf->scause, tf->sepc, tf->stval);
     tf->print();
-    arch_halt_forever();
+    // Shared dispatch decides whether to terminate the task or halt the kernel.
 }
 
 void arch_post_dispatch(TrapFrame* tf) {

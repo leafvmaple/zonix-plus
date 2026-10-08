@@ -37,7 +37,8 @@ public:
     [[nodiscard]] const char* name() const;
     [[nodiscard]] int calc_time_slice(int priority) const;
     void tick(Task* current, Task* idle) const;
-    [[nodiscard]] Task* pick_next(ListNode& proc_list, Task* idle);
+    [[nodiscard]] Task* pick_next(ListNode& proc_list, Task* idle, Task* current = nullptr);
+    void task_removed(const Task& task);
 
 private:
     ListNode* cursor_{};

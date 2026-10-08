@@ -126,9 +126,10 @@ struct ListNode {
 
     inline void add(ListNode& elm) { add_after(elm); }
 
-    inline void unlink() const {
+    inline void unlink() {
         prev->next = next;
         next->prev = prev;
+        prev = next = this;
     }
 
     [[nodiscard]] inline bool empty() const { return next == this; }

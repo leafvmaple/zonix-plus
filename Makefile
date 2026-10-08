@@ -45,7 +45,7 @@ endif
 include arch/$(ARCH)/Makefile
 
 ifeq ($(TEST),1)
-	KSRCDIR += kernel/test \
+	KSRCDIR += arch/$(ARCH)/test kernel/test \
 	           kernel/test/unit/sched kernel/test/unit/mm kernel/test/shell \
 	           kernel/test/unit/lib kernel/test/unit/block \
 	           kernel/test/unit/exec kernel/test/unit/cons \

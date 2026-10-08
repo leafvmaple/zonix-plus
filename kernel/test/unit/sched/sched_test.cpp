@@ -711,6 +711,51 @@ static void test_round_robin_simulation() {
 }
 
 // ============================================================================
+// Real policy regression (isolated list, no fake task enters the live scheduler).
+static void test_policy_removal_and_current() {
+    TEST_START("Policy cursor removal, running priority and round robin");
+    SchedulerPolicy policy;
+    ListNode head;
+    Task* first = new Task();
+    Task* victim = new Task();
+    Task* last = new Task();
+    if (!first || !victim || !last) {
+        TEST_ASSERT(false, "Allocated policy fixtures");
+        delete first;
+        delete victim;
+        delete last;
+        TEST_END();
+        return;
+    }
+    first->wakeup();
+    victim->wakeup();
+    last->wakeup();
+    head.add_before(first->list_node);
+    head.add_before(victim->list_node);
+    head.add_before(last->list_node);
+    TEST_ASSERT(policy.pick_next(head, TaskManager::idle_task()) == first, "First task selected");
+    policy.task_removed(*victim);
+    victim->list_node.unlink();
+    delete victim;
+    last->priority = 0;
+    TEST_ASSERT(policy.pick_next(head, TaskManager::idle_task()) == last, "Freed cursor target cannot poison traversal");
+    first->mark_running();
+    first->priority = 0;
+    last->priority = 10;
+    TEST_ASSERT(policy.pick_next(head, TaskManager::idle_task(), first) == first, "Running highest-priority task stays on CPU");
+    last->sleep();
+    TEST_ASSERT(policy.pick_next(head, TaskManager::idle_task(), first) == first, "Only running task does not bounce through idle");
+    last->wakeup();
+    last->priority = 0;
+    TEST_ASSERT(policy.pick_next(head, TaskManager::idle_task(), first) == last, "Equal-priority peer receives next quantum");
+    TEST_ASSERT(policy.pick_next(head, TaskManager::idle_task(), first) == first, "Round robin returns to running peer");
+    first->list_node.unlink();
+    last->list_node.unlink();
+    delete first;
+    delete last;
+    TEST_END();
+}
+
 // Main Test Runner
 // ============================================================================
 
@@ -741,6 +786,7 @@ void test() {
     test_process_destruction();
 
     // Scheduling behavior tests
+    test_policy_removal_and_current();
     test_scheduler_selection();
     test_process_state_scheduling();
     test_runnable_queue();

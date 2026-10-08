@@ -12,7 +12,7 @@ namespace idt {
 
 int init() {
     for (int i = 0; i < 256; i++)
-        set_trap_gate(&__idt[i], __vectors[i]);
+        set_interrupt_gate(&__idt[i], __vectors[i]);
     set_sys_gate(&__idt[T_SYSCALL], __vectors[T_SYSCALL]);
 
     return 0;

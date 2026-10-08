@@ -46,12 +46,29 @@ public:
     Error rmdir(const char* relpath);
 
 private:
+    // Brent cycle detection uses constant space and one FAT read per link.
+    class ClusterChain {
+    public:
+        ClusterChain(FatInfo& fat, uint32_t start) : fat_(fat), current_(start), checkpoint_(start) {}
+        Result<uint32_t> next();  // 0 marks a validated end-of-chain.
+
+    private:
+        FatInfo& fat_;
+        uint32_t current_{};
+        uint32_t checkpoint_{};
+        uint32_t power_{1};
+        uint32_t distance_{};
+        uint32_t visited_{};
+        bool started_{};
+        bool finished_{};
+    };
+    [[nodiscard]] bool valid_cluster(uint32_t cluster) const;
     Result<int> read_dir(uint32_t start_cluster, DirVisitor& visitor, bool verbose_read_error);
 
-    uint32_t read_entry(uint32_t cluster);
+    Result<uint32_t> read_entry(uint32_t cluster);
     Error write_entry(uint32_t cluster, uint32_t value);
 
-    uint32_t alloc_cluster();
+    Result<uint32_t> alloc_cluster();
     Error free_chain(uint32_t start_cluster);
 
     Error find_entry(uint32_t start_cluster, const char* name, FatDirEntry* out);

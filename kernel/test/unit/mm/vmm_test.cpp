@@ -10,6 +10,7 @@
 #include "fs/vfs.h"
 #include <asm/page.h>
 #include <asm/pgtable.h>
+#include <asm/mmu.h>
 
 static int tests_passed = 0;
 static int tests_failed = 0;
@@ -83,6 +84,58 @@ private:
 };
 
 }  // namespace
+
+static void test_address_space_recycling() {
+    TEST_START("Repeated MM teardown recycles table frames without references");
+    intr::Guard guard;
+    const size_t before = pmm::free_page_count();
+    bool clean = USER_STACK_TOP < USER_SPACE_TOP && USER_STACK_TOP % PG_SIZE == 0;
+    for (int i = 0; i < 32 && clean; ++i) {
+        {
+            MemoryDesc mm;
+            mm.pgdir = exec::create_user_pgdir();
+            if (!mm.pgdir) { clean = false; break; }
+            Page* data = pmm::pgdir_alloc_page(mm.pgdir, 0x400000, user_page_perm(true));
+            Page* stack = pmm::pgdir_alloc_page(mm.pgdir, USER_STACK_TOP - PG_SIZE, user_page_perm(true));
+            clean = data && stack && data->ref == 1 && stack->ref == 1;
+        }
+        clean = clean && pmm::free_page_count() == before;
+        Page* recycled = pmm::alloc_pages(16);
+        if (!recycled) { clean = false; break; }
+        for (int j = 0; j < 16; ++j) { clean = clean && recycled[j].ref == 0; }
+        pmm::free_pages(recycled, 16);
+    }
+    TEST_ASSERT(clean, "32 mappings/teardowns leave all recycled references zero");
+    TEST_ASSERT(pmm::free_page_count() == before, "User pages, stack and all table levels return to allocator");
+    TEST_END();
+}
+
+static void test_address_space_switch() {
+    TEST_START("Switching roots replaces the same virtual address translation");
+    intr::Guard guard;
+    MemoryDesc first;
+    MemoryDesc second;
+    first.pgdir = exec::create_user_pgdir();
+    second.pgdir = exec::create_user_pgdir();
+    Page* a = first.pgdir ? pmm::pgdir_alloc_page(first.pgdir, 0x600000, VM_WRITE) : nullptr;
+    Page* b = second.pgdir ? pmm::pgdir_alloc_page(second.pgdir, 0x600000, VM_WRITE) : nullptr;
+    if (a && b) {
+        *static_cast<uint32_t*>(pmm::page_to_kva(a)) = 0x12345678;
+        *static_cast<uint32_t*>(pmm::page_to_kva(b)) = 0x87654321;
+        const uintptr_t saved = arch_read_page_table_root();
+        auto* address = reinterpret_cast<volatile uint32_t*>(0x600000);
+        arch_load_page_table_root(virt_to_phys(first.pgdir));
+        const uint32_t value_a = *address;
+        arch_load_page_table_root(virt_to_phys(second.pgdir));
+        const uint32_t value_b = *address;
+        arch_load_page_table_root(saved);
+        TEST_ASSERT(value_a == 0x12345678 && value_b == 0x87654321,
+                    "Same VA resolves to each process's own physical page");
+    } else {
+        TEST_ASSERT(false, "Allocated both address-space fixtures");
+    }
+    TEST_END();
+}
 
 namespace vmm_test {
 
@@ -170,6 +223,8 @@ static void test_file_io(MemoryDesc& mm, uintptr_t base) {
 
 void test() {
     tests_passed = tests_failed = 0;
+    test_address_space_recycling();
+    test_address_space_switch();
     TEST_START("User memory permissions, copies and page faults");
     intr::Guard guard;
     TEST_ASSERT(vmm::Manager::kernel_pgdir() == __kernel_pg_dir &&

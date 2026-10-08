@@ -223,6 +223,8 @@ void TaskManager::add_process(Task* proc) {
 }
 
 void TaskManager::remove_process(Task* proc) {
+    intr::Guard guard;
+    policy_.task_removed(*proc);
     proc->hash_node.unlink();
     proc->list_node.unlink();
     process_count_--;
@@ -287,7 +289,7 @@ void TaskManager::schedule() {
     intr::Guard guard;
     schedule_calls_++;
 
-    Task* next = policy_.pick_next(proc_list_, idle_proc_);
+    Task* next = policy_.pick_next(proc_list_, idle_proc_, current_);
     if (next == idle_proc_) {
         pick_idle_++;
     } else {
@@ -313,6 +315,8 @@ void TaskManager::schedule() {
 }
 
 Result<int> TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_frame) {
+    // copy_mm only borrows the permanent kernel MM; user-MM sharing needs ownership first.
+    ENSURE(current() && current()->memory == &vmm::Manager::kernel_mm(), Error::NotSupported);
     Task* proc = new Task();
     if (!proc) {
         cprintf("sched: fork: failed to allocate Task\n");
@@ -368,32 +372,30 @@ Result<int> TaskManager::kernel_thread(KernelThreadEntry fn, void* arg) {
 }
 
 int TaskManager::exit(int error_code) {
+    // Publish zombie state, notify the parent and adopt children atomically.
+    intr::Guard irq_guard;
     Task* current = TaskManager::current();
     current->mark_zombie(error_code);
 
-    {
-        intr::Guard guard;
+    if (current->parent && current->parent->wait_state) {
+        current->parent->wakeup();
+    }
 
-        if (current->parent && current->parent->wait_state) {
-            current->parent->wakeup();
-        }
+    ListNode* children = &current->child_list;
+    while (!children->empty()) {
+        ListNode* node = children->next_node();
+        node->unlink();
 
-        ListNode* children = &current->child_list;
-        while (!children->empty()) {
-            ListNode* node = children->next_node();
-            node->unlink();
+        Task* child = Task::from_child_link(node);
+        child->parent = init_proc_;
+        init_proc_->child_list.add(*node);
 
-            Task* child = Task::from_child_link(node);
-            child->parent = init_proc_;
-            init_proc_->child_list.add(*node);
-
-            // If child is zombie, it was waiting to be reaped by its original parent.
-            // Now that init is the new parent, wake up init so it can reap the zombie.
-            // This ensures zombie processes don't linger indefinitely after reparenting.
-            if (child->state_ == TaskState::Zombie) {
-                if (init_proc_->wait_state) {
-                    init_proc_->wakeup();
-                }
+        // If child is zombie, it was waiting to be reaped by its original parent.
+        // Now that init is the new parent, wake up init so it can reap the zombie.
+        // This ensures zombie processes don't linger indefinitely after reparenting.
+        if (child->state_ == TaskState::Zombie) {
+            if (init_proc_->wait_state) {
+                init_proc_->wakeup();
             }
         }
     }

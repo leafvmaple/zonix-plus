@@ -112,6 +112,12 @@ static void test_unlink() {
 
     c.unlink();
     TEST_ASSERT(head.empty(), "List empty after removing all");
+    TEST_ASSERT(a.empty() && b.empty() && c.empty(), "Detached nodes are self-linked");
+    head.add(a);
+    b.unlink();
+    TEST_ASSERT(list_count(&head) == 1 && head.next_node() == &a,
+                "A second unlink cannot resurrect another detached node");
+    a.unlink();
 
     TEST_END();
 }

@@ -75,16 +75,19 @@ Page* PageAllocator::alloc(size_t n) {
 
 void PageAllocator::free(Page* base, size_t n) {
     for (Page* p = base; p != base + n; p++) {
+        assert(p->ref == 0);
+        p->ref = 0;
         p->flags = PAGE_INIT_VALUE;
     }
 
     base->property = n;
     base->set_reserved();
 
-    ListNode* le = &free_area.free_list;
-    ListNode* prev = le;
+    ListNode* le = free_area.free_list.next_node();
+    ListNode* prev = &free_area.free_list;
 
-    while ((le = le->next_node()) != &free_area.free_list) {
+    while (le != &free_area.free_list) {
+        ListNode* next = le->next_node();
         Page* p = le->container<Page>();
 
         if (base + base->property == p) {
@@ -101,6 +104,7 @@ void PageAllocator::free(Page* base, size_t n) {
         } else {
             prev = le;
         }
+        le = next;
     }
 
     free_area.nr_free += n;

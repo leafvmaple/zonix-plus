@@ -54,8 +54,8 @@ void push_input(char c) {
 
 char getc() {
     while (true) {
+        intr::Guard guard;
         {
-            intr::Guard guard;
             if (input_read != input_write) {
                 char c = input_buf[input_read];
                 input_read = (input_read + 1) % INPUT_BUF_SIZE;

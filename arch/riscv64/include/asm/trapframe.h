@@ -40,6 +40,7 @@
 #ifndef __ASSEMBLY__
 
 #include <base/types.h>
+#include <asm/cpu.h>
 
 struct TrapFrame {
     uint64_t regs[32]{}; /* x0–x31 (x0 is always 0) */
@@ -55,6 +56,8 @@ struct TrapFrame {
     uint64_t sstatus{};
     uint64_t scause{};
     uint64_t stval{};
+
+    [[nodiscard]] bool from_user() const { return (sstatus & SSTATUS_SPP) == 0; }
 
     void print() const;
     void print_pgfault() const;

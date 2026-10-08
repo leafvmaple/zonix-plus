@@ -65,7 +65,9 @@
 #define PTE_ADDR(pte) (((pte) >> PTE_PPN_SHIFT) << PG_SHIFT)
 
 /* satp register: MODE=8 (Sv39), ASID=0, PPN=root page table */
+#define SATP_MODE_MASK      (0xFUL << 60)
 #define SATP_SV39           (8UL << 60)
+#define SATP_PPN_MASK       ((1UL << 44) - 1)
 #define MAKE_SATP(pgdir_pa) (SATP_SV39 | ((pgdir_pa) >> PG_SHIFT))
 
 #ifndef __ASSEMBLY__
@@ -101,8 +103,8 @@ inline constexpr int PDPTX_SHIFT = 21; /* Sv39 L1 (PMD, 2MB megapages)  */
 inline constexpr int PDX_SHIFT = 12;   /* Sv39 L2 (PT,  4KB pages)      */
 inline constexpr int PTX_SHIFT = 12;   /* phantom L3 — same as PDX      */
 
-inline constexpr uintptr_t USER_SPACE_TOP = 0x0000003FFFFFFFFFULL;
-inline constexpr uintptr_t USER_STACK_TOP = 0x0000003FFFFFFFE000ULL;
+inline constexpr uintptr_t USER_SPACE_TOP = 0x0000004000000000ULL;
+inline constexpr uintptr_t USER_STACK_TOP = USER_SPACE_TOP - 2 * PG_SIZE;
 inline constexpr size_t USER_STACK_SIZE = 4 * PG_SIZE;
 
 static inline int pml4_index(uintptr_t va) {

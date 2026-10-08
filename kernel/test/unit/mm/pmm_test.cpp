@@ -1,11 +1,23 @@
 #include "test/test_defs.h"
 #include "mm/pmm.h"
 #include "lib/memory.h"
+#include "drivers/intr.h"
+#include "sched/sched.h"
 
 #include <asm/page.h>
 
 static int tests_passed = 0;
 static int tests_failed = 0;
+
+static void test_page_table_root_interface() {
+    TEST_START("Architecture page table root uses physical addresses");
+    intr::Guard guard;
+    uintptr_t root_pa = sched::current()->page_table_root_pa();
+    TEST_ASSERT(arch_read_page_table_root() == root_pa, "Active root matches the task page table physical address");
+    arch_load_page_table_root(root_pa);
+    TEST_ASSERT(arch_read_page_table_root() == root_pa, "Reloading the root preserves its physical address");
+    TEST_END();
+}
 
 // ============================================================================
 // Basic page allocation and free
@@ -183,6 +195,8 @@ namespace pmm_test {
 void test() {
     tests_passed = 0;
     tests_failed = 0;
+
+    test_page_table_root_interface();
 
     test_alloc_free_single();
     test_alloc_multiple();

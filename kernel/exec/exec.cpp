@@ -16,6 +16,9 @@
 #include <asm/mmu.h>
 #include <asm/arch.h>
 
+static_assert(USER_STACK_TOP < USER_SPACE_TOP && USER_STACK_TOP % PG_SIZE == 0);
+static_assert(USER_STACK_TOP > USER_STACK_SIZE + PG_SIZE);
+
 namespace exec {
 
 struct KernelBuf {

@@ -91,6 +91,13 @@ static uintptr_t alloc_table_page(bool create) {
     return pa;
 }
 
+static void free_table_page(uintptr_t pa) {
+    Page* page = pmm::phys_to_page(pa);
+    assert(page->ref == PAGE_REF_INIT);
+    page->ref--;
+    pmm::free_pages(page);
+}
+
 static inline void link_table_entry(pde_t* entry, uintptr_t pa) {
     *entry = make_pte_table(pa);
 }
@@ -177,7 +184,7 @@ static void free_user_pt_subtree(pde_t* table, int depth) {
 
         pde_t* child = phys_to_virt<pde_t>(pte_addr(entry));
         free_user_pt_subtree(child, depth - 1);
-        pmm::free_pages(pmm::phys_to_page(pte_addr(entry)));
+        free_table_page(pte_addr(entry));
     }
 }
 
@@ -319,6 +326,10 @@ void pmm::tlb_invl(pde_t* pgdir, uintptr_t la) {
     }
 }
 
+size_t pmm::free_page_count() {
+    return Factory::allocator().free_page_count();
+}
+
 Page* pmm::pgdir_alloc_page(pde_t* pgdir, uintptr_t la, uint32_t perm) {
     Page* page = pmm::alloc_pages(1);
     if (page) {
@@ -354,7 +365,7 @@ void pmm::free_user_pgdir(pde_t* pgdir) {
 
         pde_t* child = phys_to_virt<pde_t>(pte_addr(entry));
         free_user_pt_subtree(child, USER_PT_SUBTREE_DEPTH);
-        pmm::free_pages(pmm::phys_to_page(pte_addr(entry)));
+        free_table_page(pte_addr(entry));
     }
 
     kfree(pgdir);

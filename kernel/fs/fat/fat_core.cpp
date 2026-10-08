@@ -76,6 +76,25 @@ Error FatInfo::mount(BlockDevice* dev) {
 
     ENSURE_LOG(bs.is_fat32(), Error::BadFs, "fat_mount: invalid boot signature: 0x%04x", bs.boot_signature_word);
 
+    // The block layer and directory buffers support 512-byte logical sectors.
+    ENSURE(bs.bytes_per_sector != 0, Error::BadFs);
+    ENSURE(bs.bytes_per_sector == 512 || bs.bytes_per_sector == 1024 ||
+           bs.bytes_per_sector == 2048 || bs.bytes_per_sector == 4096, Error::BadFs);
+    ENSURE(bs.bytes_per_sector == BlockDevice::SIZE, Error::NotSupported);
+    ENSURE(bs.sectors_per_cluster != 0 && bs.sectors_per_cluster <= 128 &&
+           (bs.sectors_per_cluster & (bs.sectors_per_cluster - 1)) == 0, Error::BadFs);
+    ENSURE(bs.reserved_sectors != 0 && bs.num_fats != 0 && bs.num_fats <= 2 &&
+           bs.fat_size_32 != 0 && bs.root_entries == 0 && bs.fat_size_16 == 0, Error::BadFs);
+    ENSURE(bs.fs_version == 0 && (bs.ext_flags & 0x80) == 0, Error::NotSupported);
+    const uint64_t data_start = bs.reserved_sectors + static_cast<uint64_t>(bs.num_fats) * bs.fat_size_32;
+    ENSURE(data_start < bs.total_sectors_32, Error::BadFs);
+    ENSURE(static_cast<uint64_t>(part_start) + bs.total_sectors_32 <= dev->size, Error::BadFs);
+    const uint64_t clusters = (bs.total_sectors_32 - data_start) / bs.sectors_per_cluster;
+    ENSURE(clusters != 0 && clusters + 2 <= fat::FAT32_RESERVED_MIN, Error::BadFs);
+    ENSURE((clusters + 2) * sizeof(uint32_t) <= static_cast<uint64_t>(bs.fat_size_32) * bs.bytes_per_sector,
+           Error::BadFs);
+    ENSURE(bs.root_cluster >= 2 && bs.root_cluster < clusters + 2, Error::BadFs);
+
     do_init_state(dev, part_start, bs);
 
     char oem[9]{};
@@ -122,19 +141,15 @@ void FatInfo::print() const {
     cprintf("  Cluster Count: %d\n", cluster_count_);
 }
 
-uint32_t FatInfo::read_entry(uint32_t cluster) {
-    if (cluster < 2 || cluster >= cluster_count_ + 2) {
-        return 0;
-    }
+Result<uint32_t> FatInfo::read_entry(uint32_t cluster) {
+    ENSURE(dev_ && valid_cluster(cluster), Error::BadFs);
 
     uint32_t fat_offset = cluster << 2;
     uint32_t fat_sector = fat_start_ + (fat_offset / bytes_per_sector_);
     uint32_t ent_offset = fat_offset % bytes_per_sector_;
 
     if (fat_sector != buffer_sector_) {
-        if (dev_->read(partition_start_ + fat_sector, buffer_, 1) != Error::None) {
-            return 0;
-        }
+        TRY(dev_->read(partition_start_ + fat_sector, buffer_, 1));
         buffer_sector_ = fat_sector;
     }
 
@@ -177,28 +192,29 @@ Error FatInfo::write_entry(uint32_t cluster, uint32_t value) {
     return Error::None;
 }
 
-uint32_t FatInfo::alloc_cluster() {
+Result<uint32_t> FatInfo::alloc_cluster() {
     for (uint32_t c = 2; c < cluster_count_ + 2; c++) {
-        if (read_entry(c) == fat::FAT32_FREE) {
-            if (write_entry(c, fat::FAT32_EOC_MAX) != Error::None)
-                return 0;
+        if (TRY(read_entry(c)) == fat::FAT32_FREE) {
+            TRY(write_entry(c, fat::FAT32_EOC_MAX));
 
             uint8_t zero[512]{};
             uint32_t sector = cluster_to_sector(c);
             for (uint32_t s = 0; s < sectors_per_cluster_; s++) {
-                if (dev_->write(partition_start_ + sector + s, zero, 1) != Error::None)
-                    return 0;
+                TRY(dev_->write(partition_start_ + sector + s, zero, 1));
             }
             return c;
         }
     }
-    return 0;  // No free cluster.
+    return Error::Full;
 }
 
 Error FatInfo::free_chain(uint32_t start_cluster) {
+    // Validate before modifying FAT links; otherwise clearing links hides a cycle.
+    ClusterChain chain(*this, start_cluster);
+    while (TRY(chain.next()) != 0) {}
     uint32_t cluster = start_cluster;
-    while (cluster >= 2 && cluster < fat::FAT32_EOC_MIN) {
-        uint32_t next = read_entry(cluster);
+    while (cluster < fat::FAT32_EOC_MIN) {
+        uint32_t next = TRY(read_entry(cluster));
         TRY(write_entry(cluster, fat::FAT32_FREE));
         cluster = next;
     }
@@ -211,4 +227,34 @@ uint32_t FatInfo::cluster_to_sector(uint32_t cluster) const {
     }
 
     return data_start_ + ((cluster - 2) * sectors_per_cluster_);
+}
+
+bool FatInfo::valid_cluster(uint32_t cluster) const {
+    return cluster >= 2 && cluster < cluster_count_ + 2;
+}
+
+Result<uint32_t> FatInfo::ClusterChain::next() {
+    if (finished_) {
+        return 0U;
+    }
+    if (started_) {
+        const uint32_t next = TRY(fat_.read_entry(current_));
+        if (next >= fat::FAT32_EOC_MIN) {
+            finished_ = true;
+            return 0U;
+        }
+        ENSURE(fat_.valid_cluster(next), Error::BadFs);
+        ++distance_;
+        ENSURE(next != checkpoint_, Error::BadFs);
+        if (distance_ == power_) {
+            checkpoint_ = next;
+            power_ *= 2;
+            distance_ = 0;
+        }
+        current_ = next;
+    }
+    ENSURE(fat_.valid_cluster(current_) && visited_ < fat_.cluster_count_, Error::BadFs);
+    ++visited_;
+    started_ = true;
+    return current_;
 }

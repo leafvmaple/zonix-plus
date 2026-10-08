@@ -62,6 +62,7 @@ Error page_insert(pde_t* pgdir, Page* page, uintptr_t la, uint32_t perm);
 // Validate every page-table level and return a kernel alias for a user address.
 Result<void*> user_address(pde_t* pgdir, uintptr_t addr, bool write);
 
+size_t free_page_count();
 Page* alloc_pages(size_t n = 1);
 void free_pages(Page* base, size_t n = 1);
 

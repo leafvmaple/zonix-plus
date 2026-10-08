@@ -1,3 +1,5 @@
+#include <asm/trapframe.h>
+
 /**
  * @file switch.S
  * @brief AArch64 context switch and trap return routines.
@@ -101,8 +103,8 @@ trapret:
     ldp  x28, x29, [sp, #0x0E0]
     ldr  x30,      [sp, #0x0F0]
 
-    /* Advance SP past the TrapFrame (0x120 = 288 bytes) */
-    add  sp, sp, #0x120
+    /* Advance SP past the 16-byte-aligned TrapFrame */
+    add  sp, sp, #ARM64_TRAP_FRAME_SIZE
 
     eret
 

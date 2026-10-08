@@ -54,7 +54,7 @@ void TrapFrame::print_pgfault() const {
 namespace trap {
 
 bool arch_try_handle_irq(TrapFrame* tf) {
-    if (!tf || trap_ec(tf) != 0) {
+    if (!tf || tf->vector != ARM64_TRAP_VECTOR_IRQ) {
         return false;
     }
 
@@ -79,6 +79,9 @@ bool arch_try_handle_irq(TrapFrame* tf) {
 }
 
 bool arch_is_page_fault(const TrapFrame* tf) {
+    if (!tf || tf->vector != ARM64_TRAP_VECTOR_SYNC) {
+        return false;
+    }
     uint32_t ec = trap_ec(tf);
     switch (ec) {
         case TRAP_EC_PGFAULT_DATA_LOWER:
@@ -111,7 +114,7 @@ uintptr_t arch_page_fault_addr(const TrapFrame* tf) {
 }
 
 bool arch_is_syscall(const TrapFrame* tf) {
-    return trap_ec(tf) == TRAP_EC_SYSCALL;
+    return tf && tf->vector == ARM64_TRAP_VECTOR_SYNC && trap_ec(tf) == TRAP_EC_SYSCALL;
 }
 
 void arch_on_syscall_entry(TrapFrame* tf) {
@@ -129,9 +132,9 @@ void arch_on_unhandled(TrapFrame* tf) {
     }
 
     uint32_t ec = trap_ec(tf);
-    cprintf("Unhandled exception: EC=0x%x ESR=0x%lx ELR=0x%lx\n", ec, tf->esr, tf->pc);
+    cprintf("Unhandled exception: vector=%lu EC=0x%x ESR=0x%lx ELR=0x%lx\n", tf->vector, ec, tf->esr, tf->pc);
     tf->print();
-    arch_halt_forever();
+    // Shared dispatch decides whether to terminate the task or halt the kernel.
 }
 
 void arch_post_dispatch(TrapFrame* tf) {

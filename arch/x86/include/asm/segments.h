@@ -22,6 +22,10 @@
 
 #define DPL_KERNEL 0
 #define DPL_USER   3
+#define SELECTOR_RPL_MASK 3
+#define GATE_TYPE_MASK 0x0F
+#define GATE_DPL_SHIFT 5
+#define GATE_DPL_MASK (DPL_USER << GATE_DPL_SHIFT)
 
 #define SEG_KTEXT 1
 #define SEG_KDATA 2
@@ -99,12 +103,12 @@ inline void set_gate(GateDesc* gate, uintptr_t addr) {
     set_gate(gate, TYPE, SELECTOR, DPL, addr);
 }
 
-inline void set_trap_gate(GateDesc* gate, uintptr_t addr) {
-    set_gate<STS_TG32, GD_KTEXT, DPL_KERNEL>(gate, addr);
+inline void set_interrupt_gate(GateDesc* gate, uintptr_t addr) {
+    set_gate<STS_IG32, GD_KTEXT, DPL_KERNEL>(gate, addr);
 }
 
 inline void set_sys_gate(GateDesc* gate, uintptr_t addr) {
-    set_gate<STS_TG32, GD_KTEXT, DPL_USER>(gate, addr);
+    set_gate<STS_IG32, GD_KTEXT, DPL_USER>(gate, addr);
 }
 
 inline void set_tss(uint64_t* gdt, uint16_t seg, uintptr_t base, uint32_t limit) {

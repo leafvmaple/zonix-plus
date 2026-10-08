@@ -51,21 +51,21 @@ static inline bool arch_irq_is_enabled(void) {
 /* ------------------------------------------------------------------ */
 
 /*
- * arch_load_page_table_root — Write the satp register (Sv39 mode, root page table PA).
- * Caller must pass a value already formatted by MAKE_SATP().
+ * Shared contract: accept/return the root page table physical address.
+ * Keep the Sv39 mode and PPN encoding inside the RISC-V implementation.
  */
-static inline void arch_load_page_table_root(uintptr_t satp_val) {
+static inline void arch_load_page_table_root(uintptr_t root_pa) {
     __asm__ volatile("csrw satp, %0\n\t"
                      "sfence.vma"
                      :
-                     : "r"(satp_val)
+                     : "r"(MAKE_SATP(root_pa))
                      : "memory");
 }
 
 static inline uintptr_t arch_read_page_table_root(void) {
     uintptr_t v;
     __asm__ volatile("csrr %0, satp" : "=r"(v));
-    return v;
+    return (v & SATP_PPN_MASK) << PG_SHIFT;
 }
 
 /*

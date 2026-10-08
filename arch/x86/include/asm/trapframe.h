@@ -3,6 +3,7 @@
 #ifndef __ASSEMBLY__
 
 #include <base/types.h>
+#include <asm/segments.h>
 
 struct TrapRegisters {
     uint64_t r15{};
@@ -34,6 +35,8 @@ struct TrapFrame {
     uint64_t rflags{};
     uint64_t rsp{};  // always present in 64-bit mode
     uint64_t ss{};   // always present in 64-bit mode
+
+    [[nodiscard]] bool from_user() const { return (cs & SELECTOR_RPL_MASK) == DPL_USER; }
 
     void print() const;
     void print_pgfault() const;

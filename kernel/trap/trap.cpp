@@ -249,7 +249,10 @@ extern "C" void trap_dispatch(TrapFrame* tf) {
         trap::arch_post_dispatch(tf);
     } else {
         trap::arch_on_unhandled(tf);
-        trap::arch_post_dispatch(tf);
+        if (tf->from_user()) {
+            sched::exit(-1);
+        }
+        PANIC("unhandled kernel exception");
     }
 
     Task* cur = sched::current();
