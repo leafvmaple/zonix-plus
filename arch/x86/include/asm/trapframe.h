@@ -52,6 +52,13 @@ struct TrapFrame {
     }
 
     void set_return(uint64_t val) { regs.rax = val; }
+    [[nodiscard]] uint64_t syscall_return() const { return regs.rax; }
+    void set_syscall(uint64_t nr, uint64_t arg0, uint64_t arg1, uint64_t arg2) {
+        regs.rax = nr;
+        regs.rdi = arg0;
+        regs.rsi = arg1;
+        regs.rdx = arg2;
+    }
 };
 
 // Trap handling functions

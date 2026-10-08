@@ -68,6 +68,13 @@ struct TrapFrame {
         return 0;
     }
     void set_return(uint64_t val) { regs[10] = val; } /* a0 */
+    [[nodiscard]] uint64_t syscall_return() const { return regs[10]; }
+    void set_syscall(uint64_t nr, uint64_t arg0, uint64_t arg1, uint64_t arg2) {
+        regs[17] = nr;
+        regs[10] = arg0;
+        regs[11] = arg1;
+        regs[12] = arg2;
+    }
 };
 
 /* Byte offsets used by trapentry.S — must stay in sync */

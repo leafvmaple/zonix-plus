@@ -54,8 +54,8 @@ static bool ensure_mnt_mounted() {
 // Test: exec a zcc-compiled user program from /mnt
 // ============================================================================
 
-static void test_exec_zcc_hello() {
-    TEST_START("exec — run ZHELLO.ELF from userdata disk");
+static void test_exec_hello() {
+    TEST_START("exec — run hello ELF from userdata disk");
 
     // Some targets (e.g. aarch64/riscv64 single-disk QEMU configs) have no
     // separate userdata disk. Skip the test in that case so CI still passes.
@@ -74,8 +74,14 @@ static void test_exec_zcc_hello() {
 
     // Check the file exists
     vfs::File* probe = nullptr;
-    Error rc = vfs::open("/mnt/ZHELLO.ELF", &probe);
-    TEST_ASSERT(rc == Error::None && probe != nullptr, "ZHELLO.ELF found on disk");
+    const char* path = "/mnt/ZHELLO.ELF";
+    Error rc = vfs::open(path, &probe);
+    if (rc == Error::NotFound) {
+        // The native assembly hello remains available without the zcc submodule.
+        path = "/mnt/HELLO.ELF";
+        rc = vfs::open(path, &probe);
+    }
+    TEST_ASSERT(rc == Error::None && probe != nullptr, "Hello ELF found on disk");
     if (probe) {
         vfs::close(probe);
     }
@@ -85,7 +91,7 @@ static void test_exec_zcc_hello() {
     }
 
     // Execute and wait for exit
-    auto pid_r = exec::exec("/mnt/ZHELLO.ELF");
+    auto pid_r = exec::exec(path);
     TEST_ASSERT(pid_r.ok(), "exec() returned valid PID");
     if (!pid_r.ok()) {
         TEST_END();
@@ -108,7 +114,7 @@ void test() {
     tests_passed = 0;
     tests_failed = 0;
 
-    test_exec_zcc_hello();
+    test_exec_hello();
 
     TEST_SUMMARY("Exec (E2E)");
 }

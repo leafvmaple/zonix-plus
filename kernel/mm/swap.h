@@ -28,6 +28,8 @@ using page_addr_map_t = PageAddrMap;
 namespace swap {
 
 inline constexpr size_t MAX_OFFSET_LIMIT = 1 << 24;  // 16 GB swap space limit
+inline constexpr uintptr_t ENTRY_HAS_PERMISSIONS = 0x80;
+inline constexpr uintptr_t ENTRY_WRITE = 0x02;
 
 int init();
 Error init_mm(MemoryDesc* mm);

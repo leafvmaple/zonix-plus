@@ -53,6 +53,8 @@ struct Context {
 
     void set_entry(uintptr_t addr) { ra = addr; }
     void set_stack(uintptr_t s) { sp = s; }
+    [[nodiscard]] uintptr_t get_entry() const { return ra; }
+    [[nodiscard]] uintptr_t get_stack() const { return sp; }
 };
 
 /* Assembly interface (switch.S) */

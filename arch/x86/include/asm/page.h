@@ -30,6 +30,9 @@
 
 #include <base/types.h>
 
+using pte_t = uintptr_t;
+using pde_t = uintptr_t;
+
 inline constexpr int ADDR_BITS = 48;
 
 inline constexpr int PML4X_SHIFT = 39;
@@ -83,5 +86,28 @@ inline constexpr int USER_TOP_ENTRIES = 256;
 inline constexpr uintptr_t USER_SPACE_TOP = 0x0000800000000000ULL;
 inline constexpr uintptr_t USER_STACK_TOP = 0x00007FFFFFFFE000ULL;
 inline constexpr size_t USER_STACK_SIZE = 4ULL * PG_SIZE; /* 16 KB */
+
+static inline bool pte_present(uintptr_t entry) {
+    return (entry & PTE_P) != 0;
+}
+static inline bool pte_writable(uintptr_t entry) {
+    return (entry & PTE_W) != 0;
+}
+static inline bool pte_user(uintptr_t entry) {
+    return (entry & PTE_U) != 0;
+}
+static inline bool pte_user_accessible(uintptr_t entry, bool write) {
+    return pte_present(entry) && pte_user(entry) && (!write || pte_writable(entry));
+}
+static inline bool pte_user_table_accessible(uintptr_t entry, bool write) {
+    return pte_user_accessible(entry, write);
+}
+static inline uint32_t user_page_perm(bool write, bool executable = false) {
+    static_cast<void>(executable);
+    return VM_USER | (write ? VM_WRITE : 0);
+}
+static inline uint32_t merge_user_page_perm(uintptr_t entry, uint32_t perm) {
+    return user_page_perm(pte_writable(entry) || pte_writable(perm));
+}
 
 #endif /* !__ASSEMBLY__ */

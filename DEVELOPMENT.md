@@ -7,6 +7,14 @@
 
 ## 1. 项目结构
 
+新克隆先执行 `make install-hooks`，启用提交前的硬规则检查。Windows Git 的
+hook 使用默认 WSL 发行版中的 Python、Make 和 Clang。
+
+pre-commit 在临时目录中检查暂存区快照，运行 harness 回归测试和三架构的
+`make check`。未暂存的修改不会影响结果，失败会阻断本地提交。详细规则见
+[AGENTS.md](AGENTS.md)。需要手动检查时执行 `make check ARCH=<架构>`；普通构建
+与 CI 不自动执行这些规则检查。
+
 ```
 zonix-plus/
 ├── arch/                       # 多架构目录

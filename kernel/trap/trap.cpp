@@ -10,6 +10,8 @@
 #include "lib/result.h"
 #include "mm/vmm.h"
 #include "sched/sched.h"
+#include "lib/memory.h"
+#include "debug/assert.h"
 
 namespace timer {
 extern volatile int64_t ticks;
@@ -19,18 +21,8 @@ namespace {
 
 constexpr size_t SYSCALL_PATH_MAX = 128;
 
-bool user_range_valid(uintptr_t addr, size_t size) {
-    if (addr >= USER_SPACE_TOP) {
-        return false;
-    }
-    if (size > USER_SPACE_TOP - addr) {
-        return false;
-    }
-    return true;
-}
-
-int copy_user_cstr(const char* user, char* out, size_t out_size) {
-    if (!user || !out || out_size == 0) {
+int copy_user_cstr(TaskStruct* cur, const char* user, char* out, size_t out_size) {
+    if (!cur || !user || !out || out_size == 0) {
         return -1;
     }
 
@@ -40,12 +32,15 @@ int copy_user_cstr(const char* user, char* out, size_t out_size) {
     }
 
     for (size_t i = 0; i < out_size; i++) {
-        uintptr_t cur = base + i;
-        if (cur >= USER_SPACE_TOP) {
+        uintptr_t addr = base + i;
+        if (addr >= USER_SPACE_TOP) {
             return -1;
         }
 
-        char ch = user[i];
+        char ch;
+        if (vmm::copy_from_user(cur->memory, &ch, addr, 1) != Error::None) {
+            return -1;
+        }
         out[i] = ch;
         if (ch == '\0') {
             return 0;
@@ -65,7 +60,7 @@ long sys_open(TaskStruct* cur, const char* user_path, int flags, int mode) {
     }
 
     char path[SYSCALL_PATH_MAX]{};
-    if (copy_user_cstr(user_path, path, sizeof(path)) != 0) {
+    if (copy_user_cstr(cur, user_path, path, sizeof(path)) != 0) {
         return -1;
     }
 
@@ -83,76 +78,73 @@ long sys_open(TaskStruct* cur, const char* user_path, int flags, int mode) {
     return fd_r.value();
 }
 
-long sys_read(TaskStruct* cur, int fd, void* user_buf, size_t count) {
-    if (!cur) {
-        return -1;
-    }
+enum class FileIo { Read, Write };
 
+long sys_file_io(TaskStruct* cur, int fd, uintptr_t user_buf, size_t count, FileIo operation) {
     if (count == 0) {
         return 0;
     }
-
-    if (!user_buf) {
+    const bool to_user = operation == FileIo::Read;
+    if (!cur || !vmm::user_range_valid(cur->memory, user_buf, count, to_user)) {
         return -1;
     }
-
-    uintptr_t buf_addr = reinterpret_cast<uintptr_t>(user_buf);
-    if (!user_range_valid(buf_addr, count)) {
-        return -1;
-    }
-
     fd::Entry* entry = cur->files().get(fd);
     if (!entry) {
         return -1;
     }
 
-    auto bytes_r = vfs::read(entry->file, user_buf, count, entry->offset);
-    if (!bytes_r.ok()) {
+    auto* buf = static_cast<uint8_t*>(kmalloc(PG_SIZE));
+    if (!buf) {
         return -1;
     }
+    size_t done = 0;
+    bool failed = false;
+    while (done < count) {
+        size_t chunk = count - done;
+        if (chunk > PG_SIZE) {
+            chunk = PG_SIZE;
+        }
+        if (!to_user && vmm::copy_from_user(cur->memory, buf, user_buf + done, chunk) != Error::None) {
+            failed = true;
+            break;
+        }
+        auto bytes_r = to_user ? vfs::read(entry->file, buf, chunk, entry->offset)
+                               : vfs::write(entry->file, buf, chunk, entry->offset);
+        if (!bytes_r.ok() || bytes_r.value() < 0 || static_cast<size_t>(bytes_r.value()) > chunk) {
+            failed = true;
+            break;
+        }
+        size_t bytes = static_cast<size_t>(bytes_r.value());
+        if (to_user && vmm::copy_to_user(cur->memory, user_buf + done, buf, bytes) != Error::None) {
+            failed = true;
+            break;
+        }
+        entry->offset += bytes;
+        done += bytes;
+        if (bytes < chunk) {
+            break;
+        }
+    }
+    kfree(buf);
+    return failed && done == 0 ? -1 : static_cast<long>(done);
+}
 
-    entry->offset += static_cast<size_t>(bytes_r.value());
-    return bytes_r.value();
+long sys_read(TaskStruct* cur, int fd, void* user_buf, size_t count) {
+    if (!cur) {
+        return -1;
+    }
+    return sys_file_io(cur, fd, reinterpret_cast<uintptr_t>(user_buf), count, FileIo::Read);
 }
 
 long sys_close(TaskStruct* cur, int fd) {
     if (!cur) {
         return -1;
     }
-
     return cur->files().close(fd) == Error::None ? 0 : -1;
 }
 
 long sys_write(TaskStruct* cur, int fd, const char* user_buf, size_t count) {
-    if (count == 0) {
-        return 0;
-    }
-
-    if (!user_buf) {
-        return -1;
-    }
-
-    uintptr_t buf_addr = reinterpret_cast<uintptr_t>(user_buf);
-    if (!user_range_valid(buf_addr, count)) {
-        return -1;
-    }
-
-    if (!cur) {
-        return -1;
-    }
-
-    fd::Entry* entry = cur->files().get(fd);
-    if (!entry) {
-        return -1;
-    }
-
-    auto bytes_r = vfs::write(entry->file, user_buf, count, entry->offset);
-    if (!bytes_r.ok()) {
-        return -1;
-    }
-
-    entry->offset += static_cast<size_t>(bytes_r.value());
-    return bytes_r.value();
+    return sys_file_io(cur, fd, reinterpret_cast<uintptr_t>(user_buf), count, FileIo::Write);
 }
 
 }  // namespace
@@ -240,7 +232,12 @@ extern "C" void trap_dispatch(TrapFrame* tf) {
     } else if (trap::arch_is_page_fault(tf)) {
         uint32_t err = trap::arch_page_fault_error(tf);
         uintptr_t fault_addr = trap::arch_page_fault_addr(tf);
-        trap::handle_page_fault(tf, err, fault_addr);
+        if (trap::handle_page_fault(tf, err, fault_addr) != 0) {
+            if (err & 4) {
+                sched::exit(-1);
+            }
+            panic("unrecoverable kernel page fault at 0x%lx", fault_addr);
+        }
         trap::arch_post_dispatch(tf);
     } else if (trap::arch_is_syscall(tf)) {
         trap::arch_on_syscall_entry(tf);

@@ -2,6 +2,7 @@
 
 #include "block/blk.h"
 #include "fs/vfs.h"
+#include "fs/vfs_fs.h"
 #include "lib/memory.h"
 #include "lib/result.h"
 #include "lib/string.h"
@@ -10,6 +11,77 @@ static int tests_passed = 0;
 static int tests_failed = 0;
 
 namespace {
+
+class LifetimeFile : public vfs::File {
+public:
+    Result<int> read(void* buf, size_t size, size_t) override {
+        if (size != 0) {
+            static_cast<uint8_t*>(buf)[0] = 0x42;
+            return 1;
+        }
+        return 0;
+    }
+    Result<int> write(const void*, size_t, size_t) override { return Error::NotSupported; }
+    Error stat(vfs::Stat* st) override {
+        st->set(vfs::NodeType::File, 1, 0);
+        return Error::None;
+    }
+};
+
+class LifetimeFs : public vfs::FileSystem {
+public:
+    Error mount(BlockDevice*) override { return Error::None; }
+    void unmount() override {}
+    Error open(const char* path, vfs::File** out) override {
+        if (strcmp(path, "file") != 0) {
+            return Error::NotFound;
+        }
+        *out = new (std::nothrow) LifetimeFile();
+        return *out ? Error::None : Error::NoMem;
+    }
+    Error stat(const char*, vfs::Stat*) override { return Error::NotSupported; }
+    Result<int> readdir(const char*, vfs::DirVisitor&) override { return 0; }
+    void print() override {}
+};
+
+vfs::FileSystem* create_lifetime_fs() {
+    return new (std::nothrow) LifetimeFs();
+}
+
+void test_mount_lifetime() {
+    TEST_START("VFS mount lifetime with open and failed-open handles");
+    if (vfs::is_mounted("/mnt")) {
+        cprintf("  [SKIP] /mnt already in use\n");
+        TEST_END();
+        return;
+    }
+    static bool registered = false;
+    if (!registered) {
+        registered = vfs::register_fs("lifetime-test", create_lifetime_fs) == Error::None;
+    }
+    Error rc = registered ? vfs::mount("/mnt", nullptr, "lifetime-test") : Error::Fail;
+    TEST_ASSERT(rc == Error::None, "Mounted lifetime fixture");
+    if (rc != Error::None) {
+        TEST_END();
+        return;
+    }
+    vfs::File* first = nullptr;
+    vfs::File* second = nullptr;
+    vfs::File* missing = nullptr;
+    TEST_ASSERT(vfs::open("/mnt/file", &first) == Error::None, "First file opened");
+    TEST_ASSERT(vfs::open("/mnt/file", &second) == Error::None, "Second file opened");
+    TEST_ASSERT(vfs::open("/mnt/missing", &missing) == Error::NotFound, "Failed open rejected");
+    TEST_ASSERT(vfs::umount("/mnt") == Error::Busy, "Unmount rejected with open files");
+    uint8_t byte = 0;
+    auto read = vfs::read(first, &byte, 1, 0);
+    TEST_ASSERT(read.ok() && read.value() == 1 && byte == 0x42, "Handle usable after blocked unmount");
+    vfs::close(first);
+    TEST_ASSERT(vfs::umount("/mnt") == Error::Busy, "Other handle still pins the mount");
+    // Direct deletion must also release the pin through the virtual destructor.
+    delete second;
+    TEST_ASSERT(vfs::umount("/mnt") == Error::None, "Unmount succeeds after final close and failed open");
+    TEST_END();
+}
 
 bool ensure_system_mounted() {
     if (vfs::is_mounted("/")) {
@@ -468,6 +540,8 @@ namespace fs_test {
 void test() {
     tests_passed = 0;
     tests_failed = 0;
+
+    test_mount_lifetime();
 
     test_fat_write_overwrite_roundtrip();
     test_fat_stat();

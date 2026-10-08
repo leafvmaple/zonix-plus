@@ -41,11 +41,19 @@ struct DirEntry {
 
 class File {
 public:
-    virtual ~File() = default;
+    virtual ~File();
+
+    File() = default;
+    File(const File&) = delete;
+    File& operator=(const File&) = delete;
 
     virtual Result<int> read(void* buf, size_t size, size_t offset) = 0;
     virtual Result<int> write(const void* buf, size_t size, size_t offset) = 0;
     virtual Error stat(Stat* st) = 0;
+
+private:
+    friend Error open(const char* path, File** out_file);
+    size_t* mount_open_files_{};
 };
 
 class DirVisitor {

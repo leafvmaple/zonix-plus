@@ -26,6 +26,13 @@ struct TrapFrame {
     }
 
     void set_return(uint64_t val) { regs[0] = val; }
+    [[nodiscard]] uint64_t syscall_return() const { return regs[0]; }
+    void set_syscall(uint64_t nr, uint64_t arg0, uint64_t arg1, uint64_t arg2) {
+        regs[8] = nr;
+        regs[0] = arg0;
+        regs[1] = arg1;
+        regs[2] = arg2;
+    }
 };
 
 extern "C" void trap_dispatch(TrapFrame* tf);

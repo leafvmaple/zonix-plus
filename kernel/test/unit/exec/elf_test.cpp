@@ -29,6 +29,12 @@ static void make_valid_elf64(ElfHdr* eh) {
     eh->e_phentsize = sizeof(ProgHdr);
     eh->e_phnum = 1;
     eh->e_ehsize = sizeof(ElfHdr);
+    auto* ph = reinterpret_cast<ProgHdr*>(reinterpret_cast<uint8_t*>(eh) + eh->e_phoff);
+    memset(ph, 0, sizeof(*ph));
+    ph->p_type = ELF_PT_LOAD;
+    ph->p_flags = ELF_PF_R | ELF_PF_X;
+    ph->p_va = eh->e_entry;
+    ph->p_memsz = 4096;
 }
 
 // ============================================================================
@@ -221,8 +227,37 @@ static void test_validate_too_small() {
 }
 
 // ============================================================================
-// Test Runner
+// Malformed input must be rejected before allocating or copying pages.
 // ============================================================================
+
+static void test_validate_malformed_segments() {
+    TEST_START("elf::validate — malformed segments and header sizes");
+    alignas(8) uint8_t buf[512]{};
+    auto* eh = reinterpret_cast<ElfHdr*>(buf);
+    make_valid_elf64(eh);
+    auto* ph = reinterpret_cast<ProgHdr*>(buf + sizeof(ElfHdr));
+
+    ph->p_filesz = ph->p_memsz + 1;
+    TEST_ASSERT(elf::validate(eh, sizeof(buf)) == Error::Invalid, "filesz larger than memsz rejected");
+    make_valid_elf64(eh);
+    ph->p_offset = static_cast<uint64_t>(-16);
+    ph->p_filesz = 32;
+    TEST_ASSERT(elf::validate(eh, sizeof(buf)) == Error::Invalid, "Wrapped segment file range rejected");
+    make_valid_elf64(eh);
+    ph->p_va = static_cast<uint64_t>(-4096);
+    ph->p_memsz = 8192;
+    TEST_ASSERT(elf::validate(eh, sizeof(buf)) == Error::Invalid, "Wrapped virtual range rejected");
+    make_valid_elf64(eh);
+    eh->e_phoff = static_cast<uint64_t>(-16);
+    TEST_ASSERT(elf::validate(eh, sizeof(buf)) == Error::Invalid, "Wrapped program header range rejected");
+    make_valid_elf64(eh);
+    eh->e_phentsize = 0;
+    TEST_ASSERT(elf::validate(eh, sizeof(buf)) == Error::Invalid, "Incorrect program header size rejected");
+    make_valid_elf64(eh);
+    eh->e_entry = ph->p_va + ph->p_memsz;
+    TEST_ASSERT(elf::validate(eh, sizeof(buf)) == Error::Invalid, "Entry outside executable segment rejected");
+    TEST_END();
+}
 
 namespace elf_test {
 
@@ -240,6 +275,7 @@ void test() {
     test_validate_no_phdr();
     test_validate_phdr_overflow();
     test_validate_too_small();
+    test_validate_malformed_segments();
 
     TEST_SUMMARY("ELF Loader");
 }

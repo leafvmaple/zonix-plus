@@ -18,8 +18,10 @@ CXXFLAGS := -g -Wall -ggdb -O0 -m64 -mno-red-zone -mcmodel=kernel \
            -ffreestanding -std=gnu++17 -gdwarf-2
 LDFLAGS := -m elf_x86_64 -nostdlib
 
-BOOT_CFLAGS  := -g -fno-builtin -Wall -ggdb -O0 -m32 -nostdinc -fno-stack-protector -fno-pic -gdwarf-2
+BOOT_CFLAGS  := -g -fno-builtin -Wall -ggdb -O0 -m32 -nostdinc -fno-stack-protector -fno-pic -gdwarf-2 \
+                -mno-sse -mno-sse2 -mno-mmx -msoft-float
 BOOT_CXXFLAGS := -g -fno-builtin -Wall -ggdb -O0 -m32 -nostdinc -nostdinc++ \
+                 -mno-sse -mno-sse2 -mno-mmx -msoft-float \
                  -fno-stack-protector -fno-pic -fno-exceptions -fno-rtti \
                  -fno-use-cxa-atexit -fno-threadsafe-statics \
                  -fno-asynchronous-unwind-tables -fno-unwind-tables \

@@ -6,7 +6,6 @@
 
 // External symbols
 extern long user_stack[];
-extern MemoryDesc init_mm;
 
 struct TaskStructAccess {
     static uintptr_t kernel_stack(const TaskStruct* proc) { return proc->kernel_stack_; }
@@ -42,7 +41,7 @@ static int tests_failed = 0;
 // Without this, a timer interrupt during the test would panic the kernel.
 static void init_test_proc(TaskStruct* proc, int pid) {
     proc->pid = pid;
-    proc->memory = &init_mm;
+    proc->memory = &vmm::Manager::kernel_mm();
     proc->priority = sched_prio::IDLE_PRIO;
     proc->time_slice = 0;
 }
@@ -318,29 +317,19 @@ static void test_context_structure() {
 
     Context ctx{};
 
-#if defined(__x86_64__)
-    // Verify default initialization
-    TEST_ASSERT(ctx.rip == 0, "Context rip initialized to 0");
-    TEST_ASSERT(ctx.rsp == 0, "Context rsp initialized to 0");
-    TEST_ASSERT(ctx.rbx == 0, "Context rbx initialized to 0");
-    TEST_ASSERT(ctx.rbp == 0, "Context rbp initialized to 0");
+    TEST_ASSERT(ctx.get_entry() == 0, "Context entry initialized to 0");
+    TEST_ASSERT(ctx.get_stack() == 0, "Context stack initialized to 0");
+    bool zero = true;
+    const auto* bytes = reinterpret_cast<const uint8_t*>(&ctx);
+    for (size_t i = 0; i < sizeof(ctx); ++i) {
+        zero = zero && bytes[i] == 0;
+    }
+    TEST_ASSERT(zero, "All context registers initialized to 0");
 
-    // Set and verify values
-    ctx.rip = 0x12345678;
-    ctx.rsp = 0xDEADBEEF;
-    TEST_ASSERT(ctx.rip == 0x12345678, "Context rip set correctly");
-    TEST_ASSERT(ctx.rsp == 0xDEADBEEF, "Context rsp set correctly");
-#elif defined(__aarch64__)
-    // Verify default initialization
-    TEST_ASSERT(ctx.x30 == 0, "Context x30/LR initialized to 0");
-    TEST_ASSERT(ctx.sp == 0, "Context sp initialized to 0");
-
-    // Set and verify values
-    ctx.x30 = 0x12345678;
-    ctx.sp = 0xDEADBEEF;
-    TEST_ASSERT(ctx.x30 == 0x12345678, "Context x30/LR set correctly");
-    TEST_ASSERT(ctx.sp == 0xDEADBEEF, "Context sp set correctly");
-#endif
+    ctx.set_entry(0x12345678);
+    ctx.set_stack(0xDEADBEEF);
+    TEST_ASSERT(ctx.get_entry() == 0x12345678, "Context entry set correctly");
+    TEST_ASSERT(ctx.get_stack() == 0xDEADBEEF, "Context stack set correctly");
 
     TEST_END();
 }

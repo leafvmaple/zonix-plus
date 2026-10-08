@@ -31,14 +31,43 @@ Error validate(const ElfHdr* eh, size_t file_size) {
 
     ENSURE_LOG(eh->is_executable(), Error::Invalid, "elf: not an executable ELF file");
 
-    size_t ph_end = eh->e_phoff + static_cast<size_t>(eh->e_phnum) * eh->e_phentsize;
-    ENSURE_LOG(ph_end <= file_size, Error::Invalid,
-               "elf: program header table exceeds file size (end=0x%lx, file_size=0x%lx)", ph_end, file_size);
+    ENSURE(eh->e_ehsize == sizeof(ElfHdr) && eh->e_phentsize == sizeof(ProgHdr));
+    ENSURE(eh->e_phoff >= sizeof(ElfHdr) && eh->e_phoff <= file_size);
+    size_t table_size = static_cast<size_t>(eh->e_phnum) * sizeof(ProgHdr);
+    ENSURE(table_size <= file_size - eh->e_phoff);
+    ENSURE(eh->e_entry >= PG_SIZE && eh->e_entry < USER_SPACE_TOP);
+
+    const auto* data = reinterpret_cast<const uint8_t*>(eh);
+    bool executable_entry = false;
+    for (uint16_t i = 0; i < eh->e_phnum; ++i) {
+        ProgHdr ph{};
+        memcpy(&ph, data + eh->e_phoff + static_cast<size_t>(i) * sizeof(ProgHdr), sizeof(ph));
+        if (ph.p_type != ELF_PT_LOAD) {
+            continue;
+        }
+        ENSURE(ph.p_filesz <= ph.p_memsz);
+        ENSURE(ph.p_offset <= file_size && ph.p_filesz <= file_size - ph.p_offset);
+        if (ph.p_memsz == 0) {
+            continue;
+        }
+        ENSURE(ph.p_va >= PG_SIZE && ph.p_va < USER_SPACE_TOP);
+        ENSURE(ph.p_memsz <= USER_SPACE_TOP - ph.p_va);
+        uintptr_t end = ph.p_va + ph.p_memsz;
+        // exec installs the user stack separately; segments must not overlap it.
+        ENSURE(end <= USER_STACK_TOP - USER_STACK_SIZE || ph.p_va >= USER_STACK_TOP);
+        if ((ph.p_flags & ELF_PF_X) && eh->e_entry >= ph.p_va && eh->e_entry < end) {
+            executable_entry = true;
+        }
+    }
+    ENSURE(executable_entry);
 
     return Error::None;
 }
 
 uintptr_t load(const uint8_t* data, size_t size, pde_t* pgdir) {
+    if (!data || !pgdir) {
+        return 0;
+    }
     const auto* eh = reinterpret_cast<const ElfHdr*>(data);
 
     if (validate(eh, size) != Error::None) {
@@ -49,27 +78,15 @@ uintptr_t load(const uint8_t* data, size_t size, pde_t* pgdir) {
 
     for (uint16_t i = 0; i < eh->e_phnum; i++) {
         size_t ph_offset = eh->e_phoff + i * eh->e_phentsize;
-        const auto* ph = reinterpret_cast<const ProgHdr*>(data + ph_offset);
+        ProgHdr header{};
+        memcpy(&header, data + ph_offset, sizeof(header));
+        const auto* ph = &header;
 
         if (ph->p_type != ELF_PT_LOAD || ph->p_memsz == 0) {
             continue;
         }
 
-        if (ph->p_filesz > 0 && ph->p_offset + ph->p_filesz > size) {
-            cprintf("elf: segment %d file data out of bounds (offset=0x%lx, filesz=0x%lx, elf_size=0x%lx)\n", i,
-                    ph->p_offset, ph->p_filesz, size);
-            return 0;
-        }
-
-        if (ph->p_va >= KERNEL_BASE) {
-            cprintf("elf: segment %d maps to kernel space (va=0x%lx)\n", i, ph->p_va);
-            return 0;
-        }
-
-        uint32_t perm = VM_USER;
-        if (ph->p_flags & ELF_PF_W) {
-            perm |= VM_WRITE;
-        }
+        uint32_t perm = user_page_perm((ph->p_flags & ELF_PF_W) != 0, (ph->p_flags & ELF_PF_X) != 0);
 
         cprintf("elf:   LOAD seg %d: va=0x%lx, filesz=0x%lx, memsz=0x%lx, perm=%s%s%s\n", i, ph->p_va, ph->p_filesz,
                 ph->p_memsz, (ph->p_flags & ELF_PF_R) ? "R" : "-", (ph->p_flags & ELF_PF_W) ? "W" : "-",
@@ -80,8 +97,9 @@ uintptr_t load(const uint8_t* data, size_t size, pde_t* pgdir) {
 
         for (uintptr_t va = seg_start; va < seg_end; va += PG_SIZE) {
             pte_t* existing = pmm::get_pte(pgdir, va, false);
-            if (existing && (*existing & VM_PRESENT)) {
-                *existing |= perm;
+            if (existing && pte_present(*existing)) {
+                uint32_t merged = merge_user_page_perm(*existing, perm);
+                *existing = make_pte_page(pte_addr(*existing), merged);
                 continue;
             }
 
@@ -100,7 +118,7 @@ uintptr_t load(const uint8_t* data, size_t size, pde_t* pgdir) {
 
             iterate_pages(ph->p_va, ph->p_filesz, [&](uintptr_t va, size_t chunk) {
                 pte_t* ptep = pmm::get_pte(pgdir, va, false);
-                assert(ptep && (*ptep & VM_PRESENT));
+                assert(ptep && pte_present(*ptep));
 
                 uint8_t* kva = phys_to_virt<uint8_t>(pte_addr(*ptep));
                 memcpy(kva + (va & PG_MASK), src, chunk);

@@ -177,14 +177,28 @@ endif
 # ==========================================================================
 # Top-level targets
 # ==========================================================================
-.PHONY: all clean format lint compdb help FORCE
+.PHONY: all clean format lint compdb help FORCE check check-kernel-rules kernel-rule-config install-hooks
 
 all: $(ALL_PREREQS)
 .DEFAULT_GOAL := all
 
 # ==========================================================================
-# Code quality (optional)
+# Code quality
 # ==========================================================================
+check: check-kernel-rules
+
+install-hooks:
+	$(Q)chmod +x .githooks/pre-commit
+	$(Q)git config --local core.hooksPath .githooks
+	@echo "  HOOKS   pre-commit installed (checks the staged snapshot for all architectures)"
+
+check-kernel-rules:
+	$(Q)python3 $(SCRIPTDIR)/check_kernel_rules.py --arch $(ARCH) --cache $(OBJDIR)/kernel-rules.sha256
+
+# Machine-readable compiler settings for the AST checker; no duplicated flags.
+kernel-rule-config:
+	@printf '%s\n' '$(CXX)' '$(CXXFLAGS)' '$(call listf_cxx,$(KSRCDIR))'
+
 format:
 	@echo "  FORMAT  kernel/ arch/"
 	$(Q)find kernel/ arch/ -name '*.cpp' -o -name '*.h' -o -name '*.c' | xargs clang-format -i
@@ -229,6 +243,8 @@ help:
 	@echo "  make qemu ARCH=aarch64"
 	@echo ""
 	@echo "Quality:"
+	@echo "  make install-hooks   Install mandatory local pre-commit checks (once per clone)"
+	@echo "  make check           Enforce kernel architecture and state ownership rules"
 	@echo "  make format          Run clang-format on all sources"
 	@echo "  make lint            Run clang-tidy on all sources"
 	@echo "  make compdb          Generate compile_commands.json (needs bear)"

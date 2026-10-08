@@ -16,8 +16,6 @@
 #include <asm/mmu.h>
 #include <asm/arch.h>
 
-extern pde_t* boot_pgdir;
-
 namespace exec {
 
 struct KernelBuf {
@@ -60,7 +58,7 @@ pde_t* create_user_pgdir() {
 
     memset(pgdir, 0, PG_SIZE);
     // Copy higher-half kernel mappings (top-level entries USER_TOP_ENTRIES..PAGE_TABLE_ENTRIES-1)
-    memcpy(&pgdir[USER_TOP_ENTRIES], &boot_pgdir[USER_TOP_ENTRIES],
+    memcpy(&pgdir[USER_TOP_ENTRIES], &vmm::Manager::kernel_pgdir()[USER_TOP_ENTRIES],
            (PAGE_TABLE_ENTRIES - USER_TOP_ENTRIES) * sizeof(pde_t));
 
     return pgdir;

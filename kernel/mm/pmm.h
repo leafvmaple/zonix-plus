@@ -2,12 +2,10 @@
 
 #include <base/types.h>
 #include <asm/cpu.h>
+#include <asm/page.h>
 
 #include "lib/list.h"
 #include "lib/result.h"
-
-using pte_t = uintptr_t;  // Page Table Entry
-using pde_t = uintptr_t;  // Page Directory Entry
 
 // Page flags
 enum class PageFlag : uint8_t {
@@ -61,6 +59,8 @@ void tlb_invl(pde_t* pgdir, uintptr_t la);
 Page* pgdir_alloc_page(pde_t* pgdir, uintptr_t la, uint32_t perm);
 pte_t* get_pte(pde_t* pml4, uintptr_t la, bool create);
 Error page_insert(pde_t* pgdir, Page* page, uintptr_t la, uint32_t perm);
+// Validate every page-table level and return a kernel alias for a user address.
+Result<void*> user_address(pde_t* pgdir, uintptr_t addr, bool write);
 
 Page* alloc_pages(size_t n = 1);
 void free_pages(Page* base, size_t n = 1);

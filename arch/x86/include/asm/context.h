@@ -16,6 +16,8 @@ struct Context {
 
     void set_entry(uintptr_t addr) { rip = addr; }
     void set_stack(uintptr_t sp) { rsp = sp; }
+    [[nodiscard]] uintptr_t get_entry() const { return rip; }
+    [[nodiscard]] uintptr_t get_stack() const { return rsp; }
 };
 
 // Assembly functions for context switching (defined in switch.S)

@@ -1,32 +1,21 @@
-
-
 #include <asm/arch.h>
 #include <asm/page.h>
+#include <asm/pgtable.h>
 
 #include "lib/math.h"
 #include "lib/stdio.h"
+#include "lib/memory.h"
+#include "drivers/intr.h"
 #include "trap/trap.h"
 
 #include "vmm.h"
 #include "swap.h"
 
-#if defined(__aarch64__)
-extern pde_t __boot_pgd_high;
-pde_t* boot_pgdir = &__boot_pgd_high;
-#else
-extern pde_t __boot_pml4;
-pde_t* boot_pgdir = &__boot_pml4;
-#endif
-
-MemoryDesc init_mm;
-
-static const char* perm2str(int perm) {
-    static char str[4];
+static void perm2str(int perm, char (&str)[4]) {
     str[0] = (perm & VM_USER) ? 'u' : '-';
     str[1] = (perm & VM_PRESENT) ? 'r' : '-';
     str[2] = (perm & VM_WRITE) ? 'w' : '-';
     str[3] = '\0';
-    return str;
 }
 
 static void mm_init(MemoryDesc* mm) {
@@ -36,31 +25,97 @@ static void mm_init(MemoryDesc* mm) {
 
 namespace vmm {
 
+uintptr_t Manager::mmio_next_va_ = KERNEL_DEVIO_BASE;
+
+bool user_range_valid(MemoryDesc* mm, uintptr_t addr, size_t size, bool write) {
+    intr::Guard guard;
+    if (!mm || !mm->pgdir || addr < PG_SIZE || addr >= USER_SPACE_TOP || size > USER_SPACE_TOP - addr) {
+        return false;
+    }
+    while (size != 0) {
+        if (!pmm::user_address(mm->pgdir, addr, write).ok()) {
+            return false;
+        }
+        size_t chunk = PG_SIZE - (addr & PG_MASK);
+        if (chunk > size) {
+            chunk = size;
+        }
+        addr += chunk;
+        size -= chunk;
+    }
+    return true;
+}
+
+static Error copy_user(MemoryDesc* mm, uintptr_t user, void* kernel, size_t size, bool to_user) {
+    intr::Guard guard;
+    ENSURE(kernel && user_range_valid(mm, user, size, to_user));
+    auto* bytes = static_cast<uint8_t*>(kernel);
+    while (size != 0) {
+        auto alias = pmm::user_address(mm->pgdir, user, to_user);
+        if (!alias.ok()) {
+            return alias.error();
+        }
+        size_t chunk = PG_SIZE - (user & PG_MASK);
+        if (chunk > size) {
+            chunk = size;
+        }
+        if (to_user) {
+            memcpy(alias.value(), bytes, chunk);
+        } else {
+            memcpy(bytes, alias.value(), chunk);
+        }
+        user += chunk;
+        bytes += chunk;
+        size -= chunk;
+    }
+    return Error::None;
+}
+
+Error copy_from_user(MemoryDesc* mm, void* dst, uintptr_t src, size_t size) {
+    return copy_user(mm, src, dst, size, false);
+}
+
+Error copy_to_user(MemoryDesc* mm, uintptr_t dst, const void* src, size_t size) {
+    return copy_user(mm, dst, const_cast<void*>(src), size, true);
+}
+
 void print_pgdir() {
+    const auto* pgdir = Manager::kernel_pgdir();
     cprintf("-------------------- BEGIN --------------------\n");
-    cprintf("PML4 at %p\n", boot_pgdir);
-    // Simple dump of PML4 entries that are present
+    cprintf("Root page table at %p\n", pgdir);
+    // Dump the present entries in the kernel root table.
     for (int i = 0; i < PAGE_TABLE_ENTRIES; i++) {
-        if (boot_pgdir[i] & VM_PRESENT) {
-            cprintf("  PML4[%03d] = 0x%016lx %s\n", i, boot_pgdir[i], perm2str(boot_pgdir[i] & VM_USER_RW));
+        if (pte_present(pgdir[i])) {
+            char perm[4];
+            perm2str(pgdir[i] & VM_USER_RW, perm);
+            cprintf("  root[%03d] = 0x%016lx %s\n", i, pgdir[i], perm);
         }
     }
     cprintf("--------------------- END ---------------------\n");
 }
 
 int pg_fault(MemoryDesc* mm, uint32_t error_code, uintptr_t addr) {
-    uint32_t perm = VM_USER;
-    Page* page = nullptr;
-
-    addr = round_down(addr, PG_SIZE);
-
-    pte_t* ptep = pmm::get_pte(mm->pgdir, addr, 1);
-    if (*ptep == 0) {
-        page = pmm::pgdir_alloc_page(mm->pgdir, addr, perm);
-    } else {
-        swap::in(mm, addr, &page);
+    if (!mm || !mm->pgdir || addr < PG_SIZE || addr >= USER_SPACE_TOP || (error_code & 1)) {
+        return -1;
     }
-
+    addr = round_down(addr, PG_SIZE);
+    pte_t* ptep = pmm::get_pte(mm->pgdir, addr, false);
+    if (ptep && pte_present(*ptep)) {
+        return -1;  // A mapped page fault is not a swap entry.
+    }
+    if (ptep && *ptep != 0) {
+        if ((error_code & 2) != 0 && (*ptep & swap::ENTRY_HAS_PERMISSIONS) != 0 &&
+            (*ptep & swap::ENTRY_WRITE) == 0) {
+            return -1;
+        }
+        Page* page = nullptr;
+        return swap::in(mm, addr, &page) == Error::None ? 0 : -1;
+    }
+    Page* page = pmm::pgdir_alloc_page(mm->pgdir, addr, user_page_perm(true));
+    if (!page) {
+        return -1;
+    }
+    memset(pmm::page_to_kva(page), 0, PG_SIZE);
     return 0;
 }
 
@@ -85,29 +140,24 @@ Error pgdir_init(pde_t* pgdir, uintptr_t la, size_t size, uintptr_t pa, uint32_t
 // Assigns consecutive virtual addresses starting at KERNEL_DEVIO_BASE.
 // The virtual address has NO arithmetic relationship to the physical one.
 // -------------------------------------------------------------------------
-static uintptr_t mmio_next_va = KERNEL_DEVIO_BASE;
-
 uintptr_t mmio_map(uintptr_t phys_addr, size_t size, uint32_t perm) {
     size = round_up(size, PG_SIZE);
-    uintptr_t va = mmio_next_va;
-    if (pgdir_init(boot_pgdir, va, size, phys_addr, perm) != Error::None) {
+    uintptr_t va = Manager::mmio_next_va_;
+    if (pgdir_init(Manager::kernel_pgdir(), va, size, phys_addr, perm) != Error::None) {
         cprintf("vmm: mmio_map failed for phys=0x%lx size=0x%lx\n", phys_addr, size);
         return 0;
     }
     // Flush TLB for the newly mapped range so that stale entries
     // (e.g. from split 2MB blocks) don't interfere.
     arch_flush_tlb_range(va, size);
-    mmio_next_va += size;
+    Manager::mmio_next_va_ += size;
     return va;
 }
 
 int init() {
-    if (!boot_pgdir) {
-        cprintf("vmm: boot page directory is null\n");
-        return -1;
-    }
+    auto* boot_pgdir = __kernel_pg_dir;
 
-    cprintf("PML4 (Page Map Level 4): [0x%p]\n", boot_pgdir);
+    cprintf("vmm: kernel root page table [0x%p]\n", boot_pgdir);
 
     if (pgdir_init(boot_pgdir, KERNEL_BASE, KERNEL_MEM_SIZE, 0, VM_WRITE) != Error::None) {
         cprintf("vmm: failed to map kernel address space\n");
@@ -116,8 +166,8 @@ int init() {
 
     arch_flush_tlb_range(KERNEL_BASE, KERNEL_MEM_SIZE);
 
-    mm_init(&init_mm);
-    init_mm.pgdir = boot_pgdir;
+    mm_init(&Manager::kernel_mm_);
+    Manager::kernel_mm_.pgdir = boot_pgdir;
 
     cprintf("vmm: kernel mapped [0x%lx, 0x%lx)\n", static_cast<uint64_t>(KERNEL_BASE),
             static_cast<uint64_t>(KERNEL_BASE + KERNEL_MEM_SIZE));

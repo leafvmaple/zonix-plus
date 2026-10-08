@@ -19,5 +19,6 @@ compile_commands.json
 Thumbs.db
 
 # Misc
+__pycache__/
 -c
 virt.dtb

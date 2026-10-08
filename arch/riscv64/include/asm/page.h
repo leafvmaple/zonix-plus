@@ -72,6 +72,9 @@
 
 #include <base/types.h>
 
+using pte_t = uintptr_t;
+using pde_t = uintptr_t;
+
 inline constexpr int PAGE_LEVELS = 4;          /* swap.cpp walks 4 named levels; see below */
 inline constexpr int PT_WALK_LEVELS = 3;       /* actual hardware page table depth (Sv39)  */
 inline constexpr int PAGE_TABLE_ENTRIES = 512; /* 9-bit index per level */
@@ -135,6 +138,38 @@ static inline uintptr_t make_pte_table(uintptr_t pa) {
 
 static inline uintptr_t make_pte_page(uintptr_t pa, uint32_t perm) {
     return ((pa >> PG_SHIFT) << PTE_PPN_SHIFT) | PTE_V | PTE_R | PTE_A | PTE_D | perm;
+}
+
+static inline bool pte_present(uintptr_t entry) {
+    return (entry & PTE_V) != 0;
+}
+static inline bool pte_writable(uintptr_t entry) {
+    return (entry & PTE_W) != 0;
+}
+static inline bool pte_user(uintptr_t entry) {
+    return (entry & PTE_U) != 0;
+}
+static inline bool pte_readable(uintptr_t entry) {
+    return (entry & PTE_R) != 0;
+}
+static inline bool pte_executable(uintptr_t entry) {
+    return (entry & PTE_X) != 0;
+}
+static inline bool pte_user_accessible(uintptr_t entry, bool write) {
+    return pte_present(entry) && pte_user(entry) && pte_readable(entry) && (!write || pte_writable(entry));
+}
+static inline bool pte_user_table_accessible(uintptr_t entry, bool write) {
+    // Sv39 access permissions belong to leaf entries.
+    static_cast<void>(entry);
+    static_cast<void>(write);
+    return true;
+}
+static inline uint32_t user_page_perm(bool write, bool executable = false) {
+    return VM_USER | (write ? VM_WRITE : 0) | (executable ? PTE_X : 0);
+}
+static inline uint32_t merge_user_page_perm(uintptr_t entry, uint32_t perm) {
+    return user_page_perm(pte_writable(entry) || pte_writable(perm),
+                          pte_executable(entry) || pte_executable(perm));
 }
 
 /* pde_addr: extract PA from a non-leaf PTE (same as pte_addr) */

@@ -140,7 +140,7 @@ _start:
      * PMD0[i] = (i * 2MB) | BLOCK_NORMAL     for i = 0..511
      * PMD1[i] = (1GB + i * 2MB) | BLOCK_NORMAL  for i = 0..511
      */
-    adrp x0, __boot_pgd_high
+    adrp x0, __kernel_pg_dir
     adrp x1, __boot_pud_high
     orr  x2, x1, #TABLE_DESC
     str  x2, [x0]                    /* PGD[0] -> PUD */
@@ -187,7 +187,7 @@ _start:
 
     adrp x0, __boot_pgd_low
     msr  ttbr0_el1, x0
-    adrp x0, __boot_pgd_high
+    adrp x0, __kernel_pg_dir
     msr  ttbr1_el1, x0
     isb
 
@@ -280,8 +280,10 @@ _start:
 .balign 4096
 __boot_pgd_low:     .space 4096
 __boot_pud_low:     .space 4096
-.globl __boot_pgd_high
-__boot_pgd_high:    .space 4096
+.globl __kernel_pg_dir
+.type __kernel_pg_dir, %object
+__kernel_pg_dir:    .space 4096
+.size __kernel_pg_dir, .-__kernel_pg_dir
 __boot_pud_high:    .space 4096
 __boot_pmd_high0:   .space 4096
 __boot_pmd_high1:   .space 4096

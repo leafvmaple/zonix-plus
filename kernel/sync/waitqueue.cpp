@@ -1,6 +1,7 @@
 #include "lib/waitqueue.h"
 #include "lib/lock_guard.h"
 #include "sched/sched.h"
+#include "drivers/intr.h"
 
 struct Entry {
     TaskStruct* task{};
@@ -12,6 +13,7 @@ struct Entry {
 };
 
 void WaitQueue::sleep() {
+    intr::Guard irq_guard;  // Do not preempt a task marked sleeping before schedule().
     Entry entry;
     entry.task = sched::current();
 

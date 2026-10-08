@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+repo_root=$(git rev-parse --show-toplevel)
+index_path=$(git rev-parse --path-format=absolute --git-path index)
+
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+        # Windows Git uses the same index as WSL, including commit -a's temporary index.
+        # Pass paths as arguments; MSYS must not translate Linux paths back to Windows.
+        export MSYS_NO_PATHCONV=1
+        windows_root=$(cygpath -w "$repo_root")
+        windows_index=$(cygpath -w "$index_path")
+        linux_root=$(wsl.exe --exec wslpath -u "$windows_root" | tr -d '\r')
+        linux_index=$(wsl.exe --exec wslpath -u "$windows_index" | tr -d '\r')
+        exec wsl.exe --exec python3 "$linux_root/scripts/pre_commit.py" \
+            --repo "$linux_root" --index "$linux_index"
+        ;;
+    *)
+        exec python3 "$repo_root/scripts/pre_commit.py" --repo "$repo_root" --index "$index_path"
+        ;;
+esac

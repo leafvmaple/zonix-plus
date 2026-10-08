@@ -1,7 +1,5 @@
 #include "sched.h"
 
-ListNode* sched_cursor{};
-
 const char* SchedulerPolicy::get_name() const {
     return "Priority Round Robin";
 }
@@ -31,11 +29,11 @@ TaskStruct* SchedulerPolicy::pick_next(ListNode& proc_list, TaskStruct* idle) {
     int best_prio = sched_prio::IDLE_PRIO + 1;  // Worse than idle
     ListNode* head = &proc_list;
 
-    if (!sched_cursor || sched_cursor == head) {
-        sched_cursor = head->get_next();
+    if (!cursor_ || cursor_ == head) {
+        cursor_ = head->get_next();
     }
 
-    for (auto* node : proc_list.circular_from(sched_cursor)) {
+    for (auto* node : proc_list.circular_from(cursor_)) {
         TaskStruct* proc = TaskStruct::from_list_link(node);
         if (proc->get_state() == ProcessState::Runnable && proc != idle) {
             if (proc->priority < best_prio) {
@@ -46,7 +44,7 @@ TaskStruct* SchedulerPolicy::pick_next(ListNode& proc_list, TaskStruct* idle) {
     }
 
     if (next != idle) {
-        sched_cursor = next->list_node.get_next();
+        cursor_ = next->list_node.get_next();
     }
 
     return next;

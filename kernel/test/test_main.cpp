@@ -41,6 +41,14 @@ namespace exec_test {
 void test();
 }
 
+namespace vmm_test {
+void test();
+}
+
+namespace sync_test {
+void test();
+}
+
 // QEMU ISA debug exit port (configured via -device isa-debug-exit,iobase=0xf4,iosize=0x04)
 static constexpr uint16_t QEMU_EXIT_PORT = 0xf4;
 
@@ -54,11 +62,10 @@ struct TestSuite {
 };
 
 static const TestSuite SUITES[] = {
-    {"String Library", string_test::test}, {"Linked List", list_test::test},
-    {"PMM Allocator", pmm_test::test},     {"Scheduler", sched::test},
-    {"Swap (FIFO)", run_swap_suite},       {"Block Manager", blk_test::test},
-    {"ELF Loader", elf_test::test},        {"File System", fs_test::test},
-    {"Shell", shell_test::test},           {"Exec (E2E)", exec_test::test},
+    {"Synchronization", sync_test::test}, {"User Memory", vmm_test::test},   {"String Library", string_test::test},
+    {"Linked List", list_test::test},     {"PMM Allocator", pmm_test::test}, {"Scheduler", sched::test},
+    {"Swap (FIFO)", run_swap_suite},      {"Block Manager", blk_test::test}, {"ELF Loader", elf_test::test},
+    {"File System", fs_test::test},       {"Shell", shell_test::test},       {"Exec (E2E)", exec_test::test},
 };
 
 int test_run_all(void*) {

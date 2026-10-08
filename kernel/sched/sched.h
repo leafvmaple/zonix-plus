@@ -38,6 +38,9 @@ public:
     [[nodiscard]] int calc_time_slice(int priority) const;
     void tick(TaskStruct* current, TaskStruct* idle) const;
     [[nodiscard]] TaskStruct* pick_next(ListNode& proc_list, TaskStruct* idle);
+
+private:
+    ListNode* cursor_{};
 };
 
 // Process control block - modeling Linux's task_struct
@@ -146,6 +149,8 @@ public:
 
 private:
     inline static TaskStruct* s_current{};
+    inline static SchedulerPolicy s_policy{};
+    inline static int s_next_pid = 1;
 
     // Scheduler telemetry counters (monotonic since boot)
     inline static uint64_t s_tick_count{};

@@ -22,9 +22,9 @@
  *
  * Page-table design (Sv39, 4KB granule, VA = PA + KERNEL_BASE):
  *
- *   __boot_pgd[BOARD_PGD_IDX_MMIO]  — 1GB gigapage, PA 0x0000_0000 → MMIO
- *   __boot_pgd[BOARD_PGD_IDX_DRAM]  — 1GB gigapage, PA BOARD_DRAM_BASE → DRAM
- *   __boot_pgd[BOARD_PGD_IDX_IDENT] — 1GB gigapage, PA BOARD_DRAM_BASE → identity
+ *   __kernel_pg_dir[BOARD_PGD_IDX_MMIO]  — 1GB gigapage, PA 0x0000_0000 → MMIO
+ *   __kernel_pg_dir[BOARD_PGD_IDX_DRAM]  — 1GB gigapage, PA BOARD_DRAM_BASE → DRAM
+ *   __kernel_pg_dir[BOARD_PGD_IDX_IDENT] — 1GB gigapage, PA BOARD_DRAM_BASE → identity
  *                                      (trampoline; removed after jump to virtual)
  */
 
@@ -68,7 +68,7 @@ _start:
     /* ----------------------------------------------------------------
      * Zero the boot page table (1 page = 512 × 8-byte slots).
      * ---------------------------------------------------------------- */
-    la    t0, __boot_pgd          /* t0 = PA of root page table */
+    la    t0, __kernel_pg_dir          /* t0 = PA of root page table */
     li    t1, 4096
 .Lzero_pgd:
     sd    zero, 0(t0)
@@ -84,7 +84,7 @@ _start:
     li    t3, BOOT_PERM
     or    t2, t2, t3              /* t2 = 1GB gigapage PTE for PA BOARD_DRAM_BASE */
 
-    la    t0, __boot_pgd
+    la    t0, __kernel_pg_dir
 
     /* PGD[BOARD_PGD_IDX_DRAM] = kernel DRAM */
     li    t3, BOARD_PGD_IDX_DRAM * 8
@@ -109,7 +109,7 @@ _start:
     /* ----------------------------------------------------------------
      * Write satp: mode=Sv39 (8 << 60), ASID=0, PPN=pgd_phys>>12
      * ---------------------------------------------------------------- */
-    la    t0, __boot_pgd          /* PA of PGD */
+    la    t0, __kernel_pg_dir          /* PA of PGD */
     srli  t0, t0, 12             /* PPN */
     li    t1, SATP_SV39
     or    t0, t0, t1
@@ -138,7 +138,7 @@ _start:
     add   sp, sp, t0
 
     /* Remove identity map (PGD[BOARD_PGD_IDX_IDENT] = 0) */
-    la    t0, __boot_pgd          /* virtual address (la → PA + KERNEL_BASE below) */
+    la    t0, __kernel_pg_dir          /* virtual address (la → PA + KERNEL_BASE below) */
     /* Actually la still gives PA here because it's PC-relative and the
      * addend (symbol_VMA - insn_VMA) is fixed at link time.  We already
      * have the VMA in hand because PC is now VMA. Let's compute it:
@@ -218,11 +218,11 @@ _start:
  * ====================================================================== */
 .section .data.pgdir, "aw", @progbits
 .balign 4096
-.globl __boot_pgd
-.globl __boot_pml4   /* alias: vmm.cpp uses __boot_pml4 for non-aarch64 archs */
-__boot_pgd:
-__boot_pml4:
+.globl __kernel_pg_dir
+.type __kernel_pg_dir, @object
+__kernel_pg_dir:
     .space 4096
+.size __kernel_pg_dir, .-__kernel_pg_dir
 
 /* ======================================================================
  * Boot stack — 16 KB, 16-byte aligned, in .bss.

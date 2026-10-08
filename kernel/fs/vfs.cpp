@@ -5,6 +5,7 @@
 #include "lib/memory.h"
 #include "lib/stdio.h"
 #include "lib/string.h"
+#include "drivers/intr.h"
 
 namespace vfs {
 
@@ -16,7 +17,6 @@ struct FsEntry {
 };
 
 constexpr int MAX_FS_TYPES = 8;
-Array<FsEntry, MAX_FS_TYPES> s_fs_registry{};
 
 struct MountSlot {
     const char* mount_point{};
@@ -24,12 +24,22 @@ struct MountSlot {
     const char* device_name{};
     FileSystem* fs{};
     const char* fs_type{};
+    size_t open_files{};
 };
 
-MountSlot s_mounts[] = {
-    {"/dev", nullptr, nullptr, nullptr, nullptr},
-    {"/mnt", nullptr, nullptr, nullptr, nullptr},
-    {"/", nullptr, nullptr, nullptr, nullptr},
+MountSlot* find_slot(const char* mount_point);
+
+class State {
+    friend MountSlot* find_slot(const char* mount_point);
+    friend Error vfs::mount(const char* mount_point, BlockDevice* dev, const char* fs_type);
+    friend Error vfs::register_fs(const char* name, FsFactory factory);
+
+    inline static Array<FsEntry, MAX_FS_TYPES> fs_registry_{};
+    inline static MountSlot mounts_[] = {
+        {"/dev", nullptr, nullptr, nullptr, nullptr},
+        {"/mnt", nullptr, nullptr, nullptr, nullptr},
+        {"/", nullptr, nullptr, nullptr, nullptr},
+    };
 };
 
 struct ResolveResult {
@@ -42,7 +52,7 @@ MountSlot* find_slot(const char* mount_point) {
         return nullptr;
     }
 
-    for (auto& slot : s_mounts) {
+    for (auto& slot : State::mounts_) {
         if (strcmp(slot.mount_point, mount_point) == 0) {
             return &slot;
         }
@@ -89,6 +99,13 @@ int resolve_path(const char* path, ResolveResult* out) {
 
 }  // namespace
 
+File::~File() {
+    intr::Guard guard;
+    if (mount_open_files_) {
+        --*mount_open_files_;
+    }
+}
+
 void DirEntry::set(const char* n, NodeType t, uint32_t s, uint32_t a) {
     strncpy(name, n, sizeof(name) - 1);
     name[sizeof(name) - 1] = '\0';
@@ -111,7 +128,7 @@ Error mount(const char* mount_point, BlockDevice* dev, const char* fs_type) {
     }
 
     FileSystem* fs = nullptr;
-    for (const auto& entry : s_fs_registry) {
+    for (const auto& entry : State::fs_registry_) {
         if (strcmp(entry.name, fs_type) == 0) {
             fs = entry.create();
             break;
@@ -137,9 +154,14 @@ Error mount(const char* mount_point, BlockDevice* dev, const char* fs_type) {
 }
 
 Error umount(const char* mount_point) {
+    intr::Guard guard;
     MountSlot* slot = find_slot(mount_point);
     if (!slot || !slot->fs) {
         return Error::NotFound;
+    }
+
+    if (slot->open_files != 0) {
+        return Error::Busy;
     }
 
     slot->fs->unmount();
@@ -159,15 +181,30 @@ Error open(const char* path, File** out_file) {
     *out_file = nullptr;
 
     ResolveResult rr{};
-    if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
-        return Error::NotFound;
+    // Pin the mount before open(), which may sleep on disk I/O.
+    {
+        intr::Guard guard;
+        if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
+            return Error::NotFound;
+        }
+        if (rr.relpath[0] == '\0') {
+            return Error::Invalid;
+        }
+        ++rr.slot->open_files;
     }
-
-    if (rr.relpath[0] == '\0') {
-        return Error::Invalid;
+    Error rc = rr.slot->fs->open(rr.relpath, out_file);
+    {
+        intr::Guard guard;
+        if (rc == Error::None && *out_file) {
+            (*out_file)->mount_open_files_ = &rr.slot->open_files;
+        } else {
+            --rr.slot->open_files;
+            if (rc == Error::None) {
+                rc = Error::Fail;
+            }
+        }
     }
-
-    return rr.slot->fs->open(rr.relpath, out_file);
+    return rc;
 }
 
 Result<int> read(File* file, void* buf, size_t size, size_t offset) {
@@ -282,9 +319,9 @@ void print_mount_info(const char* mount_point) {
 
 Error register_fs(const char* name, FsFactory factory) {
     ENSURE(name && factory, Error::Invalid);
-    ENSURE_LOG(!s_fs_registry.full(), Error::Full, "vfs: register_fs: registry full, cannot register '%s'", name);
+    ENSURE_LOG(!State::fs_registry_.full(), Error::Full, "vfs: register_fs: registry full, cannot register '%s'", name);
 
-    s_fs_registry.push_back({name, factory});
+    State::fs_registry_.push_back({name, factory});
     return Error::None;
 }
 

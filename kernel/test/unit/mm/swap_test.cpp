@@ -9,9 +9,7 @@
 
 #include <asm/page.h>
 
-// External declarations
-extern pde_t* boot_pgdir;
-extern MemoryDesc* init_mm;
+#include "exec/exec.h"
 
 // Test statistics
 static int tests_passed = 0;
@@ -55,22 +53,23 @@ static SwapManager& test_swap_mgr() {
 // ============================================================================
 
 void test_fifo_basic() {
+    MemoryDesc mm;
     TEST_START("FIFO Basic Operation");
 
     SwapManager& fifo = test_swap_mgr();
-    fifo.init_mm(init_mm);
+    fifo.init_mm(&mm);
 
     Page pages[5];
 
     // Add pages in order
     for (int i = 0; i < 5; i++) {
-        fifo.map_swappable(init_mm, 0x1000 * i, &pages[i], 0);
+        fifo.map_swappable(&mm, 0x1000 * i, &pages[i], 0);
     }
 
     // Verify FIFO order: should select page 0, then 1, then 2...
     for (int i = 0; i < 5; i++) {
         Page* victim = nullptr;
-        Error ret = fifo.swap_out_victim(init_mm, &victim, 0);
+        Error ret = fifo.swap_out_victim(&mm, &victim, 0);
 
         // Simple message without snprintf for now
         if (ret == Error::None && victim == &pages[i]) {
@@ -83,37 +82,38 @@ void test_fifo_basic() {
 
     // Test empty list
     Page* victim = nullptr;
-    Error ret = fifo.swap_out_victim(init_mm, &victim, 0);
+    Error ret = fifo.swap_out_victim(&mm, &victim, 0);
     TEST_ASSERT(ret != Error::None, "Empty list returns error");
 
     TEST_END();
 }
 
 void test_fifo_interleaved() {
+    MemoryDesc mm;
     TEST_START("FIFO Interleaved Add/Remove");
 
     SwapManager& fifo = test_swap_mgr();
-    fifo.init_mm(init_mm);
+    fifo.init_mm(&mm);
 
     Page pages[10];
 
     // Add 3 pages
     for (int i = 0; i < 3; i++) {
-        fifo.map_swappable(init_mm, 0x1000 * i, &pages[i], 0);
+        fifo.map_swappable(&mm, 0x1000 * i, &pages[i], 0);
     }
 
     // Remove 1
     Page* victim{};
-    fifo.swap_out_victim(init_mm, &victim, 0);
+    fifo.swap_out_victim(&mm, &victim, 0);
     TEST_ASSERT(victim == &pages[0], "First victim is page 0");
 
     // Add 2 more
     for (int i = 3; i < 5; i++) {
-        fifo.map_swappable(init_mm, 0x1000 * i, &pages[i], 0);
+        fifo.map_swappable(&mm, 0x1000 * i, &pages[i], 0);
     }
 
     // Next victim should be page 1
-    fifo.swap_out_victim(init_mm, &victim, 0);
+    fifo.swap_out_victim(&mm, &victim, 0);
     TEST_ASSERT(victim == &pages[1], "Second victim is page 1");
 
     TEST_END();
@@ -130,18 +130,18 @@ void test_lru_basic() {
     TEST_START("LRU Basic Operation");
     
     MemoryDesc mm;
-    swap_mgr_lru.init_mm(init_mm);
+    swap_mgr_lru.init_mm(&mm);
     
     Page pages[3];
     
     // Add pages 0, 1, 2
-    swap_mgr_lru.map_swappable(init_mm, 0x1000, &pages[0], 0);
-    swap_mgr_lru.map_swappable(init_mm, 0x2000, &pages[1], 0);
-    swap_mgr_lru.map_swappable(init_mm, 0x3000, &pages[2], 0);
+    swap_mgr_lru.map_swappable(&mm, 0x1000, &pages[0], 0);
+    swap_mgr_lru.map_swappable(&mm, 0x2000, &pages[1], 0);
+    swap_mgr_lru.map_swappable(&mm, 0x3000, &pages[2], 0);
     
     // Victim should be page 0 (least recently used)
     Page *victim;
-    swap_mgr_lru.swap_out_victim(init_mm, &victim, 0);
+    swap_mgr_lru.swap_out_victim(&mm, &victim, 0);
     TEST_ASSERT(victim == &pages[0], "LRU victim is page 0");
     
     TEST_END();
@@ -151,29 +151,29 @@ void test_lru_access_pattern() {
     TEST_START("LRU Access Pattern");
     
     MemoryDesc mm;
-    swap_mgr_lru.init_mm(init_mm);
+    swap_mgr_lru.init_mm(&mm);
     
     Page pages[3];
     
     // Add pages 0, 1, 2
-    swap_mgr_lru.map_swappable(init_mm, 0x1000, &pages[0], 0);
-    swap_mgr_lru.map_swappable(init_mm, 0x2000, &pages[1], 0);
-    swap_mgr_lru.map_swappable(init_mm, 0x3000, &pages[2], 0);
+    swap_mgr_lru.map_swappable(&mm, 0x1000, &pages[0], 0);
+    swap_mgr_lru.map_swappable(&mm, 0x2000, &pages[1], 0);
+    swap_mgr_lru.map_swappable(&mm, 0x3000, &pages[2], 0);
     
     // Access page 0 again (moves to back)
-    swap_mgr_lru.map_swappable(init_mm, 0x1000, &pages[0], 1);
+    swap_mgr_lru.map_swappable(&mm, 0x1000, &pages[0], 1);
     
     // Now LRU should be page 1
     Page *victim;
-    swap_mgr_lru.swap_out_victim(init_mm, &victim, 0);
+    swap_mgr_lru.swap_out_victim(&mm, &victim, 0);
     TEST_ASSERT(victim == &pages[1], "After access, LRU is page 1");
     
     // Next should be page 2
-    swap_mgr_lru.swap_out_victim(init_mm, &victim, 0);
+    swap_mgr_lru.swap_out_victim(&mm, &victim, 0);
     TEST_ASSERT(victim == &pages[2], "Next LRU is page 2");
     
     // Last should be page 0 (most recently accessed)
-    swap_mgr_lru.swap_out_victim(init_mm, &victim, 0);
+    swap_mgr_lru.swap_out_victim(&mm, &victim, 0);
     TEST_ASSERT(victim == &pages[0], "Last is page 0");
     
     TEST_END();
@@ -189,18 +189,18 @@ void test_clock_basic() {
     TEST_START("Clock Basic Operation");
     
     MemoryDesc mm;
-    swap_mgr_clock.init_mm(init_mm);
+    swap_mgr_clock.init_mm(&mm);
     
     Page pages[4];
     
     // Add pages
     for (int i = 0; i < 4; i++) {
-        swap_mgr_clock.map_swappable(init_mm, 0x1000 * i, &pages[i], 0);
+        swap_mgr_clock.map_swappable(&mm, 0x1000 * i, &pages[i], 0);
     }
     
     // Should select pages in order (simplified clock without accessed bit)
     Page *victim;
-    Error ret = swap_mgr_clock.swap_out_victim(init_mm, &victim, 0);
+    Error ret = swap_mgr_clock.swap_out_victim(&mm, &victim, 0);
     TEST_ASSERT(ret == Error::None && victim != nullptr, "Clock selects a victim");
     
     TEST_END();
@@ -218,7 +218,7 @@ void test_swap_init() {
     TEST_ASSERT(1, "Swap system initialized");
 
     MemoryDesc mm;
-    Error ret = swap::init_mm(init_mm);
+    Error ret = swap::init_mm(&mm);
     TEST_ASSERT(ret == Error::None, "swap::init_mm succeeds");
     TEST_ASSERT(mm.swap_list.empty(), "Swap list created");
 
@@ -229,8 +229,8 @@ void test_swap_in_basic() {
     TEST_START("Swap In Basic");
 
     MemoryDesc mm;
-    mm.pgdir = boot_pgdir;
-    swap::init_mm(init_mm);
+    mm.pgdir = exec::create_user_pgdir();
+    swap::init_mm(&mm);
 
     uintptr_t addr = 0x100000;
 
@@ -240,18 +240,15 @@ void test_swap_in_basic() {
         *ptep = 0x100;  // Fake swap entry (present bit = 0, offset = 1)
 
         Page* page = nullptr;
-        Error ret = swap::in(init_mm, addr, &page);
+        Error ret = swap::in(&mm, addr, &page);
 
         TEST_ASSERT(ret == Error::None, "swap::in returns success");
         TEST_ASSERT(page != nullptr, "Page allocated");
 
         // Check that PTE was updated
         pte_t* new_ptep = pmm::get_pte(mm.pgdir, addr, 0);
-        TEST_ASSERT(new_ptep != nullptr && (*new_ptep & VM_PRESENT), "PTE updated with present bit");
-
-        if (page) {
-            pmm::free_pages(page, 1);
-        }
+        TEST_ASSERT(new_ptep != nullptr && pte_present(*new_ptep), "PTE updated with present bit");
+        // The local MemoryDesc owns the installed page and releases it on teardown.
     } else {
         TEST_ASSERT(0, "Failed to create PTE");
     }
@@ -263,8 +260,8 @@ void test_swap_out_basic() {
     TEST_START("Swap Out Basic");
 
     MemoryDesc mm;
-    mm.pgdir = boot_pgdir;
-    swap::init_mm(init_mm);
+    mm.pgdir = exec::create_user_pgdir();
+    swap::init_mm(&mm);
 
     // Allocate and map some pages
     Page* pages_arr[3];
@@ -275,19 +272,19 @@ void test_swap_out_basic() {
         if (pages_arr[i]) {
             addrs[i] = 0x200000 + i * PG_SIZE;
             pmm::page_insert(mm.pgdir, pages_arr[i], addrs[i], VM_USER_RW);
-            test_swap_mgr().map_swappable(init_mm, addrs[i], pages_arr[i], 0);
+            test_swap_mgr().map_swappable(&mm, addrs[i], pages_arr[i], 0);
         }
     }
 
     // Try to swap out
-    int count = swap::out(init_mm, 2, 0);
+    int count = swap::out(&mm, 2, 0);
     TEST_ASSERT(count > 0, "swap::out succeeded");
 
     // Verify that PTEs were updated (present bit cleared)
     for (int i = 0; i < count; i++) {
         pte_t* ptep = pmm::get_pte(mm.pgdir, addrs[i], 0);
         if (ptep) {
-            TEST_ASSERT(!(*ptep & VM_PRESENT), "PTE present bit cleared after swap out");
+            TEST_ASSERT(!pte_present(*ptep), "PTE present bit cleared after swap out");
         }
     }
 
@@ -303,6 +300,7 @@ void test_swap_out_basic() {
 // To re-enable full comparison, uncomment the archived algorithms above.
 
 void test_algorithm_comparison() {
+    MemoryDesc mm;
     TEST_START("Algorithm Comparison");
 
     cprintf("\n  Testing swap algorithm:\n");
@@ -317,20 +315,20 @@ void test_algorithm_comparison() {
     for (int i = 0; i < 1; i++) {  // Changed from 3 to 1
         cprintf("    %s\n", algorithms[i]->name);
 
-        algorithms[i]->init_mm(init_mm);
+        algorithms[i]->init_mm(&mm);
 
         Page pages[20];
 
         // Add 20 pages
         for (int j = 0; j < 20; j++) {
-            algorithms[i]->map_swappable(init_mm, j * PG_SIZE, &pages[j], 0);
+            algorithms[i]->map_swappable(&mm, j * PG_SIZE, &pages[j], 0);
         }
 
         // Remove 10 pages
         int removed = 0;
         for (int j = 0; j < 10; j++) {
             Page* victim{};
-            if (algorithms[i]->swap_out_victim(init_mm, &victim, 0) == Error::None) {
+            if (algorithms[i]->swap_out_victim(&mm, &victim, 0) == Error::None) {
                 removed++;
             }
         }
@@ -414,8 +412,8 @@ void test_swap_disk_io() {
     TEST_START("Swap Disk I/O and Data Integrity");
 
     MemoryDesc mm;
-    mm.pgdir = boot_pgdir;
-    swap::init_mm(init_mm);
+    mm.pgdir = exec::create_user_pgdir();
+    swap::init_mm(&mm);
 
     // Test pattern: write data, swap out, swap in, verify data
     uintptr_t test_addr = 0x300000;
@@ -437,24 +435,24 @@ void test_swap_disk_io() {
 
     // 2. Map the page
     pmm::page_insert(mm.pgdir, page, test_addr, VM_USER_RW);
-    test_swap_mgr().map_swappable(init_mm, test_addr, page, 0);
+    test_swap_mgr().map_swappable(&mm, test_addr, page, 0);
 
     cprintf("  Filled page with test pattern\n");
 
     // 3. Swap out the page
-    int swapped = swap::out(init_mm, 1, 0);
+    int swapped = swap::out(&mm, 1, 0);
     TEST_ASSERT(swapped == 1, "Page swapped out");
 
     // Verify PTE was updated
     pte_t* ptep = pmm::get_pte(mm.pgdir, test_addr, 0);
-    TEST_ASSERT(ptep != nullptr && !(*ptep & VM_PRESENT), "PTE marked as not present");
+    TEST_ASSERT(ptep != nullptr && !pte_present(*ptep), "PTE marked as not present");
 
     uintptr_t swap_entry = *ptep;
     cprintf("  Page swapped to entry 0x%x\n", swap_entry);
 
     // 4. Swap in the page
     Page* new_page = nullptr;
-    Error ret = swap::in(init_mm, test_addr, &new_page);
+    Error ret = swap::in(&mm, test_addr, &new_page);
     TEST_ASSERT(ret == Error::None, "Page swapped in");
     TEST_ASSERT(new_page != nullptr, "New page allocated");
 
@@ -481,7 +479,7 @@ void test_swap_disk_io() {
             TEST_ASSERT(0, "Data corruption detected");
         }
 
-        pmm::free_pages(new_page, 1);
+        // The local MemoryDesc retains ownership of this mapped page.
     }
 
     TEST_END();
@@ -491,8 +489,8 @@ void test_swap_multiple_pages() {
     TEST_START("Swap Multiple Pages");
 
     MemoryDesc mm;
-    mm.pgdir = boot_pgdir;
-    swap::init_mm(init_mm);
+    mm.pgdir = exec::create_user_pgdir();
+    swap::init_mm(&mm);
 
 #define NUM_TEST_PAGES 5
     uintptr_t base_addr = 0x400000;
@@ -511,14 +509,14 @@ void test_swap_multiple_pages() {
             }
 
             pmm::page_insert(mm.pgdir, pages_arr[i], addr, VM_USER_RW);
-            test_swap_mgr().map_swappable(init_mm, addr, pages_arr[i], 0);
+            test_swap_mgr().map_swappable(&mm, addr, pages_arr[i], 0);
         }
     }
 
     cprintf("  Allocated and filled %d pages\n", NUM_TEST_PAGES);
 
     // 2. Swap out 3 pages
-    int swapped = swap::out(init_mm, 3, 0);
+    int swapped = swap::out(&mm, 3, 0);
     TEST_ASSERT(swapped == 3, "Swapped out 3 pages");
     cprintf("  Swapped out %d pages\n", swapped);
 
@@ -528,10 +526,10 @@ void test_swap_multiple_pages() {
         uintptr_t addr = base_addr + i * PG_SIZE;
         pte_t* ptep = pmm::get_pte(mm.pgdir, addr, 0);
 
-        if (ptep && !(*ptep & VM_PRESENT)) {
+        if (ptep && !pte_present(*ptep)) {
             // This page was swapped out, swap it back in
             Page* page = nullptr;
-            Error ret = swap::in(init_mm, addr, &page);
+            Error ret = swap::in(&mm, addr, &page);
 
             if (ret == Error::None && page) {
                 // Verify data
@@ -550,7 +548,7 @@ void test_swap_multiple_pages() {
                     verified++;
                 }
 
-                pmm::free_pages(page, 1);
+                // Leave mapped pages to the local MemoryDesc's destructor.
             }
         }
     }

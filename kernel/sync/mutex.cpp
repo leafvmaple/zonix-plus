@@ -2,9 +2,11 @@
 #include "lib/lock_guard.h"
 #include "debug/assert.h"
 #include "sched/sched.h"
+#include "drivers/intr.h"
 
 void Mutex::lock() {
     while (true) {
+        intr::Guard irq_guard;  // Keep the condition check and sleep atomic.
         {
             LockGuard<Spinlock> guard(spin_);
             if (!held_) {

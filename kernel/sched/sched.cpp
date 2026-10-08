@@ -10,8 +10,6 @@
 #include "fs/vfs.h"
 
 extern long user_stack[];
-extern pde_t* boot_pgdir;
-extern MemoryDesc init_mm;  // Global kernel MemoryDesc
 
 using fnThread = int (*)(void*);
 
@@ -45,11 +43,6 @@ int setup_stdio(fd::Table& files) {
     return 0;
 }
 
-SchedulerPolicy& scheduler() {
-    static SchedulerPolicy policy;
-    return policy;
-}
-
 }  // namespace
 
 static const char* state_str(ProcessState state) {
@@ -61,12 +54,6 @@ static const char* state_str(ProcessState state) {
         case ProcessState::Zombie: return "Z";    // Zombie
         default: return "?";                      // Unknown
     }
-}
-
-static int get_pid() {
-    static int next_pid = 1;
-
-    return next_pid++;
 }
 
 [[noreturn]] static void kernel_thread_entry(fnThread fn, void* arg) {
@@ -207,7 +194,7 @@ void TaskStruct::destroy() {
         kfree(reinterpret_cast<void*>(kernel_stack_));
     }
 
-    if (memory && memory != &init_mm) {
+    if (memory && memory != &vmm::Manager::kernel_mm()) {
         delete memory;
     }
     delete this;
@@ -224,7 +211,7 @@ int TaskManager::init() {
         return -1;
     }
 
-    cprintf("sched: policy = %s\n", scheduler().get_name());
+    cprintf("sched: policy = %s\n", s_policy.get_name());
     cprintf("sched init: idle process PID = 0, init process PID = 1\n");
     return 0;
 }
@@ -273,7 +260,7 @@ void TaskManager::print() {
 }
 
 void TaskManager::print_stats() {
-    cprintf("sched policy: %s\n", scheduler().get_name());
+    cprintf("sched policy: %s\n", s_policy.get_name());
     cprintf("sched stats: ticks=%lu schedule_calls=%lu need_resched_events=%lu\n", s_tick_count, s_schedule_calls,
             s_need_resched_events);
     cprintf("sched stats: ctx_switches=%lu same_task=%lu pick_idle=%lu pick_non_idle=%lu\n", s_context_switches,
@@ -290,7 +277,7 @@ void TaskManager::tick() {
     s_tick_count++;
 
     int prev_need_resched = (s_current != nullptr) ? s_current->need_resched : 0;
-    scheduler().tick(s_current, s_idle_proc);
+    s_policy.tick(s_current, s_idle_proc);
     if (s_current && !prev_need_resched && s_current->need_resched) {
         s_need_resched_events++;
     }
@@ -300,7 +287,7 @@ void TaskManager::schedule() {
     intr::Guard guard;
     s_schedule_calls++;
 
-    TaskStruct* next = scheduler().pick_next(s_proc_list, s_idle_proc);
+    TaskStruct* next = s_policy.pick_next(s_proc_list, s_idle_proc);
     if (next == s_idle_proc) {
         s_pick_idle++;
     } else {
@@ -308,7 +295,7 @@ void TaskManager::schedule() {
     }
 
     if (next->time_slice <= 0) {
-        next->time_slice = scheduler().calc_time_slice(next->priority);
+        next->time_slice = s_policy.calc_time_slice(next->priority);
     }
 
     if (next != s_current) {
@@ -359,11 +346,11 @@ Result<int> TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* 
 
     // Inherit parent's priority and compute timeslice
     proc->priority = get_current()->priority;
-    proc->time_slice = scheduler().calc_time_slice(proc->priority);
+    proc->time_slice = s_policy.calc_time_slice(proc->priority);
 
     {
         intr::Guard guard;
-        proc->pid = get_pid();
+        proc->pid = s_next_pid++;
         proc->set_links();
     }
 
@@ -417,24 +404,23 @@ int TaskManager::exit(int error_code) {
 }
 
 Result<int> TaskManager::wait(int pid, int* code_store) {
+    ENSURE(pid >= 0, Error::Invalid);
     TaskStruct* current = get_current();
 
     while (true) {
+        // Child inspection, sleep registration and scheduling are atomic
+        // with respect to child exit on the single-CPU scheduler.
+        intr::Guard guard;
         bool has_children{};
         TaskStruct* zombie_child{};
 
-        {
-            intr::Guard guard;
-
-            for (auto* node : current->child_list) {
-                TaskStruct* child = TaskStruct::from_child_link(node);
+        for (auto* node : current->child_list) {
+            TaskStruct* child = TaskStruct::from_child_link(node);
+            if (pid == 0 || child->pid == pid) {
                 has_children = true;
-
-                if (pid == 0 || child->pid == pid) {
-                    if (child->state_ == ProcessState::Zombie) {
-                        zombie_child = child;
-                        break;
-                    }
+                if (child->state_ == ProcessState::Zombie) {
+                    zombie_child = child;
+                    break;
                 }
             }
         }
@@ -445,10 +431,7 @@ Result<int> TaskManager::wait(int pid, int* code_store) {
                 *code_store = zombie_child->exit_code;
             }
 
-            {
-                intr::Guard guard;
-                zombie_child->remove_links();
-            }
+            zombie_child->remove_links();
             zombie_child->destroy();
 
             return child_pid;
@@ -478,8 +461,8 @@ int TaskManager::init_idle() {
     idle_proc->priority = sched_prio::IDLE_PRIO;
     idle_proc->time_slice = 0;
 
-    // Idle process uses kernel's init_mm (shared by all kernel threads)
-    idle_proc->memory = &init_mm;
+    // Kernel threads share the memory manager's kernel address space.
+    idle_proc->memory = &vmm::Manager::kernel_mm();
 
     idle_proc->set_name("idle");
 

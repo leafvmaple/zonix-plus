@@ -6,7 +6,7 @@
 #define REALLOC(x) ((x) - KERNEL_BASE)
 #define BOOT_INFO_SIZE 128  // sizeof(struct boot_info), must be >= actual size
 
-.globl _main, __gdt, __idt, __boot_pml4, __kernel_boot_info
+.globl _main, __gdt, __idt, __kernel_pg_dir, __kernel_boot_info
 
 /*
  * Entry point for the 64-bit kernel.
@@ -53,7 +53,7 @@ _main:
     # ---------------------------------------------------------------
 
     # Clear page table area (5 pages = 5 * 4096 bytes)
-    movq $REALLOC(__boot_pml4), %rdi
+    movq $REALLOC(__kernel_pg_dir), %rdi
     xorq %rax, %rax
     movq $(5 * 4096 / 8), %rcx    # 5 pages in qwords
     rep stosq
@@ -61,7 +61,7 @@ _main:
     # PML4[0] -> boot_pdpt_low (identity map)
     movq $REALLOC(__boot_pdpt_low), %rax
     orq $(PTE_P | PTE_W), %rax
-    movq $REALLOC(__boot_pml4), %rdi
+    movq $REALLOC(__kernel_pg_dir), %rdi
     movq %rax, (%rdi)                        # PML4[0]
 
     # PML4[511] -> boot_pdpt_high (higher-half map for 0xFFFFFFFF_80000000)
@@ -119,7 +119,7 @@ _main:
     # Load our PML4 into CR3 (replaces bootloader's page tables)
     # This works because both old and new page tables identity-map low memory
     # ---------------------------------------------------------------
-    movq $REALLOC(__boot_pml4), %rax
+    movq $REALLOC(__kernel_pg_dir), %rax
     movq %rax, %cr3
 
     # ---------------------------------------------------------------
@@ -167,7 +167,7 @@ _start64_high:
 .Lreload_cs_high:
 
     # Remove identity mapping (PML4[0] = 0)
-    movq $0, __boot_pml4(%rip)
+    movq $0, __kernel_pg_dir(%rip)
     # Flush TLB
     movq %cr3, %rax
     movq %rax, %cr3
@@ -239,7 +239,9 @@ __idtdesc:
 .section .data.pgdir, "aw", @progbits
 
 .align PG_SIZE
-__boot_pml4:    .space PG_SIZE
+.type __kernel_pg_dir, @object
+__kernel_pg_dir:    .space PG_SIZE
+.size __kernel_pg_dir, .-__kernel_pg_dir
 __boot_pdpt_low:  .space PG_SIZE
 __boot_pdpt_high: .space PG_SIZE
 __boot_pd_low:    .space PG_SIZE

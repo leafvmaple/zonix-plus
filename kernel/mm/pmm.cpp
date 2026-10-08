@@ -110,7 +110,7 @@ static inline int level_index(uintptr_t va, int level) {
  *   3. Table pointer  → follow it.
  */
 static pde_t* descend_level(pde_t* entry, bool create, int child_shift) {
-    if (*entry & VM_PRESENT) {
+    if (pte_present(*entry)) {
         if (pte_is_block(*entry)) {
             uintptr_t large_pa = pte_addr(*entry);
             uint64_t old_perm = *entry & 0xFFF & ~VM_LARGEPAGE;
@@ -148,7 +148,7 @@ static pde_t* descend_level(pde_t* entry, bool create, int child_shift) {
 static void free_user_pt_subtree(pde_t* table, int depth) {
     for (int i = 0; i < ENTRY_NUM; i++) {
         pde_t entry = table[i];
-        if (!(entry & VM_PRESENT))
+        if (!pte_present(entry))
             continue;
 
         if (depth == 0) {
@@ -227,6 +227,24 @@ pte_t* pmm::get_pte(pde_t* pgdir, uintptr_t la, bool create) {
     return table + level_index(la, PT_WALK_LEVELS - 1);
 }
 
+Result<void*> pmm::user_address(pde_t* pgdir, uintptr_t addr, bool write) {
+    ENSURE(pgdir && addr >= PG_SIZE && addr < USER_SPACE_TOP);
+    pde_t* table = pgdir;
+    for (int level = 0; level < PT_WALK_LEVELS; ++level) {
+        pde_t entry = table[level_index(addr, level)];
+        ENSURE(pte_present(entry));
+        bool leaf = level == PT_WALK_LEVELS - 1 || pte_is_block(entry);
+        if (leaf) {
+            ENSURE(pte_user_accessible(entry, write));
+            uintptr_t mask = (1ULL << LEVEL_SHIFTS[level]) - 1;
+            return phys_to_virt((pte_addr(entry) & ~mask) + (addr & mask));
+        }
+        ENSURE(pte_user_table_accessible(entry, write));
+        table = phys_to_virt<pde_t>(pte_addr(entry));
+    }
+    return Error::Invalid;
+}
+
 static int page_init() {
     BootInfo* bi = &__kernel_boot_info;
 
@@ -294,7 +312,10 @@ void pmm::tlb_invl(pde_t* pgdir, uintptr_t la) {
 Page* pmm::pgdir_alloc_page(pde_t* pgdir, uintptr_t la, uint32_t perm) {
     Page* page = pmm::alloc_pages(1);
     if (page) {
-        pmm::page_insert(pgdir, page, la, perm);
+        if (pmm::page_insert(pgdir, page, la, perm) != Error::None) {
+            pmm::free_pages(page);
+            return nullptr;
+        }
     }
 
     return page;
@@ -315,7 +336,7 @@ Error pmm::page_insert(pde_t* pgdir, Page* page, uintptr_t la, uint32_t perm) {
 void pmm::free_user_pgdir(pde_t* pgdir) {
     for (int i = 0; i < USER_TOP_ENTRIES; i++) {
         pde_t entry = pgdir[i];
-        if (!(entry & VM_PRESENT))
+        if (!pte_present(entry))
             continue;
 
         if (pte_is_block(entry))

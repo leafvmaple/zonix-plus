@@ -11,10 +11,18 @@
 #define PTE_ATTR_DEVICE (1UL << 2) /* use MAIR index 1 (device)     */
 
 /* AP[2:1] in bits [7:6] */
+#define PTE_AP_USER (1UL << 6)
+#define PTE_AP_READ_ONLY (1UL << 7)
 #define PTE_AP_RW_EL1 (0UL << 6) /* EL1 read/write, EL0 none      */
-#define PTE_AP_RW_ALL (1UL << 6) /* EL1+EL0 read/write            */
-#define PTE_AP_RO_EL1 (2UL << 6) /* EL1 read-only, EL0 none       */
-#define PTE_AP_RO_ALL (3UL << 6) /* EL1+EL0 read-only             */
+#define PTE_AP_RW_ALL PTE_AP_USER /* EL1+EL0 read/write          */
+#define PTE_AP_RO_EL1 PTE_AP_READ_ONLY /* EL1 read-only, EL0 none */
+#define PTE_AP_RO_ALL (PTE_AP_USER | PTE_AP_READ_ONLY)
+
+/* Hierarchical APTable restrictions apply to the entire subtree. */
+#define PTE_AP_TABLE_NO_USER (1UL << 61)
+#define PTE_AP_TABLE_READ_ONLY (1UL << 62)
+#define PTE_TYPE_MASK (PTE_VALID | PTE_TABLE)
+#define PTE_ADDR_MASK 0x0000FFFFFFFFF000UL
 
 #define PTE_UXN (1UL << 54) /* unprivileged execute-never    */
 #define PTE_PXN (1UL << 53) /* privileged execute-never      */
@@ -39,6 +47,9 @@
 
 #include <base/types.h>
 
+using pte_t = uintptr_t;
+using pde_t = uintptr_t;
+
 inline constexpr int PAGE_LEVELS = 4;
 inline constexpr int PT_WALK_LEVELS = 4;       /* actual hardware page table depth */
 inline constexpr int PAGE_TABLE_ENTRIES = 512; /* 9-bit index per level */
@@ -62,12 +73,12 @@ static inline int pt_index(uintptr_t va) {
 } /* L3 */
 
 static inline uintptr_t pte_addr(uintptr_t pte) {
-    return pte & 0x0000FFFFFFFFF000ULL;
+    return pte & PTE_ADDR_MASK;
 }
 
 /* Detect 2MB block entry at PMD level: valid=1, table=0 → bits[1:0]=0b01 */
 static inline bool pte_is_block(uintptr_t entry) {
-    return (entry & 3) == 1;
+    return (entry & PTE_TYPE_MASK) == PTE_VALID;
 }
 
 static inline uintptr_t make_pte_table(uintptr_t pa) {
@@ -76,6 +87,35 @@ static inline uintptr_t make_pte_table(uintptr_t pa) {
 
 static inline uintptr_t make_pte_page(uintptr_t pa, uint32_t perm) {
     return pa | PTE_VALID | PTE_PAGE | PTE_AF | perm;
+}
+
+static inline bool pte_present(uintptr_t entry) {
+    return (entry & PTE_VALID) != 0;
+}
+static inline bool pte_writable(uintptr_t entry) {
+    return (entry & PTE_AP_READ_ONLY) == 0;
+}
+static inline bool pte_user(uintptr_t entry) {
+    return (entry & PTE_AP_USER) != 0;
+}
+static inline bool pte_user_accessible(uintptr_t entry, bool write) {
+    return pte_present(entry) && pte_user(entry) && (!write || pte_writable(entry));
+}
+static inline bool pte_table_user(uintptr_t entry) {
+    return (entry & PTE_AP_TABLE_NO_USER) == 0;
+}
+static inline bool pte_table_writable(uintptr_t entry) {
+    return (entry & PTE_AP_TABLE_READ_ONLY) == 0;
+}
+static inline bool pte_user_table_accessible(uintptr_t entry, bool write) {
+    return pte_table_user(entry) && (!write || pte_table_writable(entry));
+}
+static inline uint32_t user_page_perm(bool write, bool executable = false) {
+    static_cast<void>(executable);
+    return write ? PTE_AP_RW_ALL : PTE_AP_RO_ALL;
+}
+static inline uint32_t merge_user_page_perm(uintptr_t entry, uint32_t perm) {
+    return user_page_perm(pte_writable(entry) || pte_writable(perm));
 }
 
 #endif /* !__ASSEMBLY__ */
