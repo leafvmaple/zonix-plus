@@ -12,7 +12,7 @@ jobs:
   # ======================================================================
   lint:
     name: Lint & Format
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,7 +42,7 @@ jobs:
   # ======================================================================
   build-x86:
     name: Build x86
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -71,7 +71,7 @@ jobs:
   # ======================================================================
   build-aarch64:
     name: Build aarch64
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -92,7 +92,7 @@ jobs:
   # ======================================================================
   test-x86-bios:
     name: Test x86 (BIOS)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build-x86
     steps:
       - name: Checkout
@@ -122,7 +122,7 @@ jobs:
   # ======================================================================
   test-x86-uefi:
     name: Test x86 (UEFI)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build-x86
     steps:
       - name: Checkout
@@ -153,7 +153,7 @@ jobs:
   # ======================================================================
   test-aarch64-uefi:
     name: Test aarch64 (UEFI)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build-aarch64
     steps:
       - name: Checkout
@@ -182,7 +182,7 @@ jobs:
   # ======================================================================
   build-riscv64:
     name: Build riscv64
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -203,7 +203,7 @@ jobs:
   # ======================================================================
   test-riscv64-uefi:
     name: Test riscv64 (UEFI)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build-riscv64
     steps:
       - name: Checkout
@@ -232,7 +232,7 @@ jobs:
   # ======================================================================
   static-analysis:
     name: Static Analysis
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     continue-on-error: true
     steps:
       - name: Checkout
