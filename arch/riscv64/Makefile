@@ -25,7 +25,7 @@ CXXFLAGS := -g -Wall -O0 -nostdinc -nostdinc++ \
            -fno-builtin -fno-stack-protector -fno-pic -fno-exceptions -fno-rtti \
            -fno-use-cxa-atexit -fno-threadsafe-statics \
            -fno-asynchronous-unwind-tables -fno-unwind-tables \
-           -ffreestanding -std=gnu++17 -gdwarf-2 \
+           -ffreestanding -std=$(CXX_STANDARD) -gdwarf-2 \
            -march=rv64gc -mabi=lp64d -mcmodel=medany $(BOARD_DEFINE)
 
 # Board-specific kernel physical load address for the linker script

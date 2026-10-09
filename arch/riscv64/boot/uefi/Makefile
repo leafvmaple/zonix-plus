@@ -16,7 +16,7 @@ UEFI_CXX      := clang++ --target=riscv64-none-elf
 UEFI_CXXFLAGS := $(BOOT_INC) -ffreestanding -fshort-wchar -nostdinc \
                   -fno-stack-protector -fno-exceptions -fno-rtti \
                   -fno-use-cxa-atexit -fno-threadsafe-statics \
-                  -std=gnu++17 -O2 -march=rv64gc -mabi=lp64d \
+                  -std=$(CXX_STANDARD) -O2 -march=rv64gc -mabi=lp64d \
                   -mcmodel=medany -fpic -fno-plt $(BOARD_DEFINE)
 
 # Link as a relocatable shared object at VA 0.
@@ -32,7 +32,7 @@ UEFI_COMMON_SRC := boot/uefi_boot.cpp
 UEFI_SO       := $(OBJDIR)/$(BOOT_UEFI_DIR)/bootload.so
 
 bootriscv64 = $(call totarget,BOOTRISCV64.EFI)
-$(bootriscv64): $(BOOT_UEFI_DIR)/bootload.cpp $(UEFI_COMMON_SRC) $(UEFI_LD_SCRIPT) | $$(dir $$@)
+$(bootriscv64): $(BOOT_UEFI_DIR)/bootload.cpp $(UEFI_COMMON_SRC) $(UEFI_LD_SCRIPT) $(CXX_STANDARD_STAMP) | $$(dir $$@)
 	$(Q)mkdir -p $(OBJDIR)/$(BOOT_UEFI_DIR) $(OBJDIR)/boot
 	$(Q)$(UEFI_CXX) $(UEFI_CXXFLAGS) -c $(BOOT_UEFI_DIR)/bootload.cpp \
 		-o $(OBJDIR)/$(BOOT_UEFI_DIR)/bootload.o

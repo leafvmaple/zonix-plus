@@ -11,7 +11,9 @@ import tempfile
 ARCHES = ("x86", "aarch64", "riscv64")
 REQUIRED = ("scripts/check_kernel_rules.py", "scripts/kernel_rule_exceptions.json",
             "scripts/naming_exceptions.json", "scripts/tests/test_kernel_rules.py",
-            "scripts/tests/test_naming_rules.py", "docs/NAMING.md", ".clang-tidy", "Makefile")
+            "scripts/tests/test_naming_rules.py", "scripts/tests/cxx_config.py",
+            "scripts/tests/test_cxx_config.py", ".clangd", ".clang-format",
+            ".vscode/c_cpp_properties.json", "docs/NAMING.md", ".clang-tidy", "Makefile")
 
 
 def relevant(path):
@@ -19,7 +21,8 @@ def relevant(path):
             and not path.startswith("user/zcc/")) or path in {
         "Makefile", "AGENTS.md", "scripts/check_kernel_rules.py",
         "scripts/kernel_rule_exceptions.json", "scripts/pre_commit.py",
-        "scripts/naming_exceptions.json", "docs/NAMING.md", ".clang-tidy",
+        "scripts/naming_exceptions.json", "docs/NAMING.md", ".clang-tidy", ".clangd",
+        ".clang-format", ".vscode/c_cpp_properties.json",
     }
 
 

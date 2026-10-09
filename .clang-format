@@ -1,9 +1,9 @@
 ---
 # zonix-plus clang-format configuration
-# Based on project coding conventions (C++17 kernel)
+# Based on project coding conventions (C++20 kernel)
 
 Language: Cpp
-Standard: c++17
+Standard: c++20
 BasedOnStyle: LLVM
 
 # Indentation

@@ -1,5 +1,8 @@
 #pragma once
 
+#include "debug/assert.h"
+#include "lib/memory.h"
+
 enum class Error : int {
     None = 0,
     Io = -1,
@@ -37,57 +40,192 @@ inline const char* error_str(Error e) {
     }
 }
 
+namespace result_detail {
+
+enum class State : uint8_t { Value, Error, Consumed };
+
+// A Result is copyable only if its value is copy-constructible.
 template<typename T>
-class [[nodiscard]] Result {
-    T val_{};
-    Error err_{Error::None};
-    bool ok_{false};
+class Storage {
+protected:
+    union ValueStorage {
+        char empty;
+        T value;
 
-public:
-    Result(const T& val) : val_(val), err_(Error::None), ok_(true) {}
-    Result(Error e) : val_{}, err_(e), ok_(false) {}
+        ValueStorage() : empty{} {}
+        ~ValueStorage() {}
+    } storage_;
+    Error error_{Error::None};
+    State state_{State::Consumed};
 
-    [[nodiscard]] bool ok() const { return ok_; }
-    [[nodiscard]] Error error() const { return err_; }
+    Storage(const T& value) : state_(State::Value) { new (&storage_.value) T(value); }
+    Storage(T&& value) : state_(State::Value) { new (&storage_.value) T(static_cast<T&&>(value)); }
+    Storage(Error error) : error_(error), state_(State::Error) { assert(error != Error::None); }
 
-    T& value() { return val_; }
-    const T& value() const { return val_; }
-    T value_or(const T& fallback) const { return ok_ ? val_ : fallback; }
+    Storage(const Storage& other)
+        requires(__is_constructible(T, const T&))
+        : error_(other.error_), state_(other.state_) {
+        if (state_ == State::Value) {
+            new (&storage_.value) T(other.storage_.value);
+        }
+    }
 
-    T release_value() { return static_cast<T&&>(val_); }
-    Error release_error() { return err_; }
+    Storage& operator=(const Storage& other)
+        requires(__is_constructible(T, const T&))
+    {
+        if (this != &other) {
+            reset();
+            error_ = other.error_;
+            state_ = other.state_;
+            if (state_ == State::Value) {
+                new (&storage_.value) T(other.storage_.value);
+            }
+        }
+        return *this;
+    }
+
+    Storage(Storage&& other) : error_(other.error_), state_(other.state_) {
+        if (state_ == State::Value) {
+            new (&storage_.value) T(static_cast<T&&>(other.storage_.value));
+        }
+        other.reset();
+    }
+
+    Storage& operator=(Storage&& other) {
+        if (this != &other) {
+            reset();
+            error_ = other.error_;
+            state_ = other.state_;
+            if (state_ == State::Value) {
+                new (&storage_.value) T(static_cast<T&&>(other.storage_.value));
+            }
+            other.reset();
+        }
+        return *this;
+    }
+
+    ~Storage() { reset(); }
+
+    void reset() {
+        if (state_ == State::Value) {
+            storage_.value.~T();
+        }
+        error_ = Error::None;
+        state_ = State::Consumed;
+    }
 };
 
+}  // namespace result_detail
+
+// Owns a successful value or a non-None error. Moving or releasing consumes the source.
+// value() borrows from a live lvalue; release_value() transfers ownership.
+template<typename T>
+class [[nodiscard]] Result : private result_detail::Storage<T> {
+    static_assert(!__is_reference(T) && !__is_const(T) && !__is_volatile(T),
+                  "Result values must be unqualified object types; use pointers for borrowed values");
+    static_assert(!__is_same(T, Error), "Use Error directly for status-only operations");
+    using Base = result_detail::Storage<T>;
+
+public:
+    Result(const T& value) : Base(value) {}
+    Result(T&& value) : Base(static_cast<T&&>(value)) {}
+    Result(Error error) : Base(error) {}
+
+    [[nodiscard]] bool ok() const { return this->state_ == result_detail::State::Value; }
+    [[nodiscard]] bool is_consumed() const { return this->state_ == result_detail::State::Consumed; }
+    [[nodiscard]] Error error() const {
+        assert(!is_consumed());
+        return this->error_;
+    }
+
+    T& value() & {
+        assert(ok());
+        return this->storage_.value;
+    }
+    const T& value() const& {
+        assert(ok());
+        return this->storage_.value;
+    }
+    T& value() && = delete;
+    const T& value() const&& = delete;
+
+    T value_or(const T& fallback) const& {
+        assert(!is_consumed());
+        return ok() ? this->storage_.value : fallback;
+    }
+    T value_or(T fallback) && {
+        assert(!is_consumed());
+        if (ok()) {
+            return release_value();
+        }
+        this->reset();
+        return static_cast<T&&>(fallback);
+    }
+
+    [[nodiscard]] T release_value() {
+        assert(ok());
+        T value(static_cast<T&&>(this->storage_.value));
+        this->reset();
+        return value;
+    }
+    [[nodiscard]] Error release_error() {
+        assert(this->state_ == result_detail::State::Error);
+        Error error = this->error_;
+        this->reset();
+        return error;
+    }
+};
+
+// Status-only compatibility wrapper: default construction and Error::None mean success.
 template<>
 class [[nodiscard]] Result<void> {
     Error err_{Error::None};
+    result_detail::State state_{result_detail::State::Value};
 
 public:
-    Result() : err_(Error::None) {}
-    Result(Error e) : err_(e) {}
+    Result() = default;
+    Result(Error error)
+        : err_(error), state_(error == Error::None ? result_detail::State::Value : result_detail::State::Error) {}
+    Result(const Result&) = default;
+    Result& operator=(const Result&) = default;
+    Result(Result&& other) : err_(other.err_), state_(other.state_) { other.reset(); }
+    Result& operator=(Result&& other) {
+        if (this != &other) {
+            err_ = other.err_;
+            state_ = other.state_;
+            other.reset();
+        }
+        return *this;
+    }
 
-    [[nodiscard]] bool ok() const { return err_ == Error::None; }
-    [[nodiscard]] Error error() const { return err_; }
+    [[nodiscard]] bool ok() const { return state_ == result_detail::State::Value; }
+    [[nodiscard]] bool is_consumed() const { return state_ == result_detail::State::Consumed; }
+    [[nodiscard]] Error error() const {
+        assert(!is_consumed());
+        return err_;
+    }
+    void release_value() {
+        assert(ok());
+        reset();
+    }
+    [[nodiscard]] Error release_error() {
+        assert(state_ == result_detail::State::Error);
+        Error error = err_;
+        reset();
+        return error;
+    }
 
-    Error release_error() { return err_; }
-};
-
-struct ErrorResult {
-    Error err;
-
-    ErrorResult(Error e) : err(e) {}
-
-    [[nodiscard]] bool ok() const { return err == Error::None; }
-    Error release_error() { return err; }
-
-    struct Void {};
-    Void release_value() { return {}; }
+private:
+    void reset() {
+        err_ = Error::None;
+        state_ = result_detail::State::Consumed;
+    }
 };
 
 namespace detail {
 
-inline ErrorResult wrap_tryable(Error e) {
-    return e;
+inline Result<void> wrap_tryable(Error error) {
+    return error;
 }
 
 template<typename T>

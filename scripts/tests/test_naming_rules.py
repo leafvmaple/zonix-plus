@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 from contextlib import redirect_stdout, redirect_stderr
 from io import StringIO
+from cxx_config import CXX_STANDARD_FLAG
 
 SCRIPT = Path(__file__).resolve().parents[1] / "check_kernel_rules.py"
 SPEC = importlib.util.spec_from_file_location("naming_rules", SCRIPT)
@@ -20,7 +21,7 @@ class NamingRules(unittest.TestCase):
             path = root / "kernel/example.cpp"
             path.parent.mkdir()
             path.write_text(source)
-            ast = rules.compile_ast(path, ["clang++"], ["-std=c++17"], root)
+            ast = rules.compile_ast(path, ["clang++"], [CXX_STANDARD_FLAG], root)
             return rules.naming_errors(ast, root, allowed)
 
     def test_accepts_project_types_enums_aliases_and_template_roles(self):
@@ -32,6 +33,27 @@ class NamingRules(unittest.TestCase):
             using ByteArray = PageArray<unsigned char, 4>;
             }
         '''), [])
+
+    def test_accepts_concepts_requires_and_constrained_copy(self):
+        self.assertEqual(self.errors('''
+            template<typename T>
+            concept Copyable = __is_constructible(T, const T&);
+            template<typename T>
+            concept Lockable = requires(T& lock) { lock.acquire(); lock.release(); };
+            template<typename T>
+            struct Wrapper {
+                T value;
+                Wrapper(const Wrapper& other) requires Copyable<T> : value(other.value) {}
+            };
+        '''), [])
+
+    def test_rejects_wrong_case_in_concepts_and_requires_parameters(self):
+        for source in (
+            "template<typename T> concept copyable = __is_constructible(T, const T&);",
+            "template<typename T> concept Lockable = requires(T& BadLock) { BadLock.acquire(); };",
+        ):
+            with self.subTest(source=source):
+                self.assertTrue(self.errors(source))
 
     def test_accepts_private_instance_and_static_state_in_class_and_struct(self):
         self.assertEqual(self.errors('''
@@ -206,7 +228,7 @@ class NamingRules(unittest.TestCase):
             exceptions.write_text("[]")
             (root / "kernel/example.cpp").write_text("class Owner { static int count_; };\n")
             (root / relative).write_text(source)
-            flags = ["-std=c++17", "-I" + str(root / "include")]
+            flags = [CXX_STANDARD_FLAG, "-I" + str(root / "include")]
 
             def config(arch, target="kernel-rule-config"):
                 if target != "kernel-rule-config":

@@ -41,7 +41,7 @@ zonix-plus/
 │       ├── trapentry.S         # 中断入口 stub
 │       └── drivers/            # 架构相关驱动
 │
-├── kernel/                     # 架构无关 kernel (C++17, 64-bit)
+├── kernel/                     # 架构无关 kernel (C++20, 64-bit)
 │   ├── init.cpp                # kern_init() 入口
 │   ├── lib/                    # 内核基础库
 │   ├── block/                  # 块设备抽象层
@@ -81,13 +81,19 @@ zonix-plus/
 
 | 目标 | 编译器 | 位宽 | 语言 |
 |------|--------|------|------|
-| Kernel (x86) | `clang++` | 64-bit | C++17 freestanding |
-| Kernel (aarch64) | `clang++ --target=aarch64` | 64-bit | C++17 freestanding |
-| Kernel (riscv64) | `clang++ --target=riscv64` | 64-bit | C++17 freestanding |
-| BIOS boot (MBR/VBR/Bootloader) | `clang -m32` | 32-bit | C / ASM |
-| UEFI boot (BOOTX64.EFI) | `clang --target=x86_64-pc-windows-msvc` + `lld-link` | 64-bit | C (PE32+) |
+| Kernel (x86) | `clang++` | 64-bit | C++20 freestanding |
+| Kernel (aarch64) | `clang++ --target=aarch64` | 64-bit | C++20 freestanding |
+| Kernel (riscv64) | `clang++ --target=riscv64` | 64-bit | C++20 freestanding |
+| BIOS boot (MBR/VBR/Bootloader) | `clang` / `clang++ -m32` | 32-bit | C / ASM / C++20 |
+| UEFI boot (BOOTX64.EFI) | `clang++ --target=x86_64-pc-windows-msvc` + `lld-link` | 64-bit | C++20 (PE32+) |
 | Linker | `ld.lld` | — | LLVM linker |
 | Utilities | `llvm-objdump`, `llvm-objcopy` | — | LLVM binutils |
+
+C++ 标准在顶层 Makefile 的 `CXX_STANDARD := gnu++20` 统一定义。
+三架构内核、BIOS 的 C++ 引导程序和 UEFI 都读取这个配置；宿主 harness
+和 CI 的 clang-tidy 通过 `make -s cxx-standard` 获取同一标准。
+标准变化会更新各架构的 `.cxx_standard` 构建标记，使相关对象和引导程序重新编译。
+保留 freestanding、禁用异常/RTTI 和现有标准库头文件配置，已使用 Clang 18 验证。
 
 ### Makefile 层级
 

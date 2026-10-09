@@ -9,6 +9,9 @@ V    ?= 0  # Verbose mode: make V=1
 # Build kernel test suites: make TEST=1
 TEST ?= 0
 
+# Shared by the kernel, boot firmware, host harness and analysis tools.
+CXX_STANDARD := gnu++20
+
 # Quiet / verbose output
 ifeq ($(V),0)
   Q := @
@@ -77,7 +80,7 @@ tobin     = $(addprefix $(BINDIR)$(SLASH),$(addsuffix .bin,$(1)))
 # Single compile rule (with auto-deps via DEPFLAGS)
 # .S files get -D__ASSEMBLY__ so headers can hide C/C++ constructs.
 define compile
-$$(call toobj,$(1)): $(1) $$(TEST_MODE_STAMP) | $$$$(dir $$$$@)
+$$(call toobj,$(1)): $(1) $$(TEST_MODE_STAMP) $$(CXX_STANDARD_STAMP) | $$$$(dir $$$$@)
 	$(Q)$(2) -I$$(dir $(1)) $(3) $(if $(filter %.S,$(1)),-D__ASSEMBLY__) $(DEPFLAGS) -c $$< -o $$@
 ALLOBJS += $$(call toobj,$(1))
 endef
@@ -124,6 +127,7 @@ CXXFLAGS += $(addprefix -I,$(INCLUDE))
 # (because -DTEST_MODE=1 changes preprocessor output).  Must be defined before
 # the compile rules are eval'd by add_packet_files_cxx below.
 TEST_MODE_STAMP := $(OBJDIR)/.test_mode
+CXX_STANDARD_STAMP := $(OBJDIR)/.cxx_standard
 
 $(call add_packet_files_cc,$(call listf_cc,$(KSRCDIR)),kernel)
 $(call add_packet_files_cxx,$(call listf_cxx,$(KSRCDIR)),kernel)
@@ -135,6 +139,9 @@ FORCE:
 
 $(TEST_MODE_STAMP): FORCE | $(OBJDIR)/
 	$(Q)if [ ! -f $@ ] || [ "$$(cat $@)" != "$(TEST)" ]; then echo "$(TEST)" > $@; fi
+
+$(CXX_STANDARD_STAMP): FORCE | $(OBJDIR)/
+	$(Q)if [ ! -f $@ ] || [ "$$(cat $@)" != "$(CXX_STANDARD)" ]; then echo "$(CXX_STANDARD)" > $@; fi
 
 $(kernel): $(KOBJS) $(KERNEL_EXTRA_OBJS) $(KERNEL_LD_SCRIPT) $(TEST_MODE_STAMP) | $$(dir $$@)
 	$(Q)$(LD) $(LDFLAGS) -T $(KERNEL_LD_SCRIPT) $(KOBJS) $(KERNEL_EXTRA_OBJS) -o $@
@@ -177,7 +184,7 @@ endif
 # ==========================================================================
 # Top-level targets
 # ==========================================================================
-.PHONY: all clean format lint compdb help FORCE check check-kernel-rules kernel-rule-config naming-boot-config naming-user-config install-hooks
+.PHONY: all clean format lint compdb help FORCE check check-kernel-rules kernel-rule-config naming-boot-config naming-user-config cxx-standard install-hooks
 
 all: $(ALL_PREREQS)
 .DEFAULT_GOAL := all
@@ -196,6 +203,9 @@ check-kernel-rules:
 	$(Q)python3 $(SCRIPTDIR)/check_kernel_rules.py --arch $(ARCH) --cache $(OBJDIR)/kernel-rules.sha256
 
 # Machine-readable compiler settings for the AST checker; no duplicated flags.
+cxx-standard:
+	@printf '%s\n' '$(CXX_STANDARD)'
+
 kernel-rule-config:
 	@printf '%s\n' '$(CXX)' '$(CXXFLAGS)' '$(call listf_cxx,$(KSRCDIR))'
 

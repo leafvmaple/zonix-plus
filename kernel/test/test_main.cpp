@@ -18,6 +18,10 @@ namespace list_test {
 void test();
 }
 
+namespace result_test {
+void test();
+}
+
 namespace pmm_test {
 void test();
 }
@@ -72,6 +76,7 @@ static const TestSuite SUITES[] = {
     {"User Memory", vmm_test::test},
     {"String Library", string_test::test},
     {"Linked List", list_test::test},
+    {"Result Library", result_test::test},
     {"PMM Allocator", pmm_test::test},
     {"Scheduler", sched::test},
     {"Swap (FIFO)", run_swap_suite},

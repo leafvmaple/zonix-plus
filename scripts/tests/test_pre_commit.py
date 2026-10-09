@@ -33,8 +33,14 @@ class StagedSnapshotChecks(unittest.TestCase):
         (self.repo / "scripts/kernel_rule_exceptions.json").write_text("[]")
         (self.repo / "scripts/naming_exceptions.json").write_text("[]")
         (self.repo / "scripts/tests/test_naming_rules.py").write_text("")
+        (self.repo / "scripts/tests/cxx_config.py").write_text("")
+        (self.repo / "scripts/tests/test_cxx_config.py").write_text("")
         (self.repo / "docs/NAMING.md").write_text("")
         (self.repo / ".clang-tidy").write_text("")
+        (self.repo / ".clangd").write_text("")
+        (self.repo / ".clang-format").write_text("")
+        (self.repo / ".vscode").mkdir()
+        (self.repo / ".vscode/c_cpp_properties.json").write_text("{}")
         (self.repo / "scripts/tests/test_kernel_rules.py").write_text(
             "import unittest\nclass FixtureHarness(unittest.TestCase):\n"
             "    def test_fixture(self): self.assertTrue(True)\n"

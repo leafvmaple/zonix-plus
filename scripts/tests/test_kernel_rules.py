@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 from contextlib import redirect_stdout, redirect_stderr
 from io import StringIO
+from cxx_config import CXX_STANDARD_FLAG
 
 SCRIPT = Path(__file__).resolve().parents[1] / "check_kernel_rules.py"
 spec = importlib.util.spec_from_file_location("kernel_rules", SCRIPT)
@@ -62,7 +63,7 @@ class PageTableRules(unittest.TestCase):
                 #define PTE_TYPE_MASK (PTE_VALID | PTE_USER)
                 constexpr uintptr_t PTE_READ_ONLY = 1UL << 7;
             ''' + definitions + "\nbool pte_test(uintptr_t entry) { " + body + " }\n")
-            ast = rules.compile_ast(header, ["clang++"], ["-std=c++17", "-x", "c++"], root)
+            ast = rules.compile_ast(header, ["clang++"], [CXX_STANDARD_FLAG, "-x", "c++"], root)
             return rules.page_table_errors(ast, root)
 
     def test_allows_named_masks_explicit_comparisons_and_boolean_composition(self):
@@ -129,7 +130,7 @@ class OwnershipRules(unittest.TestCase):
             path = root / "kernel/example.cpp"
             path.parent.mkdir()
             path.write_text(source)
-            return set(rules.compile_state(path, ["clang++"], ["-std=c++17"], root))
+            return set(rules.compile_state(path, ["clang++"], [CXX_STANDARD_FLAG], root))
 
     def test_rejects_namespace_extern_and_function_static_state(self):
         found = self.state('''
@@ -172,6 +173,23 @@ class OwnershipRules(unittest.TestCase):
         ''')
         self.assertEqual(len(found), 4)
 
+    def test_constinit_private_static_members_keep_class_ownership(self):
+        self.assertEqual(self.state('''
+            class Owner {
+                inline static constinit int count_ = 0;
+                static constinit int separate_;
+            };
+            constinit int Owner::separate_ = 0;
+        '''), set())
+
+    def test_constinit_does_not_hide_unowned_mutable_state(self):
+        self.assertEqual(self.state('''
+            constinit int global = 0;
+            namespace { constinit int hidden = 0; }
+            void function() { static constinit int persistent = 0; }
+        '''), {"kernel/example.cpp:global", "kernel/example.cpp:hidden",
+               "kernel/example.cpp:function::persistent"})
+
     def test_checks_globals_generated_by_macros_and_included_headers(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -180,7 +198,7 @@ class OwnershipRules(unittest.TestCase):
             (folder / "state.h").write_text("inline int header_state;\n")
             path = folder / "example.cpp"
             path.write_text('#include "state.h"\n#define STATE(name) int name;\nSTATE(generated)\n')
-            found = rules.compile_state(path, ["clang++"], ["-std=c++17"], root)
+            found = rules.compile_state(path, ["clang++"], [CXX_STANDARD_FLAG], root)
             self.assertIn("kernel/state.h:header_state", found)
             self.assertIn("kernel/example.cpp:generated", found)
 
@@ -192,7 +210,7 @@ class OwnershipRules(unittest.TestCase):
             (folder / "helper.h").write_text("#define RETURN return\n")
             path = folder / "example.cpp"
             path.write_text('#include "helper.h"\nvoid f() { RETURN; }\nint actual_state;\n')
-            found = rules.compile_state(path, ["clang++"], ["-std=c++17"], root)
+            found = rules.compile_state(path, ["clang++"], [CXX_STANDARD_FLAG], root)
             self.assertIn("kernel/example.cpp:actual_state", found)
             self.assertEqual(found["kernel/example.cpp:actual_state"]["line"], 3)
 
@@ -205,7 +223,7 @@ class OwnershipRules(unittest.TestCase):
             path = root / "kernel/example.cpp"
             path.parent.mkdir()
             path.write_text('#include "../arch/x86/include/asm/pgtable.h"\n')
-            found = rules.compile_state(path, ["clang++"], ["-std=c++17"], root)
+            found = rules.compile_state(path, ["clang++"], [CXX_STANDARD_FLAG], root)
             self.assertEqual(set(found), {
                 "arch/x86/include/asm/pgtable.h:__kernel_pg_dir",
                 "arch/x86/include/asm/pgtable.h:leaked",
@@ -228,7 +246,7 @@ class OwnershipRules(unittest.TestCase):
             owned = "class Owner { inline static int state_{}; };\n"
             source.write_text(owned)
             cache = root / "check.sha256"
-            config = (["clang++"], ["-std=c++17"], ["kernel/example.cpp"])
+            config = (["clang++"], [CXX_STANDARD_FLAG], ["kernel/example.cpp"])
             with patch.object(rules, "ROOT", root), patch.object(rules, "EXCEPTIONS", exceptions), \
                     patch.object(rules, "NAMING_EXCEPTIONS", naming_exceptions), \
                     patch.object(rules, "__file__", str(root / "checker.py")), \

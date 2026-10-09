@@ -48,7 +48,7 @@ bootloader = $(call totarget,bootloader)
 BOOTLOAD_CXX_OBJ := $(call toobj,$(BOOT_BIOS_DIR)/bootload.cpp)
 BOOTLOAD_S_OBJ := $(call toobj,$(BOOT_BIOS_DIR)/entry.S)
 
-$(BOOTLOAD_CXX_OBJ): $(BOOT_BIOS_DIR)/bootload.cpp arch/$(ARCH)/Makefile | $$(dir $$@)
+$(BOOTLOAD_CXX_OBJ): $(BOOT_BIOS_DIR)/bootload.cpp arch/$(ARCH)/Makefile $(CXX_STANDARD_STAMP) | $$(dir $$@)
 	$(Q)$(CXX) $(BOOT_CXXFLAGS) $(BOOT_INC) $(DEPFLAGS) -O2 -c $< -o $@
 
 $(BOOTLOAD_S_OBJ): $(BOOT_BIOS_DIR)/entry.S | $$(dir $$@)

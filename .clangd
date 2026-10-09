@@ -9,7 +9,7 @@ CompileFlags:
   Compiler: clang++
   Add:
     - --target=x86_64-none-elf
-    - -std=gnu++17
+    - -std=gnu++20
     - -ffreestanding
     - -fno-builtin
     - -nostdinc

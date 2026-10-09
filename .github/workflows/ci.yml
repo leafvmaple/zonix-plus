@@ -246,10 +246,11 @@ jobs:
       - name: Run clang-tidy
         run: |
           echo "Running clang-tidy on kernel sources..."
+          cxx_standard=$(make --no-print-directory -s cxx-standard)
           ERRORS=0
           while IFS= read -r f; do
             if ! clang-tidy --quiet "$f" -- \
-              -std=gnu++17 -ffreestanding -nostdinc -nostdinc++ \
+              "-std=$cxx_standard" -ffreestanding -nostdinc -nostdinc++ \
               -Iinclude -Iarch/x86/include -Iarch/x86/kernel -Ikernel \
               -D__x86_64__ -DTEST_MODE=1 \
               2>/dev/null; then

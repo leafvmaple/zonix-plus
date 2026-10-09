@@ -152,7 +152,7 @@ long sys_write(Task* cur, int fd, const char* user_buf, size_t count) {
 namespace trap {
 
 void handle_timer_tick() {
-    timer::ticks++;
+    timer::ticks = timer::ticks + 1;
     sched::tick();
     fbcons::tick();
 }

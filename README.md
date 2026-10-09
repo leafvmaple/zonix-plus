@@ -12,7 +12,7 @@ A teaching operating system kernel targeting **x86_64**, **aarch64**, and **risc
 - **UEFI on aarch64**: BOOTAA64.EFI + QEMU virt machine support
 - **UEFI on riscv64**: BOOTRISCV64.EFI + QEMU virt / VisionFive2 board support
 - **Kconfig-style Configuration**: Modular `CONFIG_*` toggles in `include/kernel/config.h`
-- **C++17 Freestanding**: Kernel written in C++17 with global `new`/`delete` operator support
+- **C++20 Freestanding**: Kernel and C++ boot code use `gnu++20`, with global `new`/`delete` operator support
 - **Clang/LLVM Toolchain**: Built with Clang, LLD, and LLVM utilities (including x86/aarch64/riscv64 UEFI paths)
 
 ### Process Management

@@ -6,7 +6,7 @@
             "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "linux-clang-arm64",
             "cStandard": "gnu17",
-            "cppStandard": "gnu++17",
+            "cppStandard": "gnu++20",
             "includePath": [
                 "${workspaceFolder}/include",
                 "${workspaceFolder}/kernel",
@@ -47,7 +47,7 @@
             "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "linux-clang-x64",
             "cStandard": "gnu17",
-            "cppStandard": "gnu++17",
+            "cppStandard": "gnu++20",
             "includePath": [
                 "${workspaceFolder}/include",
                 "${workspaceFolder}/kernel",
@@ -94,7 +94,7 @@
             "compilerPath": "/usr/bin/clang",
             "intelliSenseMode": "linux-clang-arm64",
             "cStandard": "gnu17",
-            "cppStandard": "gnu++17",
+            "cppStandard": "gnu++20",
             "includePath": [
                 "${workspaceFolder}/include",
                 "${workspaceFolder}/kernel",
