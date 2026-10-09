@@ -39,7 +39,6 @@
   {"path": "arch/x86/kernel/tss.cpp", "name": "task_state_segment", "reason": "Pre-existing arch/x86/kernel/tss.cpp state outside this migration; new state must belong to a class."},
   {"path": "kernel/cons/cmd/cmd_blk.cpp", "name": "cmd::mounted_device", "reason": "Pre-existing mount command state outside this migration; new state must belong to a class."},
   {"path": "kernel/cons/cmd/cmd_blk.cpp", "name": "cmd::mount_is_active", "reason": "Pre-existing mount command state outside this migration; new state must belong to a class."},
-  {"path": "kernel/cons/cmd/cmd_fs.cpp", "name": "cmd::cmd_cat::file_buf", "reason": "Pre-existing file command state outside this migration; new state must belong to a class."},
   {"path": "kernel/cons/cons_vfs.cpp", "name": "console_registrar", "reason": "Existing constructor-based device/filesystem registration hook; no new registry state exemption."},
   {"path": "kernel/cons/shell.cpp", "name": "cmd_buffer", "reason": "Pre-existing shell state outside this migration; new state must belong to a class."},
   {"path": "kernel/cons/shell.cpp", "name": "cmd_pos", "reason": "Pre-existing shell state outside this migration; new state must belong to a class."},

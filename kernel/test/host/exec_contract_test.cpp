@@ -188,7 +188,7 @@ void* kmalloc(size_t size) {
 void kfree(void* ptr) {
     ExecFixture::current().deallocate(ptr);
 }
-void* operator new(size_t size, const std::nothrow_t&) noexcept {
+void* operator new(size_t size, const sys::nothrow_t&) noexcept {
     return kmalloc(size);
 }
 void operator delete(void* ptr) noexcept {

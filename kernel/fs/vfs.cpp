@@ -135,17 +135,11 @@ Error mount(const char* mount_point, BlockDevice* dev, const char* fs_type) {
         }
     }
 
-    if (!fs) {
-        return Error::NotFound;
-    }
+    auto owner = sys::unique_ptr<FileSystem>(fs);
+    ENSURE(owner, Error::NotFound);
+    TRY(owner->mount(dev));
 
-    Error rc = fs->mount(dev);
-    if (rc != Error::None) {
-        delete fs;
-        return rc;
-    }
-
-    slot->fs = fs;
+    slot->fs = owner.release();
     slot->fs_type = fs_type;
     slot->device = dev;
     slot->device_name = dev ? dev->name : nullptr;

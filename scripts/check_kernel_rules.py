@@ -430,12 +430,14 @@ def check(arch, cache=None):
     inputs = sorted(p for directory in ("kernel", "include", "arch", "boot", "user")
                     for p in (ROOT / directory).rglob("*") if p.suffix in SOURCE_SUFFIXES)
     inputs = [p for p in inputs if not p.is_relative_to(ROOT / "user/zcc")]
+    # Imported names keep their library convention; dependency changes invalidate AST caches.
+    dependency_inputs = sorted((ROOT / "external/zstl/include").rglob("*.hpp"))
     inputs += [Path(__file__), EXCEPTIONS, NAMING_EXCEPTIONS, ROOT / ".clang-tidy",
                ROOT / "docs/NAMING.md", ROOT / "Makefile", ROOT / f"arch/{arch}/Makefile"]
     digest = hashlib.sha256(json.dumps([compiler, flags, sources, boot_configs, user_configs,
                                       sorted(selected_elsewhere)]).encode())
     digest.update(subprocess.check_output(compiler + ["--version"]))
-    for path in inputs:
+    for path in inputs + dependency_inputs:
         digest.update(str(path.relative_to(ROOT)).encode())
         digest.update(path.read_bytes())
     fingerprint = digest.hexdigest()

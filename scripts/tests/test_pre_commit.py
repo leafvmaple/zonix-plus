@@ -106,6 +106,54 @@ class StagedSnapshotChecks(unittest.TestCase):
         self.git("rm", "--cached", "scripts/naming_exceptions.json")
         self.assertEqual(self.check(), 1)
 
+    def dependency(self, content):
+        path = self.repo / "external/zstl"
+        path.mkdir(parents=True)
+        env = dict(self.env, GIT_AUTHOR_NAME="Fixture", GIT_AUTHOR_EMAIL="fixture@example.invalid",
+                   GIT_COMMITTER_NAME="Fixture", GIT_COMMITTER_EMAIL="fixture@example.invalid")
+        subprocess.run(["git", "init", "-q", str(path)], env=env, check=True)
+        header = path / "include/sys/fixture.hpp"
+        header.parent.mkdir(parents=True)
+        header.write_text(content)
+        subprocess.run(["git", "-C", str(path), "add", "."], env=env, check=True)
+        tree = subprocess.check_output(["git", "-C", str(path), "write-tree"], env=env).decode().strip()
+        revision = subprocess.check_output(["git", "-C", str(path), "commit-tree", tree, "-m", "fixture"],
+                                           env=env).decode().strip()
+        self.git("update-index", "--add", "--cacheinfo", "160000," + revision + ",external/zstl")
+        return header
+
+    def test_dependency_export_uses_staged_revision_not_dirty_headers(self):
+        self.git("add", ".")
+        header = self.dependency("GOOD")
+        header.write_text("BAD")
+        with tempfile.TemporaryDirectory() as directory:
+            snapshot = Path(directory)
+            hook.export_staged_dependencies(self.repo, snapshot, self.env)
+            self.assertEqual((snapshot / "external/zstl/include/sys/fixture.hpp").read_text(), "GOOD")
+        self.assertEqual(header.read_text(), "BAD")
+
+    def test_dependency_changes_trigger_the_hook(self):
+        self.assertTrue(hook.relevant("external/zstl"))
+        self.assertTrue(hook.relevant(".gitmodules"))
+
+    def test_dirty_dependency_fix_cannot_hide_a_bad_pinned_revision(self):
+        checker = self.repo / "scripts/check_kernel_rules.py"
+        checker.write_text(checker.read_text() +
+                           "\nsys.exit(1 if 'BAD' in Path('external/zstl/include/sys/fixture.hpp').read_text() else 0)\n")
+        # Remove the preceding unconditional exit in this fixture checker.
+        checker.write_text(checker.read_text().replace(
+            "sys.exit(1 if 'BAD' in Path('kernel/example.cpp').read_text() else 0)", ""))
+        self.git("add", ".")
+        header = self.dependency("BAD")
+        header.write_text("GOOD")
+        self.assertEqual(self.check(), 1)
+        self.assertEqual(header.read_text(), "GOOD")
+
+    def test_missing_dependency_object_blocks_the_snapshot(self):
+        self.git("add", ".")
+        self.git("update-index", "--add", "--cacheinfo", "160000," + "1" * 40 + ",external/zstl")
+        self.assertEqual(self.check(), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

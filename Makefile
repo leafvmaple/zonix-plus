@@ -121,7 +121,9 @@ INCLUDE := include \
 # Kernel
 # ==========================================================================
 CFLAGS   += $(addprefix -I,$(INCLUDE))
-CXXFLAGS += $(addprefix -I,$(INCLUDE)) -Werror=unused-result
+ZSTL_DIR := external/zstl
+CXXFLAGS += $(addprefix -I,$(INCLUDE)) -Werror=unused-result \
+            -DZSTL_FREESTANDING -I$(ZSTL_DIR)/include
 
 # Track TEST mode changes: when TEST switches, all .o files must be recompiled
 # (because -DTEST_MODE=1 changes preprocessor output).  Must be defined before

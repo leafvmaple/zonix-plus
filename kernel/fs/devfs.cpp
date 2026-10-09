@@ -77,7 +77,7 @@ public:
 };
 
 vfs::FileSystem* create_dev_filesystem() {
-    return new (std::nothrow) DevFileSystem();
+    return new (sys::nothrow) DevFileSystem();
 }
 
 struct DevFsRegistrar {

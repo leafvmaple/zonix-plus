@@ -6,6 +6,7 @@
 #include "lib/result.h"
 #include "lib/stdio.h"
 #include "lib/string.h"
+#include "lib/kernel_buffer.h"
 
 #include <base/bpb.h>
 
@@ -105,28 +106,26 @@ static void cmd_cat(int argc, char** argv) {
         return;
     }
 
-    vfs::File* file = nullptr;
-    Error error = vfs::open(path_buf, &file);
-    if (error != Error::None || !file) {
-        report_fs_error("cat: open", path_buf, error != Error::None ? error : Error::Invalid);
+    auto opened = vfs::open(path_buf);
+    if (!opened.ok()) {
+        report_fs_error("cat: open", path_buf, opened.error());
         return;
     }
+    auto file = opened.release_value();
 
     vfs::Stat st{};
-    error = file->stat(&st);
+    Error error = file->stat(&st);
     if (error != Error::None) {
-        vfs::close(file);
         report_fs_error("cat: stat", path_buf, error);
         return;
     }
 
     if (st.type != vfs::NodeType::File) {
-        vfs::close(file);
         cprintf("Cannot cat a directory\n");
         return;
     }
 
-    uint32_t max_size = 65536;
+    constexpr uint32_t max_size = 65536;
     uint32_t size = st.size;
     if (size > max_size) {
         cprintf("File too large (max %d bytes)\n", max_size);
@@ -134,24 +133,28 @@ static void cmd_cat(int argc, char** argv) {
     }
 
     if (size == 0) {
-        vfs::close(file);
         cprintf("(empty file)\n");
         return;
     }
 
-    static uint8_t file_buf[4096];
+    auto allocation = KernelBuffer::alloc(4096);
+    if (!allocation.ok()) {
+        report_fs_error("cat: allocate buffer", path_buf, allocation.error());
+        return;
+    }
+    auto buf = allocation.release_value();
     uint32_t offset = 0;
 
     cprintf("--- File: %s (%d bytes) ---\n", filename, st.size);
 
     while (offset < size) {
         uint32_t chunk_size = size - offset;
-        if (chunk_size > sizeof(file_buf)) {
-            chunk_size = sizeof(file_buf);
+        if (chunk_size > buf.size()) {
+            chunk_size = buf.size();
         }
 
-        auto rd = vfs::read(file, file_buf, chunk_size, offset);
-        if (!rd.ok() || rd.value() <= 0) {
+        auto rd = vfs::read(file.get(), buf.data(), chunk_size, offset);
+        if (!rd.ok() || rd.value() <= 0 || static_cast<size_t>(rd.value()) > chunk_size) {
             error = rd.ok() ? Error::Io : rd.error();
             cprintf("\ncat: read '%s' at offset %d: %s (%d)\n", path_buf, offset, error_str(error),
                     static_cast<int>(error));
@@ -160,7 +163,7 @@ static void cmd_cat(int argc, char** argv) {
         int read = rd.value();
 
         for (int i = 0; i < read; i++) {
-            char c = file_buf[i];
+            char c = buf.data()[i];
             if (c == '\n') {
                 cons::putc('\n');
             } else if (c == '\r') {
@@ -175,7 +178,6 @@ static void cmd_cat(int argc, char** argv) {
         offset += read;
     }
 
-    vfs::close(file);
     cprintf("\n--- End of file ---\n");
 }
 

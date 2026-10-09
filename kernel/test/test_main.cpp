@@ -22,6 +22,10 @@ namespace result_test {
 void test();
 }
 
+namespace ownership_test {
+void test();
+}
+
 namespace pmm_test {
 void test();
 }
@@ -77,6 +81,7 @@ static const TestSuite SUITES[] = {
     {"String Library", string_test::test},
     {"Linked List", list_test::test},
     {"Result Library", result_test::test},
+    {"Resource Ownership", ownership_test::test},
     {"PMM Allocator", pmm_test::test},
     {"Scheduler", sched::test},
     {"Swap (FIFO)", run_swap_suite},

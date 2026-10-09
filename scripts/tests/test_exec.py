@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 
-from cxx_config import CXX_STANDARD_FLAG, ROOT
+from cxx_config import ZSTL_FLAGS, CXX_STANDARD_FLAG, ROOT
 
 CLANG = shutil.which("clang++")
 
@@ -16,7 +16,7 @@ class ExecContractTests(unittest.TestCase):
     def setUpClass(cls):
         cls.directory = tempfile.TemporaryDirectory(prefix="zonix-exec-tests-")
         cls.binary = Path(cls.directory.name) / "exec-tests"
-        flags = [CXX_STANDARD_FLAG, "-ffreestanding", "-fno-exceptions", "-fno-rtti",
+        flags = [CXX_STANDARD_FLAG, *ZSTL_FLAGS, "-nostdinc", "-nostdinc++", "-ffreestanding", "-fno-exceptions", "-fno-rtti",
                  "-fno-elide-constructors", "-Werror=unused-result", "-Werror=unused-value",
                  "-I" + str(ROOT / "kernel"), "-I" + str(ROOT / "include"),
                  "-I" + str(ROOT / "arch/x86/include"), "-I" + str(ROOT / "arch/x86/kernel")]

@@ -156,17 +156,17 @@ static void test_file_io(MemoryDesc& mm, uintptr_t base) {
         TEST_END();
         return;
     }
-    auto* file = new (std::nothrow) TransferFile;
-    TEST_ASSERT(file != nullptr, "Created syscall transfer file fixture");
-    if (!file) {
+    auto owner = vfs::FileHandle(new (sys::nothrow) TransferFile);
+    TEST_ASSERT(static_cast<bool>(owner), "Created syscall transfer file fixture");
+    if (!owner) {
         TEST_END();
         return;
     }
+    auto* file = static_cast<TransferFile*>(owner.get());
     Task* current = sched::current();
-    auto fd_r = current->files().alloc(file);
+    auto fd_r = current->files().alloc(sys::move(owner));
     TEST_ASSERT(fd_r.ok(), "Allocated syscall transfer descriptor");
     if (!fd_r.ok()) {
-        vfs::close(file);
         TEST_END();
         return;
     }

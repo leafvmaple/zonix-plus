@@ -39,6 +39,66 @@ on failure. After a successful fork, exec transfers the memory to the child
 while interrupts remain disabled. File handles and the input buffer also use
 local destructors for every return path.
 
+## Resource ownership
+
+The reusable owners use the project's GNU++20 freestanding configuration:
+
+| Type | Owns | Borrow | Transfer |
+| --- | --- | --- | --- |
+| `sys::unique_ptr<T, Deleter>` from zstl | One object with its cleanup policy | `get()`, `*`, `->` | Move, or `release()` into another owner |
+| `KernelBuffer` | `kmalloc` bytes and their requested length | `data()`, `size()`; const access gives const bytes | Move the complete buffer |
+| `vfs::FileHandle` | One open VFS file, closed through `vfs::close` | `get()`, `*`, `->` | Move into `fd::Table::alloc` |
+
+These types are noncopyable. Moves do not allocate and leave the source empty;
+move assignment first cleans up the destination's old resource. Destruction and
+reset clean up an owned resource once. The stateless `sys::unique_ptr` deleters used
+by the kernel take no extra pointer space. zstl also supplies array ownership and
+stateful deleters; this migration uses single-object ownership and stateless policies.
+`KernelBuffer` owns raw bytes, not constructed C++ elements. Allocating zero bytes
+succeeds with null data and zero length; allocation failure returns `NoMem`.
+
+Construct an owner from a raw pointer only when the caller already holds ownership. Raw
+pointers/references passed to ordinary operations borrow by default. Borrowing
+does not extend lifetime; discard borrowed pointers before the owner is reset,
+destroyed or its resource is handed off. `sys::unique_ptr` follows standard borrowing
+semantics, including access during a temporary's full expression; do not retain those
+pointers after the expression. `KernelBuffer::data()` rejects temporary borrowing.
+`release()` is `[[nodiscard]]`: immediately attach its returned pointer
+to the receiving owner. Prefer moving the owner when the receiving API supports
+it. The legacy two-argument VFS open API returns an owned raw pointer; new callers
+use `vfs::open(path)` to get `Result<FileHandle>` instead.
+
+`fd::Table::alloc(FileHandle)` consumes its argument on both success and failure.
+Success moves the file into the descriptor entry; failure closes it. Entry lookup
+borrows from the table. Closing, resetting or destroying the table invalidates
+those borrows. Tables cannot be copied or moved; `ForkPolicy::Share` remains
+`NotSupported` until shared open-file ownership is actually implemented.
+
+Use fallible factories plus `TRY` so a successful result contains a ready resource,
+and early returns clean up existing owners. Keep special resource protocols in
+their subsystem: `UserImage` uses a `sys::unique_ptr<MemoryDesc>` and hands it to the child
+under the interrupt guard; mapped pages belong to the address-space teardown,
+and the boot page tables remain borrowed permanent storage.
+
+Destructors are for non-failing release operations. Operations such as filesystem
+unmount, disk write rollback or restoring mappings can fail and require an explicit
+error policy. Keep those checks and their ordering visible; do not hide them in a
+generic destructor. Use `constexpr` for real constant properties, `static_assert`
+for type/layout contracts, and `[[nodiscard]]` for ownership-producing operations
+and transfers. Add views only when pointer/length or iteration duplication needs
+an explicit borrowed interface; a view must not imply ownership.
+
+zstl is the project-level submodule at `external/zstl`. Kernel builds and host
+contract tests use `ZSTL_FREESTANDING` with its include directory and no host C/C++
+headers. `sys/new.hpp` supplies shared placement-new definitions and `sys::nothrow`;
+`kernel/cxxrt.cpp` supplies allocating new/delete implementations. Recoverable
+allocations use `new (sys::nothrow)` and check null. Ordinary new is fail-fast on
+exhaustion, so compiler-generated constructors never run on a null allocation.
+Future mini-cocos integration must consume this same zstl include root and build
+mode, rather than introduce a second STL copy or a separate allocation tag type.
+The pre-commit snapshot exports zstl at the staged gitlink revision, so local
+uncommitted library edits cannot hide an incompatible pinned dependency.
+
 ## States and ownership
 
 | State | `ok()` | `is_consumed()` | Permitted access |

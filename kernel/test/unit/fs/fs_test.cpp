@@ -36,7 +36,7 @@ public:
         if (strcmp(path, "file") != 0) {
             return Error::NotFound;
         }
-        *out = new (std::nothrow) LifetimeFile();
+        *out = new (sys::nothrow) LifetimeFile();
         return *out ? Error::None : Error::NoMem;
     }
     Error stat(const char*, vfs::Stat*) override { return Error::NotSupported; }
@@ -45,7 +45,7 @@ public:
 };
 
 vfs::FileSystem* create_lifetime_fs() {
-    return new (std::nothrow) LifetimeFs();
+    return new (sys::nothrow) LifetimeFs();
 }
 
 void test_mount_lifetime() {

@@ -3,10 +3,12 @@
 
 import argparse
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from io import BytesIO
 import subprocess
 import sys
 import tempfile
+import tarfile
 
 ARCHES = ("x86", "aarch64", "riscv64")
 REQUIRED = ("scripts/check_kernel_rules.py", "scripts/kernel_rule_exceptions.json",
@@ -19,11 +21,41 @@ REQUIRED = ("scripts/check_kernel_rules.py", "scripts/kernel_rule_exceptions.jso
 def relevant(path):
     return (path.startswith(("kernel/", "arch/", "include/", "boot/", "user/", ".githooks/", "scripts/tests/"))
             and not path.startswith("user/zcc/")) or path in {
-        "Makefile", "AGENTS.md", "scripts/check_kernel_rules.py",
+        "Makefile", "AGENTS.md", "scripts/check_kernel_rules.py", ".gitmodules", "external/zstl",
         "scripts/kernel_rule_exceptions.json", "scripts/pre_commit.py",
         "scripts/naming_exceptions.json", "docs/NAMING.md", ".clang-tidy", ".clangd",
         ".clang-format", ".vscode/c_cpp_properties.json",
     }
+
+
+def export_staged_dependencies(repo, snapshot, git_env):
+    """Export the staged gitlink object, never headers from the working checkout."""
+    path = "external/zstl"
+    entry = subprocess.check_output(
+        ["git", "ls-files", "--stage", "--", path], cwd=repo, env=git_env
+    ).decode().strip()
+    if not entry:
+        return  # Fixture repositories may have no external dependency.
+    metadata, indexed_path = entry.split("\t", 1)
+    mode, revision, stage = metadata.split()
+    if mode != "160000" or stage != "0" or indexed_path != path:
+        raise ValueError("zstl must be an unconflicted staged submodule")
+    clean_env = {key: value for key, value in git_env.items() if not key.startswith("GIT_")}
+    archive = subprocess.check_output(
+        ["git", "-C", str(repo / path), "archive", "--format=tar", revision], env=clean_env
+    )
+    target = snapshot / path
+    with tarfile.open(fileobj=BytesIO(archive)) as files:
+        for member in files:
+            name = PurePosixPath(member.name)
+            if name.is_absolute() or ".." in name.parts or not (member.isdir() or member.isfile()):
+                raise ValueError("Unsupported path in staged zstl archive: " + member.name)
+            destination = target.joinpath(*name.parts)
+            if member.isdir():
+                destination.mkdir(parents=True, exist_ok=True)
+            else:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(files.extractfile(member).read())
 
 
 def check_index(repo, index=None):
@@ -46,6 +78,11 @@ def check_index(repo, index=None):
             ["git", "checkout-index", "--all", f"--prefix={snapshot.as_posix()}/"],
             cwd=repo, env=git_env, check=True
         )
+        try:
+            export_staged_dependencies(repo, snapshot, git_env)
+        except (OSError, ValueError, subprocess.CalledProcessError) as error:
+            print("Pre-commit: cannot export staged zstl revision: " + str(error), file=sys.stderr)
+            return 1
         missing = [path for path in REQUIRED if not (snapshot / path).is_file()]
         if missing:
             print("Pre-commit: required harness files are missing from the index; "

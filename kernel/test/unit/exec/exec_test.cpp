@@ -44,7 +44,7 @@ private:
 
 class FailureFs : public vfs::FileSystem {
 public:
-    static vfs::FileSystem* create() { return new (std::nothrow) FailureFs(); }
+    static vfs::FileSystem* create() { return new (sys::nothrow) FailureFs(); }
     static Error register_type() {
         if (!registered_) {
             TRY(vfs::register_fs("exec-failure-test", create));
@@ -65,7 +65,7 @@ public:
         const char* names[] = {"stat", "read", "short", "negative", "oversized", "elf", "directory", "empty", "large"};
         for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i) {
             if (strcmp(path, names[i]) == 0) {
-                *out = new (std::nothrow) FailureFile(static_cast<FailureFile::Reply>(i), closed_);
+                *out = new (sys::nothrow) FailureFile(static_cast<FailureFile::Reply>(i), closed_);
                 return *out ? Error::None : Error::NoMem;
             }
         }

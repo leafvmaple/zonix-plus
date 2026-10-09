@@ -3,6 +3,7 @@
 #include <base/types.h>
 #include "lib/result.h"
 #include "lib/string.h"
+#include <sys/memory.hpp>
 
 struct BlockDevice;
 
@@ -70,6 +71,23 @@ Error open(const char* path, File** out_file);
 Result<int> read(File* file, void* buf, size_t size, size_t offset);
 Result<int> write(File* file, const void* buf, size_t size, size_t offset);
 void close(File* file);
+
+struct FileCloser {
+    void operator()(File* file) const noexcept { close(file); }
+};
+using FileHandle = sys::unique_ptr<File, FileCloser>;
+
+// Own the returned handle. get()/operator-> borrow; release() hands ownership off.
+[[nodiscard]] inline Result<FileHandle> open(const char* path) {
+    File* raw{};
+    Error error = open(path, &raw);
+    FileHandle file(raw);
+    if (error != Error::None) {
+        return error;
+    }
+    assert(file);
+    return file;
+}
 
 Error stat(const char* path, Stat* st);
 Result<int> readdir(const char* path, DirVisitor& visitor);

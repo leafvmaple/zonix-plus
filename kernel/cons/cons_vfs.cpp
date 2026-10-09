@@ -38,7 +38,7 @@ public:
 };
 
 vfs::File* create_console_file() {
-    return new (std::nothrow) ConsoleFile();
+    return new (sys::nothrow) ConsoleFile();
 }
 
 struct ConsoleDevRegistrar {

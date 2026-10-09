@@ -75,7 +75,7 @@ public:
         TRY(fat_.find_file(relpath, &entry));
         ENSURE(!entry.is_directory());  // Use open for files only.
 
-        auto* file = new (std::nothrow) FatFile(&fat_, entry);
+        auto* file = new (sys::nothrow) FatFile(&fat_, entry);
         if (!file) {
             return Error::NoMem;
         }
@@ -135,7 +135,7 @@ private:
 }  // namespace
 
 vfs::FileSystem* create_vfs_filesystem() {
-    return new (std::nothrow) FatFileSystem();
+    return new (sys::nothrow) FatFileSystem();
 }
 
 namespace {

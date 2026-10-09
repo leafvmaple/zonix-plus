@@ -14,6 +14,19 @@
 These rules apply to every change, including bug fixes and test code. Follow the
 existing subsystem design rather than adding a second implementation style.
 
+## Shared STL and resource ownership
+
+- Use the project-level `external/zstl` submodule for standard structures and
+  utilities, including `sys::unique_ptr`, `sys::move` and `sys::nothrow`. Do not
+  implement another first-party standard container or smart pointer. Add missing
+  required functionality and its tests to zstl instead.
+- All consumers, including future mini-cocos integration, must select the same
+  zstl include root and `ZSTL_FREESTANDING` mode. The kernel supplies allocating
+  new/delete; placement definitions and allocation tag types come from zstl.
+- Follow `docs/ERROR_HANDLING.md` for owning, borrowing and transferring resources.
+  Use move-only owners for exclusive resources; retain explicit checked operations
+  for cleanup that can fail or requires a subsystem-specific ordering protocol.
+
 ## Architecture separation
 
 - `kernel/`, `include/base/` and `include/kernel/` are architecture independent.

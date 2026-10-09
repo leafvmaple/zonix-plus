@@ -9,12 +9,12 @@ void Table::init() {
     }
 }
 
-Result<int> Table::alloc(vfs::File* file) {
+Result<int> Table::alloc(vfs::FileHandle file) {
     ENSURE(file, Error::Invalid);
 
     for (auto& entry : entries_) {
         if (!entry.used) {
-            entry.set(file, 0, true);
+            entry.set(sys::move(file), 0, true);
             return static_cast<int>(&entry - entries_);
         }
     }
@@ -40,7 +40,6 @@ Error Table::close(int fd) {
         return Error::Invalid;
     }
 
-    vfs::close(entry->file);
     entry->reset();
 
     return Error::None;
@@ -48,9 +47,6 @@ Error Table::close(int fd) {
 
 void Table::close_all() {
     for (auto& entry : entries_) {
-        if (entry.used && entry.file) {
-            vfs::close(entry.file);
-        }
         entry.reset();
     }
 }

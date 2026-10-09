@@ -5,24 +5,13 @@
 #include "lib/memory.h"
 #include "lib/stdio.h"
 #include "lib/string.h"
+#include "lib/kernel_buffer.h"
 #include <base/bpb.h>
 
 namespace {
 
 constexpr int MAX_PART_LEN = 13;
 constexpr int MAX_DEPTH = 16;
-class ClusterBuffer {
-public:
-    explicit ClusterBuffer(size_t size) : data_(static_cast<uint8_t*>(kmalloc(size))) {}
-    ~ClusterBuffer() { kfree(data_); }
-    ClusterBuffer(const ClusterBuffer&) = delete;
-    ClusterBuffer& operator=(const ClusterBuffer&) = delete;
-    uint8_t* data() const { return data_; }
-
-private:
-    uint8_t* data_{};
-};
-
 static char to_upper(char ch) {
     return (ch >= 'a' && ch <= 'z') ? static_cast<char>(ch - 32) : ch;
 }
@@ -61,9 +50,8 @@ Result<int> FatInfo::do_file_io(FatDirEntry* entry, uint8_t* io_buf, uint32_t of
     uint32_t cluster = entry->cluster();
     ENSURE(cluster >= 2 && cluster < cluster_count_ + 2);
 
-    ClusterBuffer scratch(bytes_per_cluster_);
+    auto scratch = TRY(KernelBuffer::alloc(bytes_per_cluster_));
     uint8_t* cluster_buf = scratch.data();
-    ENSURE(cluster_buf, Error::NoMem);
     uint32_t solve_bytes{};
 
     ClusterChain chain(*this, cluster);

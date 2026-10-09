@@ -6,6 +6,7 @@
 #include "lib/memory.h"
 #include "lib/string.h"
 #include "lib/math.h"
+#include "lib/kernel_buffer.h"
 #include "mm/pmm.h"
 #include "mm/vmm.h"
 #include "sched/sched.h"
@@ -20,49 +21,6 @@ static_assert(USER_STACK_TOP < USER_SPACE_TOP && USER_STACK_TOP % PG_SIZE == 0);
 static_assert(USER_STACK_TOP > USER_STACK_SIZE + PG_SIZE);
 
 namespace exec {
-
-class KernelBuf {
-public:
-    KernelBuf() = default;
-    ~KernelBuf() { kfree(ptr_); }
-
-    Error alloc(size_t bytes) {
-        assert(!ptr_);
-        ptr_ = static_cast<uint8_t*>(kmalloc(bytes));
-        return ptr_ ? Error::None : Error::NoMem;
-    }
-    uint8_t* data() const { return ptr_; }
-
-    // Non-copyable
-    KernelBuf(const KernelBuf&) = delete;
-    KernelBuf& operator=(const KernelBuf&) = delete;
-
-private:
-    uint8_t* ptr_{};
-};
-
-class OpenFile {
-public:
-    OpenFile() = default;
-
-    ~OpenFile() {
-        if (handle_ != nullptr) {
-            vfs::close(handle_);
-        }
-    }
-
-    Error open(const char* path) {
-        assert(!handle_);
-        return vfs::open(path, &handle_);
-    }
-    vfs::File* handle() const { return handle_; }
-
-    OpenFile(const OpenFile&) = delete;
-    OpenFile& operator=(const OpenFile&) = delete;
-
-private:
-    vfs::File* handle_{};
-};
 
 Result<pde_t*> create_user_pgdir() {
     auto* pgdir = static_cast<pde_t*>(kmalloc(PG_SIZE));
@@ -95,7 +53,7 @@ class UserImage {
 public:
     static Result<UserImage> load(const uint8_t* data, size_t size) {
         UserImage image;
-        image.memory_ = new (std::nothrow) MemoryDesc();
+        image.memory_ = sys::unique_ptr<MemoryDesc>(new (sys::nothrow) MemoryDesc());
         ENSURE(image.memory_, Error::NoMem);
         image.memory_->pgdir = TRY(create_user_pgdir());
         image.entry_va_ = TRY(elf::load(data, size, image.memory_->pgdir));
@@ -105,22 +63,16 @@ public:
 
     UserImage(const UserImage&) = delete;
     UserImage& operator=(const UserImage&) = delete;
-    UserImage(UserImage&& other) : memory_(other.memory_), entry_va_(other.entry_va_), stack_va_(other.stack_va_) {
-        other.memory_ = nullptr;
-    }
-    ~UserImage() { delete memory_; }
+    UserImage(UserImage&&) noexcept = default;
+    UserImage& operator=(UserImage&&) noexcept = default;
 
     uintptr_t entry_va() const { return entry_va_; }
     uintptr_t stack_va() const { return stack_va_; }
-    MemoryDesc* release_memory() {
-        MemoryDesc* memory = memory_;
-        memory_ = nullptr;
-        return memory;
-    }
+    [[nodiscard]] MemoryDesc* release_memory() { return memory_.release(); }
 
 private:
     UserImage() = default;
-    MemoryDesc* memory_{};
+    sys::unique_ptr<MemoryDesc> memory_;
     uintptr_t entry_va_{};
     uintptr_t stack_va_{};
 };
@@ -128,25 +80,22 @@ private:
 Result<int> exec(const char* path) {
     ENSURE(path);
 
-    OpenFile file;
-    TRY(file.open(path));
-    assert(file.handle());
+    auto file = TRY(vfs::open(path));
 
     vfs::Stat st{};
-    TRY(file.handle()->stat(&st));
+    TRY(file->stat(&st));
 
     ENSURE(st.type != vfs::NodeType::Directory);
 
     uint32_t file_size = st.size;
     ENSURE(file_size > 0 && file_size <= MAX_BINARY_SIZE);
 
-    KernelBuf buf;
-    TRY(buf.alloc(file_size));
+    auto buf = TRY(KernelBuffer::alloc(file_size));
 
-    int bytes_read = TRY(vfs::read(file.handle(), buf.data(), file_size, 0));
+    int bytes_read = TRY(vfs::read(file.get(), buf.data(), buf.size(), 0));
     ENSURE(bytes_read == static_cast<int>(file_size), Error::Io);
 
-    auto image = TRY(UserImage::load(buf.data(), file_size));
+    auto image = TRY(UserImage::load(buf.data(), buf.size()));
     const uintptr_t entry_va = image.entry_va();
     const uintptr_t user_stack_va = image.stack_va();
 

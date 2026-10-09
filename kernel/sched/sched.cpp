@@ -21,15 +21,14 @@ int setup_stdio(fd::Table& files) {
     const char* console_path = "/dev/console";
 
     for (int expected_fd = 0; expected_fd < 3; expected_fd++) {
-        vfs::File* file = nullptr;
-        if (vfs::open(console_path, &file) != Error::None || !file) {
+        auto file = vfs::open(console_path);
+        if (!file.ok()) {
             files.close_all();
             return -1;
         }
 
-        auto fd_r = files.alloc(file);
+        auto fd_r = files.alloc(file.release_value());
         if (!fd_r.ok()) {
-            vfs::close(file);
             files.close_all();
             return -1;
         }
@@ -317,7 +316,7 @@ void TaskManager::schedule() {
 Result<int> TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_frame) {
     // copy_mm only borrows the permanent kernel MM; user-MM sharing needs ownership first.
     ENSURE(current() && current()->memory == &vmm::Manager::kernel_mm(), Error::NotSupported);
-    Task* proc = new Task();
+    Task* proc = new (sys::nothrow) Task();
     if (!proc) {
         cprintf("sched: fork: failed to allocate Task\n");
         return Error::NoMem;
@@ -452,7 +451,7 @@ Result<int> TaskManager::wait(int pid, int* code_store) {
 
 // PID 0
 int TaskManager::init_idle() {
-    Task* idle_proc = new Task();
+    Task* idle_proc = new (sys::nothrow) Task();
     if (!idle_proc) {
         cprintf("sched: init_idle: failed to allocate Task\n");
         return -1;

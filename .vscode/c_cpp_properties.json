@@ -10,12 +10,14 @@
             "includePath": [
                 "${workspaceFolder}/include",
                 "${workspaceFolder}/kernel",
+                "${workspaceFolder}/external/zstl/include",
                 "${workspaceFolder}/arch/aarch64/include",
                 "${workspaceFolder}/arch/aarch64/kernel"
             ],
             "defines": [
                 "__aarch64__",
-                "__ELF__"
+                "__ELF__",
+                "ZSTL_FREESTANDING"
             ],
             "compilerArgs": [
                 "--target=aarch64-none-elf",
@@ -36,6 +38,7 @@
                 "path": [
                     "${workspaceFolder}/include",
                     "${workspaceFolder}/kernel",
+                "${workspaceFolder}/external/zstl/include",
                     "${workspaceFolder}/arch/aarch64/include",
                     "${workspaceFolder}/arch/aarch64/kernel"
                 ],
@@ -51,12 +54,14 @@
             "includePath": [
                 "${workspaceFolder}/include",
                 "${workspaceFolder}/kernel",
+                "${workspaceFolder}/external/zstl/include",
                 "${workspaceFolder}/arch/x86/include",
                 "${workspaceFolder}/arch/x86/kernel"
             ],
             "defines": [
                 "__x86_64__",
-                "__ELF__"
+                "__ELF__",
+                "ZSTL_FREESTANDING"
             ],
             "compilerArgs": [
                 "-m64",
@@ -83,6 +88,7 @@
                 "path": [
                     "${workspaceFolder}/include",
                     "${workspaceFolder}/kernel",
+                "${workspaceFolder}/external/zstl/include",
                     "${workspaceFolder}/arch/x86/include",
                     "${workspaceFolder}/arch/x86/kernel"
                 ],
@@ -98,13 +104,15 @@
             "includePath": [
                 "${workspaceFolder}/include",
                 "${workspaceFolder}/kernel",
+                "${workspaceFolder}/external/zstl/include",
                 "${workspaceFolder}/arch/riscv64/include",
                 "${workspaceFolder}/arch/riscv64/kernel"
             ],
             "defines": [
                 "__riscv",
                 "__riscv_xlen=64",
-                "__ELF__"
+                "__ELF__",
+                "ZSTL_FREESTANDING"
             ],
             "compilerArgs": [
                 "--target=riscv64-none-elf",
@@ -128,6 +136,7 @@
                 "path": [
                     "${workspaceFolder}/include",
                     "${workspaceFolder}/kernel",
+                "${workspaceFolder}/external/zstl/include",
                     "${workspaceFolder}/arch/riscv64/include",
                     "${workspaceFolder}/arch/riscv64/kernel"
                 ],

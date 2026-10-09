@@ -1,3 +1,6 @@
 [submodule "user/zcc"]
 	path = user/zcc
 	url = https://github.com/leafvmaple/zcc.git
+[submodule "external/zstl"]
+	path = external/zstl
+	url = git@github.com:leafvmaple/zstl.git

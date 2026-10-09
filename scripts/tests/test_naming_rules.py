@@ -214,7 +214,7 @@ class NamingRules(unittest.TestCase):
                     with self.assertRaises(RuntimeError):
                         rules.load_naming_exceptions(path)
 
-    def check_unused_source(self, relative, source, selected_elsewhere=False):
+    def check_unused_source(self, relative, source, selected_elsewhere=False, dependency_cache=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             for folder in ("kernel", "include/base", "arch/x86", "boot", "user", "docs"):
@@ -227,6 +227,7 @@ class NamingRules(unittest.TestCase):
             ownership.write_text("[]")
             exceptions.write_text("[]")
             (root / "kernel/example.cpp").write_text("class Owner { static int count_; };\n")
+            (root / relative).parent.mkdir(parents=True, exist_ok=True)
             (root / relative).write_text(source)
             flags = [CXX_STANDARD_FLAG, "-I" + str(root / "include")]
 
@@ -243,6 +244,17 @@ class NamingRules(unittest.TestCase):
                     patch.object(rules, "__file__", str(root / "checker.py")), \
                     patch.object(rules, "build_config", side_effect=config), \
                     redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                if dependency_cache:
+                    cache = root / "rules.sha256"
+                    with patch.object(rules, "compile_ast", wraps=rules.compile_ast) as compile_ast:
+                        self.assertEqual(rules.check("x86", cache), 0)
+                        first_calls = compile_ast.call_count
+                        self.assertEqual(rules.check("x86", cache), 0)
+                        self.assertEqual(compile_ast.call_count, first_calls)
+                        (root / relative).write_text(source + "\n// dependency changed\n")
+                        self.assertEqual(rules.check("x86", cache), 0)
+                        self.assertGreater(compile_ast.call_count, first_calls)
+                    return 0
                 return rules.check("x86")
 
     def test_unused_headers_and_dormant_sources_cannot_hide_bad_declarations(self):
@@ -254,6 +266,14 @@ class NamingRules(unittest.TestCase):
     def test_sources_selected_by_another_architecture_keep_their_build_context(self):
         self.assertEqual(self.check_unused_source("kernel/other_arch.cpp", '#include "other_arch_only.h"\n',
                                                   selected_elsewhere=True), 0)
+
+    def test_unused_imported_headers_are_not_compiled_as_first_party_sources(self):
+        self.assertEqual(self.check_unused_source("external/zstl/include/sys/unused.hpp",
+                                                  "#error dormant imported headers need their own build context\n"), 0)
+
+    def test_stl_dependency_changes_invalidate_cached_ast_checks(self):
+        self.assertEqual(self.check_unused_source("external/zstl/include/sys/unused.hpp", "// external header\n",
+                                                  dependency_cache=True), 0)
 
 
 if __name__ == "__main__":

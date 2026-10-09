@@ -11,6 +11,7 @@
 #include "mm/vmm.h"
 #include "sched/sched.h"
 #include "lib/memory.h"
+#include "lib/kernel_buffer.h"
 #include "debug/assert.h"
 
 namespace timer {
@@ -64,14 +65,13 @@ long sys_open(Task* cur, const char* user_path, int flags, int mode) {
         return -1;
     }
 
-    vfs::File* file = nullptr;
-    if (vfs::open(path, &file) != Error::None || !file) {
+    auto file = vfs::open(path);
+    if (!file.ok()) {
         return -1;
     }
 
-    auto fd_r = cur->files().alloc(file);
+    auto fd_r = cur->files().alloc(file.release_value());
     if (!fd_r.ok()) {
-        vfs::close(file);
         return -1;
     }
 
@@ -93,23 +93,25 @@ long sys_file_io(Task* cur, int fd, uintptr_t user_buf, size_t count, FileIo ope
         return -1;
     }
 
-    auto* buf = static_cast<uint8_t*>(kmalloc(PG_SIZE));
-    if (!buf) {
+    auto allocation = KernelBuffer::alloc(PG_SIZE);
+    if (!allocation.ok()) {
         return -1;
     }
+    auto storage = allocation.release_value();
+    uint8_t* buf = storage.data();
     size_t done = 0;
     bool failed = false;
     while (done < count) {
         size_t chunk = count - done;
-        if (chunk > PG_SIZE) {
-            chunk = PG_SIZE;
+        if (chunk > storage.size()) {
+            chunk = storage.size();
         }
         if (!to_user && vmm::copy_from_user(cur->memory, buf, user_buf + done, chunk) != Error::None) {
             failed = true;
             break;
         }
-        auto bytes_r = to_user ? vfs::read(entry->file, buf, chunk, entry->offset)
-                               : vfs::write(entry->file, buf, chunk, entry->offset);
+        auto bytes_r = to_user ? vfs::read(entry->file.get(), buf, chunk, entry->offset)
+                               : vfs::write(entry->file.get(), buf, chunk, entry->offset);
         if (!bytes_r.ok() || bytes_r.value() < 0 || static_cast<size_t>(bytes_r.value()) > chunk) {
             failed = true;
             break;
@@ -125,7 +127,6 @@ long sys_file_io(Task* cur, int fd, uintptr_t user_buf, size_t count, FileIo ope
             break;
         }
     }
-    kfree(buf);
     return failed && done == 0 ? -1 : static_cast<long>(done);
 }
 

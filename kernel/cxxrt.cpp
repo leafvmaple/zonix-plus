@@ -10,6 +10,7 @@
 
 #include <lib/memory.h>
 #include <asm/arch.h>
+#include <debug/assert.h>
 
 extern "C" {
 
@@ -61,20 +62,22 @@ int atexit(void (*)()) {
 
 }  // extern "C"
 
-void* operator new(__SIZE_TYPE__ size, const std::nothrow_t&) noexcept {
-    return kmalloc(size);
+void* operator new(__SIZE_TYPE__ size, const sys::nothrow_t&) noexcept {
+    return kmalloc(size ? size : 1);
 }
 
-void* operator new[](__SIZE_TYPE__ size, const std::nothrow_t&) noexcept {
-    return kmalloc(size);
+void* operator new[](__SIZE_TYPE__ size, const sys::nothrow_t&) noexcept {
+    return operator new(size, sys::nothrow);
 }
 
 void* operator new(__SIZE_TYPE__ size) {
-    return operator new(size, std::nothrow);
+    void* ptr = operator new(size, sys::nothrow);
+    assert(ptr);
+    return ptr;
 }
 
 void* operator new[](__SIZE_TYPE__ size) {
-    return operator new[](size, std::nothrow);
+    return operator new(size);
 }
 
 void operator delete(void* ptr) noexcept {
@@ -90,5 +93,12 @@ void operator delete(void* ptr, __SIZE_TYPE__) noexcept {
 }
 
 void operator delete[](void* ptr, __SIZE_TYPE__) noexcept {
+    kfree(ptr);
+}
+
+void operator delete(void* ptr, const sys::nothrow_t&) noexcept {
+    kfree(ptr);
+}
+void operator delete[](void* ptr, const sys::nothrow_t&) noexcept {
     kfree(ptr);
 }
