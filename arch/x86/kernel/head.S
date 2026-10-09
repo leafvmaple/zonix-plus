@@ -149,10 +149,10 @@ _main:
     # We have both identity map and higher-half map active, so we can
     # jump to the virtual address and continue execution there.
     # ---------------------------------------------------------------
-    movabsq $_start64_high, %rax
+    movabsq $.Lstart64_high, %rax
     jmp *%rax
 
-_start64_high:
+.Lstart64_high:
     # Now running at higher-half virtual address
     # RIP-relative addressing now works correctly with virtual symbols
 
@@ -190,9 +190,9 @@ _start64_high:
     call kern_init
 
     # If kern_init returns (it shouldn't), halt.
-_spin:
+.Lspin:
     hlt
-    jmp _spin
+    jmp .Lspin
 
 
 # ===================================================================

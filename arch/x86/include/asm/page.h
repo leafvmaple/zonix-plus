@@ -53,17 +53,17 @@ inline constexpr uint64_t PDPT_SIZE = PD_SIZE * ENTRY_NUM;                      
 inline constexpr int PDE_NUM = ENTRY_NUM;
 inline constexpr int PTE_NUM = ENTRY_NUM;
 
-inline constexpr uintptr_t pml4_index(uintptr_t la) {
-    return (la >> PML4X_SHIFT) & ENTRY_MASK;
+inline constexpr uintptr_t pml4_index(uintptr_t va) {
+    return (va >> PML4X_SHIFT) & ENTRY_MASK;
 }
-inline constexpr uintptr_t pdpt_index(uintptr_t la) {
-    return (la >> PDPTX_SHIFT) & ENTRY_MASK;
+inline constexpr uintptr_t pdpt_index(uintptr_t va) {
+    return (va >> PDPTX_SHIFT) & ENTRY_MASK;
 }
-inline constexpr uintptr_t pd_index(uintptr_t la) {
-    return (la >> PDX_SHIFT) & ENTRY_MASK;
+inline constexpr uintptr_t pd_index(uintptr_t va) {
+    return (va >> PDX_SHIFT) & ENTRY_MASK;
 }
-inline constexpr uintptr_t pt_index(uintptr_t la) {
-    return (la >> PTX_SHIFT) & ENTRY_MASK;
+inline constexpr uintptr_t pt_index(uintptr_t va) {
+    return (va >> PTX_SHIFT) & ENTRY_MASK;
 }
 
 static inline bool pte_is_block(uintptr_t entry) {

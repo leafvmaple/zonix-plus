@@ -70,7 +70,7 @@ Result<int> FatInfo::do_file_io(FatDirEntry* entry, uint8_t* io_buf, uint32_t of
     ClusterChain chain(*this, cluster);
     while (solve_bytes < size && (cluster = TRY(chain.next())) != 0) {
         uint32_t sector = cluster_to_sector(cluster);
-        TRY_LOG(dev_->read(partition_start_ + sector, cluster_buf, sectors_per_cluster_),
+        TRY_LOG(dev_->read(partition_start_lba_ + sector, cluster_buf, sectors_per_cluster_),
                 "fat_%s_file: failed to read cluster %d", op, cluster);
 
         if (offset >= bytes_per_cluster_) {
@@ -85,7 +85,7 @@ Result<int> FatInfo::do_file_io(FatDirEntry* entry, uint8_t* io_buf, uint32_t of
         uint32_t count = min(cluster_bytes, size - solve_bytes);
         if (writeback) {
             memcpy(cluster_buf + cluster_offset, io_buf + solve_bytes, count);
-            TRY_LOG(dev_->write(partition_start_ + sector, cluster_buf, sectors_per_cluster_),
+            TRY_LOG(dev_->write(partition_start_lba_ + sector, cluster_buf, sectors_per_cluster_),
                     "fat_%s_file: failed to write cluster %d", op, cluster);
         } else {
             memcpy(io_buf + solve_bytes, cluster_buf + cluster_offset, count);
@@ -109,7 +109,7 @@ Result<int> FatInfo::read_dir(uint32_t start_cluster, DirVisitor& visitor, bool 
 
         for (uint32_t i = 0; i < sectors_per_cluster_; i++) {
             uint32_t sector = base_sector + i;
-            if (dev_->read(partition_start_ + sector, &sector_buf, 1) != Error::None) {
+            if (dev_->read(partition_start_lba_ + sector, &sector_buf, 1) != Error::None) {
                 if (verbose_read_error) {
                     cprintf("fat_read_dir: failed to read sector %d\n", sector);
                 }
@@ -160,7 +160,7 @@ Error FatInfo::find_entry(uint32_t start_cluster, const char* name, FatDirEntry*
     while ((cluster = TRY(chain.next())) != 0) {
         uint32_t base_sector = cluster_to_sector(cluster);
         for (uint32_t i = 0; i < sectors_per_cluster_; i++) {
-            TRY(dev_->read(partition_start_ + base_sector + i, &sector_buf, 1));
+            TRY(dev_->read(partition_start_lba_ + base_sector + i, &sector_buf, 1));
 
             for (auto& entry : sector_buf.entries) {
                 if (entry.is_end())
@@ -292,7 +292,7 @@ Error FatInfo::add_dir_entry(uint32_t dir_cluster, const FatDirEntry* new_entry)
     while ((cluster = TRY(chain.next())) != 0) {
         uint32_t base_sector = cluster_to_sector(cluster);
         for (uint32_t i = 0; i < sectors_per_cluster_; i++) {
-            uint32_t abs_sector = partition_start_ + base_sector + i;
+            uint32_t abs_sector = partition_start_lba_ + base_sector + i;
             TRY(dev_->read(abs_sector, &sector_buf, 1));
 
             for (int j = 0; j < Sector::COUNT; j++) {
@@ -317,7 +317,7 @@ Error FatInfo::add_dir_entry(uint32_t dir_cluster, const FatDirEntry* new_entry)
                 return Error::Io;
             }
 
-            uint32_t new_base_sector = partition_start_ + cluster_to_sector(new_cluster);
+            uint32_t new_base_sector = partition_start_lba_ + cluster_to_sector(new_cluster);
             memset(&sector_buf, 0, sizeof(sector_buf));
             sector_buf.entries[0] = *new_entry;
 
@@ -346,7 +346,7 @@ Error FatInfo::remove_dir_entry(uint32_t dir_cluster, const char* name) {
     while ((cluster = TRY(chain.next())) != 0) {
         uint32_t base_sector = cluster_to_sector(cluster);
         for (uint32_t i = 0; i < sectors_per_cluster_; i++) {
-            uint32_t abs_sector = partition_start_ + base_sector + i;
+            uint32_t abs_sector = partition_start_lba_ + base_sector + i;
             TRY(dev_->read(abs_sector, &sector_buf, 1));
 
             auto& entries = sector_buf.entries;
@@ -426,7 +426,7 @@ Error FatInfo::mkdir(const char* relpath) {
     entries[1].first_cluster_high = static_cast<uint16_t>(parent_val >> 16);
     entries[1].first_cluster_low = static_cast<uint16_t>(parent_val & 0xFFFF);
 
-    uint32_t sector = partition_start_ + cluster_to_sector(new_cluster);
+    uint32_t sector = partition_start_lba_ + cluster_to_sector(new_cluster);
     if (dev_->write(sector, sector_buf, 1) != Error::None) {
         free_chain(new_cluster);
         return Error::Io;
@@ -507,7 +507,7 @@ Error FatInfo::rmdir(const char* relpath) {
     while (empty && (cluster = TRY(chain.next())) != 0) {
         uint32_t base_sector = cluster_to_sector(cluster);
         for (uint32_t i = 0; i < sectors_per_cluster_ && empty; i++) {
-            TRY(dev_->read(partition_start_ + base_sector + i, sector_buf, 1));
+            TRY(dev_->read(partition_start_lba_ + base_sector + i, sector_buf, 1));
             auto* dir_entries = reinterpret_cast<FatDirEntry*>(sector_buf);
             for (uint32_t j = 0; j < bytes_per_sector_ / 32; j++) {
                 if (dir_entries[j].is_end()) {

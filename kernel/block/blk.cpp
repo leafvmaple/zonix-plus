@@ -48,7 +48,7 @@ int BlockManager::device_count() {
 
 void BlockDevice::print_info() {
     cprintf("Device: %s\n", name);
-    cprintf("  Size: %d sectors (%d MB)\n", size, size / 2048);
+    cprintf("  Size: %d sectors (%d MB)\n", block_count, block_count / 2048);
     cprintf("\n");
 }
 
@@ -65,7 +65,7 @@ void BlockManager::print() {
                 mount_string = "[SWAP]";
             }
 
-            uint32_t size_bytes = dev->size * BlockDevice::SIZE;
+            uint32_t size_bytes = dev->block_count * BlockDevice::BLOCK_SIZE_BYTES;
             uint32_t size_mb = size_bytes / (1024 * 1024);
             uint32_t remainder = size_bytes % (1024 * 1024);
             uint32_t decimal = (remainder * 10) / (1024 * 1024);

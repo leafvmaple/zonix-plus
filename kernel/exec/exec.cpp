@@ -68,10 +68,10 @@ pde_t* create_user_pgdir() {
 }
 
 uintptr_t setup_user_stack(pde_t* pgdir) {
-    uintptr_t stack_bottom = USER_STACK_TOP - USER_STACK_SIZE;
+    uintptr_t user_stack_bottom_va = USER_STACK_TOP - USER_STACK_SIZE;
 
-    for (uintptr_t va = stack_bottom; va < USER_STACK_TOP; va += PG_SIZE) {
-        Page* page = pmm::pgdir_alloc_page(pgdir, va, VM_USER_RW);
+    for (uintptr_t va = user_stack_bottom_va; va < USER_STACK_TOP; va += PG_SIZE) {
+        Page* page = pmm::alloc_and_map_page(pgdir, va, VM_USER_RW);
         if (!page) {
             cprintf("exec: failed to allocate user stack page at 0x%lx\n", va);
             return 0;
@@ -127,22 +127,22 @@ Result<int> exec(const char* path) {
         return Error::NoMem;
     }
 
-    uintptr_t entry = load_binary(buf.ptr, file_size, user_pgdir);
-    if (entry == 0) {
+    uintptr_t entry_va = load_binary(buf.ptr, file_size, user_pgdir);
+    if (entry_va == 0) {
         cprintf("exec: failed to load binary\n");
         pmm::free_user_pgdir(user_pgdir);
         return Error::Fail;
     }
 
-    uintptr_t user_rsp = setup_user_stack(user_pgdir);
-    if (user_rsp == 0) {
+    uintptr_t user_stack_va = setup_user_stack(user_pgdir);
+    if (user_stack_va == 0) {
         cprintf("exec: failed to set up user stack\n");
         pmm::free_user_pgdir(user_pgdir);
         return Error::NoMem;
     }
 
     TrapFrame tf{};
-    arch_setup_user_tf(&tf, entry, user_rsp);
+    arch_setup_user_tf(&tf, entry_va, user_stack_va);
 
     MemoryDesc* mm = new MemoryDesc();
     mm->pgdir = user_pgdir;
@@ -151,7 +151,7 @@ Result<int> exec(const char* path) {
     int pid{};
     {
         intr::Guard guard;
-        auto pid_r = sched::fork(0, user_rsp, &tf);
+        auto pid_r = sched::fork(0, user_stack_va, &tf);
         if (!pid_r.ok()) {
             cprintf("exec: fork failed\n");
             delete mm;
@@ -166,7 +166,7 @@ Result<int> exec(const char* path) {
         }
     }
 
-    cprintf("exec: started user process '%s' (PID %d) entry=0x%lx rsp=0x%lx\n", path, pid, entry, user_rsp);
+    cprintf("exec: started user process '%s' (PID %d) entry=0x%lx rsp=0x%lx\n", path, pid, entry_va, user_stack_va);
     return pid;
 }
 

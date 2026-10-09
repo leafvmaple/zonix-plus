@@ -32,7 +32,7 @@ static void test_alloc_free_single() {
     if (page) {
         uintptr_t pa = pmm::page_to_phys(page);
         TEST_ASSERT((pa & (PG_SIZE - 1)) == 0, "Physical address is page-aligned");
-        TEST_ASSERT(page->ref == 0, "Newly allocated page ref count is 0");
+        TEST_ASSERT(page->ref_count == 0, "Newly allocated page ref count is 0");
 
         void* kva = pmm::page_to_kva(page);
         TEST_ASSERT(kva != nullptr, "page_to_kva returns valid address");

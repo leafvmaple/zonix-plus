@@ -27,56 +27,56 @@ namespace vmm {
 
 uintptr_t Manager::mmio_next_va_ = KERNEL_DEVIO_BASE;
 
-bool user_range_valid(MemoryDesc* mm, uintptr_t addr, size_t size, bool write) {
+bool user_range_valid(MemoryDesc* mm, uintptr_t user_va, size_t byte_count, bool write) {
     intr::Guard guard;
-    if (!mm || !mm->pgdir || addr < PG_SIZE || addr >= USER_SPACE_TOP || size > USER_SPACE_TOP - addr) {
+    if (!mm || !mm->pgdir || user_va < PG_SIZE || user_va >= USER_SPACE_TOP || byte_count > USER_SPACE_TOP - user_va) {
         return false;
     }
-    while (size != 0) {
-        if (!pmm::user_address(mm->pgdir, addr, write).ok()) {
+    while (byte_count != 0) {
+        if (!pmm::user_address(mm->pgdir, user_va, write).ok()) {
             return false;
         }
-        size_t chunk = PG_SIZE - (addr & PG_MASK);
-        if (chunk > size) {
-            chunk = size;
+        size_t chunk_bytes = PG_SIZE - (user_va & PG_MASK);
+        if (chunk_bytes > byte_count) {
+            chunk_bytes = byte_count;
         }
-        addr += chunk;
-        size -= chunk;
+        user_va += chunk_bytes;
+        byte_count -= chunk_bytes;
     }
     return true;
 }
 
-static Error copy_user(MemoryDesc* mm, uintptr_t user, void* kernel, size_t size, bool to_user) {
+static Error copy_user(MemoryDesc* mm, uintptr_t user_va, void* kernel_buffer, size_t byte_count, bool to_user) {
     intr::Guard guard;
-    ENSURE(kernel && user_range_valid(mm, user, size, to_user));
-    auto* bytes = static_cast<uint8_t*>(kernel);
-    while (size != 0) {
-        auto alias = pmm::user_address(mm->pgdir, user, to_user);
+    ENSURE(kernel_buffer && user_range_valid(mm, user_va, byte_count, to_user));
+    auto* bytes = static_cast<uint8_t*>(kernel_buffer);
+    while (byte_count != 0) {
+        auto alias = pmm::user_address(mm->pgdir, user_va, to_user);
         if (!alias.ok()) {
             return alias.error();
         }
-        size_t chunk = PG_SIZE - (user & PG_MASK);
-        if (chunk > size) {
-            chunk = size;
+        size_t chunk_bytes = PG_SIZE - (user_va & PG_MASK);
+        if (chunk_bytes > byte_count) {
+            chunk_bytes = byte_count;
         }
         if (to_user) {
-            memcpy(alias.value(), bytes, chunk);
+            memcpy(alias.value(), bytes, chunk_bytes);
         } else {
-            memcpy(bytes, alias.value(), chunk);
+            memcpy(bytes, alias.value(), chunk_bytes);
         }
-        user += chunk;
-        bytes += chunk;
-        size -= chunk;
+        user_va += chunk_bytes;
+        bytes += chunk_bytes;
+        byte_count -= chunk_bytes;
     }
     return Error::None;
 }
 
-Error copy_from_user(MemoryDesc* mm, void* dst, uintptr_t src, size_t size) {
-    return copy_user(mm, src, dst, size, false);
+Error copy_from_user(MemoryDesc* mm, void* kernel_dst, uintptr_t user_src_va, size_t byte_count) {
+    return copy_user(mm, user_src_va, kernel_dst, byte_count, false);
 }
 
-Error copy_to_user(MemoryDesc* mm, uintptr_t dst, const void* src, size_t size) {
-    return copy_user(mm, dst, const_cast<void*>(src), size, true);
+Error copy_to_user(MemoryDesc* mm, uintptr_t user_dst_va, const void* kernel_src, size_t byte_count) {
+    return copy_user(mm, user_dst_va, const_cast<void*>(kernel_src), byte_count, true);
 }
 
 void print_pgdir() {
@@ -94,12 +94,12 @@ void print_pgdir() {
     cprintf("--------------------- END ---------------------\n");
 }
 
-int pg_fault(MemoryDesc* mm, uint32_t error_code, uintptr_t addr) {
-    if (!mm || !mm->pgdir || addr < PG_SIZE || addr >= USER_SPACE_TOP || (error_code & 1)) {
+int pg_fault(MemoryDesc* mm, uint32_t error_code, uintptr_t fault_va) {
+    if (!mm || !mm->pgdir || fault_va < PG_SIZE || fault_va >= USER_SPACE_TOP || (error_code & 1)) {
         return -1;
     }
-    addr = round_down(addr, PG_SIZE);
-    pte_t* ptep = pmm::get_pte(mm->pgdir, addr, false);
+    fault_va = round_down(fault_va, PG_SIZE);
+    pte_t* ptep = pmm::get_pte(mm->pgdir, fault_va, false);
     if (ptep && pte_present(*ptep)) {
         return -1;  // A mapped page fault is not a swap entry.
     }
@@ -108,9 +108,9 @@ int pg_fault(MemoryDesc* mm, uint32_t error_code, uintptr_t addr) {
             return -1;
         }
         Page* page = nullptr;
-        return swap::in(mm, addr, &page) == Error::None ? 0 : -1;
+        return swap::in(mm, fault_va, &page) == Error::None ? 0 : -1;
     }
-    Page* page = pmm::pgdir_alloc_page(mm->pgdir, addr, user_page_perm(true));
+    Page* page = pmm::alloc_and_map_page(mm->pgdir, fault_va, user_page_perm(true));
     if (!page) {
         return -1;
     }
@@ -118,15 +118,15 @@ int pg_fault(MemoryDesc* mm, uint32_t error_code, uintptr_t addr) {
     return 0;
 }
 
-// Map virtual pages to physical pages in 4-level page table
-Error pgdir_init(pde_t* pgdir, uintptr_t la, size_t size, uintptr_t pa, uint32_t perm) {
-    size_t n = round_up(size, PG_SIZE) / PG_SIZE;
-    la = round_down(la, PG_SIZE);
+// Map a byte range through the architecture's page table levels.
+Error map_physical_range(pde_t* pgdir, uintptr_t va, size_t byte_count, uintptr_t pa, uint32_t perm) {
+    size_t page_count = round_up(byte_count, PG_SIZE) / PG_SIZE;
+    va = round_down(va, PG_SIZE);
     pa = round_down(pa, PG_SIZE);
-    for (; n > 0; n--, la += PG_SIZE, pa += PG_SIZE) {
-        pte_t* ptep = pmm::get_pte(pgdir, la, 1);
+    for (; page_count > 0; page_count--, va += PG_SIZE, pa += PG_SIZE) {
+        pte_t* ptep = pmm::get_pte(pgdir, va, 1);
         if (!ptep) {
-            cprintf("vmm: pgdir_init failed to allocate PTE for va=0x%lx\n", la);
+            cprintf("vmm: pgdir_init failed to allocate PTE for va=0x%lx\n", va);
             return Error::NoMem;
         }
         *ptep = make_pte_page(pa, perm);
@@ -139,17 +139,17 @@ Error pgdir_init(pde_t* pgdir, uintptr_t la, size_t size, uintptr_t pa, uint32_t
 // Assigns consecutive virtual addresses starting at KERNEL_DEVIO_BASE.
 // The virtual address has NO arithmetic relationship to the physical one.
 // -------------------------------------------------------------------------
-uintptr_t mmio_map(uintptr_t phys_addr, size_t size, uint32_t perm) {
-    size = round_up(size, PG_SIZE);
+uintptr_t mmio_map(uintptr_t pa, size_t byte_count, uint32_t perm) {
+    byte_count = round_up(byte_count, PG_SIZE);
     uintptr_t va = Manager::mmio_next_va_;
-    if (pgdir_init(Manager::kernel_pgdir(), va, size, phys_addr, perm) != Error::None) {
-        cprintf("vmm: mmio_map failed for phys=0x%lx size=0x%lx\n", phys_addr, size);
+    if (map_physical_range(Manager::kernel_pgdir(), va, byte_count, pa, perm) != Error::None) {
+        cprintf("vmm: mmio_map failed for phys=0x%lx size=0x%lx\n", pa, byte_count);
         return 0;
     }
     // Flush TLB for the newly mapped range so that stale entries
     // (e.g. from split 2MB blocks) don't interfere.
-    arch_flush_tlb_range(va, size);
-    Manager::mmio_next_va_ += size;
+    arch_invalidate_tlb_range(va, byte_count);
+    Manager::mmio_next_va_ += byte_count;
     return va;
 }
 
@@ -158,12 +158,12 @@ int init() {
 
     cprintf("vmm: kernel root page table [0x%p]\n", boot_pgdir);
 
-    if (pgdir_init(boot_pgdir, KERNEL_BASE, KERNEL_MEM_SIZE, 0, VM_WRITE) != Error::None) {
+    if (map_physical_range(boot_pgdir, KERNEL_BASE, KERNEL_MEM_SIZE, 0, VM_WRITE) != Error::None) {
         cprintf("vmm: failed to map kernel address space\n");
         return -1;
     }
 
-    arch_flush_tlb_range(KERNEL_BASE, KERNEL_MEM_SIZE);
+    arch_invalidate_tlb_range(KERNEL_BASE, KERNEL_MEM_SIZE);
 
     mm_init(&Manager::kernel_mm_);
     Manager::kernel_mm_.pgdir = boot_pgdir;

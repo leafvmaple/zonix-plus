@@ -27,8 +27,8 @@ constexpr uint32_t timer_div(uint32_t x) {
 }
 
 uint8_t cmos_read(uint8_t addr) {
-    arch_port_outb(0x70, 0x80 | addr);
-    return arch_port_inb(0x71);
+    arch_port_write8(0x70, 0x80 | addr);
+    return arch_port_read8(0x71);
 }
 
 constexpr uint8_t bcd_to_bin(uint8_t val) {
@@ -70,10 +70,10 @@ int init() {
     time.tm_mon = bcd_to_bin(static_cast<uint8_t>(time.tm_mon));
     time.tm_year = bcd_to_bin(static_cast<uint8_t>(time.tm_year));
 
-    arch_port_outb(PIT_CTRL_REG, PIT_SEL_TIMER0 | PIT_RATE_GEN | PIT_16BIT);
+    arch_port_write8(PIT_CTRL_REG, PIT_SEL_TIMER0 | PIT_RATE_GEN | PIT_16BIT);
 
-    arch_port_outb(PIT_TIMER0_REG, timer_div(100) % 256);
-    arch_port_outb(PIT_TIMER0_REG, timer_div(100) / 256);
+    arch_port_write8(PIT_TIMER0_REG, timer_div(100) % 256);
+    arch_port_write8(PIT_TIMER0_REG, timer_div(100) / 256);
 
     i8259::enable(IRQ_TIMER);
 

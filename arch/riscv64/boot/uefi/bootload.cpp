@@ -9,14 +9,14 @@ extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE*
     const UefiBootConfig cfg = {
         .banner = uefi_string(L"\r\nZonix UEFI Bootloader (RISC-V 64) v1.0\r\n\r\n"),
         .loader_name = "Zonix UEFI RISC-V",
-        .kernel_virt_base = 0xFFFFFFC000000000ULL,
-        .boot_info_addr = BOARD_BOOT_INFO_ADDR,
-        .mmap_addr = BOARD_MMAP_ADDR,
-        .mmap_max_entries = SAFE_MMAP_MAX_ENTRIES,
-        .mem_lower = 0,
-        .mem_upper_min = 0,
-        .kernel_alloc_base = BOARD_KERNEL_PHYS,
-        .kernel_alloc_pages = 512, /* 2 MB */
+        .kernel_base_va = 0xFFFFFFC000000000ULL,
+        .boot_info_pa = BOARD_BOOT_INFO_ADDR,
+        .memory_map_pa = BOARD_MMAP_ADDR,
+        .memory_map_capacity = SAFE_MMAP_MAX_ENTRIES,
+        .lower_memory_kib = 0,
+        .upper_memory_start_pa = 0,
+        .kernel_alloc_pa = BOARD_KERNEL_PHYS,
+        .kernel_page_count = 512, /* 2 MB */
     };
 
     BootInfo* bi = nullptr;

@@ -18,72 +18,72 @@ if [ -z "$ARCH" ]; then
     esac
 fi
 
-IMAGE="${BINDIR}/zonix-uefi.img"
+image_path="${BINDIR}/zonix-uefi.img"
 
 case "$ARCH" in
     aarch64)
-        BOOTLOADER="${BINDIR}/BOOTAA64.EFI"
-        EFI_BOOT_NAME="BOOTAA64.EFI"
-        IMAGE_SIZE=128
+        bootloader_path="${BINDIR}/BOOTAA64.EFI"
+        efi_boot_name="BOOTAA64.EFI"
+        image_size_mib=128
         ;;
     riscv64)
-        BOOTLOADER="${BINDIR}/BOOTRISCV64.EFI"
-        EFI_BOOT_NAME="BOOTRISCV64.EFI"
-        IMAGE_SIZE=128
+        bootloader_path="${BINDIR}/BOOTRISCV64.EFI"
+        efi_boot_name="BOOTRISCV64.EFI"
+        image_size_mib=128
         ;;
     *)
-        BOOTLOADER="${BINDIR}/BOOTX64.EFI"
-        EFI_BOOT_NAME="BOOTX64.EFI"
-        IMAGE_SIZE=100
+        bootloader_path="${BINDIR}/BOOTX64.EFI"
+        efi_boot_name="BOOTX64.EFI"
+        image_size_mib=100
         ;;
 esac
 
-KERNEL="${BINDIR}/kernel"
+kernel_path="${BINDIR}/kernel"
 
-[ -f "$BOOTLOADER" ] || { echo "Error: $BOOTLOADER not found"; exit 1; }
-[ -f "$KERNEL" ] || { echo "Error: $KERNEL not found"; exit 1; }
+[ -f "$bootloader_path" ] || { echo "Error: $bootloader_path not found"; exit 1; }
+[ -f "$kernel_path" ] || { echo "Error: $kernel_path not found"; exit 1; }
 
-echo "[1] Creating ${IMAGE_SIZE}MB image..."
-dd if=/dev/zero of="$IMAGE" bs=1M count=$IMAGE_SIZE 2>/dev/null
+echo "[1] Creating ${image_size_mib}MB image..."
+dd if=/dev/zero of="$image_path" bs=1M count=$image_size_mib 2>/dev/null
 
 echo "[2] Creating GPT partition table..."
-parted -s "$IMAGE" mklabel gpt
-parted -s "$IMAGE" mkpart "ESP" fat32 1MiB 100%
-parted -s "$IMAGE" set 1 esp on
-parted -s "$IMAGE" set 1 boot on
+parted -s "$image_path" mklabel gpt
+parted -s "$image_path" mkpart "ESP" fat32 1MiB 100%
+parted -s "$image_path" set 1 esp on
+parted -s "$image_path" set 1 boot on
 
 echo "[3] Formatting ESP partition as FAT32..."
-mkfs.fat -F 32 -n "ESP" --offset 2048 "$IMAGE" 2>/dev/null
+mkfs.fat -F 32 -n "ESP" --offset 2048 "$image_path" 2>/dev/null
 
 echo "[4] Getting absolute path..."
-IMAGE_ABS="$(cd "$(dirname "$IMAGE")" && pwd)/$(basename "$IMAGE")"
+image_absolute_path="$(cd "$(dirname "$image_path")" && pwd)/$(basename "$image_path")"
 
 echo "[5] Creating EFI directory structure (using mtools)..."
-MTOOLS_IMG="${IMAGE_ABS}@@1M"
+mtools_image="${image_absolute_path}@@1M"
 
-mmd -i "$MTOOLS_IMG" ::/EFI 2>/dev/null || true
-mmd -i "$MTOOLS_IMG" ::/EFI/BOOT 2>/dev/null || true
-mmd -i "$MTOOLS_IMG" ::/EFI/ZONIX 2>/dev/null || true
+mmd -i "$mtools_image" ::/EFI 2>/dev/null || true
+mmd -i "$mtools_image" ::/EFI/BOOT 2>/dev/null || true
+mmd -i "$mtools_image" ::/EFI/ZONIX 2>/dev/null || true
 
 echo "[6] Copying files..."
-mcopy -i "$MTOOLS_IMG" "$BOOTLOADER" "::/EFI/BOOT/${EFI_BOOT_NAME}"
-mcopy -i "$MTOOLS_IMG" "$KERNEL" ::/EFI/ZONIX/KERNEL.ELF
-mcopy -i "$MTOOLS_IMG" "$KERNEL" ::/KERNEL.ELF
+mcopy -i "$mtools_image" "$bootloader_path" "::/EFI/BOOT/${efi_boot_name}"
+mcopy -i "$mtools_image" "$kernel_path" ::/EFI/ZONIX/KERNEL.ELF
+mcopy -i "$mtools_image" "$kernel_path" ::/KERNEL.ELF
 
 echo "[7] Creating startup.nsh..."
-TMPNSH=$(mktemp)
-cat > "$TMPNSH" << NSH_EOF
+startup_script=$(mktemp)
+cat > "$startup_script" << NSH_EOF
 fs0:
 cd \\EFI\\BOOT
-${EFI_BOOT_NAME}
+${efi_boot_name}
 NSH_EOF
-mcopy -i "$MTOOLS_IMG" "$TMPNSH" ::/startup.nsh
-rm -f "$TMPNSH"
+mcopy -i "$mtools_image" "$startup_script" ::/startup.nsh
+rm -f "$startup_script"
 
 echo "[8] Verifying (listing files)..."
-mdir -i "$MTOOLS_IMG" ::/EFI/BOOT
-mdir -i "$MTOOLS_IMG" ::/EFI/ZONIX
+mdir -i "$mtools_image" ::/EFI/BOOT
+mdir -i "$mtools_image" ::/EFI/ZONIX
 
 echo "[9] Done! GPT+ESP image created."
-ls -lh "$IMAGE"
-fdisk -l "$IMAGE" 2>/dev/null | head -15 || true
+ls -lh "$image_path"
+fdisk -l "$image_path" 2>/dev/null | head -15 || true

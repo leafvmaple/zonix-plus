@@ -157,7 +157,7 @@ void handle_timer_tick() {
     fbcons::tick();
 }
 
-int handle_page_fault(TrapFrame* tf, uint32_t err, uintptr_t fault_addr) {
+int handle_page_fault(TrapFrame* tf, uint32_t err, uintptr_t fault_va) {
     if (!tf) {
         return -1;
     }
@@ -170,7 +170,7 @@ int handle_page_fault(TrapFrame* tf, uint32_t err, uintptr_t fault_addr) {
         return -1;
     }
 
-    return vmm::pg_fault(current->memory, err, fault_addr);
+    return vmm::pg_fault(current->memory, err, fault_va);
 }
 
 bool handle_syscall(TrapFrame* tf) {
@@ -231,12 +231,12 @@ extern "C" void trap_dispatch(TrapFrame* tf) {
         trap::arch_post_dispatch(tf);
     } else if (trap::arch_is_page_fault(tf)) {
         uint32_t err = trap::arch_page_fault_error(tf);
-        uintptr_t fault_addr = trap::arch_page_fault_addr(tf);
-        if (trap::handle_page_fault(tf, err, fault_addr) != 0) {
+        uintptr_t fault_va = trap::arch_page_fault_address(tf);
+        if (trap::handle_page_fault(tf, err, fault_va) != 0) {
             if (err & 4) {
                 sched::exit(-1);
             }
-            PANIC("unrecoverable kernel page fault at 0x%lx", fault_addr);
+            PANIC("unrecoverable kernel page fault at 0x%lx", fault_va);
         }
         trap::arch_post_dispatch(tf);
     } else if (trap::arch_is_syscall(tf)) {

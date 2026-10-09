@@ -12,8 +12,8 @@
 // - May cause fragmentation at the beginning of memory
 //
 // Time Complexity:
-// - Allocation: O(n) where n is the number of free blocks
-// - Deallocation: O(n) for merging adjacent blocks
+// - Allocation: O(page_count) where page_count is the number of free blocks
+// - Deallocation: O(page_count) for merging adjacent blocks
 //
 // Space Complexity: O(1) auxiliary space
 
@@ -30,20 +30,20 @@ const char* PageAllocator::name() const {
 
 void PageAllocator::init() {}
 
-void PageAllocator::init_memmap(Page* base, size_t n) {
-    for (Page* p = base; p != base + n; p++) {
+void PageAllocator::init_memmap(Page* base, size_t page_count) {
+    for (Page* p = base; p != base + page_count; p++) {
         new (p) Page();
     }
 
-    base->property = n;
+    base->block_page_count = page_count;
     base->set_reserved();
 
-    free_area.nr_free += n;
+    free_area.free_page_count += page_count;
     free_area.free_list.add_before(base->node());
 }
 
-Page* PageAllocator::alloc(size_t n) {
-    if (n > free_area.nr_free) {
+Page* PageAllocator::alloc(size_t page_count) {
+    if (page_count > free_area.free_page_count) {
         return nullptr;
     }
 
@@ -52,35 +52,35 @@ Page* PageAllocator::alloc(size_t n) {
     ListNode* valid_node = &free_area.free_list;
     while ((valid_node = valid_node->next_node()) != &free_area.free_list) {
         Page* p = valid_node->container<Page>();
-        if (p->property >= n) {
+        if (p->block_page_count >= page_count) {
             page = p;
             break;
         }
     }
 
     if (page) {
-        if (page->property > n) {
-            Page* remaining = page + n;
-            remaining->property = page->property - n;
+        if (page->block_page_count > page_count) {
+            Page* remaining = page + page_count;
+            remaining->block_page_count = page->block_page_count - page_count;
             remaining->set_reserved();
             valid_node->add_after(remaining->node());
         }
         valid_node->unlink();
-        free_area.nr_free -= n;
+        free_area.free_page_count -= page_count;
         page->clear_reserved();
     }
 
     return page;
 }
 
-void PageAllocator::free(Page* base, size_t n) {
-    for (Page* p = base; p != base + n; p++) {
-        assert(p->ref == 0);
-        p->ref = 0;
+void PageAllocator::free(Page* base, size_t page_count) {
+    for (Page* p = base; p != base + page_count; p++) {
+        assert(p->ref_count == 0);
+        p->ref_count = 0;
         p->flags = PAGE_INIT_VALUE;
     }
 
-    base->property = n;
+    base->block_page_count = page_count;
     base->set_reserved();
 
     ListNode* le = free_area.free_list.next_node();
@@ -90,14 +90,14 @@ void PageAllocator::free(Page* base, size_t n) {
         ListNode* next = le->next_node();
         Page* p = le->container<Page>();
 
-        if (base + base->property == p) {
-            base->property += p->property;
+        if (base + base->block_page_count == p) {
+            base->block_page_count += p->block_page_count;
             p->clear_reserved();
             le->unlink();
         }
 
-        else if (p + p->property == base) {
-            p->property += base->property;
+        else if (p + p->block_page_count == base) {
+            p->block_page_count += base->block_page_count;
             base->clear_reserved();
             base = p;
             le->unlink();
@@ -107,10 +107,10 @@ void PageAllocator::free(Page* base, size_t n) {
         le = next;
     }
 
-    free_area.nr_free += n;
+    free_area.free_page_count += page_count;
     prev->add_after(base->node());
 }
 
 size_t PageAllocator::free_page_count() const {
-    return free_area.nr_free;
+    return free_area.free_page_count;
 }

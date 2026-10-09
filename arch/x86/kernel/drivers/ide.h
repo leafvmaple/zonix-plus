@@ -64,11 +64,11 @@ struct IdeConfig {
 };
 
 struct DiskInfo {
-    uint32_t size{};       // Size in sectors
-    uint16_t cylinders{};  // Number of cylinders
-    uint16_t heads{};      // Number of heads
-    uint16_t sectors{};    // Sectors per track
-    int valid{};           // Device is valid
+    uint32_t block_count{};  // Size in sectors
+    uint16_t cylinders{};    // Number of cylinders
+    uint16_t heads{};        // Number of heads
+    uint16_t sectors{};      // Sectors per track
+    int valid{};             // Device is valid
 };
 
 struct IdeRequest {

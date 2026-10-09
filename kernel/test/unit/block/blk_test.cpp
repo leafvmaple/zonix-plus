@@ -20,7 +20,7 @@ public:
     MockBlockDevice(const char* dev_name, blk::DeviceType dev_type, uint32_t dev_size) {
         strncpy(name, dev_name, sizeof(name) - 1);
         type = dev_type;
-        size = dev_size;
+        block_count = dev_size;
     }
 
     Error read(uint32_t, void* buf, size_t) override {
@@ -148,8 +148,8 @@ static void test_get_device_by_type() {
 static void test_block_constants() {
     TEST_START("BlockDevice constants");
 
-    TEST_ASSERT(BlockDevice::SIZE == 512, "Sector size is 512 bytes");
-    TEST_ASSERT(BlockManager::MAX_DEV >= 4, "MAX_DEV is at least 4");
+    TEST_ASSERT(BlockDevice::BLOCK_SIZE_BYTES == 512, "Sector size is 512 bytes");
+    TEST_ASSERT(BlockManager::MAX_DEVICES >= 4, "MAX_DEVICES is at least 4");
 
     TEST_END();
 }

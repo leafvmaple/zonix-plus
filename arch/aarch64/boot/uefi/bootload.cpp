@@ -10,14 +10,14 @@ extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE*
     const UefiBootConfig cfg = {
         .banner = uefi_string(L"\r\nZonix UEFI Bootloader (AArch64) v1.0\r\n\r\n"),
         .loader_name = "Zonix UEFI",
-        .kernel_virt_base = 0xFFFF000000000000ULL,
-        .boot_info_addr = SAFE_BOOT_INFO_ADDR,
-        .mmap_addr = SAFE_MMAP_ADDR,
-        .mmap_max_entries = SAFE_MMAP_MAX_ENTRIES,
-        .mem_lower = 0,
-        .mem_upper_min = 0,
-        .kernel_alloc_base = 0x40080000ULL,
-        .kernel_alloc_pages = 256, /* 1 MB */
+        .kernel_base_va = 0xFFFF000000000000ULL,
+        .boot_info_pa = SAFE_BOOT_INFO_ADDR,
+        .memory_map_pa = SAFE_MMAP_ADDR,
+        .memory_map_capacity = SAFE_MMAP_MAX_ENTRIES,
+        .lower_memory_kib = 0,
+        .upper_memory_start_pa = 0,
+        .kernel_alloc_pa = 0x40080000ULL,
+        .kernel_page_count = 256, /* 1 MB */
     };
 
     BootInfo* bi = nullptr;

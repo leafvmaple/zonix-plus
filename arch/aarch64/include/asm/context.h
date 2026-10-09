@@ -19,8 +19,8 @@ struct Context {
     uint64_t x30{}; /* link register (LR) — return address */
     uint64_t sp{};
 
-    void set_entry(uintptr_t addr) { x30 = addr; }
-    void set_stack(uintptr_t s) { sp = s; }
+    void set_entry(uintptr_t entry_va) { x30 = entry_va; }
+    void set_stack(uintptr_t stack_va) { sp = stack_va; }
     [[nodiscard]] uintptr_t entry() const { return x30; }
     [[nodiscard]] uintptr_t stack() const { return sp; }
 };

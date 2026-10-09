@@ -22,33 +22,33 @@ _start:
     movw $0x100 , %cx                   # Copy 256 words (512 bytes)
     rep movsw                           # Copy
     
-    # Jump to relocated code
-    ljmp $0x0, $relocated
+    # Jump to .Lrelocated code
+    ljmp $0x0, $.Lrelocated
 
-relocated:
+.Lrelocated:
     # Save boot drive number (BIOS passes in DL)
-    movb %dl, boot_drive
+    movb %dl, .Lboot_drive
 
     # Display boot message
-    movw $msg_mbr, %si
-    call print_string
+    movw $.Lmsg_mbr, %si
+    call .Lprint_string
 
     # Find active partition (search partition table for bootable partition)
-    movw $partition_table, %si   # Partition table start address
+    movw $.Lpartition_table, %si   # Partition table start address
     movw $4, %cx                 # 4 partition entries
 
-check_partition:
+.Lcheck_partition:
     cmpb $PARTITION_BOOTABLE, (%si)     # Check boot flag (0x80 = active partition)
-    je load_vbr                         # Found active partition
+    je .Lload_vbr                         # Found active partition
     addw $16, %si                       # Move to next partition entry (16 bytes each)
-    loop check_partition
+    loop .Lcheck_partition
 
     # No active partition found
-    movw $msg_no_active, %si
-    call print_string
-    jmp halt
+    movw $.Lmsg_no_active, %si
+    call .Lprint_string
+    jmp .Lhalt
 
-load_vbr:
+.Lload_vbr:
     # SI now points to active partition entry
     # Get partition starting LBA (offset 8-11, 4 bytes)
     movl 8(%si), %eax                   # LBA starting sector
@@ -56,31 +56,31 @@ load_vbr:
     # Read VBR & Bootloader (sectors 1-3) to 0x7C00 & 0x7E00
     movw $0x7C00, %bx                   # Target address for read
     movb $8     , %cl                   # Read 8 sector
-    call read_disk
+    call .Lread_disk
 
     # Check VBR signature (last two bytes should be 0xAA55)
     cmpw $MBR_SIGNATURE, 0x7DFE
-    jne  invalid_vbr
+    jne  .Linvalid_vbr
     
-    movb boot_drive, %dl                # Restore drive number to DL
+    movb .Lboot_drive, %dl                # Restore drive number to DL
     
     # Far jump to VBR at 0x0000:0x7C00
     ljmp $0x0, $0x7C00
 
-invalid_vbr:
-    movw $msg_invalid_vbr, %si
-    call print_string
-    jmp halt
+.Linvalid_vbr:
+    movw $.Lmsg_invalid_vbr, %si
+    call .Lprint_string
+    jmp .Lhalt
 
-halt:
+.Lhalt:
     hlt
-    jmp halt
+    jmp .Lhalt
 
 # ============================================
-# Function: print_string
+# Function: .Lprint_string
 # Input: SI = string address (null-terminated)
 # ============================================
-print_string:
+.Lprint_string:
     pusha
     movb $0x0E, %ah                     # BIOS teletype function
 .print_loop:
@@ -94,39 +94,39 @@ print_string:
     ret
 
 # ============================================
-# Function: read_disk
+# Function: .Lread_disk
 # Input: EAX = LBA sector number, BX = target address, CL = sector count
 # ============================================
-read_disk:
+.Lread_disk:
     # Update the Disk Address Packet (DAP) with actual values
     # Only need to update non-zero fields (packet already initialized)
-    movw $dap, %si
+    movw $.Ldap, %si
     movw %cx , 2(%si)                   # sector count
     movw %bx , 4(%si)                   # buffer offset
     movl %eax, 8(%si)                   # LBA starting sector
 
-    # Call extended read AH=42h with DS:SI -> dap
+    # Call extended read AH=42h with DS:SI -> .Ldap
     movb $0x42     , %ah
-    movb boot_drive, %dl
+    movb .Lboot_drive, %dl
     int  $0x13
-    jc   disk_error
+    jc   .Ldisk_error
 
     # Return to caller (registers restored earlier)
     ret
 
-disk_error:
-    movw $msg_disk_error, %si
-    call print_string
-    jmp halt
+.Ldisk_error:
+    movw $.Lmsg_disk_error, %si
+    call .Lprint_string
+    jmp .Lhalt
 
 # ============================================
 # Data area
 # ============================================
-boot_drive:
+.Lboot_drive:
     .byte 0
 
 # LBA read data packet
-dap:
+.Ldap:
     .byte 0x10                          # Packet size
     .byte 0                             # Reserved
     .word 1                             # Sector count
@@ -135,16 +135,16 @@ dap:
     .quad 0                             # LBA address
 
 # Message strings
-msg_mbr:
+.Lmsg_mbr:
     .asciz "MBR Loading...\r\n"
 
-msg_no_active:
+.Lmsg_no_active:
     .asciz "No active partition!\r\n"
 
-msg_invalid_vbr:
+.Lmsg_invalid_vbr:
     .asciz "Invalid VBR signature!\r\n"
 
-msg_disk_error:
+.Lmsg_disk_error:
     .asciz "Disk read error!\r\n"
 
 # Pad to 446 bytes (space before partition table)
@@ -153,7 +153,7 @@ msg_disk_error:
 # ============================================
 # Partition table (4 entries, 16 bytes each)
 # ============================================
-partition_table:
+.Lpartition_table:
     # Partition 1: Active partition, starts from sector 1
     .byte PARTITION_BOOTABLE            # Boot flag (0x80 = bootable)
     .byte 0x00, 0x01, 0x00              # Starting CHS

@@ -79,13 +79,13 @@ static inline uintptr_t arch_fault_address(void) {
 }
 
 /* Shoot a single virtual page from the TLB. */
-static inline void arch_invlpg(void* addr) {
-    __asm__ volatile("sfence.vma %0, zero" : : "r"(addr) : "memory");
+static inline void arch_invalidate_tlb_page(void* va) {
+    __asm__ volatile("sfence.vma %0, zero" : : "r"(va) : "memory");
 }
 
-static inline void arch_flush_tlb_range(uintptr_t va, size_t size) {
+static inline void arch_invalidate_tlb_range(uintptr_t va, size_t byte_count) {
     (void)va;
-    (void)size;
+    (void)byte_count;
     __asm__ volatile("sfence.vma zero, zero" ::: "memory");
 }
 
@@ -93,21 +93,21 @@ static inline void arch_flush_tlb_range(uintptr_t va, size_t size) {
 /* I/O ports — RISC-V has none; all stubs                             */
 /* ------------------------------------------------------------------ */
 
-static inline uint8_t arch_port_inb(uint16_t) {
+static inline uint8_t arch_port_read8(uint16_t) {
     return 0;
 }
-static inline uint16_t arch_port_inw(uint16_t) {
+static inline uint16_t arch_port_read16(uint16_t) {
     return 0;
 }
-static inline uint32_t arch_port_inl(uint16_t) {
+static inline uint32_t arch_port_read32(uint16_t) {
     return 0;
 }
-static inline void arch_port_insw(uint32_t, void*, int) {}
-static inline void arch_port_insl(uint32_t, void*, int) {}
-static inline void arch_port_outb(uint16_t, uint8_t) {}
-static inline void arch_port_outw(uint16_t, uint16_t) {}
-static inline void arch_port_outl(uint16_t, uint32_t) {}
-static inline void arch_port_outsw(uint32_t, const void*, int) {}
+static inline void arch_port_read16_buffer(uint32_t, void*, int) {}
+static inline void arch_port_read32_buffer(uint32_t, void*, int) {}
+static inline void arch_port_write8(uint16_t, uint8_t) {}
+static inline void arch_port_write16(uint16_t, uint16_t) {}
+static inline void arch_port_write32(uint16_t, uint32_t) {}
+static inline void arch_port_write16_buffer(uint32_t, const void*, int) {}
 static inline void arch_io_wait(void) {}
 
 /* ------------------------------------------------------------------ */
@@ -187,15 +187,15 @@ struct InitStep {
 const InitStep* arch_early_steps(size_t* count);
 const InitStep* arch_pci_steps(size_t* count);
 
-void arch_set_kernel_stack(uintptr_t sp0);
+void arch_set_kernel_stack(uintptr_t kernel_stack_top_va);
 
 void arch_irq_eoi(int irq);
 
 void arch_irq_enable_line(int irq);
 int arch_pci_intx_to_irq(uint8_t dev, uint8_t int_pin);
 
-void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry, uintptr_t fn, uintptr_t arg);
-void arch_fixup_fork_tf(TrapFrame* tf, uintptr_t sp);
-void arch_setup_user_tf(TrapFrame* tf, uintptr_t entry, uintptr_t usp);
+void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry_va, uintptr_t fn, uintptr_t arg);
+void arch_fixup_fork_tf(TrapFrame* tf, uintptr_t stack_va);
+void arch_setup_user_tf(TrapFrame* tf, uintptr_t entry_va, uintptr_t user_stack_va);
 
 #endif /* !__ASSEMBLY__ */

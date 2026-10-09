@@ -45,21 +45,21 @@ Result<uint32_t> find_partition_start(BlockDevice* dev) {
 
 void FatInfo::do_init_state(BlockDevice* dev, uint32_t partition_start, const Fat32BootSector& bs) {
     dev_ = dev;
-    partition_start_ = partition_start;
-    total_sectors_ = bs.total_sectors_32;
+    partition_start_lba_ = partition_start;
+    total_sector_count_ = bs.total_sectors_32;
     bytes_per_sector_ = bs.bytes_per_sector;
     sectors_per_cluster_ = bs.sectors_per_cluster;
     bytes_per_cluster_ = bytes_per_sector_ * sectors_per_cluster_;
 
-    reserved_sectors_ = bs.reserved_sectors;
-    num_fats_ = bs.num_fats;
-    fat_size_ = bs.fat_size_32;
+    reserved_sector_count_ = bs.reserved_sectors;
+    fat_count_ = bs.num_fats;
+    fat_sector_count_ = bs.fat_size_32;
     root_cluster_ = bs.root_cluster;
 
-    fat_start_ = reserved_sectors_;
-    data_start_ = fat_start_ + (num_fats_ * fat_size_);
+    fat_start_sector_ = reserved_sector_count_;
+    data_start_sector_ = fat_start_sector_ + (fat_count_ * fat_sector_count_);
 
-    uint32_t data_sectors = total_sectors_ - data_start_;
+    uint32_t data_sectors = total_sector_count_ - data_start_sector_;
     cluster_count_ = data_sectors / sectors_per_cluster_;
     fat_type_ = fat::TYPE_FAT32;
 
@@ -81,7 +81,7 @@ Error FatInfo::mount(BlockDevice* dev) {
     ENSURE(bs.bytes_per_sector == 512 || bs.bytes_per_sector == 1024 || bs.bytes_per_sector == 2048 ||
                bs.bytes_per_sector == 4096,
            Error::BadFs);
-    ENSURE(bs.bytes_per_sector == BlockDevice::SIZE, Error::NotSupported);
+    ENSURE(bs.bytes_per_sector == BlockDevice::BLOCK_SIZE_BYTES, Error::NotSupported);
     ENSURE(bs.sectors_per_cluster != 0 && bs.sectors_per_cluster <= 128 &&
                (bs.sectors_per_cluster & (bs.sectors_per_cluster - 1)) == 0,
            Error::BadFs);
@@ -91,7 +91,7 @@ Error FatInfo::mount(BlockDevice* dev) {
     ENSURE(bs.fs_version == 0 && (bs.ext_flags & 0x80) == 0, Error::NotSupported);
     const uint64_t data_start = bs.reserved_sectors + static_cast<uint64_t>(bs.num_fats) * bs.fat_size_32;
     ENSURE(data_start < bs.total_sectors_32, Error::BadFs);
-    ENSURE(static_cast<uint64_t>(part_start) + bs.total_sectors_32 <= dev->size, Error::BadFs);
+    ENSURE(static_cast<uint64_t>(part_start) + bs.total_sectors_32 <= dev->block_count, Error::BadFs);
     const uint64_t clusters = (bs.total_sectors_32 - data_start) / bs.sectors_per_cluster;
     ENSURE(clusters != 0 && clusters + 2 <= fat::FAT32_RESERVED_MIN, Error::BadFs);
     ENSURE((clusters + 2) * sizeof(uint32_t) <= static_cast<uint64_t>(bs.fat_size_32) * bs.bytes_per_sector,
@@ -115,9 +115,9 @@ Error FatInfo::mount(BlockDevice* dev) {
 
 void FatInfo::unmount() {
     if (buffer_dirty_ && buffer_sector_ != FAT_INVALID_SECTOR) {
-        for (uint32_t i = 0; i < num_fats_; i++) {
-            uint32_t fat_sector = fat_start_ + (i * fat_size_) + (buffer_sector_ - fat_start_);
-            if (dev_->write(partition_start_ + fat_sector, buffer_, 1) != Error::None) {
+        for (uint32_t i = 0; i < fat_count_; i++) {
+            uint32_t fat_sector = fat_start_sector_ + (i * fat_sector_count_) + (buffer_sector_ - fat_start_sector_);
+            if (dev_->write(partition_start_lba_ + fat_sector, buffer_, 1) != Error::None) {
                 cprintf("fat_unmount: failed to write FAT sector %d\n", fat_sector);
             }
         }
@@ -134,13 +134,13 @@ void FatInfo::print() const {
     cprintf("  Bytes/Sector: %d\n", bytes_per_sector_);
     cprintf("  Sectors/Cluster: %d\n", sectors_per_cluster_);
     cprintf("  Bytes/Cluster: %d\n", bytes_per_cluster_);
-    cprintf("  Total Sectors: %d\n", total_sectors_);
-    cprintf("  FAT Start: sector %d\n", fat_start_);
-    cprintf("  FAT Size: %d sectors\n", fat_size_);
+    cprintf("  Total Sectors: %d\n", total_sector_count_);
+    cprintf("  FAT Start: sector %d\n", fat_start_sector_);
+    cprintf("  FAT Size: %d sectors\n", fat_sector_count_);
     cprintf("  Root Cluster: %d\n", root_cluster_);
-    cprintf("  Root Start: sector %d\n", root_start_);
-    cprintf("  Root Entries: %d\n", root_entries_);
-    cprintf("  Data Start: sector %d\n", data_start_);
+    cprintf("  Root Start: sector %d\n", root_start_sector_);
+    cprintf("  Root Entries: %d\n", root_entry_count_);
+    cprintf("  Data Start: sector %d\n", data_start_sector_);
     cprintf("  Cluster Count: %d\n", cluster_count_);
 }
 
@@ -148,11 +148,11 @@ Result<uint32_t> FatInfo::read_entry(uint32_t cluster) {
     ENSURE(dev_ && valid_cluster(cluster), Error::BadFs);
 
     uint32_t fat_offset = cluster << 2;
-    uint32_t fat_sector = fat_start_ + (fat_offset / bytes_per_sector_);
+    uint32_t fat_sector = fat_start_sector_ + (fat_offset / bytes_per_sector_);
     uint32_t ent_offset = fat_offset % bytes_per_sector_;
 
     if (fat_sector != buffer_sector_) {
-        TRY(dev_->read(partition_start_ + fat_sector, buffer_, 1));
+        TRY(dev_->read(partition_start_lba_ + fat_sector, buffer_, 1));
         buffer_sector_ = fat_sector;
     }
 
@@ -164,19 +164,19 @@ Error FatInfo::write_entry(uint32_t cluster, uint32_t value) {
     ENSURE(cluster >= 2 && cluster < cluster_count_ + 2);
 
     uint32_t fat_offset = cluster << 2;
-    uint32_t fat_sector = fat_start_ + (fat_offset / bytes_per_sector_);
+    uint32_t fat_sector = fat_start_sector_ + (fat_offset / bytes_per_sector_);
     uint32_t ent_offset = fat_offset % bytes_per_sector_;
 
     if (fat_sector != buffer_sector_) {
         if (buffer_dirty_ && buffer_sector_ != FAT_INVALID_SECTOR) {
-            for (uint32_t i = 0; i < num_fats_; i++) {
-                uint32_t abs_sector = partition_start_ + buffer_sector_ + (i * fat_size_);
+            for (uint32_t i = 0; i < fat_count_; i++) {
+                uint32_t abs_sector = partition_start_lba_ + buffer_sector_ + (i * fat_sector_count_);
                 TRY(dev_->write(abs_sector, buffer_, 1));
             }
             buffer_dirty_ = false;
         }
 
-        TRY(dev_->read(partition_start_ + fat_sector, buffer_, 1));
+        TRY(dev_->read(partition_start_lba_ + fat_sector, buffer_, 1));
         buffer_sector_ = fat_sector;
     }
 
@@ -186,8 +186,8 @@ Error FatInfo::write_entry(uint32_t cluster, uint32_t value) {
     buffer_dirty_ = true;
 
     // Write through to all FAT copies immediately.
-    for (uint32_t i = 0; i < num_fats_; i++) {
-        uint32_t abs_sector = partition_start_ + fat_sector + (i * fat_size_);
+    for (uint32_t i = 0; i < fat_count_; i++) {
+        uint32_t abs_sector = partition_start_lba_ + fat_sector + (i * fat_sector_count_);
         TRY(dev_->write(abs_sector, buffer_, 1));
     }
     buffer_dirty_ = false;
@@ -203,7 +203,7 @@ Result<uint32_t> FatInfo::alloc_cluster() {
             uint8_t zero[512]{};
             uint32_t sector = cluster_to_sector(c);
             for (uint32_t s = 0; s < sectors_per_cluster_; s++) {
-                TRY(dev_->write(partition_start_ + sector + s, zero, 1));
+                TRY(dev_->write(partition_start_lba_ + sector + s, zero, 1));
             }
             return c;
         }
@@ -229,7 +229,7 @@ uint32_t FatInfo::cluster_to_sector(uint32_t cluster) const {
         return 0;
     }
 
-    return data_start_ + ((cluster - 2) * sectors_per_cluster_);
+    return data_start_sector_ + ((cluster - 2) * sectors_per_cluster_);
 }
 
 bool FatInfo::valid_cluster(uint32_t cluster) const {

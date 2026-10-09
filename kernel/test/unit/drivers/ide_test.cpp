@@ -27,10 +27,11 @@ void driver_test_disktest() {
         }
 
         cprintf("--- Testing %s (dev_id=%d) ---\n", dev->name, i);
-        cprintf("  Size: %d sectors (%d MB)\n", dev->info.size, dev->info.size / 2048);
+        cprintf("  Size: %d sectors (%d MB)\n", dev->info.block_count, dev->info.block_count / 2048);
 
-        uint32_t test_sector = (dev->info.size > 200) ? 100 : (dev->info.size > 1 ? dev->info.size - 1 : 0);
-        if (test_sector == 0 && dev->info.size <= 1) {
+        uint32_t test_sector =
+            (dev->info.block_count > 200) ? 100 : (dev->info.block_count > 1 ? dev->info.block_count - 1 : 0);
+        if (test_sector == 0 && dev->info.block_count <= 1) {
             cprintf("  SKIP: device too small for write test\n\n");
             continue;
         }
@@ -109,7 +110,7 @@ void driver_test_intrtest() {
     cprintf("  base=0x%x, ctrl=0x%x, irq=%d\n", dev->config->base, dev->config->ctrl, dev->config->irq);
 
     // Check interrupt enable status
-    uint8_t ctrl = arch_port_inb(dev->config->ctrl);
+    uint8_t ctrl = arch_port_read8(dev->config->ctrl);
     cprintf("  Control register: 0x%02x (interrupts %s)\n", ctrl,
             (ctrl & ide::CTRL_INTERRUPT_DISABLE) ? "DISABLED" : "ENABLED");
 

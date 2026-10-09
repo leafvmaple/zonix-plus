@@ -23,8 +23,8 @@ static inline void arch_irq_restore(uint64_t flags) {
     write_eflags(flags);
 }
 
-static inline void arch_load_page_table_root(uintptr_t cr3) {
-    lcr3(cr3);
+static inline void arch_load_page_table_root(uintptr_t root_pa) {
+    lcr3(root_pa);
 }
 
 static inline uintptr_t arch_fault_address(void) {
@@ -35,49 +35,49 @@ static inline uintptr_t arch_read_page_table_root(void) {
     return rcr3();
 }
 
-static inline void arch_invlpg(void* addr) {
-    invlpg(addr);
+static inline void arch_invalidate_tlb_page(void* va) {
+    invlpg(va);
 }
 
-static inline void arch_flush_tlb_range(uintptr_t va, size_t size) {
-    for (size_t offset = 0; offset < size; offset += 4096)
-        invlpg(reinterpret_cast<void*>(va + offset));
+static inline void arch_invalidate_tlb_range(uintptr_t va, size_t byte_count) {
+    for (size_t offset_bytes = 0; offset_bytes < byte_count; offset_bytes += 4096)
+        invlpg(reinterpret_cast<void*>(va + offset_bytes));
 }
 
-static inline uint8_t arch_port_inb(uint16_t port) {
+static inline uint8_t arch_port_read8(uint16_t port) {
     return inb(port);
 }
 
-static inline uint16_t arch_port_inw(uint16_t port) {
+static inline uint16_t arch_port_read16(uint16_t port) {
     return inw(port);
 }
 
-static inline uint32_t arch_port_inl(uint16_t port) {
+static inline uint32_t arch_port_read32(uint16_t port) {
     return inl(port);
 }
 
-static inline void arch_port_insw(uint32_t port, void* addr, int cnt) {
-    insw(port, addr, cnt);
+static inline void arch_port_read16_buffer(uint32_t port, void* addr, int element_count) {
+    insw(port, addr, element_count);
 }
 
-static inline void arch_port_insl(uint32_t port, void* addr, int cnt) {
-    insl(port, addr, cnt);
+static inline void arch_port_read32_buffer(uint32_t port, void* addr, int element_count) {
+    insl(port, addr, element_count);
 }
 
-static inline void arch_port_outb(uint16_t port, uint8_t data) {
+static inline void arch_port_write8(uint16_t port, uint8_t data) {
     outb(port, data);
 }
 
-static inline void arch_port_outw(uint16_t port, uint16_t data) {
+static inline void arch_port_write16(uint16_t port, uint16_t data) {
     outw(port, data);
 }
 
-static inline void arch_port_outl(uint16_t port, uint32_t data) {
+static inline void arch_port_write32(uint16_t port, uint32_t data) {
     outl(port, data);
 }
 
-static inline void arch_port_outsw(uint32_t port, const void* addr, int cnt) {
-    outsw(port, addr, cnt);
+static inline void arch_port_write16_buffer(uint32_t port, const void* addr, int element_count) {
+    outsw(port, addr, element_count);
 }
 
 static inline void arch_io_wait(void) {
@@ -119,13 +119,13 @@ struct InitStep {
 
 const InitStep* arch_early_steps(size_t* count);
 const InitStep* arch_pci_steps(size_t* count);
-void arch_set_kernel_stack(uintptr_t rsp0);
+void arch_set_kernel_stack(uintptr_t kernel_stack_top_va);
 void arch_irq_eoi(int irq);
 void arch_irq_enable_line(int irq);                     /* enable IRQ line in interrupt controller */
 int arch_pci_intx_to_irq(uint8_t dev, uint8_t int_pin); /* PCI INTx → platform IRQ */
-void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry, uintptr_t fn, uintptr_t arg);
-void arch_fixup_fork_tf(TrapFrame* tf, uintptr_t esp);
-void arch_setup_user_tf(TrapFrame* tf, uintptr_t entry, uintptr_t usp);
+void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry_va, uintptr_t fn, uintptr_t arg);
+void arch_fixup_fork_tf(TrapFrame* tf, uintptr_t stack_va);
+void arch_setup_user_tf(TrapFrame* tf, uintptr_t entry_va, uintptr_t user_stack_va);
 
 [[noreturn]] static inline void arch_halt_forever(void) {
     while (true)

@@ -108,7 +108,7 @@ uint32_t arch_page_fault_error(const TrapFrame* tf) {
     return tf ? static_cast<uint32_t>(tf->err) : 0;
 }
 
-uintptr_t arch_page_fault_addr(const TrapFrame* tf) {
+uintptr_t arch_page_fault_address(const TrapFrame* tf) {
     static_cast<void>(tf);
     return arch_fault_address();
 }

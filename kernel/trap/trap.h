@@ -13,7 +13,7 @@ bool handle_syscall(TrapFrame* tf);
 bool arch_try_handle_irq(TrapFrame* tf);
 bool arch_is_page_fault(const TrapFrame* tf);
 uint32_t arch_page_fault_error(const TrapFrame* tf);
-uintptr_t arch_page_fault_addr(const TrapFrame* tf);
+uintptr_t arch_page_fault_address(const TrapFrame* tf);
 bool arch_is_syscall(const TrapFrame* tf);
 void arch_on_syscall_entry(TrapFrame* tf);
 void arch_on_unhandled(TrapFrame* tf);

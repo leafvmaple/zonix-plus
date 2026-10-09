@@ -8,11 +8,11 @@
 .section .text
 .globl _start
 _start:
-    # sys_write(fd=1, buf=message, count=message_len)
+    # sys_write(fd=1, buf=.Lmessage, count=.Lmessage_size_bytes)
     movq    $4, %rax            # NR_WRITE = 4
     movq    $1, %rdi            # fd = 1 (stdout)
-    leaq    message(%rip), %rsi # buf
-    movq    $message_len, %rdx  # count
+    leaq    .Lmessage(%rip), %rsi # buf
+    movq    $.Lmessage_size_bytes, %rdx  # count
     int     $0x80
 
     # sys_exit(0)
@@ -21,8 +21,8 @@ _start:
     int     $0x80
 
 .section .rodata
-message:
+.Lmessage:
     .ascii  "Hello from Zonix userspace!\n"
-message_len = . - message
+.Lmessage_size_bytes = . - .Lmessage
 
 .section .note.GNU-stack,"",@progbits

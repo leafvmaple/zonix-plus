@@ -178,8 +178,8 @@ inline constexpr uintptr_t pde_addr(uintptr_t pde) {
     return PTE_ADDR(pde);
 }
 
-inline constexpr uintptr_t pg_off(uintptr_t la) {
-    return la & PG_MASK;
+inline constexpr uintptr_t pg_off(uintptr_t va) {
+    return va & PG_MASK;
 }
 
 inline constexpr uintptr_t virt_to_phys(uintptr_t kva) {

@@ -11,20 +11,20 @@ namespace {
 class FatImage : public BlockDevice {
 public:
     explicit FatImage(uint8_t cluster_sectors = 16) : cluster_sectors_(cluster_sectors) {
-        size = 2 + 4 * cluster_sectors;
-        data_ = static_cast<uint8_t*>(kmalloc(size * SIZE));
+        block_count = 2 + 4 * cluster_sectors;
+        data_ = static_cast<uint8_t*>(kmalloc(block_count * BLOCK_SIZE_BYTES));
         if (!data_) {
             return;
         }
-        memset(data_, 0, size * SIZE);
+        memset(data_, 0, block_count * BLOCK_SIZE_BYTES);
         auto& bs = boot_sector();
         bs.boot_signature_word = BOOT_SIGNATURE;
         bs.boot_signature = BPB_BOOT_SIGNATURE;
-        bs.bytes_per_sector = SIZE;
+        bs.bytes_per_sector = BLOCK_SIZE_BYTES;
         bs.sectors_per_cluster = cluster_sectors;
         bs.reserved_sectors = 1;
         bs.num_fats = 1;
-        bs.total_sectors_32 = size;
+        bs.total_sectors_32 = block_count;
         bs.fat_size_32 = 1;
         bs.root_cluster = 2;
         set_link(2, fat::FAT32_EOC_MAX);
@@ -45,27 +45,31 @@ public:
     FatImage(const FatImage&) = delete;
     FatImage& operator=(const FatImage&) = delete;
     bool ready() const { return data_ != nullptr; }
-    size_t cluster_bytes() const { return cluster_sectors_ * SIZE; }
+    size_t cluster_bytes() const { return cluster_sectors_ * BLOCK_SIZE_BYTES; }
     Fat32BootSector& boot_sector() { return *reinterpret_cast<Fat32BootSector*>(data_); }
-    uint8_t* cluster_data(uint32_t cluster) { return data_ + (2 + (cluster - 2) * cluster_sectors_) * SIZE; }
-    void set_link(uint32_t cluster, uint32_t value) { reinterpret_cast<uint32_t*>(data_ + SIZE)[cluster] = value; }
-    uint32_t link(uint32_t cluster) const { return reinterpret_cast<uint32_t*>(data_ + SIZE)[cluster]; }
+    uint8_t* cluster_data(uint32_t cluster) {
+        return data_ + (2 + (cluster - 2) * cluster_sectors_) * BLOCK_SIZE_BYTES;
+    }
+    void set_link(uint32_t cluster, uint32_t value) {
+        reinterpret_cast<uint32_t*>(data_ + BLOCK_SIZE_BYTES)[cluster] = value;
+    }
+    uint32_t link(uint32_t cluster) const { return reinterpret_cast<uint32_t*>(data_ + BLOCK_SIZE_BYTES)[cluster]; }
     void fail_fat_reads(bool fail) { fail_fat_reads_ = fail; }
     Error read(uint32_t block, void* buffer, size_t count) override {
-        if (block > size || count > size - block) {
+        if (block > block_count || count > block_count - block) {
             return Error::Io;
         }
         if (fail_fat_reads_ && block == 1) {
             return Error::Io;
         }
-        memcpy(buffer, data_ + block * SIZE, count * SIZE);
+        memcpy(buffer, data_ + block * BLOCK_SIZE_BYTES, count * BLOCK_SIZE_BYTES);
         return Error::None;
     }
     Error write(uint32_t block, const void* buffer, size_t count) override {
-        if (block > size || count > size - block) {
+        if (block > block_count || count > block_count - block) {
             return Error::Io;
         }
-        memcpy(data_ + block * SIZE, buffer, count * SIZE);
+        memcpy(data_ + block * BLOCK_SIZE_BYTES, buffer, count * BLOCK_SIZE_BYTES);
         return Error::None;
     }
 
@@ -104,9 +108,9 @@ void test_geometry() {
     bs.bytes_per_sector = 512;
     bs.total_sectors_32 = 1;
     TEST_ASSERT(fs.mount(&image) == Error::BadFs, "Metadata larger than volume rejected");
-    bs.total_sectors_32 = image.size + 1;
+    bs.total_sectors_32 = image.block_count + 1;
     TEST_ASSERT(fs.mount(&image) == Error::BadFs, "Volume beyond device extent rejected");
-    bs.total_sectors_32 = image.size;
+    bs.total_sectors_32 = image.block_count;
     bs.root_cluster = 6;
     TEST_ASSERT(fs.mount(&image) == Error::BadFs, "Out-of-range root cluster rejected");
     bs.root_cluster = 2;

@@ -28,7 +28,7 @@ static void run_generic_disktest() {
             continue;
         }
 
-        uint8_t buf[BlockDevice::SIZE] = {};
+        uint8_t buf[BlockDevice::BLOCK_SIZE_BYTES] = {};
         Error rc = dev->read(0, buf, 1);
         cprintf("  %s: read sector 0 %s\n", dev->name, rc == Error::None ? "OK" : "FAILED");
     }
@@ -51,7 +51,7 @@ static void run_generic_intrtest() {
             continue;
         }
 
-        uint8_t buf[BlockDevice::SIZE] = {};
+        uint8_t buf[BlockDevice::BLOCK_SIZE_BYTES] = {};
         Error rc = dev->read(0, buf, 1);
         cprintf("  %s: completion path %s\n", dev->name, rc == Error::None ? "OK" : "FAILED");
     }

@@ -98,9 +98,9 @@ static void test_address_space_recycling() {
                 clean = false;
                 break;
             }
-            Page* data = pmm::pgdir_alloc_page(mm.pgdir, 0x400000, user_page_perm(true));
-            Page* stack = pmm::pgdir_alloc_page(mm.pgdir, USER_STACK_TOP - PG_SIZE, user_page_perm(true));
-            clean = data && stack && data->ref == 1 && stack->ref == 1;
+            Page* data = pmm::alloc_and_map_page(mm.pgdir, 0x400000, user_page_perm(true));
+            Page* stack = pmm::alloc_and_map_page(mm.pgdir, USER_STACK_TOP - PG_SIZE, user_page_perm(true));
+            clean = data && stack && data->ref_count == 1 && stack->ref_count == 1;
         }
         clean = clean && pmm::free_page_count() == before;
         Page* recycled = pmm::alloc_pages(16);
@@ -109,7 +109,7 @@ static void test_address_space_recycling() {
             break;
         }
         for (int j = 0; j < 16; ++j) {
-            clean = clean && recycled[j].ref == 0;
+            clean = clean && recycled[j].ref_count == 0;
         }
         pmm::free_pages(recycled, 16);
     }
@@ -125,8 +125,8 @@ static void test_address_space_switch() {
     MemoryDesc second;
     first.pgdir = exec::create_user_pgdir();
     second.pgdir = exec::create_user_pgdir();
-    Page* a = first.pgdir ? pmm::pgdir_alloc_page(first.pgdir, 0x600000, VM_WRITE) : nullptr;
-    Page* b = second.pgdir ? pmm::pgdir_alloc_page(second.pgdir, 0x600000, VM_WRITE) : nullptr;
+    Page* a = first.pgdir ? pmm::alloc_and_map_page(first.pgdir, 0x600000, VM_WRITE) : nullptr;
+    Page* b = second.pgdir ? pmm::alloc_and_map_page(second.pgdir, 0x600000, VM_WRITE) : nullptr;
     if (a && b) {
         *static_cast<uint32_t*>(pmm::page_to_kva(a)) = 0x12345678;
         *static_cast<uint32_t*>(pmm::page_to_kva(b)) = 0x87654321;
@@ -149,8 +149,8 @@ namespace vmm_test {
 
 static void test_file_io(MemoryDesc& mm, uintptr_t base) {
     TEST_START("Syscall file transfers");
-    Page* first = pmm::pgdir_alloc_page(mm.pgdir, base, user_page_perm(true));
-    Page* second = pmm::pgdir_alloc_page(mm.pgdir, base + PG_SIZE, user_page_perm(true));
+    Page* first = pmm::alloc_and_map_page(mm.pgdir, base, user_page_perm(true));
+    Page* second = pmm::alloc_and_map_page(mm.pgdir, base + PG_SIZE, user_page_perm(true));
     TEST_ASSERT(first && second, "Mapped isolated syscall transfer buffers");
     if (!first || !second) {
         TEST_END();
@@ -245,8 +245,8 @@ void test() {
         return;
     }
     constexpr uintptr_t base = 0x400000;
-    Page* rw = pmm::pgdir_alloc_page(mm.pgdir, base, user_page_perm(true));
-    Page* ro = pmm::pgdir_alloc_page(mm.pgdir, base + PG_SIZE, user_page_perm(false));
+    Page* rw = pmm::alloc_and_map_page(mm.pgdir, base, user_page_perm(true));
+    Page* ro = pmm::alloc_and_map_page(mm.pgdir, base + PG_SIZE, user_page_perm(false));
     TEST_ASSERT(rw && ro, "Mapped writable and read-only pages");
     if (!rw || !ro) {
         TEST_END();
@@ -254,12 +254,12 @@ void test() {
     }
     memset(pmm::page_to_kva(rw), 0x5a, PG_SIZE);
     memset(pmm::page_to_kva(ro), 0xa5, PG_SIZE);
-    const int owner_ref = rw->ref;
+    const int owner_ref = rw->ref_count;
     {
         MemoryDesc borrowed{MemoryDesc::PageTableOwnership::Borrowed};
         borrowed.pgdir = mm.pgdir;
     }
-    TEST_ASSERT(rw->ref == owner_ref && pmm::user_address(mm.pgdir, base, true).ok(),
+    TEST_ASSERT(rw->ref_count == owner_ref && pmm::user_address(mm.pgdir, base, true).ok(),
                 "Destroying a borrowed MM preserves the owner's mappings");
     uint8_t bytes[4]{};
     TEST_ASSERT(vmm::copy_from_user(&mm, bytes, base + PG_SIZE - 2, 4) == Error::None,

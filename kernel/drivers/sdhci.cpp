@@ -228,8 +228,8 @@ Error SdDevice::read_csd() {
         // CSD v2 (SDHC/SDXC): capacity = (C_SIZE + 1) * 512 KB
         // C_SIZE [69:48] = RESPONSE1[29:8]
         uint32_t c_size = (r1 >> 8) & 0x3FFFFF;
-        size = (c_size + 1) * 1024;
-        cprintf("sdhci: CSD v2, C_SIZE=%u -> %u sectors (%u MB)\n", c_size, size, size / 2048);
+        block_count = (c_size + 1) * 1024;
+        cprintf("sdhci: CSD v2, C_SIZE=%u -> %u sectors (%u MB)\n", c_size, block_count, block_count / 2048);
     } else if (csd_structure == 0) {
         // CSD v1 (SDSC): capacity = BLOCKNR * BLOCK_LEN
         // READ_BL_LEN [83:80] = RESPONSE2[11:8]
@@ -239,12 +239,12 @@ Error SdDevice::read_csd() {
         // C_SIZE_MULT [49:47] = RESPONSE1[9:7]
         uint32_t c_size_mult = (r1 >> 7) & 0x7;
         uint32_t blocknr = (c_size + 1) << (c_size_mult + 2);
-        size = (blocknr * (1U << read_bl_len)) / 512;
+        block_count = (blocknr * (1U << read_bl_len)) / 512;
         cprintf("sdhci: CSD v1, C_SIZE=%u C_SIZE_MULT=%u READ_BL_LEN=%u -> %u sectors (%u MB)\n", c_size, c_size_mult,
-                read_bl_len, size, size / 2048);
+                read_bl_len, block_count, block_count / 2048);
     } else {
         cprintf("sdhci: unknown CSD structure %u, defaulting to 131072 sectors\n", csd_structure);
-        size = 131072;
+        block_count = 131072;
     }
 
     return Error::None;
@@ -409,7 +409,8 @@ Error SdDevice::write(uint32_t block_number, const void* buf, size_t block_count
 }
 
 void SdDevice::print_info() {
-    cprintf("SD Card '%s': %s, RCA=0x%x, %d sectors (%d MB)\n", name, sdhc_ ? "SDHC" : "SDSC", rca_, size, size / 2048);
+    cprintf("SD Card '%s': %s, RCA=0x%x, %d sectors (%d MB)\n", name, sdhc_ ? "SDHC" : "SDSC", rca_, block_count,
+            block_count / 2048);
 }
 
 namespace sdhci {
@@ -453,7 +454,7 @@ static int probe_one_controller(SdDevice* dev, int device_index, int bus, int de
     }
 
     blk::register_device(dev);
-    cprintf("blk: registered SD card '%s' (%d sectors)\n", dev->name, dev->size);
+    cprintf("blk: registered SD card '%s' (%d sectors)\n", dev->name, dev->block_count);
 
     return 0;
 }
@@ -499,7 +500,8 @@ Error Manager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*)
     }
 
     int index = static_cast<int>(devices_.size());
-    int rc = probe_one_controller(&devices_[index], index, pdev->bus, pdev->dev, pdev->func);
+    int rc =
+        probe_one_controller(&devices_[index], index, pdev->bus_number, pdev->device_number, pdev->function_number);
     if (rc != 0) {
         return Error::Fail;
     }

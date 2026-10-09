@@ -18,8 +18,8 @@ bool is_present(uint32_t id) {
     return !(id == 0xFFFFFFFF || (id & 0xFFFF) == 0xFFFF);
 }
 
-uint8_t read_header_type(int bus, int dev, int func) {
-    uint32_t h = pci::config_read32(bus, dev, func, pci::HeaderType);
+uint8_t read_header_type(int bus_number, int device_number, int function_number) {
+    uint32_t h = pci::config_read32(bus_number, device_number, function_number, pci::HeaderType);
     return static_cast<uint8_t>((h >> 16) & 0xFF);
 }
 
@@ -31,18 +31,20 @@ void scan_all_devices() {
     enumerated_devices.clear();
 
     int buses = pci::bus_count();
-    for (int bus = 0; bus < buses; bus++) {
-        for (int dev = 0; dev < 32; dev++) {
-            uint32_t id0 = pci::config_read32(bus, dev, 0, pci::VendorId);
+    for (int bus_number = 0; bus_number < buses; bus_number++) {
+        for (int device_number = 0; device_number < 32; device_number++) {
+            uint32_t id0 = pci::config_read32(bus_number, device_number, 0, pci::VendorId);
             if (!is_present(id0)) {
                 continue;
             }
 
-            uint8_t hdr0 = read_header_type(bus, dev, 0);
+            uint8_t hdr0 = read_header_type(bus_number, device_number, 0);
             int funcs = (hdr0 & 0x80) ? 8 : 1;
 
-            for (int func = 0; func < funcs; func++) {
-                uint32_t id = (func == 0) ? id0 : pci::config_read32(bus, dev, func, pci::VendorId);
+            for (int function_number = 0; function_number < funcs; function_number++) {
+                uint32_t id = (function_number == 0)
+                                  ? id0
+                                  : pci::config_read32(bus_number, device_number, function_number, pci::VendorId);
                 if (!is_present(id)) {
                     continue;
                 }
@@ -54,18 +56,19 @@ void scan_all_devices() {
                     return;
                 }
 
-                uint32_t cr = pci::config_read32(bus, dev, func, pci::ClassRevision);
-                uint8_t hdr = (func == 0) ? hdr0 : read_header_type(bus, dev, func);
+                uint32_t cr = pci::config_read32(bus_number, device_number, function_number, pci::ClassRevision);
+                uint8_t hdr =
+                    (function_number == 0) ? hdr0 : read_header_type(bus_number, device_number, function_number);
 
                 pci::DeviceInfo di{};
-                di.bus = static_cast<uint8_t>(bus);
-                di.dev = static_cast<uint8_t>(dev);
-                di.func = static_cast<uint8_t>(func);
-                di.vendor = static_cast<uint16_t>(id & 0xFFFF);
-                di.device = static_cast<uint16_t>(id >> 16);
-                di.cls = static_cast<uint8_t>((cr >> 24) & 0xFF);
-                di.subcls = static_cast<uint8_t>((cr >> 16) & 0xFF);
-                di.iface = static_cast<uint8_t>((cr >> 8) & 0xFF);
+                di.bus_number = static_cast<uint8_t>(bus_number);
+                di.device_number = static_cast<uint8_t>(device_number);
+                di.function_number = static_cast<uint8_t>(function_number);
+                di.vendor_id = static_cast<uint16_t>(id & 0xFFFF);
+                di.device_id = static_cast<uint16_t>(id >> 16);
+                di.class_code = static_cast<uint8_t>((cr >> 24) & 0xFF);
+                di.subclass_code = static_cast<uint8_t>((cr >> 16) & 0xFF);
+                di.programming_interface = static_cast<uint8_t>((cr >> 8) & 0xFF);
                 di.header_type = static_cast<uint8_t>(hdr & 0x7F);
                 enumerated_devices.push_back(di);
             }
@@ -82,23 +85,23 @@ void ensure_scanned() {
     }
 }
 
-bool id_matches(const pci::DriverId& id, const pci::DeviceInfo& dev) {
-    if (id.vendor != pci::ANY_ID && id.vendor != dev.vendor)
+bool id_matches(const pci::DriverId& id, const pci::DeviceInfo& device_info) {
+    if (id.vendor_id != pci::ANY_ID && id.vendor_id != device_info.vendor_id)
         return false;
-    if (id.device != pci::ANY_ID && id.device != dev.device)
+    if (id.device_id != pci::ANY_ID && id.device_id != device_info.device_id)
         return false;
-    if (id.cls != pci::ANY_CLASS && id.cls != dev.cls)
+    if (id.class_code != pci::ANY_CLASS && id.class_code != device_info.class_code)
         return false;
-    if (id.subcls != pci::ANY_CLASS && id.subcls != dev.subcls)
+    if (id.subclass_code != pci::ANY_CLASS && id.subclass_code != device_info.subclass_code)
         return false;
-    if (id.iface != pci::ANY_CLASS && id.iface != dev.iface)
+    if (id.programming_interface != pci::ANY_CLASS && id.programming_interface != device_info.programming_interface)
         return false;
     return true;
 }
 
-const pci::DriverId* find_matching_id(const pci::Driver* driver, const pci::DeviceInfo& dev) {
+const pci::DriverId* find_matching_id(const pci::Driver* driver, const pci::DeviceInfo& device_info) {
     for (int i = 0; i < driver->id_count; i++) {
-        if (id_matches(driver->id_table[i], dev)) {
+        if (id_matches(driver->id_table[i], device_info)) {
             return &driver->id_table[i];
         }
     }
@@ -150,16 +153,16 @@ int probe_drivers() {
     return 0;
 }
 
-uint32_t read_bar(int bus, int dev, int func, int bar_index) {
+uint32_t read_bar(int bus_number, int device_number, int function_number, int bar_index) {
     if (bar_index < 0 || bar_index > 5)
         return 0;
-    return config_read32(bus, dev, func, Bar0 + bar_index * 4);
+    return config_read32(bus_number, device_number, function_number, Bar0 + bar_index * 4);
 }
 
-void enable_bus_master(int bus, int dev, int func) {
-    uint32_t cmd = config_read32(bus, dev, func, Command);
+void enable_bus_master(int bus_number, int device_number, int function_number) {
+    uint32_t cmd = config_read32(bus_number, device_number, function_number, Command);
     cmd |= CMD_BUS_MASTER | CMD_MEMORY_SPACE;
-    config_write32(bus, dev, func, Command, cmd);
+    config_write32(bus_number, device_number, function_number, Command, cmd);
 }
 
 

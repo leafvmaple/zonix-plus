@@ -25,17 +25,17 @@ uint16_t* crt_buf = reinterpret_cast<uint16_t*>(CGA_BUF + KERNEL_BASE);
 static uint16_t crt_pos = 0;
 
 static void cur_update() {
-    arch_port_outb(CGA_IDX_REG, CRTC_CURSOR_HIGH);
-    arch_port_outb(CGA_DATA_REG, crt_pos >> 8);
-    arch_port_outb(CGA_IDX_REG, CRTC_CURSOR_LOW);
-    arch_port_outb(CGA_DATA_REG, crt_pos);
+    arch_port_write8(CGA_IDX_REG, CRTC_CURSOR_HIGH);
+    arch_port_write8(CGA_DATA_REG, crt_pos >> 8);
+    arch_port_write8(CGA_IDX_REG, CRTC_CURSOR_LOW);
+    arch_port_write8(CGA_DATA_REG, crt_pos);
 }
 
 int init() {
-    arch_port_outb(CGA_IDX_REG, CRTC_CURSOR_HIGH);
-    crt_pos = arch_port_inb(CGA_DATA_REG) << 8;
-    arch_port_outb(CGA_IDX_REG, CRTC_CURSOR_LOW);
-    crt_pos |= arch_port_inb(CGA_DATA_REG);
+    arch_port_write8(CGA_IDX_REG, CRTC_CURSOR_HIGH);
+    crt_pos = arch_port_read8(CGA_DATA_REG) << 8;
+    arch_port_write8(CGA_IDX_REG, CRTC_CURSOR_LOW);
+    crt_pos |= arch_port_read8(CGA_DATA_REG);
 
     if (crt_pos >= console::ROWS * console::COLS) {
         crt_pos = 0;  // sanitize bogus position

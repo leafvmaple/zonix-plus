@@ -48,11 +48,11 @@ int init() {
     init_normal_map();
 
     // PS/2 controller self-test: send 0xAA, expect 0x55
-    arch_port_outb(KBD_STATUS_REG, 0xAA);
+    arch_port_write8(KBD_STATUS_REG, 0xAA);
 
     int timeout = 100000;
     while (timeout-- > 0) {
-        if (arch_port_inb(KBD_STATUS_REG) & KBD_OBF_FULL)
+        if (arch_port_read8(KBD_STATUS_REG) & KBD_OBF_FULL)
             break;
     }
     if (timeout <= 0) {
@@ -60,7 +60,7 @@ int init() {
         return -1;
     }
 
-    uint8_t result = arch_port_inb(KBD_DATA_REG);
+    uint8_t result = arch_port_read8(KBD_DATA_REG);
     if (result != 0x55) {
         cprintf("i8042: PS/2 controller self-test failed (0x%02x)\n", result);
         return -1;
@@ -72,10 +72,10 @@ int init() {
 
 int getc() {
     init_normal_map();
-    if ((arch_port_inb(KBD_STATUS_REG) & KBD_OBF_FULL) == 0)
+    if ((arch_port_read8(KBD_STATUS_REG) & KBD_OBF_FULL) == 0)
         return -1;
 
-    uint8_t data = arch_port_inb(KBD_DATA_REG);
+    uint8_t data = arch_port_read8(KBD_DATA_REG);
 
     // Ignore key release events (scancode & 0x80)
     if (data & 0x80) {

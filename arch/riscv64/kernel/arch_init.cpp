@@ -61,8 +61,8 @@ const InitStep* arch_pci_steps(size_t* count) {
     return PCI_STEPS;
 }
 
-void arch_set_kernel_stack(uintptr_t sp0) {
-    __asm__ volatile("csrw sscratch, %0" : : "r"(sp0) : "memory");
+void arch_set_kernel_stack(uintptr_t kernel_stack_top_va) {
+    __asm__ volatile("csrw sscratch, %0" : : "r"(kernel_stack_top_va) : "memory");
 }
 
 void arch_irq_eoi(int irq) {
@@ -85,18 +85,18 @@ int arch_pci_intx_to_irq(uint8_t dev, uint8_t int_pin) {
     return 0;
 }
 
-void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry, uintptr_t fn, uintptr_t arg) {
+void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry_va, uintptr_t fn, uintptr_t arg) {
     if (!tf) {
         return;
     }
-    tf->sepc = entry;
+    tf->sepc = entry_va;
     tf->sstatus = SSTATUS_SPP | SSTATUS_SPIE; /* S-mode, IRQs on after sret */
     tf->regs[10] = fn;                        /* a0 */
     tf->regs[11] = arg;                       /* a1 */
     /* TF_SP (kernel sp) is filled in by process creation (copy_thread) */
 }
 
-void arch_fixup_fork_tf(TrapFrame* tf, uintptr_t sp) {
+void arch_fixup_fork_tf(TrapFrame* tf, uintptr_t stack_va) {
     if (!tf) {
         return;
     }
@@ -105,18 +105,18 @@ void arch_fixup_fork_tf(TrapFrame* tf, uintptr_t sp) {
         tf->regs[10] = 0; /* a0 = 0 (user child returns 0 from fork) */
     }
 
-    if (sp != 0) {
-        tf->regs[2] = sp; /* explicit stack from caller */
+    if (stack_va != 0) {
+        tf->regs[2] = stack_va; /* explicit stack from caller */
     } else {
         tf->regs[2] = reinterpret_cast<uintptr_t>(tf); /* default to TF on kstack */
     }
 }
 
-void arch_setup_user_tf(TrapFrame* tf, uintptr_t entry, uintptr_t usp) {
+void arch_setup_user_tf(TrapFrame* tf, uintptr_t entry_va, uintptr_t user_stack_va) {
     if (!tf) {
         return;
     }
-    tf->sepc = entry;
-    tf->sstatus = SSTATUS_SPIE; /* U-mode (SPP=0), IRQs enabled after sret */
-    tf->regs[2] = usp;          /* x2 = sp */
+    tf->sepc = entry_va;
+    tf->sstatus = SSTATUS_SPIE;  /* U-mode (SPP=0), IRQs enabled after sret */
+    tf->regs[2] = user_stack_va; /* x2 = sp */
 }

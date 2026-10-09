@@ -85,7 +85,7 @@ static uintptr_t alloc_table_page(bool create) {
     if (page == nullptr)
         return INVALID_TABLE_PA;
 
-    page->ref = PAGE_REF_INIT;
+    page->ref_count = PAGE_REF_INIT;
     uintptr_t pa = pmm::page_to_phys(page);
     memset(phys_to_virt(pa), 0, PG_SIZE);
     return pa;
@@ -93,8 +93,8 @@ static uintptr_t alloc_table_page(bool create) {
 
 static void free_table_page(uintptr_t pa) {
     Page* page = pmm::phys_to_page(pa);
-    assert(page->ref == PAGE_REF_INIT);
-    page->ref--;
+    assert(page->ref_count == PAGE_REF_INIT);
+    page->ref_count--;
     pmm::free_pages(page);
 }
 
@@ -170,9 +170,9 @@ static void free_user_pt_subtree(pde_t* table, int depth) {
         if (depth == 0) {
             /* Leaf PTE — free the mapped physical page */
             Page* page = pmm::phys_to_page(pte_addr(entry));
-            if (page->ref > 0)
-                page->ref--;
-            if (page->ref == 0)
+            if (page->ref_count > 0)
+                page->ref_count--;
+            if (page->ref_count == 0)
                 pmm::free_pages(page);
             continue;
         }
@@ -213,47 +213,47 @@ Page* pmm::kva_to_page(void* kva) {
     return pmm::phys_to_page(virt_to_phys(kva));
 }
 
-Page* pmm::alloc_pages(size_t n /*= 1*/) {
+Page* pmm::alloc_pages(size_t page_count /*= 1*/) {
     intr::Guard guard;
-    return Factory::allocator().alloc(n);
+    return Factory::allocator().alloc(page_count);
 }
 
-void pmm::free_pages(Page* base, size_t n /*= 1*/) {
+void pmm::free_pages(Page* base, size_t page_count /*= 1*/) {
     intr::Guard guard;
-    Factory::allocator().free(base, n);
+    Factory::allocator().free(base, page_count);
 }
 
 /*
  * Walk the multi-level page table and return a pointer to the leaf PTE
- * for virtual address @la.  If @create is true, intermediate tables and
+ * for virtual address @va.  If @create is true, intermediate tables and
  * large-page splits are allocated on-demand.
  *
  * Works for any PT_WALK_LEVELS (3 for Sv39, 4 for x86-64 / AArch64).
  */
-pte_t* pmm::get_pte(pde_t* pgdir, uintptr_t la, bool create) {
+pte_t* pmm::get_pte(pde_t* pgdir, uintptr_t va, bool create) {
     pde_t* table = pgdir;
 
     for (int level = 0; level < PT_WALK_LEVELS - 1; level++) {
-        int idx = level_index(la, level);
+        int idx = level_index(va, level);
         table = descend_level(table + idx, create, LEVEL_SHIFTS[level + 1]);
         if (!table)
             return nullptr;
     }
 
-    return table + level_index(la, PT_WALK_LEVELS - 1);
+    return table + level_index(va, PT_WALK_LEVELS - 1);
 }
 
-Result<void*> pmm::user_address(pde_t* pgdir, uintptr_t addr, bool write) {
-    ENSURE(pgdir && addr >= PG_SIZE && addr < USER_SPACE_TOP);
+Result<void*> pmm::user_address(pde_t* pgdir, uintptr_t user_va, bool write) {
+    ENSURE(pgdir && user_va >= PG_SIZE && user_va < USER_SPACE_TOP);
     pde_t* table = pgdir;
     for (int level = 0; level < PT_WALK_LEVELS; ++level) {
-        pde_t entry = table[level_index(addr, level)];
+        pde_t entry = table[level_index(user_va, level)];
         ENSURE(pte_present(entry));
         bool leaf = level == PT_WALK_LEVELS - 1 || pte_is_block(entry);
         if (leaf) {
             ENSURE(pte_user_accessible(entry, write));
             uintptr_t mask = (1ULL << LEVEL_SHIFTS[level]) - 1;
-            return phys_to_virt((pte_addr(entry) & ~mask) + (addr & mask));
+            return phys_to_virt((pte_addr(entry) & ~mask) + (user_va & mask));
         }
         ENSURE(pte_user_table_accessible(entry, write));
         table = phys_to_virt<pde_t>(pte_addr(entry));
@@ -321,9 +321,9 @@ static int page_init() {
     return 0;
 }
 
-void pmm::tlb_invl(pde_t* pgdir, uintptr_t la) {
+void pmm::invalidate_tlb_page(pde_t* pgdir, uintptr_t va) {
     if (arch_read_page_table_root() == virt_to_phys(pgdir)) {
-        arch_invlpg(reinterpret_cast<void*>(la));
+        arch_invalidate_tlb_page(reinterpret_cast<void*>(va));
     }
 }
 
@@ -331,10 +331,10 @@ size_t pmm::free_page_count() {
     return Factory::allocator().free_page_count();
 }
 
-Page* pmm::pgdir_alloc_page(pde_t* pgdir, uintptr_t la, uint32_t perm) {
+Page* pmm::alloc_and_map_page(pde_t* pgdir, uintptr_t va, uint32_t perm) {
     Page* page = pmm::alloc_pages(1);
     if (page) {
-        if (pmm::page_insert(pgdir, page, la, perm) != Error::None) {
+        if (pmm::page_insert(pgdir, page, va, perm) != Error::None) {
             pmm::free_pages(page);
             return nullptr;
         }
@@ -343,15 +343,15 @@ Page* pmm::pgdir_alloc_page(pde_t* pgdir, uintptr_t la, uint32_t perm) {
     return page;
 }
 
-Error pmm::page_insert(pde_t* pgdir, Page* page, uintptr_t la, uint32_t perm) {
-    pte_t* ptep = pmm::get_pte(pgdir, la, true);
+Error pmm::page_insert(pde_t* pgdir, Page* page, uintptr_t va, uint32_t perm) {
+    pte_t* ptep = pmm::get_pte(pgdir, va, true);
     if (!ptep) {
         return Error::NoMem;
     }
-    page->ref++;
+    page->ref_count++;
     *ptep = make_pte_page(pmm::page_to_phys(page), perm);
 
-    pmm::tlb_invl(pgdir, la);
+    pmm::invalidate_tlb_page(pgdir, va);
     return Error::None;
 }
 
@@ -374,16 +374,16 @@ void pmm::free_user_pgdir(pde_t* pgdir) {
 
 // TODO: Add a slab layer for sub-page objects to reduce waste.
 // ---------------------------------------------------------------------------
-void* kmalloc(size_t size) {
-    if (size == 0)
+void* kmalloc(size_t byte_count) {
+    if (byte_count == 0)
         return nullptr;
 
-    size_t nr = (size + PG_SIZE - 1) / PG_SIZE;  // pages needed
-    Page* page = pmm::alloc_pages(nr);
+    size_t page_count = (byte_count + PG_SIZE - 1) / PG_SIZE;  // pages needed
+    Page* page = pmm::alloc_pages(page_count);
     if (!page)
         return nullptr;
 
-    page->property = nr;  // remember allocation size for kfree
+    page->block_page_count = page_count;  // remember allocation byte_count for kfree
     return pmm::page_to_kva(page);
 }
 
@@ -392,8 +392,8 @@ void kfree(void* ptr) {
         return;
 
     Page* page = pmm::kva_to_page(ptr);
-    // defensive: property unset → assume 1 page
-    pmm::free_pages(page, page->property > 0 ? page->property : 1);
+    // defensive: block_page_count unset → assume 1 page
+    pmm::free_pages(page, page->block_page_count > 0 ? page->block_page_count : 1);
 }
 
 int pmm::init() {

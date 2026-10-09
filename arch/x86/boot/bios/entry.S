@@ -66,13 +66,13 @@ enter_long_mode:
     lgdt    (BOOT_GDTDESC64_ADDR)
 
     // 6. Far jump to 64-bit code segment (GD_KTEXT = 0x08)
-    ljmp    $0x08, $long_mode_entry
+    ljmp    $0x08, $.Llong_mode_entry
 
 // =============================================================================
 // 64-bit code begins here
 // =============================================================================
 .code64
-long_mode_entry:
+.Llong_mode_entry:
     // Set up 64-bit data segments (GD_KDATA = 0x10)
     movw    $0x10, %ax
     movw    %ax, %ds

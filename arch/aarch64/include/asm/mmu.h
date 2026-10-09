@@ -41,8 +41,8 @@ inline constexpr uintptr_t pde_addr(uintptr_t pde) {
 }
 
 // Page offset from a linear address
-inline constexpr uintptr_t pg_off(uintptr_t la) {
-    return la & (PG_SIZE - 1);
+inline constexpr uintptr_t pg_off(uintptr_t va) {
+    return va & (PG_SIZE - 1);
 }
 
 // Convert kernel virtual address to physical address

@@ -12,21 +12,21 @@
 set -e
 
 BINDIR="${BINDIR:-bin}"
-IMAGE="${BINDIR}/userdata.img"
-USER_BINDIR="${BINDIR}/user"
-SIZE_MB=64
+image_path="${BINDIR}/userdata.img"
+user_bin_dir="${BINDIR}/user"
+image_size_mib=64
 
 echo "=== Creating FAT32 Data Disk ==="
 
 mkdir -p "$BINDIR"
 
 # 1. Create raw image
-echo "Creating ${SIZE_MB}MB disk image..."
-dd if=/dev/zero of="$IMAGE" bs=1M count=$SIZE_MB status=none
+echo "Creating ${image_size_mib}MB disk image..."
+dd if=/dev/zero of="$image_path" bs=1M count=$image_size_mib status=none
 
 # 2. Format as FAT32
 echo "Formatting as FAT32..."
-mkfs.vfat -F 32 -n "ZONIXDATA" "$IMAGE" > /dev/null
+mkfs.vfat -F 32 -n "ZONIXDATA" "$image_path" > /dev/null
 
 # ---- helper: write a string to a file on the image ----
 put_text() {
@@ -34,18 +34,18 @@ put_text() {
     local tmp
     tmp=$(mktemp)
     cat > "$tmp"
-    mcopy -i "$IMAGE" "$tmp" "$dst"
+    mcopy -i "$image_path" "$tmp" "$dst"
     rm -f "$tmp"
 }
 
 # 3. Copy user-mode ELF programs
 echo "Copying user programs..."
 elf_count=0
-if [ -d "$USER_BINDIR" ]; then
-    for elf in "$USER_BINDIR"/*.ELF; do
+if [ -d "$user_bin_dir" ]; then
+    for elf in "$user_bin_dir"/*.ELF; do
         [ -f "$elf" ] || continue
         name=$(basename "$elf")
-        mcopy -i "$IMAGE" "$elf" "::/$name"
+        mcopy -i "$image_path" "$elf" "::/$name"
         echo "  + $name ($(stat -c%s "$elf") bytes)"
         elf_count=$((elf_count + 1))
     done
@@ -108,7 +108,7 @@ tmpfile=$(mktemp)
 for i in $(seq 1 100); do
     echo "Line $i: The quick brown fox jumps over the lazy dog. 0123456789"
 done > "$tmpfile"
-mcopy -i "$IMAGE" "$tmpfile" "::/LARGE.TXT"
+mcopy -i "$image_path" "$tmpfile" "::/LARGE.TXT"
 rm -f "$tmpfile"
 
 cat << 'EOF' | put_text "::/SYSINFO.TXT"
@@ -119,11 +119,11 @@ EOF
 # 5. List contents
 echo ""
 echo "Disk contents:"
-mdir -i "$IMAGE" ::/
+mdir -i "$image_path" ::/
 
 echo ""
 echo "=== FAT32 Data Disk Created ==="
-echo "Image: $IMAGE  (${SIZE_MB}MB)"
+echo "Image: $image_path  (${image_size_mib}MB)"
 echo ""
 echo "In Zonix shell:"
 echo "  mount hdb"

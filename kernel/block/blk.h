@@ -15,10 +15,10 @@ enum class DeviceType : uint8_t {
 }  // namespace blk
 
 struct BlockDevice {
-    static constexpr size_t SIZE = 512;
+    static constexpr size_t BLOCK_SIZE_BYTES = 512;
 
     blk::DeviceType type{};  // Device type
-    uint32_t size{};         // Size in blocks
+    uint32_t block_count{};  // Size in blocks
     char name[8]{};          // Device name
 
     virtual Error read(uint32_t block_number, void* buf, size_t block_count) = 0;
@@ -28,7 +28,7 @@ struct BlockDevice {
 
 class BlockManager {
 public:
-    static constexpr int MAX_DEV = 4;
+    static constexpr int MAX_DEVICES = 4;
 
     static void init();
     static void register_device(BlockDevice* device);
@@ -40,7 +40,7 @@ public:
 
 
 private:
-    inline static Array<BlockDevice*, MAX_DEV> devices_{};
+    inline static Array<BlockDevice*, MAX_DEVICES> devices_{};
 };
 
 namespace blk {

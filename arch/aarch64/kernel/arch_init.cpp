@@ -71,31 +71,31 @@ int arch_pci_intx_to_irq(uint8_t dev, uint8_t int_pin) {
     return static_cast<int>(spi + 32);
 }
 
-void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry, uintptr_t fn, uintptr_t arg) {
+void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry_va, uintptr_t fn, uintptr_t arg) {
     // ELR_EL1 = entry (kernel_thread_entry), x0 = fn, x1 = arg
-    tf->pc = entry;
+    tf->pc = entry_va;
     tf->regs[0] = fn;
     tf->regs[1] = arg;
     tf->pstate = 0x00000005;  // EL1h, IRQ unmasked (DAIF.I=0)
     tf->sp = 0;
 }
 
-void arch_fixup_fork_tf(TrapFrame* tf, uintptr_t sp) {
+void arch_fixup_fork_tf(TrapFrame* tf, uintptr_t stack_va) {
     // For user fork (EL0): child returns 0 in x0
     // For kernel thread (EL1): x0 holds fn pointer, must not overwrite
     if ((tf->pstate & 0x4) == 0) {
         tf->set_return(0);
     }
-    if (sp != 0) {
-        tf->sp = sp;
+    if (stack_va != 0) {
+        tf->sp = stack_va;
     } else {
         tf->sp = reinterpret_cast<uintptr_t>(tf);
     }
     tf->pstate &= ~(1 << 7);  // unmask IRQ
 }
 
-void arch_setup_user_tf(TrapFrame* tf, uintptr_t entry, uintptr_t usp) {
-    tf->pc = entry;
-    tf->sp = usp;
+void arch_setup_user_tf(TrapFrame* tf, uintptr_t entry_va, uintptr_t user_stack_va) {
+    tf->pc = entry_va;
+    tf->sp = user_stack_va;
     tf->pstate = 0x00000000;  // EL0t, all exceptions unmasked
 }

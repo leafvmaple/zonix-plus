@@ -103,7 +103,7 @@ uintptr_t load(const uint8_t* data, size_t size, pde_t* pgdir) {
                 continue;
             }
 
-            Page* page = pmm::pgdir_alloc_page(pgdir, va, perm);
+            Page* page = pmm::alloc_and_map_page(pgdir, va, perm);
             if (!page) {
                 cprintf("elf: failed to allocate page for va=0x%lx\n", va);
                 return 0;

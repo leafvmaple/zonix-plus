@@ -83,23 +83,23 @@ private:
 
     [[nodiscard]] uint32_t cluster_to_sector(uint32_t cluster) const;
 
-    BlockDevice* dev_{};              // Block device
-    uint32_t partition_start_{};      // Partition start LBA (0 if no MBR)
-    uint8_t fat_type_{};              // FAT type (12, 16, or 32)
-    uint32_t bytes_per_sector_{};     // Bytes per sector
-    uint32_t sectors_per_cluster_{};  // Sectors per cluster
-    uint32_t bytes_per_cluster_{};    // Bytes per cluster
-    uint32_t reserved_sectors_{};     // Reserved sectors
-    uint32_t num_fats_{};             // Number of FAT tables
-    uint32_t root_entries_{};         // Root directory entries (0 for FAT32)
-    uint32_t fat_start_{};            // FAT start sector (relative to partition)
-    uint32_t fat_size_{};             // FAT size in sectors
-    uint32_t root_start_{};           // Root directory start sector (FAT16 only)
-    uint32_t root_sectors_{};         // Root directory sectors (FAT16 only)
-    uint32_t root_cluster_{};         // Root directory cluster (FAT32 only)
-    uint32_t data_start_{};           // Data area start sector
-    uint32_t cluster_count_{};        // Total clusters
-    uint32_t total_sectors_{};        // Total sectors
+    BlockDevice* dev_{};                // Block device
+    uint32_t partition_start_lba_{};    // Partition start LBA (0 if no MBR)
+    uint8_t fat_type_{};                // FAT type (12, 16, or 32)
+    uint32_t bytes_per_sector_{};       // Bytes per sector
+    uint32_t sectors_per_cluster_{};    // Sectors per cluster
+    uint32_t bytes_per_cluster_{};      // Bytes per cluster
+    uint32_t reserved_sector_count_{};  // Reserved sectors
+    uint32_t fat_count_{};              // Number of FAT tables
+    uint32_t root_entry_count_{};       // Root directory entries (0 for FAT32)
+    uint32_t fat_start_sector_{};       // FAT start sector (relative to partition)
+    uint32_t fat_sector_count_{};       // FAT size in sectors
+    uint32_t root_start_sector_{};      // Root directory start sector (FAT16 only)
+    uint32_t root_sector_count_{};      // Root directory sectors (FAT16 only)
+    uint32_t root_cluster_{};           // Root directory cluster (FAT32 only)
+    uint32_t data_start_sector_{};      // Data area start sector
+    uint32_t cluster_count_{};          // Total clusters
+    uint32_t total_sector_count_{};     // Total sectors
 
     uint8_t buffer_[512]{};     // Sector buffer
     uint32_t buffer_sector_{};  // Buffered sector number

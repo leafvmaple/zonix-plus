@@ -162,6 +162,10 @@ def compile_state(source, compiler, flags, root=ROOT):
 SNAKE_CASE = re.compile(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*\Z")
 PASCAL_CASE = re.compile(r"[A-Z](?:[a-z0-9]+(?:[A-Z][a-z0-9]+)*)?\Z")
 UPPER_CASE = re.compile(r"[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*\Z")
+ARCH_INTERFACE_REGISTER = re.compile(
+    r"(?:^|_)(?:cr[0-9]+|ttbr[0-9]*|satp|rsp0|esp|invlpg|"
+    r"in[blw]|out[blw]|ins[wl]|outs[wl])(?:_|$)"
+)
 PROTOCOL_ALIASES = {"iterator", "const_iterator", "reverse_iterator", "const_reverse_iterator",
                     "value_type", "size_type", "difference_type", "pointer", "const_pointer",
                     "reference", "const_reference"}
@@ -293,7 +297,21 @@ def source_naming_errors(source, path, allowed=()):
     errors = []
     if not SNAKE_CASE.fullmatch(Path(path).stem):
         errors.append(f"{path}: source filename must use snake_case (docs/NAMING.md)")
-    for match in DIRECTIVE.finditer(code_only(source)):
+    code = code_only(source)
+    for match in re.finditer(r"\b(arch_[a-z0-9_]+)\s*\(", code):
+        if ARCH_INTERFACE_REGISTER.search(match[1]) and (path, match[1]) not in allowed:
+            line = code.count("\n", 0, match.start()) + 1
+            errors.append(f"{path}:{line}: {match[1]}: name arch interfaces by purpose, not ISA registers/instructions")
+    if Path(path).suffix == ".S":
+        exported = set()
+        for match in re.finditer(r"^[ \t]*\.(?:globl|global)[ \t]+([^\n#]+)", code, re.M):
+            exported.update(re.findall(r"[A-Za-z_]\w*", match[1]))
+        for match in re.finditer(r"^[ \t]*([A-Za-z_]\w*):", code, re.M):
+            name = match[1]
+            if name not in exported and not name.startswith("__") and (path, name) not in allowed:
+                line = code.count("\n", 0, match.start()) + 1
+                errors.append(f"{path}:{line}: local assembly label {name}: use .L (docs/NAMING.md)")
+    for match in DIRECTIVE.finditer(code):
         if match[1] == "define":
             identifier = re.match(r"\s*([A-Za-z_]\w*)", match[2])
             if identifier and not UPPER_CASE.fullmatch(identifier[1]) and (path, identifier[1]) not in allowed:

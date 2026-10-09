@@ -103,7 +103,7 @@ int test_run_all(void*) {
     // Exit QEMU via ISA debug exit device.
     // Writing value V causes exit code (V << 1) | 1.
     // V=0 → exit code 1 (we treat as success in CI script).
-    arch_port_outb(QEMU_EXIT_PORT, 0);
+    arch_port_write8(QEMU_EXIT_PORT, 0);
 
     arch_halt();
     return 0;

@@ -3,9 +3,9 @@
 
 set -e
 
-IMAGE="bin/fat16_test.img"
-MOUNT_POINT="/tmp/zonix_fat16_mount"
-SIZE_MB=16
+image_path="bin/fat16_test.img"
+mount_point="/tmp/zonix_fat16_mount"
+image_size_mib=16
 
 echo "=== Creating FAT16 Test Image ==="
 
@@ -13,29 +13,29 @@ echo "=== Creating FAT16 Test Image ==="
 mkdir -p bin
 
 # Create 4MB disk image
-echo "Creating ${SIZE_MB}MB disk image..."
-dd if=/dev/zero of=$IMAGE bs=1M count=$SIZE_MB status=progress
+echo "Creating ${image_size_mib}MB disk image..."
+dd if=/dev/zero of=$image_path bs=1M count=$image_size_mib status=progress
 
 # Format as FAT16
 echo "Formatting as FAT16..."
-mkfs.vfat -F 16 -n "ZONIX" $IMAGE
+mkfs.vfat -F 16 -n "ZONIX" $image_path
 
 # Create mount point
 echo "Creating mount point..."
-sudo mkdir -p $MOUNT_POINT
+sudo mkdir -p $mount_point
 
 # Mount the image
 echo "Mounting image..."
-sudo mount -o loop $IMAGE $MOUNT_POINT
+sudo mount -o loop $image_path $mount_point
 
 # Create test files
 echo "Creating test files..."
 
 # 1. Hello world file
-echo "Hello from Zonix FAT16!" | sudo tee $MOUNT_POINT/HELLO.TXT > /dev/null
+echo "Hello from Zonix FAT16!" | sudo tee $mount_point/HELLO.TXT > /dev/null
 
 # 2. README file
-cat << 'EOF' | sudo tee $MOUNT_POINT/README.TXT > /dev/null
+cat << 'EOF' | sudo tee $mount_point/README.TXT > /dev/null
 =================================
 Zonix OS - FAT16 Test File System
 =================================
@@ -64,7 +64,7 @@ Enjoy exploring!
 EOF
 
 # 3. Test file
-cat << 'EOF' | sudo tee $MOUNT_POINT/TEST.TXT > /dev/null
+cat << 'EOF' | sudo tee $mount_point/TEST.TXT > /dev/null
 This is line 1
 This is line 2
 This is line 3
@@ -73,10 +73,10 @@ This is line 5
 EOF
 
 # 4. Numbers file
-seq 1 100 | sudo tee $MOUNT_POINT/NUMBERS.TXT > /dev/null
+seq 1 100 | sudo tee $mount_point/NUMBERS.TXT > /dev/null
 
 # 5. Lorem ipsum
-cat << 'EOF' | sudo tee $MOUNT_POINT/LOREM.TXT > /dev/null
+cat << 'EOF' | sudo tee $mount_point/LOREM.TXT > /dev/null
 Lorem ipsum dolor sit amet, consectetur adipiscing elit.
 Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
 Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.
@@ -85,37 +85,37 @@ Excepteur sint occaecat cupidatat non proident, sunt in culpa.
 EOF
 
 # 6. System info (short 8.3 name)
-cat << 'EOF' | sudo tee $MOUNT_POINT/SYSINFO.TXT > /dev/null
+cat << 'EOF' | sudo tee $mount_point/SYSINFO.TXT > /dev/null
 Zonix OS Version 0.4.0
 FAT16 File System Test
 Build: 2025-11-12
 EOF
 
 # Create a subdirectory (note: we don't support subdirectories yet)
-# sudo mkdir -p $MOUNT_POINT/TESTDIR
-# echo "Subdirectory test" | sudo tee $MOUNT_POINT/TESTDIR/SUBFILE.TXT > /dev/null
+# sudo mkdir -p $mount_point/TESTDIR
+# echo "Subdirectory test" | sudo tee $mount_point/TESTDIR/SUBFILE.TXT > /dev/null
 
 # List files
 echo ""
 echo "Files created:"
-ls -lh $MOUNT_POINT/
+ls -lh $mount_point/
 
 # Unmount
 echo ""
 echo "Unmounting..."
-sudo umount $MOUNT_POINT
+sudo umount $mount_point
 
 # Clean up mount point
-sudo rmdir $MOUNT_POINT
+sudo rmdir $mount_point
 
 echo ""
 echo "=== FAT16 Test Image Created Successfully ==="
-echo "Image: $IMAGE"
-echo "Size: ${SIZE_MB}MB"
+echo "Image: $image_path"
+echo "Size: ${image_size_mib}MB"
 echo ""
 echo "To use in Zonix:"
 echo "1. Make sure bochsrc.bxrc includes this disk as ata0-slave:"
-echo "   ata0-slave: type=disk, path=\"$IMAGE\", mode=flat"
+echo "   ata0-slave: type=disk, path=\"$image_path\", mode=flat"
 echo ""
 echo "2. In Zonix shell, run:"
 echo "   fatmount"

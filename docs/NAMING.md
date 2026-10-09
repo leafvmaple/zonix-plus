@@ -69,6 +69,19 @@ timeout_ms, deadline_ticks, page_table_root_pa, user_stack_va. An unqualified
 size/offset/address is acceptable only when the containing object fixes its
 meaning. Priority constants distinguish HIGHEST/LOWEST from numeric MAX/MIN.
 
+Distinguish a device's capacity (`block_count`) from the byte width of a block
+(`BLOCK_SIZE_BYTES`), a FAT sector index (`fat_start_sector_`) from a partition
+LBA (`partition_start_lba_`), and a PCI slot (`device_number`) from a PCI identity
+(`device_id`). A memory-copy interface names the user address and kernel buffer
+explicitly (`user_src_va`, `kernel_dst`) when both address spaces are involved.
+These names carry units; they are not storage/type prefixes.
+
+Architecture adapters expose operations such as `arch_invalidate_tlb_page` and
+`arch_port_read16_buffer`; buffer counts are numbers of the specified-width
+elements. Instruction/register helpers such as `invlpg`/`rcr3` stay within their
+architecture. `map_physical_range` maps an existing byte range;
+`alloc_and_map_page` allocates and maps one page. Neither is a pure accessor.
+
 Use Task for the scheduler entity, process for process relationships, and Thread
 only when a separate thread concept exists. Manager owns resources/lifecycle;
 Desc, Info, Entry and Context must describe their actual roles. Do not encode
@@ -93,7 +106,9 @@ Keep externally specified firmware, runtime, syscall and standard protocol
 names. Boot data supplied by assembly/linker uses the existing __ prefix,
 including __kernel_pg_dir and __kernel_boot_info; this denotes origin, not
 compile-time immutability. Ordinary C++ identifiers must not contain __ or start
-with _. Assembly-local labels follow the assembler's .L convention. ABI symbol
+with _. Named assembly-local labels follow the assembler's .L convention;
+numeric forward/backward labels remain valid. Exported entry points and __ boot
+symbols retain their contracts. ABI symbol
 names, section names and linker references must be migrated together if changed.
 
 ## Enforcement and migration
@@ -103,6 +118,9 @@ template parameters and constants. Source checks also cover macro definitions
 in inactive branches. Otherwise unused headers and dormant sources are also
 checked; sources selected by another architecture retain that build context.
 Boot firmware and first-party user C programs use their actual build flags.
+Source checks reject register/instruction names in arch adapter interfaces and
+named assembly-local labels lacking .L. Python/shell/Make vocabulary and units
+remain part of the manual audit; caller-supplied environment names stay stable.
 Zero-argument get_ methods must use bare property names. Semantic vocabulary/units
 require human judgment; the
 checker does not infer ownership or units from arbitrary English words.

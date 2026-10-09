@@ -12,15 +12,15 @@
 
 set -euo pipefail
 
-ZONIX_HDR="include/abi/syscall.h"
-ZCC_HDR="user/zcc/src/runtime/syscall.h"
+zonix_header="include/abi/syscall.h"
+zcc_header="user/zcc/src/runtime/syscall.h"
 
-if [[ ! -f "$ZONIX_HDR" ]]; then
-    echo "ERROR: $ZONIX_HDR not found (run from repo root)" >&2
+if [[ ! -f "$zonix_header" ]]; then
+    echo "ERROR: $zonix_header not found (run from repo root)" >&2
     exit 1
 fi
-if [[ ! -f "$ZCC_HDR" ]]; then
-    echo "ERROR: $ZCC_HDR not found (run git submodule update --init first)" >&2
+if [[ ! -f "$zcc_header" ]]; then
+    echo "ERROR: $zcc_header not found (run git submodule update --init first)" >&2
     exit 1
 fi
 
@@ -34,12 +34,12 @@ normalize() {
         | sort
 }
 
-diff_output=$(diff <(normalize "$ZONIX_HDR") <(normalize "$ZCC_HDR") || true)
+diff_output=$(diff <(normalize "$zonix_header") <(normalize "$zcc_header") || true)
 
 if [[ -n "$diff_output" ]]; then
     echo "ERROR: syscall ABI mismatch between kernel and zcc runtime:" >&2
-    echo "  kernel: $ZONIX_HDR" >&2
-    echo "  zcc:    $ZCC_HDR" >&2
+    echo "  kernel: $zonix_header" >&2
+    echo "  zcc:    $zcc_header" >&2
     echo "$diff_output" >&2
     echo "" >&2
     echo "Both files must define the same NR_* numbers and *_FD constants." >&2
@@ -47,4 +47,4 @@ if [[ -n "$diff_output" ]]; then
     exit 1
 fi
 
-echo "  CHECK   syscall ABI in sync ($ZONIX_HDR <-> $ZCC_HDR)"
+echo "  CHECK   syscall ABI in sync ($zonix_header <-> $zcc_header)"

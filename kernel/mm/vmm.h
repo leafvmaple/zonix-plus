@@ -34,19 +34,19 @@ public:
 
 private:
     friend int init();
-    friend uintptr_t mmio_map(uintptr_t phys_addr, size_t size, uint32_t perm);
+    friend uintptr_t mmio_map(uintptr_t pa, size_t byte_count, uint32_t perm);
     // Boot assembly provides permanent storage; this MM must never free it.
     inline static MemoryDesc kernel_mm_{MemoryDesc::PageTableOwnership::Borrowed};
     static uintptr_t mmio_next_va_;
 };
 
 int init();
-int pg_fault(MemoryDesc* mm, uint32_t error_code, uintptr_t addr);
-bool user_range_valid(MemoryDesc* mm, uintptr_t addr, size_t size, bool write);
-Error copy_from_user(MemoryDesc* mm, void* dst, uintptr_t src, size_t size);
-Error copy_to_user(MemoryDesc* mm, uintptr_t dst, const void* src, size_t size);
-Error pgdir_init(pde_t* pgdir, uintptr_t la, size_t size, uintptr_t pa, uint32_t perm);
-uintptr_t mmio_map(uintptr_t phys_addr, size_t size, uint32_t perm);
+int pg_fault(MemoryDesc* mm, uint32_t error_code, uintptr_t fault_va);
+bool user_range_valid(MemoryDesc* mm, uintptr_t user_va, size_t byte_count, bool write);
+Error copy_from_user(MemoryDesc* mm, void* kernel_dst, uintptr_t user_src_va, size_t byte_count);
+Error copy_to_user(MemoryDesc* mm, uintptr_t user_dst_va, const void* kernel_src, size_t byte_count);
+Error map_physical_range(pde_t* pgdir, uintptr_t va, size_t byte_count, uintptr_t pa, uint32_t perm);
+uintptr_t mmio_map(uintptr_t pa, size_t byte_count, uint32_t perm);
 void print_pgdir();
 
 }  // namespace vmm

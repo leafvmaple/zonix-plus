@@ -176,13 +176,13 @@ struct AhciPortConfig {
 };
 
 struct AhciDeviceInfo {
-    uint32_t size{};       // Size in sectors
-    uint32_t serial{};     // Serial number
-    uint32_t model{};      // Model number
-    uint16_t cylinders{};  // CHS: cylinders
-    uint16_t heads{};      // CHS: heads
-    uint16_t sectors{};    // CHS: sectors per track
-    int valid{};           // Device is valid
+    uint32_t block_count{};  // Size in sectors
+    uint32_t serial{};       // Serial number
+    uint32_t model{};        // Model number
+    uint16_t cylinders{};    // CHS: cylinders
+    uint16_t heads{};        // CHS: heads
+    uint16_t sectors{};      // CHS: sectors per track
+    int valid{};             // Device is valid
 };
 
 struct AhciRequest {

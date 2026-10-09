@@ -14,8 +14,8 @@ struct Context {
     uint64_t r14{};
     uint64_t r15{};
 
-    void set_entry(uintptr_t addr) { rip = addr; }
-    void set_stack(uintptr_t sp) { rsp = sp; }
+    void set_entry(uintptr_t entry_va) { rip = entry_va; }
+    void set_stack(uintptr_t stack_va) { rsp = stack_va; }
     [[nodiscard]] uintptr_t entry() const { return rip; }
     [[nodiscard]] uintptr_t stack() const { return rsp; }
 };

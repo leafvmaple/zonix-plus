@@ -54,8 +54,8 @@ const InitStep* arch_pci_steps(size_t* count) {
 // Runtime arch helpers
 // ============================================================================
 
-void arch_set_kernel_stack(uintptr_t rsp0) {
-    tss::set_rsp0(rsp0);
+void arch_set_kernel_stack(uintptr_t kernel_stack_top_va) {
+    tss::set_rsp0(kernel_stack_top_va);
 }
 
 void arch_irq_eoi(int irq) {
@@ -75,19 +75,19 @@ int arch_pci_intx_to_irq(uint8_t dev, uint8_t int_pin) {
     return -1;  // x86 callers read IRQ line directly from PCI config
 }
 
-void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry, uintptr_t fn, uintptr_t arg) {
+void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry_va, uintptr_t fn, uintptr_t arg) {
     tf->cs = KERNEL_CS;
     tf->rflags = FL_IF;
-    tf->rip = entry;
+    tf->rip = entry_va;
     tf->regs.rdi = fn;
     tf->regs.rsi = arg;
     tf->rsp = 0;
 }
 
-void arch_fixup_fork_tf(TrapFrame* tf, uintptr_t esp) {
+void arch_fixup_fork_tf(TrapFrame* tf, uintptr_t stack_va) {
     tf->set_return(0);  // Return 0 for child
-    if (esp != 0) {
-        tf->rsp = esp;
+    if (stack_va != 0) {
+        tf->rsp = stack_va;
     } else {
         tf->rsp = reinterpret_cast<uintptr_t>(tf);
     }
@@ -97,10 +97,10 @@ void arch_fixup_fork_tf(TrapFrame* tf, uintptr_t esp) {
     }
 }
 
-void arch_setup_user_tf(TrapFrame* tf, uintptr_t entry, uintptr_t usp) {
+void arch_setup_user_tf(TrapFrame* tf, uintptr_t entry_va, uintptr_t user_stack_va) {
     tf->cs = USER_CS;
     tf->ss = USER_DS;
     tf->rflags = FL_IF;
-    tf->rip = entry;
-    tf->rsp = usp;
+    tf->rip = entry_va;
+    tf->rsp = user_stack_va;
 }

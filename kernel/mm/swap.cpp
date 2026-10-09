@@ -48,14 +48,14 @@ int init() {
         return 0;
     }
 
-    if (State::device_->size <= SWAP_START_SECTOR) {
-        cprintf("swap: device '%s' too small (%d sectors, need > %d)\n", State::device_->name, State::device_->size,
-                SWAP_START_SECTOR);
+    if (State::device_->block_count <= SWAP_START_SECTOR) {
+        cprintf("swap: device '%s' too small (%d sectors, need > %d)\n", State::device_->name,
+                State::device_->block_count, SWAP_START_SECTOR);
         State::max_offset_ = 0;
         return 0;
     }
 
-    uint32_t available_sectors = State::device_->size - SWAP_START_SECTOR;
+    uint32_t available_sectors = State::device_->block_count - SWAP_START_SECTOR;
     State::max_offset_ = available_sectors / SECTORS_PER_PAGE;
 
     if (State::max_offset_ == 0) {
@@ -202,7 +202,7 @@ int out(MemoryDesc* mm, int n, int in_tick) {
 
         *ptep = swap_entry;
 
-        pmm::tlb_invl(mm->pgdir, victim_addr);
+        pmm::invalidate_tlb_page(mm->pgdir, victim_addr);
         pmm::free_pages(victim, 1);
 
         State::next_offset_++;

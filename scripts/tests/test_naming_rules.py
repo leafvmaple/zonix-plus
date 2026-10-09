@@ -120,6 +120,25 @@ class NamingRules(unittest.TestCase):
     def test_generated_declarations_are_checked_at_the_spelling_location(self):
         self.assertTrue(self.errors("#define DECLARE int badName;\nvoid check() { DECLARE }"))
 
+    def test_arch_interfaces_describe_purpose_and_transfer_width(self):
+        for name in ("arch_invlpg", "arch_read_cr3", "arch_load_ttbr0", "arch_write_satp",
+                     "arch_set_rsp0", "arch_port_inb", "arch_port_insw"):
+            with self.subTest(name=name):
+                self.assertTrue(rules.source_naming_errors(f"void {name}();", "arch/x86/include/asm/arch.h"))
+        source = "void arch_invalidate_tlb_page(); void arch_read_page_table_root(); void arch_port_read16_buffer();"
+        self.assertEqual(rules.source_naming_errors(source, "kernel/example.cpp"), [])
+        self.assertEqual(rules.source_naming_errors('// arch_read_cr3();\nconst char* hint = "arch_invlpg()";',
+                                                    "kernel/example.cpp"), [])
+        self.assertEqual(rules.source_naming_errors("void rcr3();", "arch/x86/include/asm/cpu.h"), [])
+
+    def test_assembly_local_labels_are_distinct_from_exported_boot_contracts(self):
+        path = "arch/x86/kernel/head.S"
+        self.assertTrue(rules.source_naming_errors("spin:\n jmp spin\n", path))
+        self.assertEqual(rules.source_naming_errors(".globl _start\n_start:\n.Lspin:\n1:\n jmp 1b\n"
+                                                    "__kernel_pg_dir:\n.space 4096\n", path), [])
+        self.assertEqual(rules.source_naming_errors(".global first, second\nfirst:\nsecond:\n", path), [])
+        self.assertEqual(rules.source_naming_errors('// fake_label:\n.ascii "fake_label:"\n', path), [])
+
     def test_exception_file_rejects_wildcards_and_missing_reasons(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "exceptions.json"

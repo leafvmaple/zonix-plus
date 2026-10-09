@@ -80,7 +80,7 @@ void putc(int c) {
         cga::putc(c);
     fbcons::putc(c);
     uart8250::putc(c);
-    arch_port_outb(0xe9, c);
+    arch_port_write8(0xe9, c);
 }
 
 }  // namespace cons

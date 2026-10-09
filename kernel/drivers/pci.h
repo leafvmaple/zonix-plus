@@ -36,19 +36,19 @@ inline constexpr uint8_t INTERFACE_SDHCI_DMA = 0x01;
 
 int init();
 
-uint32_t config_read32(int bus, int dev, int func, int offset);
-void config_write32(int bus, int dev, int func, int offset, uint32_t val);
+uint32_t config_read32(int bus_number, int device_number, int function_number, int offset_bytes);
+void config_write32(int bus_number, int device_number, int function_number, int offset_bytes, uint32_t value);
 int bus_count();
 
 struct DeviceInfo {
-    uint8_t bus;
-    uint8_t dev;
-    uint8_t func;
-    uint16_t vendor;
-    uint16_t device;
-    uint8_t cls;
-    uint8_t subcls;
-    uint8_t iface;
+    uint8_t bus_number;
+    uint8_t device_number;
+    uint8_t function_number;
+    uint16_t vendor_id;
+    uint16_t device_id;
+    uint8_t class_code;
+    uint8_t subclass_code;
+    uint8_t programming_interface;
     uint8_t header_type;
 };
 
@@ -56,14 +56,14 @@ inline constexpr uint16_t ANY_ID = 0xFFFF;
 inline constexpr uint8_t ANY_CLASS = 0xFF;
 
 struct DriverId {
-    uint16_t vendor;
-    uint16_t device;
-    uint8_t cls;
-    uint8_t subcls;
-    uint8_t iface;
+    uint16_t vendor_id;
+    uint16_t device_id;
+    uint8_t class_code;
+    uint8_t subclass_code;
+    uint8_t programming_interface;
 };
 
-using ProbeFn = Error (*)(const DeviceInfo* dev, const DriverId* id);
+using ProbeFn = Error (*)(const DeviceInfo* device_info, const DriverId* id);
 
 struct Driver {
     const char* name;
@@ -75,7 +75,7 @@ struct Driver {
 Error register_driver(const Driver* driver);
 int probe_drivers();
 
-uint32_t read_bar(int bus, int dev, int func, int bar_index);
-void enable_bus_master(int bus, int dev, int func);
+uint32_t read_bar(int bus_number, int device_number, int function_number, int bar_index);
+void enable_bus_master(int bus_number, int device_number, int function_number);
 
 }  // namespace pci

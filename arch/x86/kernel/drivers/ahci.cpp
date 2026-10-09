@@ -90,8 +90,8 @@ int AhciDevice::identify() {
     info.cylinders = id[1];
     info.heads = id[3];
     info.sectors = id[6];
-    info.size = *reinterpret_cast<uint32_t*>(&id[60]);  // Total LBA28 sectors
-    size = info.size;
+    info.block_count = *reinterpret_cast<uint32_t*>(&id[60]);  // Total LBA28 sectors
+    block_count = info.block_count;
     info.valid = 1;
 
     return 0;
@@ -193,13 +193,14 @@ int AhciManager::init() {
 Error AhciManager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*) {
     ENSURE(!ctrl_ready_, Error::Busy);
 
-    uint32_t bar5 = pci::read_bar(pdev->bus, pdev->dev, pdev->func, 5);
-    ENSURE_LOG(bar5 != 0 && !(bar5 & 1), Error::Invalid, "ahci: invalid BAR5 for PCI %02x:%02x.%x = 0x%08x", pdev->bus,
-               pdev->dev, pdev->func, bar5);
+    uint32_t bar5 = pci::read_bar(pdev->bus_number, pdev->device_number, pdev->function_number, 5);
+    ENSURE_LOG(bar5 != 0 && !(bar5 & 1), Error::Invalid, "ahci: invalid BAR5 for PCI %02x:%02x.%x = 0x%08x",
+               pdev->bus_number, pdev->device_number, pdev->function_number, bar5);
 
-    pci::enable_bus_master(pdev->bus, pdev->dev, pdev->func);
+    pci::enable_bus_master(pdev->bus_number, pdev->device_number, pdev->function_number);
     uint32_t phys_base = bar5 & 0xFFFFFFF0;
-    cprintf("ahci: Found controller at PCI %02x:%02x.%x, ABAR=0x%08x\n", pdev->bus, pdev->dev, pdev->func, phys_base);
+    cprintf("ahci: Found controller at PCI %02x:%02x.%x, ABAR=0x%08x\n", pdev->bus_number, pdev->device_number,
+            pdev->function_number, phys_base);
 
     base_ = vmm::mmio_map(phys_base, ahci::AHCI_BAR_SIZE, VM_WRITE | VM_NOCACHE);
     ENSURE_LOG(base_ != 0, Error::NoMem, "ahci: failed to map MMIO region at phys=0x%08x", phys_base);
@@ -243,7 +244,7 @@ Error AhciManager::probe_callback(const pci::DeviceInfo* pdev, const pci::Driver
         blk::register_device(&devices_[devices_count_]);
 
         cprintf("ahci: port %d: '%s' ready (%d sectors, %d MB)\n", i, devices_[devices_count_].name,
-                devices_[devices_count_].info.size, devices_[devices_count_].info.size / 2048);
+                devices_[devices_count_].info.block_count, devices_[devices_count_].info.block_count / 2048);
         devices_count_++;
     }
 
@@ -268,7 +269,7 @@ int AhciManager::device_count() {
 
 void AhciDevice::print_info() {
     cprintf("Device: %s (AHCI port %d)\n", name, config->port_num);
-    cprintf("  Size: %d sectors (%d MB)\n", info.size, info.size / 2048);
+    cprintf("  Size: %d sectors (%d MB)\n", info.block_count, info.block_count / 2048);
     cprintf("  CHS: %d/%d/%d\n", info.cylinders, info.heads, info.sectors);
     cprintf("\n");
 }
@@ -281,8 +282,9 @@ Error AhciDevice::transfer_blocks(uint32_t block_number, size_t block_count, voi
         return Error::NoDevice;
     }
 
-    if (block_number + block_count > info.size) {
-        cprintf("AhciDevice::%s: out of range (block %d + %d > %d)\n", op_name, block_number, block_count, info.size);
+    if (block_number + block_count > info.block_count) {
+        cprintf("AhciDevice::%s: out of range (block %d + %d > %d)\n", op_name, block_number, block_count,
+                info.block_count);
         return Error::Invalid;
     }
 

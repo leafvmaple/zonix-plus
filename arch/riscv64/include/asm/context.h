@@ -51,8 +51,8 @@ struct Context {
     uint64_t s10{}; /* x26                                         */
     uint64_t s11{}; /* x27                                         */
 
-    void set_entry(uintptr_t addr) { ra = addr; }
-    void set_stack(uintptr_t s) { sp = s; }
+    void set_entry(uintptr_t entry_va) { ra = entry_va; }
+    void set_stack(uintptr_t stack_va) { sp = stack_va; }
     [[nodiscard]] uintptr_t entry() const { return ra; }
     [[nodiscard]] uintptr_t stack() const { return sp; }
 };
