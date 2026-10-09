@@ -17,29 +17,16 @@ using KernelThreadEntry = int (*)(void*);
 
 namespace {
 
-int setup_stdio(fd::Table& files) {
+Error setup_stdio(fd::Table& files) {
     const char* console_path = "/dev/console";
 
     for (int expected_fd = 0; expected_fd < 3; expected_fd++) {
-        auto file = vfs::open(console_path);
-        if (!file.ok()) {
-            files.close_all();
-            return -1;
-        }
-
-        auto fd_r = files.alloc(file.release_value());
-        if (!fd_r.ok()) {
-            files.close_all();
-            return -1;
-        }
-
-        if (fd_r.value() != expected_fd) {
-            files.close_all();
-            return -1;
-        }
+        auto file = TRY(vfs::open(console_path));
+        const int fd = TRY(files.alloc(sys::move(file)));
+        ENSURE(fd == expected_fd, Error::Invalid);
     }
 
-    return 0;
+    return Error::None;
 }
 
 }  // namespace
@@ -103,7 +90,7 @@ void Task::run() {
             arch_load_page_table_root(next_root_pa);
         }
 
-        arch_set_kernel_stack(kernel_stack_ + KSTACK_SIZE);
+        arch_set_kernel_stack(kernel_stack() + KSTACK_SIZE);
 
         switch_to(&(prev->context_), &(context_));
     }
@@ -145,17 +132,12 @@ void Task::sleep() {
 }
 
 uintptr_t Task::page_table_root_pa() const {
-    assert(memory != nullptr && memory->pgdir != nullptr);
-    return virt_to_phys(memory->pgdir);
-}
-
-void Task::copy_mm(uint32_t clone_flags) {
-    // TODO Full copy implementation
-    memory = TaskManager::current()->memory;
+    assert(memory() != nullptr && memory()->pgdir != nullptr);
+    return virt_to_phys(memory()->pgdir);
 }
 
 void Task::copy_thread(uintptr_t stack_pointer, TrapFrame* src_tf) {
-    trap_frame = reinterpret_cast<TrapFrame*>(kernel_stack_ + KSTACK_SIZE) - 1;
+    trap_frame = reinterpret_cast<TrapFrame*>(kernel_stack() + KSTACK_SIZE) - 1;
 
     *trap_frame = *src_tf;
     arch_fixup_fork_tf(trap_frame, stack_pointer);
@@ -164,14 +146,10 @@ void Task::copy_thread(uintptr_t stack_pointer, TrapFrame* src_tf) {
     context_.set_stack(reinterpret_cast<uintptr_t>(trap_frame));
 }
 
-int Task::setup_kernel_stack() {
-    void* stack = kmalloc(KSTACK_SIZE);
-    if (!stack) {
-        return -1;
-    }
-
-    kernel_stack_ = reinterpret_cast<uintptr_t>(stack);
-    return 0;
+Error Task::setup_kernel_stack() {
+    ENSURE(kernel_stack_.empty() && boot_stack_ == 0, Error::Busy);
+    kernel_stack_ = TRY(KernelBuffer::alloc(KSTACK_SIZE));
+    return Error::None;
 }
 
 void Task::set_links() {
@@ -187,15 +165,7 @@ void Task::remove_links() {
 }
 
 void Task::destroy() {
-    files().close_all();
-
-    if (kernel_stack_ != reinterpret_cast<uintptr_t>(user_stack)) {
-        kfree(reinterpret_cast<void*>(kernel_stack_));
-    }
-
-    if (memory && memory != &vmm::Manager::kernel_mm()) {
-        delete memory;
-    }
+    assert(state_ == TaskState::Zombie);
     delete this;
 }
 
@@ -252,7 +222,7 @@ void TaskManager::print() {
         Task* proc = Task::from_list_link(node);
         cprintf("%c%-3d %-4s  %-4d  %-4d  %-5d  %016lx  %016lx  %s\n", (proc == current_) ? '*' : ' ', proc->pid,
                 state_str(proc->state_), (proc->parent ? proc->parent->pid : -1), proc->priority, proc->time_slice,
-                proc->kernel_stack_, reinterpret_cast<uintptr_t>(proc->memory), proc->name_);
+                proc->kernel_stack(), reinterpret_cast<uintptr_t>(proc->memory()), proc->name_);
     }
 
     cprintf("\nTotal processes: %d\n", process_count_);
@@ -314,37 +284,20 @@ void TaskManager::schedule() {
 }
 
 Result<int> TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_frame) {
-    // copy_mm only borrows the permanent kernel MM; user-MM sharing needs ownership first.
-    ENSURE(current() && current()->memory == &vmm::Manager::kernel_mm(), Error::NotSupported);
-    Task* proc = new (sys::nothrow) Task();
-    if (!proc) {
-        cprintf("sched: fork: failed to allocate Task\n");
-        return Error::NoMem;
-    }
+    // User-MM cloning requires its own ownership protocol; only kernel-MM borrowing is supported.
+    ENSURE(current() && current()->memory() == &vmm::Manager::kernel_mm(), Error::NotSupported);
+    auto proc = sys::unique_ptr<Task>(new (sys::nothrow) Task());
+    ENSURE(proc, Error::NoMem);
     proc->parent = current();
     if (proc->parent) {
-        if (proc->files().fork_from(proc->parent->files(), fd::ForkPolicy::Reset) != Error::None) {
-            cprintf("sched: fork: failed to clone file table\n");
-            delete proc;
-            return Error::Fail;
-        }
+        TRY(proc->files().fork_from(proc->parent->files(), fd::ForkPolicy::Reset));
     } else {
         proc->files().init();
     }
 
-    if (setup_stdio(proc->files()) != 0) {
-        cprintf("sched: fork: failed to set up stdio\n");
-        delete proc;
-        return Error::Fail;
-    }
-
-    if (proc->setup_kernel_stack() != 0) {
-        cprintf("sched: fork: failed to allocate kernel stack\n");
-        proc->files().close_all();
-        delete proc;
-        return Error::NoMem;
-    }
-    proc->copy_mm(clone_flags);
+    TRY(setup_stdio(proc->files()));
+    TRY(proc->setup_kernel_stack());
+    proc->use_kernel_memory();
     proc->copy_thread(stack, trap_frame);
 
     // Inherit parent's priority and compute timeslice
@@ -355,10 +308,10 @@ Result<int> TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* 
         intr::Guard guard;
         proc->pid = next_pid_++;
         proc->set_links();
+        proc->wakeup();
+        // The process table owns the published task until wait detaches and destroys it.
+        return proc.release()->pid;
     }
-
-    proc->wakeup();
-    return proc->pid;
 }
 
 Result<int> TaskManager::kernel_thread(KernelThreadEntry fn, void* arg) {
@@ -451,28 +404,28 @@ Result<int> TaskManager::wait(int pid, int* code_store) {
 
 // PID 0
 int TaskManager::init_idle() {
-    Task* idle_proc = new (sys::nothrow) Task();
+    auto idle_proc = sys::unique_ptr<Task>(new (sys::nothrow) Task());
     if (!idle_proc) {
         cprintf("sched: init_idle: failed to allocate Task\n");
         return -1;
     }
-    idle_proc->wakeup();
-    idle_proc->kernel_stack_ = reinterpret_cast<uintptr_t>(user_stack);  // Use boot stack
+    idle_proc->boot_stack_ = reinterpret_cast<uintptr_t>(user_stack);
     idle_proc->files().init();
     idle_proc->priority = sched_prio::IDLE_PRIO;
     idle_proc->time_slice = 0;
 
     // Kernel threads share the memory manager's kernel address space.
-    idle_proc->memory = &vmm::Manager::kernel_mm();
+    idle_proc->use_kernel_memory();
 
     // Establish the active root before switches compare task address spaces.
     arch_load_page_table_root(idle_proc->page_table_root_pa());
 
     idle_proc->set_name("idle");
 
-    idle_proc_ = idle_proc;
-    set_current(idle_proc);
-    add_process(idle_proc);
+    idle_proc->wakeup();
+    idle_proc_ = idle_proc.release();
+    set_current(idle_proc_);
+    add_process(idle_proc_);
 
     return 0;
 }

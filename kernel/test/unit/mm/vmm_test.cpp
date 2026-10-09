@@ -1,4 +1,5 @@
 #include "test/test_defs.h"
+#include "test/task_access.h"
 #include "exec/exec.h"
 #include "mm/vmm.h"
 #include "mm/swap.h"
@@ -172,8 +173,7 @@ static void test_file_io(MemoryDesc& mm, uintptr_t base) {
     }
     const int fd = fd_r.value();
     fd::Entry* entry = current->files().get(fd);
-    MemoryDesc* saved_mm = current->memory;
-    current->memory = &mm;
+    ScopedTaskMemory memory_view(*current, mm);
     const uintptr_t user = base + PG_SIZE - 31;
     const size_t count = PG_SIZE + 17;
 
@@ -224,7 +224,6 @@ static void test_file_io(MemoryDesc& mm, uintptr_t base) {
                     "Zero-length syscall preserves its existing no-I/O behavior");
     }
     TEST_ASSERT(syscall(NR_CLOSE, fd, 0, 0) == 0, "Closed syscall transfer fixture");
-    current->memory = saved_mm;
     TEST_END();
 }
 
@@ -273,12 +272,12 @@ void test() {
     TEST_ASSERT(vmm::copy_from_user(&mm, bytes, 0, 1) == Error::Invalid, "Null user pointer rejected");
 
     Task* current = sched::current();
-    MemoryDesc* saved_mm = current->memory;
-    current->memory = &mm;
-    TEST_ASSERT(syscall(NR_OPEN, base + 2 * PG_SIZE, 0, 0) == -1, "open rejects unmapped path");
-    TEST_ASSERT(syscall(NR_READ, 0, base + PG_SIZE, 1) == -1, "read rejects read-only output buffer");
-    TEST_ASSERT(syscall(NR_WRITE, 1, base + 2 * PG_SIZE, 1) == -1, "write rejects unmapped input buffer");
-    current->memory = saved_mm;
+    {
+        ScopedTaskMemory memory_view(*current, mm);
+        TEST_ASSERT(syscall(NR_OPEN, base + 2 * PG_SIZE, 0, 0) == -1, "open rejects unmapped path");
+        TEST_ASSERT(syscall(NR_READ, 0, base + PG_SIZE, 1) == -1, "read rejects read-only output buffer");
+        TEST_ASSERT(syscall(NR_WRITE, 1, base + 2 * PG_SIZE, 1) == -1, "write rejects unmapped input buffer");
+    }
 
     pte_t before = *pmm::get_pte(mm.pgdir, base + PG_SIZE, false);
     TEST_ASSERT(vmm::pg_fault(&mm, 2 | 4, base + PG_SIZE) == -1, "Write fault on present read-only page rejected");

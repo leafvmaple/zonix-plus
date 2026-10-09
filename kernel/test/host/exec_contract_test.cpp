@@ -2,6 +2,7 @@
 #include "fs/vfs.h"
 #include "mm/vmm.h"
 #include "sched/sched.h"
+#include "test/task_access.h"
 #include "drivers/intr.h"
 #include "lib/stdarg.h"
 #include "lib/string.h"
@@ -84,7 +85,7 @@ public:
         if (fork_error_ != Error::None) {
             return fork_error_;
         }
-        child_.memory = &vmm::Manager::kernel_mm();
+        child_.use_kernel_memory();
         return 17;
     }
     Task* child(int pid) {
@@ -95,17 +96,17 @@ public:
     void verify_failure(Error expected, Result<int>& result, int closed = 1) {
         assert(!result.ok() && result.error() == expected);
         assert(live_ == 0 && mapped_ == 0 && guards_ == 0 && closed_ == closed);
-        assert(!child_.memory);
+        assert(!child_.memory());
     }
     void verify_success(Result<int>& result) {
         assert(result.ok() && result.value() == 17);
         assert(forks_ == 1 && guards_ == 0 && closed_ == 1 && freed_roots_ == 0);
-        assert(child_.memory && child_.memory != &vmm::Manager::kernel_mm());
+        assert(child_.memory() && child_.memory() != &vmm::Manager::kernel_mm());
         assert(live_ == 8 && mapped_ == 6);
         const auto* bytes = static_cast<const uint8_t*>(data_[0]);
         assert(bytes[0] == 0x5a && bytes[7] == 0x5a && bytes[8] == 0);
-        delete child_.memory;
-        child_.memory = nullptr;
+        auto memory = TaskAccess::take_memory(child_);
+        memory.reset();
         assert(live_ == 0 && mapped_ == 0 && freed_roots_ == 1);
     }
     void verify_fork_failure() { assert(forks_ == 1 && freed_roots_ == 1); }

@@ -9,6 +9,10 @@ struct MemoryDesc {
     enum class PageTableOwnership { Owned, Borrowed };
 
     explicit MemoryDesc(PageTableOwnership ownership = PageTableOwnership::Owned) : ownership_(ownership) {}
+    MemoryDesc(const MemoryDesc&) = delete;
+    MemoryDesc& operator=(const MemoryDesc&) = delete;
+    MemoryDesc(MemoryDesc&&) = delete;
+    MemoryDesc& operator=(MemoryDesc&&) = delete;
 
     ListNode mmap_list{};  // VMA list ordered by start VA
     pde_t* pgdir{};        // Root page table for this address space

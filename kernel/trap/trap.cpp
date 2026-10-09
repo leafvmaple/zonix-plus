@@ -39,7 +39,7 @@ int copy_user_cstr(Task* cur, const char* user, char* out, size_t out_size) {
         }
 
         char ch;
-        if (vmm::copy_from_user(cur->memory, &ch, addr, 1) != Error::None) {
+        if (vmm::copy_from_user(cur->memory(), &ch, addr, 1) != Error::None) {
             return -1;
         }
         out[i] = ch;
@@ -85,7 +85,7 @@ long sys_file_io(Task* cur, int fd, uintptr_t user_buf, size_t count, FileIo ope
         return 0;
     }
     const bool to_user = operation == FileIo::Read;
-    if (!cur || !vmm::user_range_valid(cur->memory, user_buf, count, to_user)) {
+    if (!cur || !vmm::user_range_valid(cur->memory(), user_buf, count, to_user)) {
         return -1;
     }
     fd::Entry* entry = cur->files().get(fd);
@@ -106,7 +106,7 @@ long sys_file_io(Task* cur, int fd, uintptr_t user_buf, size_t count, FileIo ope
         if (chunk > storage.size()) {
             chunk = storage.size();
         }
-        if (!to_user && vmm::copy_from_user(cur->memory, buf, user_buf + done, chunk) != Error::None) {
+        if (!to_user && vmm::copy_from_user(cur->memory(), buf, user_buf + done, chunk) != Error::None) {
             failed = true;
             break;
         }
@@ -117,7 +117,7 @@ long sys_file_io(Task* cur, int fd, uintptr_t user_buf, size_t count, FileIo ope
             break;
         }
         size_t bytes = static_cast<size_t>(bytes_r.value());
-        if (to_user && vmm::copy_to_user(cur->memory, user_buf + done, buf, bytes) != Error::None) {
+        if (to_user && vmm::copy_to_user(cur->memory(), user_buf + done, buf, bytes) != Error::None) {
             failed = true;
             break;
         }
@@ -167,11 +167,11 @@ int handle_page_fault(TrapFrame* tf, uint32_t err, uintptr_t fault_va) {
     tf->print_pgfault();
 
     Task* current = sched::current();
-    if (!current || !current->memory) {
+    if (!current || !current->memory()) {
         return -1;
     }
 
-    return vmm::pg_fault(current->memory, err, fault_va);
+    return vmm::pg_fault(current->memory(), err, fault_va);
 }
 
 bool handle_syscall(TrapFrame* tf) {

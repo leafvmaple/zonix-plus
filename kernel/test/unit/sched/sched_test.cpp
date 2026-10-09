@@ -3,13 +3,10 @@
 #include "drivers/intr.h"
 #include "lib/stdio.h"
 #include "lib/memory.h"
+#include "test/task_access.h"
 
 // External symbols
 extern long user_stack[];
-
-struct TaskAccess {
-    static uintptr_t kernel_stack(const Task* proc) { return proc->kernel_stack_; }
-};
 
 // Test statistics
 static int tests_passed = 0;
@@ -37,11 +34,11 @@ static int tests_failed = 0;
     }
 
 // Helper: set up a test Task so it won't crash the scheduler.
-// The real scheduler calls page_table_root_pa() which asserts memory->pgdir != nullptr.
+// The real scheduler calls page_table_root_pa() which requires a valid memory()->pgdir.
 // Without this, a timer interrupt during the test would panic the kernel.
 static void init_test_proc(Task* proc, int pid) {
     proc->pid = pid;
-    proc->memory = &vmm::Manager::kernel_mm();
+    proc->use_kernel_memory();
     proc->priority = sched_prio::IDLE_PRIO;
     proc->time_slice = 0;
 }
@@ -52,6 +49,7 @@ static void init_test_proc(Task* proc, int pid) {
 
 static void test_process_creation() {
     TEST_START("Process Creation");
+    const size_t free_before = pmm::free_page_count();
 
     // Create a new process
     Task* proc = new Task();
@@ -62,17 +60,20 @@ static void test_process_creation() {
     TEST_ASSERT(proc->pid == 0, "Initial PID is 0");
     TEST_ASSERT(proc->parent == nullptr, "Initial parent is nullptr");
     TEST_ASSERT(TaskAccess::kernel_stack(proc) == 0, "Initial kernel stack is 0");
-    TEST_ASSERT(proc->memory == nullptr, "Initial memory is nullptr");
+    TEST_ASSERT(proc->memory() == nullptr, "Initial memory is nullptr");
 
     // Setup kernel stack
-    int ret = proc->setup_kernel_stack();
-    TEST_ASSERT(ret == 0, "Kernel stack setup succeeds");
+    Error ret = proc->setup_kernel_stack();
+    TEST_ASSERT(ret == Error::None, "Kernel stack setup succeeds");
     TEST_ASSERT(TaskAccess::kernel_stack(proc) != 0, "Kernel stack is allocated");
+    const uintptr_t stack = proc->kernel_stack();
+    TEST_ASSERT(proc->setup_kernel_stack() == Error::Busy && proc->kernel_stack() == stack,
+                "Repeated setup preserves the existing stack");
     TEST_ASSERT(proc->child_list.empty(), "Child list is empty after init");
 
-    // Clean up - free the kernel stack
-    kfree(reinterpret_cast<void*>(TaskAccess::kernel_stack(proc)));
+    // Task owns its dynamic stack.
     delete proc;
+    TEST_ASSERT(pmm::free_page_count() == free_before, "Task destruction returns object and stack pages");
 
     TEST_END();
 }
@@ -347,8 +348,8 @@ static void test_process_destruction() {
     Task* proc = new Task();
     init_test_proc(proc, 300);
 
-    int ret = proc->setup_kernel_stack();
-    TEST_ASSERT(ret == 0, "Kernel stack allocated for destruction test");
+    Error ret = proc->setup_kernel_stack();
+    TEST_ASSERT(ret == Error::None, "Kernel stack allocated for destruction test");
 
     uintptr_t kstack_addr = TaskAccess::kernel_stack(proc);
     TEST_ASSERT(kstack_addr != 0, "Kernel stack address is non-zero");
@@ -357,13 +358,13 @@ static void test_process_destruction() {
     TaskManager::add_process(proc);
     TEST_ASSERT(TaskManager::process_count() == initial_count + 1, "Process added");
 
-    // Simulate destruction (without calling destroy() which would delete)
+    // Detach from the scheduler before reaping the zombie.
     TaskManager::remove_process(proc);
     TEST_ASSERT(TaskManager::process_count() == initial_count, "Process removed from list");
 
-    // Free kernel stack manually
-    kfree(reinterpret_cast<void*>(TaskAccess::kernel_stack(proc)));
-    delete proc;
+    // Reaping releases the detached zombie's stack.
+    proc->mark_zombie(0);
+    proc->destroy();
 
     TEST_END();
 }

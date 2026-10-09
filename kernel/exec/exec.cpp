@@ -68,7 +68,7 @@ public:
 
     uintptr_t entry_va() const { return entry_va_; }
     uintptr_t stack_va() const { return stack_va_; }
-    [[nodiscard]] MemoryDesc* release_memory() { return memory_.release(); }
+    [[nodiscard]] sys::unique_ptr<MemoryDesc> take_memory() { return sys::move(memory_); }
 
 private:
     UserImage() = default;
@@ -109,7 +109,7 @@ Result<int> exec(const char* path) {
 
         Task* proc = sched::find_process(pid);
         assert(proc);
-        proc->memory = image.release_memory();
+        proc->adopt_memory(image.take_memory());
         proc->set_name(path);
     }
 

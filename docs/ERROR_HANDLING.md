@@ -48,6 +48,7 @@ The reusable owners use the project's GNU++20 freestanding configuration:
 | `sys::unique_ptr<T, Deleter>` from zstl | One object with its cleanup policy | `get()`, `*`, `->` | Move, or `release()` into another owner |
 | `KernelBuffer` | `kmalloc` bytes and their requested length | `data()`, `size()`; const access gives const bytes | Move the complete buffer |
 | `vfs::FileHandle` | One open VFS file, closed through `vfs::close` | `get()`, `*`, `->` | Move into `fd::Table::alloc` |
+| `Task` | Its dynamic kernel stack, file table and adopted user MM | `kernel_stack()`, `files()`, `memory()` | Publish after preparation; reap through `wait()` |
 
 These types are noncopyable. Moves do not allocate and leave the source empty;
 move assignment first cleans up the destination's old resource. Destruction and
@@ -67,6 +68,25 @@ pointers after the expression. `KernelBuffer::data()` rejects temporary borrowin
 to the receiving owner. Prefer moving the owner when the receiving API supports
 it. The legacy two-argument VFS open API returns an owned raw pointer; new callers
 use `vfs::open(path)` to get `Result<FileHandle>` instead.
+
+`Task` and `MemoryDesc` cannot be copied or moved: their intrusive list links must
+keep stable addresses, and duplicating a page-table owner would double-release it.
+Move `sys::unique_ptr<MemoryDesc>` instead of the descriptor itself. `Task::memory()`
+is a borrowed view; `adopt_memory` receives an owner once, on an unpublished or
+non-running child. Exec performs that handoff under its interrupt guard before the
+child can run. Current tasks cannot adopt or release their live address space.
+Kernel tasks explicitly borrow the permanent kernel MM. Idle borrows the assembly
+boot stack; ordinary tasks own a `KernelBuffer` stack. Repeated stack setup returns
+`Busy` without replacing the existing stack.
+
+Task creation retains a local `sys::unique_ptr<Task>` through file-table, standard
+file and stack preparation. Errors preserve their original code and let this owner
+reclaim the partial task. PID assignment, linking, wakeup and ownership publication
+occur under one interrupt guard. After publication, the process table owns the task;
+exit publishes zombie state and reparents children, and wait detaches the zombie
+before destroying it. Destruction checks that the task is off CPU and detached,
+then releases files, dynamic stack and owned user MM in that order. Destructors do
+not remove scheduler links or free borrowed resources.
 
 `fd::Table::alloc(FileHandle)` consumes its argument on both success and failure.
 Success moves the file into the descriptor entry; failure closes it. Entry lookup

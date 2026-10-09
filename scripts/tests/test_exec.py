@@ -20,7 +20,8 @@ class ExecContractTests(unittest.TestCase):
                  "-fno-elide-constructors", "-Werror=unused-result", "-Werror=unused-value",
                  "-I" + str(ROOT / "kernel"), "-I" + str(ROOT / "include"),
                  "-I" + str(ROOT / "arch/x86/include"), "-I" + str(ROOT / "arch/x86/kernel")]
-        sources = ["kernel/exec/exec.cpp", "kernel/exec/elf_loader.cpp", "kernel/test/host/exec_contract_test.cpp"]
+        sources = ["kernel/exec/exec.cpp", "kernel/exec/elf_loader.cpp", "kernel/fs/fd.cpp",
+                   "kernel/test/host/exec_contract_test.cpp"]
         result = subprocess.run([CLANG, *flags, *(str(ROOT / source) for source in sources), "-o", str(cls.binary)],
                                 capture_output=True, text=True, timeout=30)
         if result.returncode:
