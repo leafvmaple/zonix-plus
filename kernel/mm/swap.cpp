@@ -9,22 +9,22 @@
 
 namespace {
 
-constexpr uint32_t SWAP_START_SECTOR = 1000;        // Start sector for swap space
-constexpr size_t SECTORS_PER_PAGE = PG_SIZE / 512;  // Sectors needed for one page
+constexpr uint32_t SWAP_START_LBA = 1000;          // First logical block of swap space
+constexpr size_t BLOCKS_PER_PAGE = PG_SIZE / 512;  // Logical blocks needed for one page
 
 class State {
     friend int swap::init();
     friend Error swap::init_mm(MemoryDesc* mm);
-    friend Error swap::in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr);
-    friend int swap::out(MemoryDesc* mm, int n, int in_tick);
+    friend Error swap::in(MemoryDesc* mm, uintptr_t va, Page** page_ptr);
+    friend int swap::out(MemoryDesc* mm, int page_count, int in_timer_tick);
     friend int swap::swapfs_init();
     friend Error swap::swapfs_read(uintptr_t entry, Page* page);
     friend Error swap::swapfs_write(uintptr_t entry, Page* page);
 
     inline static SwapManager manager_{};
-    inline static unsigned int max_offset_{};
+    inline static unsigned int slot_limit_{};
     inline static BlockDevice* device_{};
-    inline static uint32_t next_offset_ = 1;
+    inline static uint32_t next_slot_ = 1;
 };
 
 }  // namespace
@@ -43,28 +43,28 @@ int init() {
     }
 
     if (!State::device_) {
-        State::max_offset_ = 0;
+        State::slot_limit_ = 0;
         cprintf("swap: disabled (no swap device)\n");
         return 0;
     }
 
-    if (State::device_->block_count <= SWAP_START_SECTOR) {
+    if (State::device_->block_count <= SWAP_START_LBA) {
         cprintf("swap: device '%s' too small (%d sectors, need > %d)\n", State::device_->name,
-                State::device_->block_count, SWAP_START_SECTOR);
-        State::max_offset_ = 0;
+                State::device_->block_count, SWAP_START_LBA);
+        State::slot_limit_ = 0;
         return 0;
     }
 
-    uint32_t available_sectors = State::device_->block_count - SWAP_START_SECTOR;
-    State::max_offset_ = available_sectors / SECTORS_PER_PAGE;
+    uint32_t available_blocks = State::device_->block_count - SWAP_START_LBA;
+    State::slot_limit_ = available_blocks / BLOCKS_PER_PAGE;
 
-    if (State::max_offset_ == 0) {
+    if (State::slot_limit_ == 0) {
         cprintf("swap: device '%s' has no usable swap space\n", State::device_->name);
         return 0;
     }
 
-    cprintf("swap: manager=%s, device='%s', %d pages (%d MB)\n", State::manager_.name, State::device_->name,
-            State::max_offset_, (State::max_offset_ * PG_SIZE) / (1024 * 1024));
+    cprintf("swap: manager=%s, device='%s', %d pages (%d MiB)\n", State::manager_.name, State::device_->name,
+            State::slot_limit_, (State::slot_limit_ * PG_SIZE) / (1024 * 1024));
 
     return 0;
 }
@@ -73,18 +73,18 @@ Error init_mm(MemoryDesc* mm) {
     return State::manager_.init_mm(mm);
 }
 
-Error in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr) {
+Error in(MemoryDesc* mm, uintptr_t va, Page** page_ptr) {
     ENSURE(mm && mm->pgdir && page_ptr);
     *page_ptr = nullptr;
     Page* page = pmm::alloc_pages(1);
     if (page == nullptr) {
-        cprintf("swap_in: failed to allocate page\n");
+        cprintf("swap::in: failed to allocate page\n");
         return Error::NoMem;
     }
 
-    pte_t* ptep = pmm::get_pte(mm->pgdir, addr, 0);
+    pte_t* ptep = pmm::get_pte(mm->pgdir, va, 0);
     if (ptep == nullptr) {
-        cprintf("swap_in: no page table entry\n");
+        cprintf("swap::in: no page table entry\n");
         pmm::free_pages(page, 1);
         return Error::NotFound;
     }
@@ -95,21 +95,22 @@ Error in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr) {
         return Error::Invalid;
     }
     if (swapfs_read(swap_entry, page) != Error::None) {
-        cprintf("swap_in: failed to read from swap\n");
+        cprintf("swap::in: failed to read from swap\n");
         pmm::free_pages(page, 1);
         return Error::Io;
     }
 
-    cprintf("swap_in: loaded addr 0x%x from swap entry 0x%x to page %p\n", addr, swap_entry, page);
+    cprintf("swap::in: loaded va 0x%lx from swap entry 0x%lx to page %p\n", static_cast<unsigned long>(va),
+            static_cast<unsigned long>(swap_entry), page);
 
     // Bit 7 marks entries that preserve the original write permission.
     uint32_t perm = user_page_perm((swap_entry & ENTRY_HAS_PERMISSIONS) == 0 || (swap_entry & ENTRY_WRITE) != 0);
-    if (pmm::page_insert(mm->pgdir, page, addr, perm) != Error::None) {
+    if (pmm::page_insert(mm->pgdir, page, va, perm) != Error::None) {
         pmm::free_pages(page);
         return Error::NoMem;
     }
 
-    State::manager_.map_swappable(mm, addr, page, 1);
+    State::manager_.map_swappable(mm, va, page, 1);
 
     *page_ptr = page;
     return Error::None;
@@ -122,8 +123,8 @@ namespace {
 constexpr int LEVEL_SHIFTS[PAGE_LEVELS] = {PML4X_SHIFT, PDPTX_SHIFT, PDX_SHIFT, PTX_SHIFT};
 
 // Recursively walk the page table tree looking for a mapping to target_pa.
-// depth: 0 = PML4, 1 = PDPT, 2 = PD, 3 = PT (leaf)
-uintptr_t scan_pt_for_pa(const pde_t* table, int depth, uintptr_t va_base, uintptr_t target_pa) {
+// depth indexes LEVEL_SHIFTS; PAGE_LEVELS - 1 is the leaf level.
+uintptr_t scan_pt_for_pa(const pde_t* table, int depth, uintptr_t base_va, uintptr_t target_pa) {
     int shift = LEVEL_SHIFTS[depth];
     bool is_leaf = (depth == PAGE_LEVELS - 1);
 
@@ -132,7 +133,7 @@ uintptr_t scan_pt_for_pa(const pde_t* table, int depth, uintptr_t va_base, uintp
         if (!pte_present(entry))
             continue;
 
-        uintptr_t va = va_base | (static_cast<uintptr_t>(i) << shift);
+        uintptr_t va = base_va | (static_cast<uintptr_t>(i) << shift);
 
         if (is_leaf) {
             if (pte_addr(entry) == target_pa)
@@ -158,62 +159,62 @@ uintptr_t scan_pt_for_pa(const pde_t* table, int depth, uintptr_t va_base, uintp
 
 }  // namespace
 
-uintptr_t swap::find_vaddr_for_page(MemoryDesc* mm, Page* page) {
+uintptr_t swap::find_va_for_page(MemoryDesc* mm, Page* page) {
     return scan_pt_for_pa(mm->pgdir, 0, 0, pmm::page_to_phys(page));
 }
 
 namespace swap {
 
-int out(MemoryDesc* mm, int n, int in_tick) {
-    int i{};
+int out(MemoryDesc* mm, int page_count, int in_timer_tick) {
+    int attempt_count{};
 
-    for (i = 0; i < n; i++) {
+    for (attempt_count = 0; attempt_count < page_count; attempt_count++) {
         Page* victim = nullptr;
-        if (State::manager_.swap_out_victim(mm, &victim, in_tick) != Error::None) {
-            cprintf("swap_out: no victim page found\n");
+        if (State::manager_.swap_out_victim(mm, &victim, in_timer_tick) != Error::None) {
+            cprintf("swap::out: no victim page found\n");
             break;
         }
 
         if (victim == nullptr) {
-            cprintf("swap_out: victim is nullptr\n");
+            cprintf("swap::out: victim is nullptr\n");
             break;
         }
 
-        uintptr_t victim_addr = find_vaddr_for_page(mm, victim);
-        if (victim_addr == 0) {
-            cprintf("swap_out: cannot find virtual address for page %p\n", victim);
+        uintptr_t victim_va = find_va_for_page(mm, victim);
+        if (victim_va == 0) {
+            cprintf("swap::out: cannot find virtual address for page %p\n", victim);
             continue;
         }
 
-        cprintf("swap_out: swapping out page %p at vaddr 0x%x\n", victim, victim_addr);
+        cprintf("swap::out: swapping out page %p at va 0x%lx\n", victim, static_cast<unsigned long>(victim_va));
 
-        pte_t* ptep = pmm::get_pte(mm->pgdir, victim_addr, 0);
+        pte_t* ptep = pmm::get_pte(mm->pgdir, victim_va, 0);
         if (ptep == nullptr) {
-            cprintf("swap_out: cannot get PTE for vaddr 0x%x\n", victim_addr);
+            cprintf("swap::out: cannot get PTE for va 0x%lx\n", static_cast<unsigned long>(victim_va));
             continue;
         }
 
         uintptr_t swap_entry =
-            (State::next_offset_ << 8) | ENTRY_HAS_PERMISSIONS | (pte_writable(*ptep) ? ENTRY_WRITE : 0);
+            (State::next_slot_ << 8) | ENTRY_HAS_PERMISSIONS | (pte_writable(*ptep) ? ENTRY_WRITE : 0);
         if (swapfs_write(swap_entry, victim) != Error::None) {
-            cprintf("swap_out: failed to write to swap\n");
+            cprintf("swap::out: failed to write to swap\n");
             continue;
         }
 
         *ptep = swap_entry;
 
-        pmm::invalidate_tlb_page(mm->pgdir, victim_addr);
+        pmm::invalidate_tlb_page(mm->pgdir, victim_va);
         pmm::free_pages(victim, 1);
 
-        State::next_offset_++;
-        if (State::next_offset_ >= State::max_offset_) {
-            State::next_offset_ = 1;  // Wrap around (simple allocation)
+        State::next_slot_++;
+        if (State::next_slot_ >= State::slot_limit_) {
+            State::next_slot_ = 1;  // Wrap around (simple allocation)
         }
 
-        cprintf("swap_out: successfully swapped out page to entry 0x%x\n", swap_entry);
+        cprintf("swap::out: successfully swapped out page to entry 0x%lx\n", static_cast<unsigned long>(swap_entry));
     }
 
-    return i;  // Return number of pages swapped out
+    return attempt_count;  // Completed loop iterations; mapping or write failures can also be counted.
 }
 
 }  // namespace swap
@@ -221,43 +222,44 @@ int out(MemoryDesc* mm, int n, int in_tick) {
 int swap::swapfs_init() {
     State::device_ = BlockManager::find_device(blk::DeviceType::Disk);
     if (State::device_ == nullptr) {
-        cprintf("swapfs init: no disk device found for swap\n");
+        cprintf("swapfs_init: no disk device found for swap\n");
         return -1;
     }
 
-    cprintf("swapfs init: using device '%s' for swap\n", State::device_->name);
-    cprintf("swapfs init: swap starts at sector %d\n", SWAP_START_SECTOR);
+    cprintf("swapfs_init: using device '%s' for swap\n", State::device_->name);
+    cprintf("swapfs_init: swap starts at LBA %d\n", SWAP_START_LBA);
 
     return 0;
 }
 
 
 Error swap::swapfs_read(uintptr_t entry, Page* page) {
-    // Calculate disk sector number
+    // Decode the swap slot, then calculate its first LBA.
     // +--------------------------------+--------+---+
-    // |    Swap Offset (24 bits)       | Reserved| P |
+    // |    Swap Slot (24 bits)         | Perms   | P |
     // +--------------------------------+--------+---+
-    // Bits 31-8                        Bits 7-1  Bit 0
-    uint32_t offset = (entry >> 8) & 0xFFFFFF;  // Extract offset from swap entry
-    ENSURE(State::device_ && page && !pte_present(entry) && offset > 0 && offset < State::max_offset_);
-    uint32_t sector = SWAP_START_SECTOR + (offset * SECTORS_PER_PAGE);
+    // Bits 31-8: slot; bit 7: permissions saved; bit 1: writable; bit 0: present.
+    uint32_t slot = (entry >> 8) & 0xFFFFFF;  // Extract the page-sized swap slot index
+    ENSURE(State::device_ && page && !pte_present(entry) && slot > 0 && slot < State::slot_limit_);
+    uint32_t start_lba = SWAP_START_LBA + (slot * BLOCKS_PER_PAGE);
 
     void* kva = pmm::page_to_kva(page);
-    TRY_LOG(State::device_->read(sector, kva, SECTORS_PER_PAGE), "swapfs_read: disk read failed (sector=%d)", sector);
+    TRY_LOG(State::device_->read(start_lba, kva, BLOCKS_PER_PAGE), "swapfs_read: disk read failed (start_lba=%d)",
+            start_lba);
 
-    cprintf("swapfs_read: read page from swap entry 0x%x (sector %d)\n", entry, sector);
+    cprintf("swapfs_read: read page from swap entry 0x%lx (LBA %d)\n", static_cast<unsigned long>(entry), start_lba);
     return Error::None;
 }
 
 Error swap::swapfs_write(uintptr_t entry, Page* page) {
-    uint32_t offset = (entry >> 8) & 0xFFFFFF;  // Extract offset from swap entry
-    ENSURE(State::device_ && page && !pte_present(entry) && offset > 0 && offset < State::max_offset_);
-    uint32_t sector = SWAP_START_SECTOR + (offset * SECTORS_PER_PAGE);
+    uint32_t slot = (entry >> 8) & 0xFFFFFF;  // Extract the page-sized swap slot index
+    ENSURE(State::device_ && page && !pte_present(entry) && slot > 0 && slot < State::slot_limit_);
+    uint32_t start_lba = SWAP_START_LBA + (slot * BLOCKS_PER_PAGE);
 
     void* kva = pmm::page_to_kva(page);
-    TRY_LOG(State::device_->write(sector, kva, SECTORS_PER_PAGE), "swapfs_write: disk write failed (sector=%d)",
-            sector);
+    TRY_LOG(State::device_->write(start_lba, kva, BLOCKS_PER_PAGE), "swapfs_write: disk write failed (start_lba=%d)",
+            start_lba);
 
-    cprintf("swapfs_write: wrote page to swap entry 0x%x (sector %d)\n", entry, sector);
+    cprintf("swapfs_write: wrote page to swap entry 0x%lx (LBA %d)\n", static_cast<unsigned long>(entry), start_lba);
     return Error::None;
 }

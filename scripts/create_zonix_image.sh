@@ -1,6 +1,6 @@
 #!/bin/bash
 # Create FAT32 disk image for Zonix OS (BIOS boot)
-# Called from: make bin/zonix.img
+# Called from: make ARCH=x86 bin/x86/zonix.img
 set -e
 
 BINDIR="${BINDIR:-bin}"
@@ -8,7 +8,7 @@ image_path="${BINDIR}/zonix.img"
 
 echo "Creating FAT32 disk image..."
 
-# Create 64MB disk image (FAT32 requires at least 33MB)
+# Create a 64 MiB disk image for FAT32
 dd if=/dev/zero of="$image_path" bs=1M count=64 2>/dev/null
 
 # Write MBR
@@ -35,7 +35,7 @@ cat temp_bpb.bin temp_bootcode.bin temp_signature.bin > temp_vbr.bin
 dd if=temp_vbr.bin of="$image_path" bs=1 seek=512 count=512 conv=notrunc 2>/dev/null
 rm -f temp_bpb.bin temp_bootcode.bin temp_signature.bin temp_vbr.bin
 
-# Install bootloader (after reserved sectors)
+# Install bootloader in the reserved area before the FAT
 # Place at sector 2 for safety (offset = 1024)
 dd if=${BINDIR}/bootloader.bin of="$image_path" bs=1 seek=1024 conv=notrunc 2>/dev/null
 

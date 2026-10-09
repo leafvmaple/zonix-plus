@@ -187,28 +187,28 @@ def main():
         raise ValueError("No PT_LOAD segments found")
 
     # Determine image extent
-    img_start = min(ph["vaddr"] for ph in load_segs)
-    img_end = max(ph["vaddr"] + ph["memsz"] for ph in load_segs)
-    img_size = align_up(img_end - img_start, 0x1000)
+    elf_start_va = min(ph["vaddr"] for ph in load_segs)
+    elf_end_va = max(ph["vaddr"] + ph["memsz"] for ph in load_segs)
+    elf_size = align_up(elf_end_va - elf_start_va, 0x1000)
     # entry_rva will be adjusted after we know text_rva
 
-    # Build raw image buffer (zero-extended to img_size)
-    raw = bytearray(img_size)
+    # Build raw ELF payload (zero-extended to elf_size).
+    raw = bytearray(elf_size)
     for ph in load_segs:
         src_off = ph["offset"]
-        dst_off = ph["vaddr"] - img_start
+        dst_off = ph["vaddr"] - elf_start_va
         copy_len = min(ph["filesz"], ph["memsz"])
         raw[dst_off : dst_off + copy_len] = elf_data[src_off : src_off + copy_len]
 
     # Build base relocation section
-    # Adjust ELF offsets → PE RVAs: PE_offset = text_rva + (elf_va - img_start)
+    # Adjust ELF offsets → PE RVAs: pe_rva = text_rva + (elf_va - elf_start_va)
     # But text_rva is not yet known here; we compute it after header sizing.
     # Base reloc offsets relative to ELF VAs, adjusted below.
     raw_rel_offsets = elf["rel_offsets"]
 
     # --- PE layout constants ---
-    FILE_ALIGN = 0x200
-    SECT_ALIGN = 0x1000
+    file_align = 0x200
+    section_align = 0x1000
 
     # We'll emit two PE sections: .text (the raw image) and .reloc
     section_count = 2
@@ -223,24 +223,24 @@ def main():
     hdr_raw_size = (
         dos_hdr_size + pe_sig_size + coff_hdr_size + opt_hdr_size + sec_hdr_size
     )
-    hdr_file_size = align_up(hdr_raw_size, FILE_ALIGN)
+    hdr_file_size = align_up(hdr_raw_size, file_align)
 
-    text_rva = align_up(hdr_file_size, SECT_ALIGN)  # RVA of .text in PE image
-    text_raw_size = align_up(img_size, FILE_ALIGN)
-    text_virt_size = img_size
-    # entry_rva in PE = text_rva + (ELF entry VA - img_start)
-    entry_rva = text_rva + (elf["entry"] - img_start)
+    text_rva = align_up(hdr_file_size, section_align)  # RVA of .text in PE image
+    text_raw_size = align_up(elf_size, file_align)
+    text_virt_size = elf_size
+    # entry_rva in PE = text_rva + (ELF entry VA - elf_start_va)
+    entry_rva = text_rva + (elf["entry"] - elf_start_va)
 
     # Adjust reloc offsets from ELF VAs to PE RVAs
-    pe_rel_offsets = [text_rva + (va - img_start) for va in raw_rel_offsets]
+    pe_rel_offsets = [text_rva + (va - elf_start_va) for va in raw_rel_offsets]
     base_reloc_data = build_base_reloc(pe_rel_offsets)
     reloc_size = len(base_reloc_data)
 
-    reloc_rva = text_rva + align_up(text_virt_size, SECT_ALIGN)
-    reloc_raw_size = align_up(reloc_size, FILE_ALIGN)
+    reloc_rva = text_rva + align_up(text_virt_size, section_align)
+    reloc_raw_size = align_up(reloc_size, file_align)
     reloc_virt_size = reloc_size
 
-    image_size = align_up(reloc_rva + reloc_virt_size, SECT_ALIGN)
+    image_size = align_up(reloc_rva + reloc_virt_size, section_align)
 
     # --- Assemble PE binary ---
     out = bytearray(hdr_file_size + text_raw_size + reloc_raw_size)
@@ -288,7 +288,7 @@ def main():
     struct.pack_into("<I", out, opt_off + 20, text_rva)  # BaseOfCode
     struct.pack_into("<Q", out, opt_off + 24, 0)  # ImageBase (relocated by FW)
     struct.pack_into(
-        "<II", out, opt_off + 32, SECT_ALIGN, FILE_ALIGN
+        "<II", out, opt_off + 32, section_align, file_align
     )  # SectionAlignment, FileAlignment
     struct.pack_into("<HH", out, opt_off + 40, 0, 0)  # OS version
     struct.pack_into("<HH", out, opt_off + 44, 0, 0)  # Image version
@@ -318,7 +318,7 @@ def main():
     # Section headers
     sh_off = opt_off + opt_hdr_size
 
-    def write_section(offset, name, vsize, rva, raw_size, raw_ptr, chars):
+    def write_section(offset, name, vsize, rva, raw_size, raw_offset, chars):
         name_bytes = name.encode("ascii")[:8].ljust(8, b"\x00")
         struct.pack_into(
             "<8sIIIIIIHHI",
@@ -328,7 +328,7 @@ def main():
             vsize,  # VirtualSize
             rva,  # VirtualAddress
             raw_size,  # SizeOfRawData
-            raw_ptr,  # PointerToRawData
+            raw_offset,  # PointerToRawData
             0,
             0,  # PointerToRelocations, PointerToLinenumbers
             0,
@@ -365,15 +365,15 @@ def main():
     )
 
     # Copy image data into .text section
-    out[hdr_file_size : hdr_file_size + img_size] = raw
+    out[hdr_file_size : hdr_file_size + elf_size] = raw
 
     # Copy base reloc data into .reloc section
     reloc_file_off = hdr_file_size + text_raw_size
     out[reloc_file_off : reloc_file_off + reloc_size] = base_reloc_data
 
     # Compute and write checksum
-    chk = pe_checksum(bytes(out))
-    struct.pack_into("<I", out, opt_off + 64, chk)
+    checksum = pe_checksum(bytes(out))
+    struct.pack_into("<I", out, opt_off + 64, checksum)
 
     with open(sys.argv[2], "wb") as f:
         f.write(out)

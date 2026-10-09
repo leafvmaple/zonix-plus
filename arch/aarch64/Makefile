@@ -62,7 +62,7 @@ $(BINDIR)/zonix-uefi.img: $(BINDIR)/BOOTAA64.EFI $(BINDIR)/kernel | $$(dir $$@)
 	@echo "  IMG     $@"
 	$(Q)BINDIR=$(BINDIR) ARCH=aarch64 bash $(SCRIPTDIR)/create_uefi_image.sh
 
-# ---------- SD card image (128 MB, power-of-2 required by QEMU) ----------
+# ---------- SD card image (128 MiB, power-of-2 required by QEMU) ----------
 $(BINDIR)/sdcard.img: $(BINDIR)/zonix-uefi.img
 	@echo "  IMG     $@"
 	$(Q)cp $< $@

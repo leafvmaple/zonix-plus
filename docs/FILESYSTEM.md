@@ -76,7 +76,7 @@ vfs::FileSystem (抽象接口)          ── 每种文件系统必须实现
 ### 2.2 挂载表 — 路径路由
 
 ```
-s_mounts[3] — 固定三槽挂载表
+State::mounts_[3] — 固定三槽挂载表
 ┌───────┬────────────┬──────────────┐
 │ Index │ Mount Point│ 用途         │
 ├───────┼────────────┼──────────────┤
@@ -96,8 +96,8 @@ s_mounts[3] — 固定三槽挂载表
 ### 2.3 文件系统注册机制
 
 ```
-s_fs_registry[8] — 文件系统工厂注册表
-s_char_dev_registry[8] — 字符设备注册表
+State::fs_registry_[8] — 文件系统工厂注册表
+char_device_registry[8] — 字符设备注册表
 
 注册时机: 静态构造器 (内核启动前)
 │
@@ -114,7 +114,7 @@ resolve_path("/mnt/docs/README.txt")
 ├─ Step 1: 前缀匹配
 │   "/" 开头 → 跳过
 │   "dev/" ?  → 不匹配
-│   "mnt/" ?  → 匹配! → 选中 s_mounts[1]
+│   "mnt/" ?  → 匹配! → 选中 State::mounts_[1]
 │
 ├─ Step 2: 截取相对路径
 │   "/mnt/docs/README.txt" → "docs/README.txt"
@@ -123,14 +123,14 @@ resolve_path("/mnt/docs/README.txt")
 
 resolve_path("/dev/console")
 │
-├─ "dev/" → 匹配 s_mounts[0]
+├─ "dev/" → 匹配 State::mounts_[0]
 └─ relpath = "console"
 
 resolve_path("/boot/kernel")
 │
 ├─ "dev/" → 不匹配
 ├─ "mnt/" → 不匹配
-└─ 回退到 "/" → s_mounts[2]，relpath = "boot/kernel"
+└─ 回退到 "/" → State::mounts_[2]，relpath = "boot/kernel"
 ```
 
 ---
@@ -186,7 +186,7 @@ vfs::open("/mnt/hello.txt", &file)
 │
 ├─ Step 1: 路径解析
 │   resolve_path("/mnt/hello.txt")
-│   → slot = s_mounts[1] (/mnt)
+│   → slot = State::mounts_[1] (/mnt)
 │   → relpath = "hello.txt"
 │
 ├─ Step 2: 检查挂载
@@ -361,7 +361,7 @@ vfs::readdir("/mnt", callback, arg)
 ```
 DevFS 架构:
 │
-├─ s_char_dev_registry[8]  ── 字符设备注册表
+├─ char_device_registry[8]  ── 字符设备注册表
 │   ├─ [0] { name: "console", factory: ConsoleFile::create }
 │   └─ [1..7] 空
 │
@@ -521,26 +521,26 @@ fat_.find_file("docs/README.txt", &result)
 ```
 BlockDevice (抽象基类)
 ├─ type         ── Disk / Swap
-├─ size         ── 总扇区数
+├─ block_count  ── 总逻辑块数
 ├─ name[8]      ── 设备名 (如 "hda")
 │
 ├─ read(start_lba, buf, block_count)   ── 读扇区
 ├─ write(start_lba, buf, block_count)  ── 写扇区
 └─ print_info()                           ── 打印设备信息
 
-扇区大小: BlockDevice::SIZE = 512 字节
+扇区大小: BlockDevice::BLOCK_SIZE_BYTES = 512 字节
 ```
 
 ### 7.2 设备管理器
 
 ```
 BlockManager (静态注册表)
-├─ s_devices[4]           ── 最多 4 个块设备
+├─ devices_[4]            ── 最多 4 个块设备
 │
 ├─ register_device(dev)   ── 注册新设备
-├─ get_device("hda")      ── 按名称查找
-├─ get_device(0)          ── 按索引查找
-├─ get_device(Disk)       ── 按类型查找第一个
+├─ find_device("hda")      ── 按名称查找
+├─ find_device(0)          ── 按索引查找
+├─ find_device(Disk)       ── 按类型查找第一个
 └─ print()                ── 打印 lsblk 风格设备列表
 ```
 
@@ -563,15 +563,15 @@ kernel init()
 │
 ├─ vfs::init()
 │   └─ mount("/dev", nullptr, "devfs")
-│       ├─ 查找工厂: s_fs_registry["devfs"] → DevFileSystem::create
+│       ├─ 查找工厂: State::fs_registry_["devfs"] → DevFileSystem::create
 │       ├─ fs = new DevFileSystem()
 │       ├─ fs->mount(nullptr)        ── DevFS 不需要设备
-│       └─ s_mounts[0].fs = fs
+│       └─ State::mounts_[0].fs = fs
 │
 ├─ rootfs::init()
 │   ├─ 遍历所有注册的块设备:
 │   │   for i in 0..device_count:
-│   │     dev = get_device(i)
+│   │     dev = find_device(i)
 │   │     if dev.type != Disk → 跳过
 │   │     尝试 mount("/", dev, "fat")
 │   │     if 成功 → break
@@ -592,14 +592,14 @@ kernel init()
 ```
 cmd_mount("hda")
 │
-├─ dev = BlockManager::get_device("hda")
+├─ dev = BlockManager::find_device("hda")
 ├─ if (!dev) → "device not found"
 │
 ├─ vfs::mount("/mnt", dev, "fat")
 │   ├─ 查找工厂 → FatFileSystem::create
 │   ├─ fs = new FatFileSystem()
 │   ├─ fs->mount(dev)              ── FatInfo 挂载
-│   └─ s_mounts[1] = { "/mnt", dev, "hda", fs, "fat" }
+│   └─ State::mounts_[1] = { "/mnt", dev, "hda", fs, "fat" }
 │
 └─ "mounted hda at /mnt"
 

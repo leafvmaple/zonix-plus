@@ -12,8 +12,8 @@ echo "=== Creating FAT16 Test Image ==="
 # Create bin directory if not exists
 mkdir -p bin
 
-# Create 4MB disk image
-echo "Creating ${image_size_mib}MB disk image..."
+# Create the configured image in MiB
+echo "Creating ${image_size_mib} MiB disk image..."
 dd if=/dev/zero of=$image_path bs=1M count=$image_size_mib status=progress
 
 # Format as FAT16
@@ -111,7 +111,7 @@ sudo rmdir $mount_point
 echo ""
 echo "=== FAT16 Test Image Created Successfully ==="
 echo "Image: $image_path"
-echo "Size: ${image_size_mib}MB"
+echo "Size: ${image_size_mib} MiB"
 echo ""
 echo "To use in Zonix:"
 echo "1. Make sure bochsrc.bxrc includes this disk as ata0-slave:"

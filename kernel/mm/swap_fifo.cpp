@@ -14,13 +14,13 @@ Error SwapManager::init_mm(MemoryDesc* mm) {
     return Error::None;
 }
 
-Error SwapManager::map_swappable(MemoryDesc* mm, uintptr_t addr, Page* page, int swap_in) {
+Error SwapManager::map_swappable(MemoryDesc* mm, uintptr_t va, Page* page, int from_swap_in) {
     mm->swap_list.add_before(page->node());
 
     return Error::None;
 }
 
-Error SwapManager::swap_out_victim(MemoryDesc* mm, Page** page_ptr, int in_tick) {
+Error SwapManager::swap_out_victim(MemoryDesc* mm, Page** page_ptr, int in_timer_tick) {
     if (mm->swap_list.empty()) {
         *page_ptr = nullptr;
         return Error::NotFound;

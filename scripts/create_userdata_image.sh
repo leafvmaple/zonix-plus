@@ -21,7 +21,7 @@ echo "=== Creating FAT32 Data Disk ==="
 mkdir -p "$BINDIR"
 
 # 1. Create raw image
-echo "Creating ${image_size_mib}MB disk image..."
+echo "Creating ${image_size_mib} MiB disk image..."
 dd if=/dev/zero of="$image_path" bs=1M count=$image_size_mib status=none
 
 # 2. Format as FAT32
@@ -30,7 +30,7 @@ mkfs.vfat -F 32 -n "ZONIXDATA" "$image_path" > /dev/null
 
 # ---- helper: write a string to a file on the image ----
 put_text() {
-    local dst="$1"   # e.g. "::/$NAME"
+    local dst="$1"   # e.g. "::/$name"
     local tmp
     tmp=$(mktemp)
     cat > "$tmp"
@@ -123,7 +123,7 @@ mdir -i "$image_path" ::/
 
 echo ""
 echo "=== FAT32 Data Disk Created ==="
-echo "Image: $image_path  (${image_size_mib}MB)"
+echo "Image: $image_path  (${image_size_mib} MiB)"
 echo ""
 echo "In Zonix shell:"
 echo "  mount hdb"

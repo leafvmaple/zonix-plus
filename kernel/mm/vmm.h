@@ -10,9 +10,9 @@ struct MemoryDesc {
 
     explicit MemoryDesc(PageTableOwnership ownership = PageTableOwnership::Owned) : ownership_(ownership) {}
 
-    ListNode mmap_list{};  // linear list link which sorted by start addr of vma
-    pde_t* pgdir{};        // the PDT of these vma
-    int map_count{};       // the count of these vma
+    ListNode mmap_list{};  // VMA list ordered by start VA
+    pde_t* pgdir{};        // Root page table for this address space
+    int map_count{};       // Number of VMAs
     ListNode swap_list{};  // active swap queue for page replacement
 
     ~MemoryDesc() {

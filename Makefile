@@ -2,7 +2,7 @@
 
 # ==========================================================================
 # Architecture selection
-# Usage: make ARCH=x86 (default) | make ARCH=aarch64
+# Usage: make ARCH=x86 (default) | make ARCH=aarch64 | make ARCH=riscv64
 # ==========================================================================
 ARCH ?= x86
 V    ?= 0  # Verbose mode: make V=1
@@ -143,7 +143,7 @@ $(kernel): $(KOBJS) $(KERNEL_EXTRA_OBJS) $(KERNEL_LD_SCRIPT) $(TEST_MODE_STAMP) 
 	@echo "  LINK    $@"
 
 # ==========================================================================
-# Boot (BIOS + UEFI) — separate C/ASM 32-bit toolchain
+# Boot (BIOS + UEFI) — architecture-specific toolchains
 # ==========================================================================
 include arch/$(ARCH)/boot/Makefile
 
@@ -239,7 +239,7 @@ help:
 	@echo ""
 	@echo "Build:"
 	@echo "  make [all]           Build everything for current ARCH"
-	@echo "  make bin/kernel      Build kernel only"
+	@echo "  make $(BINDIR)/kernel  Build kernel only"
 	@echo "  make user            Build user-mode programs"
 	@echo "  make disasm          Generate disassembly listings (x86)"
 	@echo "  make clean           Remove all build artifacts"
@@ -262,7 +262,7 @@ help:
 	@echo "  make compdb          Generate compile_commands.json (needs bear)"
 	@echo ""
 	@echo "Options:"
-	@echo "  ARCH=x86|aarch64     Target architecture (default: x86)"
+	@echo "  ARCH=x86|aarch64|riscv64  Target architecture (default: x86)"
 	@echo "  DISK=ahci|ide        User-data disk controller (default: ahci)"
 	@echo "  TEST=0|1             Include kernel test suites (default: 0)"
 	@echo "  V=1                  Verbose build output"

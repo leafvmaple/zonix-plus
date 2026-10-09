@@ -380,7 +380,7 @@ void* kmalloc(size_t byte_count) {
     if (!page)
         return nullptr;
 
-    page->block_page_count = page_count;  // remember allocation byte_count for kfree
+    page->block_page_count = page_count;  // remember allocation page count for kfree
     return pmm::page_to_kva(page);
 }
 

@@ -1,10 +1,10 @@
 #!/bin/bash
 # Create a GPT+ESP UEFI boot image for Zonix OS.
-# Works for both x86_64 and AArch64 — auto-detects from ARCH or boot binary.
+# Works for x86_64, AArch64 and RISC-V 64-bit — selects ARCH or infers it from BINDIR.
 #
 # Environment:
-#   BINDIR   — directory containing the boot binary and kernel (required)
-#   ARCH     — x86 or aarch64 (auto-detected from BINDIR if omitted)
+#   BINDIR   — directory containing the boot binary and kernel (default: bin)
+#   ARCH     — x86, aarch64 or riscv64 (auto-detected from BINDIR if omitted)
 set -e
 
 BINDIR="${BINDIR:-bin}"
@@ -43,7 +43,7 @@ kernel_path="${BINDIR}/kernel"
 [ -f "$bootloader_path" ] || { echo "Error: $bootloader_path not found"; exit 1; }
 [ -f "$kernel_path" ] || { echo "Error: $kernel_path not found"; exit 1; }
 
-echo "[1] Creating ${image_size_mib}MB image..."
+echo "[1] Creating ${image_size_mib} MiB image..."
 dd if=/dev/zero of="$image_path" bs=1M count=$image_size_mib 2>/dev/null
 
 echo "[2] Creating GPT partition table..."

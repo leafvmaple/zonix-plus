@@ -104,6 +104,13 @@ LBA (`partition_start_lba_`), and a PCI slot (`slot`) from a PCI identity
 explicitly (`user_src_va`, `kernel_dst`) when both address spaces are involved.
 These names carry units; they are not storage/type prefixes.
 
+Swap interfaces use va/victim_va for virtual addresses, slot for a page-sized
+swap slot index, start_lba for disk positions and page_count for the loop budget.
+Use attempt_count for completed swap-out iterations; the current return value
+can include failed attempts and must not be named as a successful page count.
+Keep local Python alignment values in snake_case (file_align/section_align);
+retain uppercase module constants and caller-supplied shell environment names.
+
 BootInfo is a project-owned binary interface. Its memory map uses mmap_count
 for the number of entries and mmap_pa for their physical address. Memory-region
 entries use base_pa/size_bytes; lower_memory_kib/upper_memory_kib state their
