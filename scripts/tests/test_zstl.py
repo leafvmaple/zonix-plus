@@ -8,11 +8,48 @@ import unittest
 from cxx_config import ROOT, ZSTL_FLAGS
 
 CLANG = shutil.which("clang++")
+GCC = shutil.which("g++")
 LIBRARY = ROOT / "external/zstl"
 
 
 @unittest.skipUnless(CLANG, "clang++ is required for zstl integration tests")
 class ZstlIntegrationTests(unittest.TestCase):
+    def test_inline_container_and_lock_contracts(self):
+        self._run_contract("container_test.cpp", "c++20", [])
+
+    @unittest.skipUnless(GCC, "g++ is required for the alternate compiler contract")
+    def test_inline_container_and_lock_contracts_with_gcc(self):
+        self._run_contract("container_test.cpp", "c++20", [], compiler=GCC)
+
+    def test_cstring_contract_without_host_wrappers(self):
+        for standard in ("c++17", "c++20"):
+            with self.subTest(standard=standard):
+                self._run_contract("cstring_test.cpp", standard, ["-DZSTL_FREESTANDING"])
+
+    def _run_contract(self, source, standard, flags, compiler=CLANG):
+        with tempfile.TemporaryDirectory(prefix="zonix-zstl-contract-") as directory:
+            binary = Path(directory) / "contract"
+            result = subprocess.run(
+                [compiler, "-std=" + standard, "-fno-exceptions", "-fno-rtti", "-Werror",
+                 "-fsanitize=address,undefined", "-fno-omit-frame-pointer", *flags,
+                 "-I" + str(LIBRARY / "include"), str(LIBRARY / "tests" / source),
+                 "-o", str(binary)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_inline_containers_without_system_headers_for_all_targets(self):
+        with tempfile.TemporaryDirectory(prefix="zonix-zstl-inline-") as directory:
+            for target in ("x86_64-none-elf", "aarch64-none-elf", "riscv64-none-elf"):
+                with self.subTest(target=target):
+                    result = subprocess.run(
+                        [CLANG, "-std=c++20", "--target=" + target, *ZSTL_FLAGS,
+                         "-ffreestanding", "-nostdinc", "-nostdinc++", "-fno-exceptions", "-fno-rtti",
+                         "-Werror", "-c", str(LIBRARY / "tests/container_freestanding_test.cpp"),
+                         "-o", str(Path(directory) / (target + ".o"))],
+                        capture_output=True, text=True, timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_memory_contract_in_cxx17_and_cxx20(self):
         with tempfile.TemporaryDirectory(prefix="zonix-zstl-memory-") as directory:
             for standard in ("c++17", "c++20"):

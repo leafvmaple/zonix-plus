@@ -1,3 +1,4 @@
+#include <sys/iterator.hpp>
 #include "ahci.h"
 #include "drivers/pci.h"
 #include "drivers/mmio.h"
@@ -26,7 +27,7 @@ const pci::DriverId AHCI_IDS[] = {
 const pci::Driver AHCI_DRIVER = {
     "ahci",
     AHCI_IDS,
-    static_cast<int>(array_size(AHCI_IDS)),
+    static_cast<int>(sys::size(AHCI_IDS)),
     AhciManager::probe_callback,
 };
 

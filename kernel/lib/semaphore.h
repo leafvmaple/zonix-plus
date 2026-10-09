@@ -1,6 +1,6 @@
 #pragma once
 
-#include "lib/lock_guard.h"
+#include <sys/mutex.hpp>
 #include "lib/spinlock.h"
 #include "lib/waitqueue.h"
 

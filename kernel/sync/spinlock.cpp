@@ -2,7 +2,7 @@
 
 #include <asm/arch.h>
 
-void Spinlock::acquire() {
+void Spinlock::lock() {
     uint64_t flags = arch_irq_save();
     arch_irq_disable();
 
@@ -13,7 +13,7 @@ void Spinlock::acquire() {
     saved_flags_ = flags;
 }
 
-void Spinlock::release() {
+void Spinlock::unlock() {
     __atomic_clear(&locked_, __ATOMIC_RELEASE);
     arch_irq_restore(saved_flags_);
 }

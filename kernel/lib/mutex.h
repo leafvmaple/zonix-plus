@@ -1,6 +1,6 @@
 #pragma once
 
-#include "lib/lock_guard.h"
+#include <sys/mutex.hpp>
 #include "lib/spinlock.h"
 #include "lib/waitqueue.h"
 
@@ -18,10 +18,6 @@ public:
     bool try_lock();
 
     [[nodiscard]] bool is_locked() const { return held_; }
-
-    // LockGuard<T> expects acquire()/release()
-    void acquire() { lock(); }
-    void release() { unlock(); }
 
 private:
     bool held_{false};

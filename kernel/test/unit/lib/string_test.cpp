@@ -89,6 +89,8 @@ static void test_strchr() {
     TEST_ASSERT(strchr(s, 'd') == s + 10, "Find last char");
     TEST_ASSERT(strchr(s, 'z') == nullptr, "Missing char returns nullptr");
     TEST_ASSERT(strchr("", 'a') == nullptr, "Empty string returns nullptr");
+    TEST_ASSERT(strchr(s, '\0') == s + strlen(s), "Terminator is part of the searchable string");
+    TEST_ASSERT(*strchr("", '\0') == '\0', "Empty string contains its terminator");
 
     TEST_END();
 }

@@ -1,7 +1,8 @@
 #include "fs/fat.h"
 
-#include "lib/array.h"
-#include "lib/math.h"
+#include <sys/inplace_vector.hpp>
+#include <sys/array.hpp>
+#include <sys/algorithm.hpp>
 #include "lib/memory.h"
 #include "lib/stdio.h"
 #include "lib/string.h"
@@ -17,7 +18,7 @@ static char to_upper(char ch) {
 }
 
 template<size_t N>
-static bool next_part(const char*& path, char (&buf)[N]) {
+static bool next_part(const char*& path, sys::array<char, N>& buf) {
     size_t len{};
     while (*path && *path != '/') {
         if (len + 1 >= N) {
@@ -68,7 +69,7 @@ Result<int> FatInfo::do_file_io(FatDirEntry* entry, uint8_t* io_buf, uint32_t of
         uint32_t cluster_bytes = bytes_per_cluster_ - offset;
         offset = 0;
 
-        uint32_t count = min(cluster_bytes, size - solve_bytes);
+        uint32_t count = sys::min(cluster_bytes, size - solve_bytes);
         if (writeback) {
             memcpy(cluster_buf + cluster_offset, io_buf + solve_bytes, count);
             TRY(dev_->write(partition_start_lba_ + sector, cluster_buf, sectors_per_cluster_));
@@ -172,27 +173,28 @@ Error FatInfo::find_file(const char* filename, FatDirEntry* result) {
     const char* path = str_skip_char(filename, '/');
     ENSURE(path && path[0] != '\0');
 
-    Array<char[MAX_PART_LEN], MAX_DEPTH> parts{};
+    sys::inplace_vector<sys::array<char, MAX_PART_LEN>, MAX_DEPTH> parts{};
     while (*path) {
-        char part[MAX_PART_LEN]{};
+        sys::array<char, MAX_PART_LEN> part{};
         ENSURE(next_part(path, part));
 
-        if (!strcmp(part, "."))
+        if (!strcmp(part.data(), "."))
             continue;
 
-        if (!strcmp(part, "..")) {
-            parts.pop_back();
+        if (!strcmp(part.data(), "..")) {
+            if (!parts.empty())
+                parts.pop_back();
             continue;
         }
 
-        ENSURE(parts.push_back(part));
+        ENSURE(parts.try_push_back(part));
     }
 
     ENSURE(!parts.empty());
 
     uint32_t cluster = root_cluster_;
     for (size_t i = 0; i < parts.size(); i++, cluster = result->cluster()) {
-        TRY(find_entry(cluster, parts[i], result));
+        TRY(find_entry(cluster, parts[i].data(), result));
 
         if (i + 1 < parts.size() && !result->is_directory())
             return Error::NotFound;
@@ -230,30 +232,31 @@ Error FatInfo::resolve_parent(const char* relpath, uint32_t* parent_cluster, cha
     const char* path = str_skip_char(relpath, '/');
     ENSURE(path && path[0] != '\0');
 
-    Array<char[MAX_PART_LEN], MAX_DEPTH> parts{};
+    sys::inplace_vector<sys::array<char, MAX_PART_LEN>, MAX_DEPTH> parts{};
     const char* cursor = path;
     while (*cursor) {
-        char part[MAX_PART_LEN]{};
+        sys::array<char, MAX_PART_LEN> part{};
         ENSURE(next_part(cursor, part));
-        if (!strcmp(part, ".")) {
+        if (!strcmp(part.data(), ".")) {
             continue;
         }
-        if (!strcmp(part, "..")) {
-            parts.pop_back();
+        if (!strcmp(part.data(), "..")) {
+            if (!parts.empty())
+                parts.pop_back();
             continue;
         }
-        ENSURE(parts.push_back(part));
+        ENSURE(parts.try_push_back(part));
     }
 
     ENSURE(!parts.empty());
 
-    strncpy(child_name, parts[parts.size() - 1], name_size - 1);
+    strncpy(child_name, parts.back().data(), name_size - 1);
     child_name[name_size - 1] = '\0';
 
     uint32_t cluster = root_cluster_;
     for (size_t i = 0; i + 1 < parts.size(); i++) {
         FatDirEntry entry{};
-        TRY(find_entry(cluster, parts[i], &entry));
+        TRY(find_entry(cluster, parts[i].data(), &entry));
         ENSURE(entry.is_directory(), Error::NotFound);
 
         cluster = entry.cluster();

@@ -1,3 +1,4 @@
+#include <sys/iterator.hpp>
 /**
  * @file virtio_kbd.cpp
  * @brief Virtio-input keyboard driver (modern PCI transport).
@@ -419,7 +420,7 @@ const pci::DriverId VIRTIO_KBD_IDS[] = {
 const pci::Driver VIRTIO_KBD_DRIVER = {
     "virtio_kbd",
     VIRTIO_KBD_IDS,
-    static_cast<int>(array_size(VIRTIO_KBD_IDS)),
+    static_cast<int>(sys::size(VIRTIO_KBD_IDS)),
     probe_callback,
 };
 

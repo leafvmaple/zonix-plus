@@ -1,5 +1,5 @@
 #include "lib/waitqueue.h"
-#include "lib/lock_guard.h"
+#include <sys/mutex.hpp>
 #include "sched/sched.h"
 #include "drivers/intr.h"
 
@@ -18,7 +18,7 @@ void WaitQueue::sleep() {
     entry.task = sched::current();
 
     {
-        LockGuard<Spinlock> guard(lock_);
+        sys::lock_guard<Spinlock> guard(lock_);
         head_.add_before(entry.node);
         entry.task->sleep();
     }
@@ -26,13 +26,13 @@ void WaitQueue::sleep() {
     sched::schedule();
 
     {
-        LockGuard<Spinlock> guard(lock_);
+        sys::lock_guard<Spinlock> guard(lock_);
         entry.node.unlink();
     }
 }
 
 void WaitQueue::wakeup_one() {
-    LockGuard<Spinlock> guard(lock_);
+    sys::lock_guard<Spinlock> guard(lock_);
     if (head_.empty()) {
         return;
     }
@@ -44,7 +44,7 @@ void WaitQueue::wakeup_one() {
 }
 
 void WaitQueue::wakeup_all() {
-    LockGuard<Spinlock> guard(lock_);
+    sys::lock_guard<Spinlock> guard(lock_);
     while (!head_.empty()) {
         ListNode* node = head_.next_node();
         Entry* entry = Entry::from_node(node);

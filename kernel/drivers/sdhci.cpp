@@ -1,3 +1,4 @@
+#include <sys/iterator.hpp>
 #include "sdhci.h"
 #include "drivers/mmio.h"
 #include "drivers/pci.h"
@@ -467,7 +468,7 @@ static int probe_one_controller(SdDevice* dev, int device_index, int bus, int sl
 const pci::Driver SDHCI_DRIVER = {
     "sdhci",
     SDHCI_IDS,
-    static_cast<int>(array_size(SDHCI_IDS)),
+    static_cast<int>(sys::size(SDHCI_IDS)),
     Manager::probe_callback,
 };
 
@@ -488,29 +489,30 @@ int Manager::init() {
 }
 
 int Manager::device_count() {
-    return static_cast<int>(devices_.size());
+    return static_cast<int>(device_count_);
 }
 
 SdDevice* Manager::find_device(int index) {
-    if (index < 0 || static_cast<size_t>(index) >= devices_.size()) {
+    if (index < 0 || static_cast<size_t>(index) >= device_count_) {
         return nullptr;
     }
     return &devices_[index];
 }
 
 Error Manager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*) {
-    if (devices_.full()) {
+    if (device_count_ == devices_.size()) {
         cprintf("sdhci: too many controllers, max=%d\n", MAX_DEVICES);
         return Error::Full;
     }
 
-    int index = static_cast<int>(devices_.size());
+    int index = static_cast<int>(device_count_);
     int rc = probe_one_controller(&devices_[index], index, pdev->bus, pdev->slot, pdev->function);
     if (rc != 0) {
         return Error::Fail;
     }
 
-    devices_.commit_back();
+    // Publish the stable slot only after initialization and block registration succeed.
+    ++device_count_;
     return Error::None;
 }
 

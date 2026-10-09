@@ -1,3 +1,4 @@
+#include <sys/iterator.hpp>
 /**
  * AArch64 architecture initialization and runtime abstractions.
  */
@@ -39,14 +40,14 @@ const InitStep PCI_STEPS[] = {
 
 const InitStep* arch_early_steps(size_t* count) {
     if (count != nullptr) {
-        *count = array_size(ARCH_STEPS);
+        *count = sys::size(ARCH_STEPS);
     }
     return ARCH_STEPS;
 }
 
 const InitStep* arch_pci_steps(size_t* count) {
     if (count != nullptr) {
-        *count = array_size(PCI_STEPS);
+        *count = sys::size(PCI_STEPS);
     }
     return PCI_STEPS;
 }

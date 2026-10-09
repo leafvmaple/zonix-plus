@@ -1,7 +1,7 @@
 #include "vfs.h"
 #include "vfs_fs.h"
 
-#include "lib/array.h"
+#include <sys/inplace_vector.hpp>
 #include "lib/memory.h"
 #include "lib/stdio.h"
 #include "lib/string.h"
@@ -35,7 +35,7 @@ class State {
     friend Error vfs::mount(const char* mount_point, BlockDevice* dev, const char* fs_type);
     friend Error vfs::register_fs(const char* name, FsFactory factory);
 
-    inline static Array<FsEntry, MAX_FS_TYPES> fs_registry_{};
+    inline static sys::inplace_vector<FsEntry, MAX_FS_TYPES> fs_registry_{};
     inline static MountSlot mounts_[] = {
         {"/dev", nullptr, nullptr, nullptr, nullptr},
         {"/mnt", nullptr, nullptr, nullptr, nullptr},
@@ -294,9 +294,7 @@ void print_mount_info(const char* mount_point) {
 Error register_fs(const char* name, FsFactory factory) {
     ENSURE(name && factory, Error::Invalid);
     intr::Guard guard;
-    ENSURE(!State::fs_registry_.full(), Error::Full);
-
-    State::fs_registry_.push_back({name, factory});
+    ENSURE(State::fs_registry_.try_push_back(FsEntry{name, factory}), Error::Full);
     return Error::None;
 }
 

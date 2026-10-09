@@ -1,7 +1,7 @@
 #pragma once
 
 #include <base/types.h>
-#include "lib/array.h"
+#include <sys/inplace_vector.hpp>
 #include "lib/result.h"
 
 namespace blk {
@@ -41,7 +41,7 @@ public:
 
 
 private:
-    inline static Array<BlockDevice*, MAX_DEVICES> devices_{};
+    inline static sys::inplace_vector<BlockDevice*, MAX_DEVICES> devices_{};
 };
 
 namespace blk {

@@ -17,18 +17,13 @@ using uintptr_t = __UINTPTR_TYPE__;
 using size_t = __SIZE_TYPE__;
 
 template<typename T, typename M>
-constexpr size_t offset_of(M T::* member) {
+constexpr size_t offset_of(M T::*member) {
     return reinterpret_cast<size_t>(&(static_cast<T*>(nullptr)->*member));
 }
 
 template<typename T, typename M>
-inline T* to_struct(void* ptr, M T::* member) {
+inline T* to_struct(void* ptr, M T::*member) {
     return reinterpret_cast<T*>(reinterpret_cast<char*>(ptr) - offset_of(member));
-}
-
-template<typename T, size_t N>
-constexpr size_t array_size(const T (&)[N]) noexcept {
-    return N;
 }
 
 inline constexpr size_t SECTOR_SIZE = 512;

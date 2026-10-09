@@ -8,7 +8,7 @@ void BlockManager::init() {
 }
 
 void BlockManager::register_device(BlockDevice* device) {
-    if (!devices_.push_back(device)) {
+    if (!devices_.try_push_back(device)) {
         cprintf("BlockManager::register_device: too many devices\n");
     }
 }

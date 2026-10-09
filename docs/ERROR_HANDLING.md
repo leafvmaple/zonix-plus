@@ -289,7 +289,32 @@ referenced clusters and report the uncertainty. This favors an allocated orphan
 over a dangling reference to a freed cluster. It does not provide transactional
 FAT updates or power-loss recovery; those require a separate filesystem design.
 
+## Shared standard types and kernel types
+
+Standard containers and generic utilities come from `external/zstl`; add missing
+capabilities and contract tests there. The migration boundary is:
+
+| Use | Implementation / boundary |
+| --- | --- |
+| Fixed-capacity variable-length registries and FAT path components | `sys::inplace_vector<T, N>`; check `try_*` insertion and never index inactive slots |
+| Complete fixed tables | `sys::array<T, N>`; all N elements exist, `size()` is always N |
+| SDHCI device slots | `sys::array` plus Manager's published count; addresses stay fixed and publication follows successful probe |
+| Generic scoped locking | `sys::lock_guard`; kernel lockables expose `lock()` / `unlock()` |
+| Pointer traits, min/max, array size, C string and variadic primitives | zstl `type_traits`, `algorithm`, `iterator`, `cstring`, `cstdarg` |
+| Spinlock, Mutex, Semaphore and WaitQueue | Kernel backends own interrupt restoration, task ownership and scheduler sleep/wakeup |
+| Embedded ListNode / circular traversal | Intrusive lists retain task/page/wait-entry ownership; allocating `std::list` has different semantics |
+| Result/Error, KernelBuffer, file/MM owners | Domain interfaces use zstl ownership internally; cleanup and failure contracts are kernel-specific |
+| SectorArray, register/DMA/firmware layouts, boot/runtime ABI | Exact layout, alignment, addresses and C/linker contracts are not generic containers |
+
+Boot ABI integer aliases remain in `include/base/types.h` so boot stages do not
+require kernel dependencies. Inline registries must not be changed to allocating
+`vector`: early-boot availability and pointer stability matter. Capacity failure
+keeps the subsystem's existing code. `inplace_vector::pop_back` requires nonempty
+storage; FAT `..` normalization checks explicitly. Architecture-backed runtime byte
+operations stay in the kernel, with declarations supplied by zstl.
+
 ## Verification
+
 
 `kernel/test/unit/lib/result_test.cpp` exercises state transitions, copying,
 moving, resource lifetimes, fallback extraction and propagation in the kernel.

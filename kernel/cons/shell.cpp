@@ -3,7 +3,7 @@
 #include "cmd/cmd.h"
 #include "lib/stdio.h"
 #include "lib/string.h"
-#include "lib/array.h"
+#include <sys/inplace_vector.hpp>
 #include "lib/cons_defs.h"
 
 namespace {
@@ -12,29 +12,40 @@ constexpr size_t CMD_BUF_SIZE = 128;
 constexpr int MAX_ARGS = 16;
 constexpr int MAX_COMMANDS = 64;
 
-char cmd_buffer[CMD_BUF_SIZE];
-size_t cmd_pos = 0;
-
 struct ShellCommand {
     const char* name{};
     const char* desc{};
     shell::CommandCallback func{};
 };
 
-Array<ShellCommand, MAX_COMMANDS> commands{};
+class State {
+    friend int shell::register_command(const char*, const char*, shell::CommandCallback);
+    friend void shell::print_commands();
+    friend void shell::init();
+    friend void shell::handle_char(char);
 
-static int parse_args(const char* cmd, char** argv) {
-    static char arg_buf[CMD_BUF_SIZE];
+public:
+    static int parse_args(const char* cmd, char** argv);
+    static void execute_command(const char* cmd);
+
+private:
+    inline static char cmd_buffer_[CMD_BUF_SIZE]{};
+    inline static size_t cmd_pos_{};
+    inline static char arg_buf_[CMD_BUF_SIZE]{};
+    inline static sys::inplace_vector<ShellCommand, MAX_COMMANDS> commands_{};
+};
+
+int State::parse_args(const char* cmd, char** argv) {
     int argc = 0;
 
     size_t i = 0;
     while (cmd[i] && i < CMD_BUF_SIZE - 1) {
-        arg_buf[i] = cmd[i];
+        State::arg_buf_[i] = cmd[i];
         i++;
     }
-    arg_buf[i] = '\0';
+    State::arg_buf_[i] = '\0';
 
-    char* p = arg_buf;
+    char* p = State::arg_buf_;
     while (*p && argc < MAX_ARGS) {
         while (*p == ' ') {
             p++;
@@ -59,7 +70,7 @@ static int parse_args(const char* cmd, char** argv) {
     return argc;
 }
 
-static void execute_command(const char* cmd) {
+void State::execute_command(const char* cmd) {
     char* argv[MAX_ARGS];
 
     while (*cmd == ' ') {
@@ -75,7 +86,7 @@ static void execute_command(const char* cmd) {
         return;
     }
 
-    for (ShellCommand& entry : commands) {
+    for (ShellCommand& entry : State::commands_) {
         if (strcmp(argv[0], entry.name) == 0) {
             entry.func(argc, argv);
             return;
@@ -93,13 +104,13 @@ int shell::register_command(const char* name, const char* desc, CommandCallback 
         return -1;
     }
 
-    for (const ShellCommand& entry : commands) {
+    for (const ShellCommand& entry : State::commands_) {
         if (strcmp(name, entry.name) == 0) {
             return -1;
         }
     }
 
-    if (!commands.push_back({name, desc, func})) {
+    if (!State::commands_.try_push_back(ShellCommand{name, desc, func})) {
         return -1;
     }
     return 0;
@@ -107,7 +118,7 @@ int shell::register_command(const char* name, const char* desc, CommandCallback 
 
 void shell::print_commands() {
     cprintf("Available commands:\n");
-    for (const ShellCommand& entry : commands) {
+    for (const ShellCommand& entry : State::commands_) {
         cprintf("  %-10s - %s\n", entry.name, entry.desc);
     }
 }
@@ -119,9 +130,9 @@ void shell::prompt() {
 }
 
 void shell::init() {
-    cmd_pos = 0;
-    cmd_buffer[0] = '\0';
-    commands.clear();
+    State::cmd_pos_ = 0;
+    State::cmd_buffer_[0] = '\0';
+    State::commands_.clear();
 
     cmd::register_sys_commands();
     cmd::register_blk_commands();
@@ -147,15 +158,15 @@ void shell::handle_char(char c) {
         case '\n':
         case '\r':
             cons::putc('\n');
-            cmd_buffer[cmd_pos] = '\0';
-            execute_command(cmd_buffer);
-            cmd_pos = 0;
+            State::cmd_buffer_[State::cmd_pos_] = '\0';
+            State::execute_command(State::cmd_buffer_);
+            State::cmd_pos_ = 0;
             shell::prompt();
             break;
 
         case '\b':
-            if (cmd_pos > 0) {
-                cmd_pos--;
+            if (State::cmd_pos_ > 0) {
+                State::cmd_pos_--;
                 cons::putc('\b');
             }
             break;
@@ -163,8 +174,8 @@ void shell::handle_char(char c) {
         case ASCII_DEL: break;
 
         default:
-            if (cmd_pos < CMD_BUF_SIZE - 1 && c >= ASCII_PRINTABLE_MIN && c < ASCII_PRINTABLE_MAX) {
-                cmd_buffer[cmd_pos++] = c;
+            if (State::cmd_pos_ < CMD_BUF_SIZE - 1 && c >= ASCII_PRINTABLE_MIN && c < ASCII_PRINTABLE_MAX) {
+                State::cmd_buffer_[State::cmd_pos_++] = c;
                 cons::putc(c);
             }
             break;

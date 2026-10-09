@@ -2,7 +2,7 @@
 
 #include <base/types.h>
 #include "block/blk.h"
-#include "lib/array.h"
+#include <sys/array.hpp>
 #include "lib/result.h"
 
 namespace pci {
@@ -50,7 +50,8 @@ public:
 
 private:
     inline static bool initialized_{};
-    inline static Array<SdDevice, MAX_DEVICES> devices_{};
+    inline static sys::array<SdDevice, MAX_DEVICES> devices_{};
+    inline static size_t device_count_{};
 };
 
 int init();

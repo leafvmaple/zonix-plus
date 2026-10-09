@@ -1,7 +1,7 @@
 #include "fs/vfs.h"
 #include "fs/vfs_fs.h"
 
-#include "lib/array.h"
+#include <sys/inplace_vector.hpp>
 #include "lib/memory.h"
 #include "lib/stdio.h"
 #include "lib/string.h"
@@ -17,14 +17,14 @@ struct CharDevEntry {
 constexpr int MAX_CHAR_DEVS = 8;
 class State {
 public:
-    static Array<CharDevEntry, MAX_CHAR_DEVS> devices() {
+    static sys::inplace_vector<CharDevEntry, MAX_CHAR_DEVS> devices() {
         intr::Guard guard;
         return devices_;
     }
 
 private:
     friend Error vfs::register_char_dev(const char* name, vfs::CharDevFactory factory);
-    inline static Array<CharDevEntry, MAX_CHAR_DEVS> devices_{};
+    inline static sys::inplace_vector<CharDevEntry, MAX_CHAR_DEVS> devices_{};
 };
 
 class DevFileSystem : public vfs::FileSystem {
@@ -107,8 +107,7 @@ Error register_char_dev(const char* name, CharDevFactory factory) {
     for (const auto& entry : State::devices_) {
         ENSURE(strcmp(entry.name, name) != 0, Error::Exists);
     }
-    ENSURE(!State::devices_.full(), Error::Full);
-    State::devices_.push_back({name, factory});
+    ENSURE(State::devices_.try_push_back(CharDevEntry{name, factory}), Error::Full);
     return Error::None;
 }
 

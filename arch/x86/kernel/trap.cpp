@@ -1,3 +1,4 @@
+#include <sys/iterator.hpp>
 #include "trap/trap.h"
 
 #include <base/types.h>
@@ -32,7 +33,7 @@ const char* const EXC_NAMES[] = {"Divide error",
                                  "Machine-Check",
                                  "SIMD Floating-Point Exception"};
 
-constexpr size_t NUM_EXCEPTIONS = array_size(EXC_NAMES);
+constexpr size_t NUM_EXCEPTIONS = sys::size(EXC_NAMES);
 
 static const char* trap_name(int trapno) {
     if (static_cast<size_t>(trapno) < NUM_EXCEPTIONS) {

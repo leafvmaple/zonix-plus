@@ -1,3 +1,4 @@
+#include <sys/iterator.hpp>
 #include <asm/arch.h>
 #include <asm/trapframe.h>
 #include <asm/trap_numbers.h>
@@ -11,7 +12,6 @@
 #include "drivers/uart16550.h"
 #include "drivers/virtio_kbd.h"
 #include "lib/stdio.h"
-#include "lib/array.h"
 
 /* kernel_trap_vec / user_trap_vec are in trapentry.S */
 extern "C" char kernel_trap_vec[];
@@ -43,13 +43,13 @@ const InitStep ARCH_STEPS[] = {
 const InitStep PCI_STEPS[] = {
     {"virtio_kbd", virtio_kbd::init, false},
 };
-constexpr size_t PCI_STEPS_COUNT = array_size(PCI_STEPS);
+constexpr size_t PCI_STEPS_COUNT = sys::size(PCI_STEPS);
 
 }  // namespace
 
 const InitStep* arch_early_steps(size_t* count) {
     if (count != nullptr) {
-        *count = array_size(ARCH_STEPS);
+        *count = sys::size(ARCH_STEPS);
     }
     return ARCH_STEPS;
 }

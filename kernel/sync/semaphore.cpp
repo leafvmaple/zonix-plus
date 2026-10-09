@@ -1,5 +1,5 @@
 #include "lib/semaphore.h"
-#include "lib/lock_guard.h"
+#include <sys/mutex.hpp>
 #include "drivers/intr.h"
 
 void Semaphore::down() {
@@ -8,7 +8,7 @@ void Semaphore::down() {
         // condition check and registration in the wait queue.
         intr::Guard irq_guard;
         {
-            LockGuard<Spinlock> guard(lock_);
+            sys::lock_guard<Spinlock> guard(lock_);
             if (count_ > 0) {
                 count_--;
                 return;
@@ -19,7 +19,7 @@ void Semaphore::down() {
 }
 
 bool Semaphore::try_down() {
-    LockGuard<Spinlock> guard(lock_);
+    sys::lock_guard<Spinlock> guard(lock_);
     if (count_ > 0) {
         count_--;
         return true;
@@ -29,7 +29,7 @@ bool Semaphore::try_down() {
 
 void Semaphore::up() {
     {
-        LockGuard<Spinlock> guard(lock_);
+        sys::lock_guard<Spinlock> guard(lock_);
         count_++;
     }
     waitq_.wakeup_one();

@@ -1,5 +1,6 @@
 #include "drivers/pci.h"
-#include "lib/array.h"
+#include <sys/inplace_vector.hpp>
+#include <sys/array.hpp>
 #include "lib/stdio.h"
 
 namespace {
@@ -7,12 +8,21 @@ namespace {
 constexpr int MAX_ENUM_DEVICES = 512;
 constexpr int MAX_REGISTERED_DRIVERS = 32;
 
-Array<pci::DeviceInfo, MAX_ENUM_DEVICES> enumerated_devices{};
-bool scan_complete{};
+void reset_bindings();
+void scan_all_devices();
+void ensure_scanned();
+class State {
+    friend void reset_bindings();
+    friend void scan_all_devices();
+    friend void ensure_scanned();
+    friend Error pci::register_driver(const pci::Driver*);
+    friend int pci::probe_drivers();
 
-Array<const pci::Driver*, MAX_REGISTERED_DRIVERS> registered_drivers{};
-
-Array<int, MAX_ENUM_DEVICES> bound_driver_indexes{};
+    inline static sys::inplace_vector<pci::DeviceInfo, MAX_ENUM_DEVICES> enumerated_devices_{};
+    inline static sys::inplace_vector<const pci::Driver*, MAX_REGISTERED_DRIVERS> registered_drivers_{};
+    inline static sys::array<int, MAX_ENUM_DEVICES> bound_driver_indexes_{};
+    inline static bool scan_complete_{};
+};
 
 bool is_present(uint32_t id) {
     return !(id == 0xFFFFFFFF || (id & 0xFFFF) == 0xFFFF);
@@ -24,11 +34,11 @@ uint8_t read_header_type(int bus, int slot, int function) {
 }
 
 void reset_bindings() {
-    bound_driver_indexes.fill(-1);
+    State::bound_driver_indexes_.fill(-1);
 }
 
 void scan_all_devices() {
-    enumerated_devices.clear();
+    State::enumerated_devices_.clear();
 
     int buses = pci::bus_count();
     for (int bus = 0; bus < buses; bus++) {
@@ -47,9 +57,9 @@ void scan_all_devices() {
                     continue;
                 }
 
-                if (enumerated_devices.full()) {
+                if (State::enumerated_devices_.size() == State::enumerated_devices_.capacity()) {
                     cprintf("pci: device table full, max=%d\n", MAX_ENUM_DEVICES);
-                    scan_complete = true;
+                    State::scan_complete_ = true;
                     reset_bindings();
                     return;
                 }
@@ -67,17 +77,17 @@ void scan_all_devices() {
                 di.subclass = static_cast<uint8_t>((cr >> 16) & 0xFF);
                 di.prog_if = static_cast<uint8_t>((cr >> 8) & 0xFF);
                 di.header_type = static_cast<uint8_t>(hdr & 0x7F);
-                enumerated_devices.push_back(di);
+                (void)State::enumerated_devices_.try_push_back(di);
             }
         }
     }
 
-    scan_complete = true;
+    State::scan_complete_ = true;
     reset_bindings();
 }
 
 void ensure_scanned() {
-    if (!scan_complete) {
+    if (!State::scan_complete_) {
         scan_all_devices();
     }
 }
@@ -112,13 +122,13 @@ namespace pci {
 Error register_driver(const Driver* driver) {
     ENSURE(driver && driver->probe && driver->id_table && driver->id_count > 0, Error::Invalid);
 
-    for (const pci::Driver* d : registered_drivers) {
+    for (const pci::Driver* d : State::registered_drivers_) {
         if (d == driver) {
             return Error::None;
         }
     }
 
-    ENSURE_LOG(registered_drivers.push_back(driver), Error::Full, "pci: driver table full, max=%d",
+    ENSURE_LOG(State::registered_drivers_.try_push_back(driver), Error::Full, "pci: driver table full, max=%d",
                MAX_REGISTERED_DRIVERS);
 
     return Error::None;
@@ -127,21 +137,21 @@ Error register_driver(const Driver* driver) {
 int probe_drivers() {
     ensure_scanned();
 
-    for (size_t i = 0; i < enumerated_devices.size(); i++) {
-        if (bound_driver_indexes[i] >= 0) {
+    for (size_t i = 0; i < State::enumerated_devices_.size(); i++) {
+        if (State::bound_driver_indexes_[i] >= 0) {
             continue;
         }
 
-        for (size_t d = 0; d < registered_drivers.size(); d++) {
-            const Driver* drv = registered_drivers[d];
-            const DriverId* matched = find_matching_id(drv, enumerated_devices[i]);
+        for (size_t d = 0; d < State::registered_drivers_.size(); d++) {
+            const Driver* drv = State::registered_drivers_[d];
+            const DriverId* matched = find_matching_id(drv, State::enumerated_devices_[i]);
             if (matched == nullptr) {
                 continue;
             }
 
-            Error rc = drv->probe(&enumerated_devices[i], matched);
+            Error rc = drv->probe(&State::enumerated_devices_[i], matched);
             if (rc == Error::None) {
-                bound_driver_indexes[i] = static_cast<int>(d);
+                State::bound_driver_indexes_[i] = static_cast<int>(d);
                 break;
             }
         }
