@@ -42,7 +42,7 @@ vfs::File* create_console_file() {
 }
 
 struct ConsoleDevRegistrar {
-    ConsoleDevRegistrar() { vfs::register_char_dev("console", create_console_file); }
+    ConsoleDevRegistrar() { assert(vfs::register_char_dev("console", create_console_file) == Error::None); }
 } console_registrar;
 
 }  // namespace

@@ -209,7 +209,7 @@ void test_cyclic_file_removal() {
     TEST_ASSERT(fs.unlink("FILE.TXT") == Error::BadFs, "Removal validates the entire chain before freeing it");
     TEST_ASSERT(image.link(3) == 4 && image.link(4) == 3, "Rejected removal preserves both links");
     FatDirEntry file{};
-    fs.find_file("FILE.TXT", &file);
+    TEST_ASSERT(fs.find_file("FILE.TXT", &file) == Error::None, "Found cyclic file fixture");
     file.file_size = 6 * 512;
     auto* bytes = static_cast<uint8_t*>(kmalloc(file.file_size));
     if (bytes) {

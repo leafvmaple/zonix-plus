@@ -453,7 +453,12 @@ static int probe_one_controller(SdDevice* dev, int device_index, int bus, int sl
         return -1;
     }
 
-    blk::register_device(dev);
+    Error registered = blk::register_device(dev);
+    if (registered != Error::None) {
+        cprintf("sdhci: failed to register '%s': %s (%d)\n", dev->name, error_str(registered),
+                static_cast<int>(registered));
+        return static_cast<int>(registered);
+    }
     cprintf("blk: registered SD card '%s' (%d sectors)\n", dev->name, dev->block_count);
 
     return 0;

@@ -3,7 +3,7 @@
 #include "debug/assert.h"
 #include "lib/memory.h"
 
-enum class Error : int {
+enum class [[nodiscard]] Error : int {
     None = 0,
     Io = -1,
     NoMem = -2,
@@ -44,6 +44,9 @@ namespace result_detail {
 
 enum class State : uint8_t { Value, Error, Consumed };
 
+template<typename T>
+concept TrivialValue = __is_trivially_copyable(T);
+
 // A Result is copyable only if its value is copy-constructible.
 template<typename T>
 class Storage {
@@ -53,17 +56,35 @@ protected:
         T value;
 
         ValueStorage() : empty{} {}
+        ValueStorage(const ValueStorage&) = default;
+        ValueStorage& operator=(const ValueStorage&) = default;
+        ValueStorage(ValueStorage&&) = default;
+        ValueStorage& operator=(ValueStorage&&) = default;
+        ~ValueStorage()
+            requires(__is_trivially_destructible(T))
+        = default;
         ~ValueStorage() {}
     } storage_;
     Error error_{Error::None};
     State state_{State::Consumed};
 
-    Storage(const T& value) : state_(State::Value) { new (&storage_.value) T(value); }
-    Storage(T&& value) : state_(State::Value) { new (&storage_.value) T(static_cast<T&&>(value)); }
+    Storage(const T& value)
+        requires(__is_constructible(T, const T&))
+        : state_(State::Value) {
+        new (&storage_.value) T(value);
+    }
+    Storage(T&& value)
+        requires(__is_constructible(T, T &&))
+        : state_(State::Value) {
+        new (&storage_.value) T(static_cast<T&&>(value));
+    }
     Storage(Error error) : error_(error), state_(State::Error) { assert(error != Error::None); }
 
     Storage(const Storage& other)
-        requires(__is_constructible(T, const T&))
+        requires(TrivialValue<T> && __is_constructible(T, const T&))
+    = default;
+    Storage(const Storage& other)
+        requires(!TrivialValue<T> && __is_constructible(T, const T&))
         : error_(other.error_), state_(other.state_) {
         if (state_ == State::Value) {
             new (&storage_.value) T(other.storage_.value);
@@ -71,7 +92,10 @@ protected:
     }
 
     Storage& operator=(const Storage& other)
-        requires(__is_constructible(T, const T&))
+        requires(TrivialValue<T> && __is_trivially_assignable(T&, const T&))
+    = default;
+    Storage& operator=(const Storage& other)
+        requires(__is_constructible(T, const T&) && !(TrivialValue<T> && __is_trivially_assignable(T&, const T&)))
     {
         if (this != &other) {
             reset();
@@ -84,14 +108,24 @@ protected:
         return *this;
     }
 
-    Storage(Storage&& other) : error_(other.error_), state_(other.state_) {
+    Storage(Storage&& other)
+        requires(TrivialValue<T> && __is_constructible(T, T &&))
+    = default;
+    Storage(Storage&& other)
+        requires(!TrivialValue<T> && __is_constructible(T, T &&))
+        : error_(other.error_), state_(other.state_) {
         if (state_ == State::Value) {
             new (&storage_.value) T(static_cast<T&&>(other.storage_.value));
         }
         other.reset();
     }
 
-    Storage& operator=(Storage&& other) {
+    Storage& operator=(Storage&& other)
+        requires(TrivialValue<T> && __is_trivially_assignable(T&, T &&))
+    = default;
+    Storage& operator=(Storage&& other)
+        requires(__is_constructible(T, T &&) && !(TrivialValue<T> && __is_trivially_assignable(T&, T &&)))
+    {
         if (this != &other) {
             reset();
             error_ = other.error_;
@@ -99,16 +133,23 @@ protected:
             if (state_ == State::Value) {
                 new (&storage_.value) T(static_cast<T&&>(other.storage_.value));
             }
-            other.reset();
+            if constexpr (!TrivialValue<T>) {
+                other.reset();
+            }
         }
         return *this;
     }
 
+    ~Storage()
+        requires(__is_trivially_destructible(T))
+    = default;
     ~Storage() { reset(); }
 
     void reset() {
-        if (state_ == State::Value) {
-            storage_.value.~T();
+        if constexpr (!__is_trivially_destructible(T)) {
+            if (state_ == State::Value) {
+                storage_.value.~T();
+            }
         }
         error_ = Error::None;
         state_ = State::Consumed;
@@ -117,7 +158,7 @@ protected:
 
 }  // namespace result_detail
 
-// Owns a successful value or a non-None error. Moving or releasing consumes the source.
+// Owns a successful value or a non-None error. Nontrivial moves and all releases consume the source.
 // value() borrows from a live lvalue; release_value() transfers ownership.
 template<typename T>
 class [[nodiscard]] Result : private result_detail::Storage<T> {
@@ -127,8 +168,12 @@ class [[nodiscard]] Result : private result_detail::Storage<T> {
     using Base = result_detail::Storage<T>;
 
 public:
-    Result(const T& value) : Base(value) {}
-    Result(T&& value) : Base(static_cast<T&&>(value)) {}
+    Result(const T& value)
+        requires(__is_constructible(T, const T&))
+        : Base(value) {}
+    Result(T&& value)
+        requires(__is_constructible(T, T &&))
+        : Base(static_cast<T&&>(value)) {}
     Result(Error error) : Base(error) {}
 
     [[nodiscard]] bool ok() const { return this->state_ == result_detail::State::Value; }
@@ -149,20 +194,25 @@ public:
     T& value() && = delete;
     const T& value() const&& = delete;
 
-    T value_or(const T& fallback) const& {
+    T value_or(const T& fallback) const&
+        requires(__is_constructible(T, const T&))
+    {
         assert(!is_consumed());
         return ok() ? this->storage_.value : fallback;
     }
-    T value_or(T fallback) && {
-        assert(!is_consumed());
-        if (ok()) {
-            return release_value();
+    T value_or(T fallback) &&
+        requires(__is_constructible(T, T&&)) {
+            assert(!is_consumed());
+            if (ok()) {
+                return release_value();
+            }
+            this->reset();
+            return static_cast<T&&>(fallback);
         }
-        this->reset();
-        return static_cast<T&&>(fallback);
-    }
 
-    [[nodiscard]] T release_value() {
+        [[nodiscard]] T release_value()
+            requires(__is_constructible(T, T &&))
+    {
         assert(ok());
         T value(static_cast<T&&>(this->storage_.value));
         this->reset();
@@ -188,15 +238,8 @@ public:
         : err_(error), state_(error == Error::None ? result_detail::State::Value : result_detail::State::Error) {}
     Result(const Result&) = default;
     Result& operator=(const Result&) = default;
-    Result(Result&& other) : err_(other.err_), state_(other.state_) { other.reset(); }
-    Result& operator=(Result&& other) {
-        if (this != &other) {
-            err_ = other.err_;
-            state_ = other.state_;
-            other.reset();
-        }
-        return *this;
-    }
+    Result(Result&&) = default;
+    Result& operator=(Result&&) = default;
 
     [[nodiscard]] bool ok() const { return state_ == result_detail::State::Value; }
     [[nodiscard]] bool is_consumed() const { return state_ == result_detail::State::Consumed; }

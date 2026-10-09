@@ -48,6 +48,52 @@ private:
     int* live_;
 };
 
+struct PlainValue {
+    uintptr_t address;
+    size_t size;
+};
+
+enum class PlainKind { Value };
+
+struct ConstValue {
+    const int value;
+};
+
+struct TrivialMoveOnly {
+    int value{};
+    TrivialMoveOnly() = default;
+    TrivialMoveOnly(const TrivialMoveOnly&) = delete;
+    TrivialMoveOnly& operator=(const TrivialMoveOnly&) = delete;
+    TrivialMoveOnly(TrivialMoveOnly&&) = default;
+    TrivialMoveOnly& operator=(TrivialMoveOnly&&) = default;
+};
+
+template<typename T>
+concept CopyFallback = requires(const Result<T>& result, const T& fallback) { result.value_or(fallback); };
+
+template<typename T>
+concept MoveFallback = requires(Result<T>&& result, T&& fallback) {
+    static_cast<Result<T>&&>(result).value_or(static_cast<T&&>(fallback));
+};
+
+static_assert(__is_trivially_copyable(Result<int>));
+static_assert(__is_trivially_copyable(Result<void*>));
+static_assert(__is_trivially_copyable(Result<PlainKind>));
+static_assert(__is_trivially_copyable(Result<PlainValue>));
+static_assert(__is_trivially_copyable(Result<void>));
+static_assert(__is_trivially_destructible(Result<int>));
+static_assert(__is_nothrow_constructible(Result<int>, Result<int>&&));
+static_assert(__is_trivially_constructible(Result<ConstValue>, Result<ConstValue>&&));
+static_assert(__is_assignable(Result<ConstValue>&, const Result<ConstValue>&));
+static_assert(!__is_constructible(Result<MoveOnly>, const MoveOnly&));
+static_assert(!CopyFallback<MoveOnly> && MoveFallback<MoveOnly>);
+static_assert(CopyFallback<int> && MoveFallback<int>);
+static_assert(!__is_constructible(Result<TrivialMoveOnly>, const Result<TrivialMoveOnly>&));
+static_assert(!__is_assignable(Result<TrivialMoveOnly>&, const Result<TrivialMoveOnly>&));
+static_assert(__is_trivially_constructible(Result<TrivialMoveOnly>, Result<TrivialMoveOnly>&&));
+static_assert(__is_trivially_assignable(Result<TrivialMoveOnly>&, Result<TrivialMoveOnly>&&));
+static_assert(!__is_trivially_copyable(Result<MoveOnly>));
+
 static_assert(__is_constructible(Result<int>, const Result<int>&));
 static_assert(__is_assignable(Result<int>&, const Result<int>&));
 static_assert(!__is_constructible(Result<MoveOnly>, const Result<MoveOnly>&));
@@ -139,7 +185,48 @@ void test() {
         copy = static_cast<Result<int>&&>(same);
         TEST_ASSERT(copy.ok() && copy.value() == 7, "Self-copy and self-move keep the value alive");
         auto moved = static_cast<Result<int>&&>(original);
-        TEST_ASSERT(moved.ok() && moved.value() == 7 && original.is_consumed(), "Moving consumes the source");
+        TEST_ASSERT(moved.ok() && moved.value() == 7 && original.ok() && original.value() == 7,
+                    "Moving a trivial value preserves the source");
+        TEST_END();
+    }
+
+    {
+        TEST_START("Result trivial values use default movement without ownership cleanup");
+        Result<PlainValue> original = PlainValue{0x1000, 64};
+        auto moved = static_cast<Result<PlainValue>&&>(original);
+        TEST_ASSERT(moved.value().address == original.value().address && original.value().size == 64,
+                    "Plain structs remain usable after moving");
+        Result<PlainValue> target = Error::Io;
+        target = static_cast<Result<PlainValue>&&>(original);
+        TEST_ASSERT(target.ok() && original.ok() && target.value().size == 64,
+                    "Trivial move assignment preserves the source");
+        Result<int> failure = Error::Timeout;
+        auto error = static_cast<Result<int>&&>(failure);
+        TEST_ASSERT(error.error() == Error::Timeout && failure.error() == Error::Timeout,
+                    "Moving a trivial error preserves its code in both objects");
+        int number = 7;
+        Result<int*> pointer = &number;
+        auto pointer_move = static_cast<Result<int*>&&>(pointer);
+        Result<PlainKind> kind = PlainKind::Value;
+        auto kind_move = static_cast<Result<PlainKind>&&>(kind);
+        TEST_ASSERT(pointer_move.value() == &number && pointer.value() == &number &&
+                        kind_move.value() == PlainKind::Value && kind.value() == PlainKind::Value,
+                    "Pointer and enum moves retain both source values");
+        Result<ConstValue> fixed = ConstValue{7};
+        Result<ConstValue> replacement = ConstValue{9};
+        replacement = fixed;
+        fixed = static_cast<Result<ConstValue>&&>(replacement);
+        TEST_ASSERT(fixed.value().value == 7 && replacement.ok() && replacement.value().value == 7,
+                    "Non-assignable trivial payloads are reconstructed without consuming the source");
+        Result<TrivialMoveOnly> token = TrivialMoveOnly{};
+        token.value().value = 42;
+        auto token_move = static_cast<Result<TrivialMoveOnly>&&>(token);
+        TEST_ASSERT(token_move.value().value == 42 && token.value().value == 42,
+                    "Trivial move-only values keep copying disabled");
+        auto value = moved.release_value();
+        TEST_ASSERT(value.address == 0x1000 && moved.is_consumed(), "Explicit extraction still consumes plain values");
+        auto consumed = static_cast<Result<PlainValue>&&>(moved);
+        TEST_ASSERT(consumed.is_consumed() && moved.is_consumed(), "Default movement preserves consumed state");
         TEST_END();
     }
 
@@ -227,8 +314,8 @@ void test() {
                     "TRY_LOG preserves the Error and returns before subsequent operations");
         Result<void> copy = logged_error;
         auto moved = static_cast<Result<void>&&>(logged_error);
-        TEST_ASSERT(copy.error() == Error::Busy && moved.error() == Error::Busy && logged_error.is_consumed(),
-                    "Void copy preserves the source and void move consumes it");
+        TEST_ASSERT(copy.error() == Error::Busy && moved.error() == Error::Busy && logged_error.error() == Error::Busy,
+                    "Void copy and move preserve the source");
         copy = Error::None;
         moved = copy;
         TEST_ASSERT(copy.ok() && moved.ok(), "Void assignment replaces errors with success");

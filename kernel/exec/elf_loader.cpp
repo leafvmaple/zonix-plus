@@ -64,15 +64,11 @@ Error validate(const ElfHeader* eh, size_t file_size) {
     return Error::None;
 }
 
-uintptr_t load(const uint8_t* data, size_t size, pde_t* pgdir) {
-    if (!data || !pgdir) {
-        return 0;
-    }
+Result<uintptr_t> load(const uint8_t* data, size_t size, pde_t* pgdir) {
+    ENSURE(data && pgdir);
     const auto* eh = reinterpret_cast<const ElfHeader*>(data);
 
-    if (validate(eh, size) != Error::None) {
-        return 0;
-    }
+    TRY(validate(eh, size));
 
     cprintf("elf: loading - %d program header(s), entry=0x%lx\n", eh->e_phnum, eh->e_entry);
 
@@ -106,7 +102,7 @@ uintptr_t load(const uint8_t* data, size_t size, pde_t* pgdir) {
             Page* page = pmm::alloc_and_map_page(pgdir, va, perm);
             if (!page) {
                 cprintf("elf: failed to allocate page for va=0x%lx\n", va);
-                return 0;
+                return Error::NoMem;
             }
 
             // Zero fresh page (covers BSS and padding)

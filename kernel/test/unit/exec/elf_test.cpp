@@ -1,14 +1,12 @@
 #include "test/test_defs.h"
 #include "lib/memory.h"
 #include "lib/result.h"
+#include "exec/elf_loader.h"
+#include "exec/exec.h"
+#include "mm/vmm.h"
+#include "drivers/intr.h"
 
 #include <base/elf.h>
-
-// Only validate/is_elf — no actual loading (would need pgdir setup)
-namespace elf {
-bool is_elf(const uint8_t* data, size_t size);
-Error validate(const ElfHeader* eh, size_t file_size);
-}  // namespace elf
 
 static int tests_passed = 0;
 static int tests_failed = 0;
@@ -259,6 +257,72 @@ static void test_validate_malformed_segments() {
     TEST_END();
 }
 
+static void test_load_and_stack() {
+    TEST_START("ELF loading returns entry, maps contents and releases the address space");
+    intr::Guard guard;
+    const size_t before = pmm::free_page_count();
+    {
+        MemoryDesc mm;
+        auto root = exec::create_user_pgdir();
+        TEST_ASSERT(root.ok(), "Created owned page table root");
+        if (!root.ok()) {
+            TEST_END();
+            return;
+        }
+        mm.pgdir = root.release_value();
+        alignas(8) uint8_t buf[512]{};
+        auto* eh = reinterpret_cast<ElfHeader*>(buf);
+        make_valid_elf64(eh);
+        auto* ph = reinterpret_cast<ProgramHeader*>(buf + sizeof(ElfHeader));
+        ph->p_offset = 256;
+        ph->p_filesz = 8;
+        ph->p_memsz = PG_SIZE + 16;
+        memset(buf + ph->p_offset, 0x5a, ph->p_filesz);
+
+        const size_t empty_root_pages = pmm::free_page_count();
+        auto bad = elf::load(buf, sizeof(ElfHeader) - 1, mm.pgdir);
+        auto no_root = elf::load(buf, sizeof(buf), nullptr);
+        auto no_data = elf::load(nullptr, sizeof(buf), mm.pgdir);
+        auto no_stack_root = exec::setup_user_stack(nullptr);
+        TEST_ASSERT(!bad.ok() && bad.error() == Error::Invalid, "Malformed ELF preserves Invalid");
+        TEST_ASSERT(!no_root.ok() && no_root.error() == Error::Invalid, "Null ELF root returns Invalid");
+        TEST_ASSERT(!no_data.ok() && no_data.error() == Error::Invalid, "Null ELF data returns Invalid");
+        TEST_ASSERT(!no_stack_root.ok() && no_stack_root.error() == Error::Invalid, "Null stack root returns Invalid");
+        TEST_ASSERT(pmm::free_page_count() == empty_root_pages, "Invalid inputs allocate no mapped pages");
+
+        auto loaded = elf::load(buf, sizeof(buf), mm.pgdir);
+        TEST_ASSERT(loaded.ok() && loaded.value() == eh->e_entry, "Successful load returns the ELF entry");
+        if (loaded.ok()) {
+            auto start = pmm::user_address(mm.pgdir, ph->p_va, false);
+            auto bss = pmm::user_address(mm.pgdir, ph->p_va + ph->p_filesz, false);
+            auto last = pmm::user_address(mm.pgdir, ph->p_va + ph->p_memsz - 1, false);
+            auto write = pmm::user_address(mm.pgdir, ph->p_va, true);
+            TEST_ASSERT(start.ok() && memcmp(start.value(), buf + ph->p_offset, ph->p_filesz) == 0,
+                        "Segment bytes copied into mapped memory");
+            TEST_ASSERT(bss.ok() && last.ok() && *static_cast<uint8_t*>(bss.value()) == 0 &&
+                            *static_cast<uint8_t*>(last.value()) == 0,
+                        "BSS zeroed across the page boundary");
+            TEST_ASSERT(!write.ok(), "Read-only executable segment rejects writes");
+        }
+        auto stack = exec::setup_user_stack(mm.pgdir);
+        TEST_ASSERT(stack.ok() && stack.value() == USER_STACK_TOP, "Stack setup returns its virtual top");
+        bool zeroed = stack.ok();
+        for (uintptr_t va = USER_STACK_TOP - USER_STACK_SIZE; va < USER_STACK_TOP && zeroed; va += PG_SIZE) {
+            auto page = pmm::user_address(mm.pgdir, va, true);
+            zeroed = page.ok();
+            if (zeroed) {
+                const auto* bytes = static_cast<const uint8_t*>(page.value());
+                for (size_t i = 0; i < PG_SIZE; ++i) {
+                    zeroed = zeroed && bytes[i] == 0;
+                }
+            }
+        }
+        TEST_ASSERT(zeroed, "Every user stack page is writable and zeroed");
+    }
+    TEST_ASSERT(pmm::free_page_count() == before, "Image, stack, root and intermediate tables reclaimed");
+    TEST_END();
+}
+
 namespace elf_test {
 
 void test() {
@@ -276,6 +340,7 @@ void test() {
     test_validate_phdr_overflow();
     test_validate_too_small();
     test_validate_malformed_segments();
+    test_load_and_stack();
 
     TEST_SUMMARY("ELF Loader");
 }

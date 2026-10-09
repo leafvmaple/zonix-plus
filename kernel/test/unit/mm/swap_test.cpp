@@ -20,7 +20,7 @@ static SwapManager& test_swap_mgr() {
     static bool inited = false;
 
     if (!inited) {
-        mgr.init();
+        assert(mgr.init() == Error::None);
         inited = true;
     }
 
@@ -57,13 +57,13 @@ void test_fifo_basic() {
     TEST_START("FIFO Basic Operation");
 
     SwapManager& fifo = test_swap_mgr();
-    fifo.init_mm(&mm);
+    TEST_ASSERT(fifo.init_mm(&mm) == Error::None, "Initialized FIFO fixture");
 
     Page pages[5];
 
     // Add pages in order
     for (int i = 0; i < 5; i++) {
-        fifo.map_swappable(&mm, 0x1000 * i, &pages[i], 0);
+        TEST_ASSERT(fifo.map_swappable(&mm, 0x1000 * i, &pages[i], 0) == Error::None, "Queued FIFO fixture page");
     }
 
     // Verify FIFO order: should select page 0, then 1, then 2...
@@ -93,28 +93,26 @@ void test_fifo_interleaved() {
     TEST_START("FIFO Interleaved Add/Remove");
 
     SwapManager& fifo = test_swap_mgr();
-    fifo.init_mm(&mm);
+    TEST_ASSERT(fifo.init_mm(&mm) == Error::None, "Initialized FIFO fixture");
 
     Page pages[10];
 
     // Add 3 pages
     for (int i = 0; i < 3; i++) {
-        fifo.map_swappable(&mm, 0x1000 * i, &pages[i], 0);
+        TEST_ASSERT(fifo.map_swappable(&mm, 0x1000 * i, &pages[i], 0) == Error::None, "Queued FIFO fixture page");
     }
 
     // Remove 1
     Page* victim{};
-    fifo.swap_out_victim(&mm, &victim, 0);
-    TEST_ASSERT(victim == &pages[0], "First victim is page 0");
+    TEST_ASSERT(fifo.swap_out_victim(&mm, &victim, 0) == Error::None && victim == &pages[0], "First victim is page 0");
 
     // Add 2 more
     for (int i = 3; i < 5; i++) {
-        fifo.map_swappable(&mm, 0x1000 * i, &pages[i], 0);
+        TEST_ASSERT(fifo.map_swappable(&mm, 0x1000 * i, &pages[i], 0) == Error::None, "Queued FIFO fixture page");
     }
 
     // Next victim should be page 1
-    fifo.swap_out_victim(&mm, &victim, 0);
-    TEST_ASSERT(victim == &pages[1], "Second victim is page 1");
+    TEST_ASSERT(fifo.swap_out_victim(&mm, &victim, 0) == Error::None && victim == &pages[1], "Second victim is page 1");
 
     TEST_END();
 }
@@ -211,6 +209,16 @@ void test_clock_basic() {
 // Integration Tests
 // ============================================================================
 
+static Error map_test_page(MemoryDesc* mm, Page* page, uintptr_t va) {
+    Error mapped = pmm::page_insert(mm->pgdir, page, va, VM_USER_RW);
+    if (mapped != Error::None) {
+        pmm::free_pages(page);
+        return mapped;
+    }
+    // After insertion the local MemoryDesc owns the page, even if queueing fails.
+    return test_swap_mgr().map_swappable(mm, va, page, 0);
+}
+
 void test_swap_init() {
     TEST_START("Swap Initialization");
 
@@ -229,8 +237,12 @@ void test_swap_in_basic() {
     TEST_START("Swap In Basic");
 
     MemoryDesc mm;
-    mm.pgdir = exec::create_user_pgdir();
-    swap::init_mm(&mm);
+    mm.pgdir = exec::create_user_pgdir().value_or(nullptr);
+    TEST_ASSERT(mm.pgdir && swap::init_mm(&mm) == Error::None, "Initialized owned swap fixture");
+    if (!mm.pgdir) {
+        TEST_END();
+        return;
+    }
 
     uintptr_t va = 0x100000;
 
@@ -260,8 +272,12 @@ void test_swap_out_basic() {
     TEST_START("Swap Out Basic");
 
     MemoryDesc mm;
-    mm.pgdir = exec::create_user_pgdir();
-    swap::init_mm(&mm);
+    mm.pgdir = exec::create_user_pgdir().value_or(nullptr);
+    TEST_ASSERT(mm.pgdir && swap::init_mm(&mm) == Error::None, "Initialized owned swap fixture");
+    if (!mm.pgdir) {
+        TEST_END();
+        return;
+    }
 
     // Allocate and map some pages
     Page* pages_arr[3];
@@ -271,8 +287,12 @@ void test_swap_out_basic() {
         pages_arr[i] = pmm::alloc_pages(1);
         if (pages_arr[i]) {
             vas[i] = 0x200000 + i * PG_SIZE;
-            pmm::page_insert(mm.pgdir, pages_arr[i], vas[i], VM_USER_RW);
-            test_swap_mgr().map_swappable(&mm, vas[i], pages_arr[i], 0);
+            Error mapped = map_test_page(&mm, pages_arr[i], vas[i]);
+            TEST_ASSERT(mapped == Error::None, "Mapped and queued swap fixture page");
+            if (mapped != Error::None) {
+                TEST_END();
+                return;
+            }
         }
     }
 
@@ -315,13 +335,14 @@ void test_algorithm_comparison() {
     for (int i = 0; i < 1; i++) {  // Changed from 3 to 1
         cprintf("    %s\n", algorithms[i]->name);
 
-        algorithms[i]->init_mm(&mm);
+        TEST_ASSERT(algorithms[i]->init_mm(&mm) == Error::None, "Initialized algorithm fixture");
 
         Page pages[20];
 
         // Add 20 pages
         for (int j = 0; j < 20; j++) {
-            algorithms[i]->map_swappable(&mm, j * PG_SIZE, &pages[j], 0);
+            TEST_ASSERT(algorithms[i]->map_swappable(&mm, j * PG_SIZE, &pages[j], 0) == Error::None,
+                        "Queued algorithm fixture page");
         }
 
         // Remove 10 pages
@@ -412,8 +433,12 @@ void test_swap_disk_io() {
     TEST_START("Swap Disk I/O and Data Integrity");
 
     MemoryDesc mm;
-    mm.pgdir = exec::create_user_pgdir();
-    swap::init_mm(&mm);
+    mm.pgdir = exec::create_user_pgdir().value_or(nullptr);
+    TEST_ASSERT(mm.pgdir && swap::init_mm(&mm) == Error::None, "Initialized owned swap fixture");
+    if (!mm.pgdir) {
+        TEST_END();
+        return;
+    }
 
     // Test pattern: write data, swap out, swap in, verify data
     uintptr_t test_va = 0x300000;
@@ -434,8 +459,12 @@ void test_swap_disk_io() {
     }
 
     // 2. Map the page
-    pmm::page_insert(mm.pgdir, page, test_va, VM_USER_RW);
-    test_swap_mgr().map_swappable(&mm, test_va, page, 0);
+    Error mapped = map_test_page(&mm, page, test_va);
+    TEST_ASSERT(mapped == Error::None, "Mapped and queued swap fixture page");
+    if (mapped != Error::None) {
+        TEST_END();
+        return;
+    }
 
     cprintf("  Filled page with test pattern\n");
 
@@ -489,8 +518,12 @@ void test_swap_multiple_pages() {
     TEST_START("Swap Multiple Pages");
 
     MemoryDesc mm;
-    mm.pgdir = exec::create_user_pgdir();
-    swap::init_mm(&mm);
+    mm.pgdir = exec::create_user_pgdir().value_or(nullptr);
+    TEST_ASSERT(mm.pgdir && swap::init_mm(&mm) == Error::None, "Initialized owned swap fixture");
+    if (!mm.pgdir) {
+        TEST_END();
+        return;
+    }
 
 #define TEST_PAGE_COUNT 5
     uintptr_t base_va = 0x400000;
@@ -508,8 +541,12 @@ void test_swap_multiple_pages() {
                 kva[j] = static_cast<uint8_t>((i * 17 + j) & 0xFF);
             }
 
-            pmm::page_insert(mm.pgdir, pages_arr[i], va, VM_USER_RW);
-            test_swap_mgr().map_swappable(&mm, va, pages_arr[i], 0);
+            Error mapped = map_test_page(&mm, pages_arr[i], va);
+            TEST_ASSERT(mapped == Error::None, "Mapped and queued swap fixture page");
+            if (mapped != Error::None) {
+                TEST_END();
+                return;
+            }
         }
     }
 

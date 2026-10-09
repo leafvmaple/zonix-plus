@@ -92,3 +92,37 @@ class ResultContractTests(unittest.TestCase):
                                         capture_output=True, text=True, timeout=10)
                 self.assertNotEqual(result.returncode, 0, result.stderr)
                 self.assertIn("deleted", result.stderr)
+
+    def test_rejects_copying_a_move_only_value_or_fallback(self):
+        source = '''
+            #include "lib/result.h"
+            struct MoveOnly {
+                MoveOnly() = default;
+                MoveOnly(const MoveOnly&) = delete;
+                MoveOnly(MoveOnly&&) = default;
+            };
+            void misuse(const MoveOnly& value) {
+        '''
+        for statement in ("Result<MoveOnly> result{value};",
+                          "const Result<MoveOnly> result{Error::Io}; (void)result.value_or(value);"):
+            with self.subTest(statement=statement):
+                result = subprocess.run([CLANG, *self.flags, "-x", "c++", "-fsyntax-only", "-"],
+                                        input=source + statement + "\n}\n",
+                                        capture_output=True, text=True, timeout=10)
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertIn("constraints not satisfied", result.stderr)
+
+    def test_rejects_ignoring_plain_error_status(self):
+        source = '#include "lib/result.h"\nError operation() { return Error::Io; }\n'
+        result = subprocess.run([CLANG, *self.flags, "-x", "c++", "-fsyntax-only", "-"],
+                                input=source + 'void misuse() { operation(); }\n',
+                                capture_output=True, text=True, timeout=10)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("nodiscard", result.stderr)
+        result = subprocess.run([CLANG, *self.flags, "-x", "c++", "-fsyntax-only", "-"],
+                                input=source + '''
+                                    Error propagate() { return TRY(operation()), Error::None; }
+                                    bool check() { return operation() == Error::None; }
+                                    void discard() { (void)operation(); }
+                                ''', capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)

@@ -12,6 +12,7 @@ inline constexpr size_t ELF_MAX_SIZE = 1024ULL * 1024ULL;  // 1 MB
 
 bool is_elf(const uint8_t* data, size_t size);
 Error validate(const ElfHeader* eh, size_t file_size);
-uintptr_t load(const uint8_t* data, size_t size, pde_t* pgdir);
+// The caller owns pgdir, including any pages mapped before a failed load.
+Result<uintptr_t> load(const uint8_t* data, size_t size, pde_t* pgdir);
 
 }  // namespace elf

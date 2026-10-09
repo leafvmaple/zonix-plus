@@ -17,8 +17,27 @@ exceptions, RTTI, a standard library dependency or container-side allocation.
   internal return-type migration.
 
 The existing `Error` numeric values and `error_str()` strings are unchanged.
-This foundation change does not migrate subsystem interfaces or invent new
-error categories. Migrate a complete caller/callee chain in a separate change.
+Subsystem migrations keep those codes and migrate a complete caller/callee
+chain together. The first migrated chain is ELF loading and process creation.
+
+## ELF and exec
+
+`elf::load()` and `exec::setup_user_stack()` return `Result<uintptr_t>`;
+`exec::create_user_pgdir()` returns `Result<pde_t*>`. A failed operation returns
+an error rather than a null pointer or zero address. The caller owns the root
+and any pages mapped before a failed load or stack setup; attach the root to
+an owning `MemoryDesc` so teardown reclaims partial mappings as well.
+
+`exec::exec()` preserves errors from opening, stat, reading, ELF validation,
+allocation and process creation. Malformed binaries, directories and invalid
+file sizes return `Invalid`; allocation failure returns `NoMem`. A successful
+read whose byte count differs from the requested size returns `Io`.
+
+The private `UserImage` in `exec.cpp` owns a prepared `MemoryDesc`. It cannot be
+copied; moving it transfers ownership. Its destructor frees the address space
+on failure. After a successful fork, exec transfers the memory to the child
+while interrupts remain disabled. File handles and the input buffer also use
+local destructors for every return path.
 
 ## States and ownership
 
@@ -45,14 +64,22 @@ or accessing a consumed result, invokes the kernel assertion handler. These
 assertions diagnose programming errors, not recoverable operation failures.
 
 A result is copyable only if `T` is copy-constructible. Copying preserves the
-source; moving consumes it. Assignment destroys an old value before
-constructing its replacement, so `T` need not be assignable. Self-copy and
-self-move preserve the state. Destruction destroys a live value exactly once.
+source. Trivially copyable values (integers, pointers, enums and plain structs)
+use default copying and moving: moving preserves the source. Nontrivial values
+use explicit ownership transfer, and moving consumes the source. `Result<void>`
+also uses default copying/moving. Explicit release consumes every result type.
+
+Trivial payloads keep trivial copy/move construction and destruction whenever
+those operations are available. Assignment is defaulted when the payload has
+the corresponding trivial assignment operation; otherwise it reconstructs the
+value, so `T` need not be assignable. Nontrivial payloads retain lifetime cleanup
+and consuming moves. Self-copy and self-move preserve the state. Destruction
+destroys a nontrivially destructible live value exactly once.
 Values must be unqualified object types that can be constructed from an rvalue;
 use pointers for borrowed objects and `Error` directly rather than `Result<Error>`.
 
 `value_or(fallback)` on an lvalue or const result returns a copy and leaves the
-result unchanged. On a mutable rvalue it returns the stored value or fallback
+result unchanged; this overload requires copy construction. On a mutable rvalue it returns the stored value or fallback
 by move and consumes the result. The fallback argument is evaluated eagerly
 in both cases.
 
@@ -77,10 +104,53 @@ Error copy_buffer() {
 ```
 
 Propagation owns a temporary result. Passing a copyable lvalue copies it;
-explicitly moving an lvalue transfers ownership and consumes it. A move-only
+explicitly moving a nontrivial lvalue transfers ownership and consumes it. Moving
+a trivial value preserves its source, even when its type forbids copying. A move-only
 lvalue must be moved explicitly. Do not reuse a consumed result until assigning
 a new value or error to it. Ensure any acquired resources use destructors so
 early propagation releases them.
+
+## Checking returned errors
+
+Both `Error` and `Result` are `[[nodiscard]]` types. Check, propagate or explicitly
+discard a returned error. An explicit `(void)` discard needs a reason, such as
+best-effort cleanup after the primary failure; it must not hide a required
+operation or leave a resource owned by nobody. Production kernel compilation
+treats ignored returned errors as errors with `-Werror=unused-result`.
+
+`[[nodiscard]]` checks discarded return expressions. It does not prove that an
+error saved in a local variable is subsequently handled. Keep the check next
+to the call, or pass/return the result to code that owns the decision. The
+consumed-state assertions detect invalid reuse, not unhandled errors; ordinary
+error destruction does not panic.
+
+## Logging rules
+
+- Use `TRY` for routine propagation. Pure forwarding layers do not print.
+- Use `ENSURE` for a recoverable precondition failure; choose an explicit code
+  when `Invalid` is inaccurate. `assert` diagnoses an internal invariant failure.
+- Expected outcomes (missing optional files, retryable busy states, probing an
+  unsupported device) return an error without a fault log. Log only if the caller
+  decides the outcome fails the requested operation.
+- Use `TRY_LOG`/`ENSURE_LOG` where the message adds context: path, device, sector,
+  virtual address or operation. Do not repeat the same generic failure at every
+  layer. A root-cause message and each useful semantic boundary may contribute
+  distinct information; the handling boundary prints the final operation summary.
+- Keep the original error while adding context. Translate it only at a documented
+  external ABI boundary; context must not replace it with a generic `Fail`.
+- New fault messages should identify the subsystem, operation, useful context and
+  error code/name. Existing logging macros currently print caller-supplied text;
+  automatic source locations and propagation records are a future extension.
+- Recovery/retry loops log the terminal failure once, rather than each attempt.
+  Repeated faults need bounded/rate-limited reporting before adding per-attempt logs.
+- In IRQ, allocator and lock-sensitive paths, return/record through a suitable
+  nonblocking facility or defer output to a safe boundary. Do not add allocation
+  or blocking console output merely to describe an error.
+- Complete propagation tracing is an optional debug facility. A future trace must
+  record source file, line, function, expression, code and operation/task identity,
+  with bounded storage owned by its task/operation. Define reset, recovery, nested
+  operation and interrupt boundaries before implementing it. Normal propagation
+  remains allocation-free and does not acquire an implicit global trace buffer.
 
 ## Verification
 
@@ -91,3 +161,10 @@ and assertion handler. `scripts/tests/test_result.py` runs that suite, verifies
 invalid accesses terminate, and checks compilation rejects borrowing a
 temporary or ignoring a result. The normal harness test discovery includes it.
 Test entry points and assertion substitutes remain under `kernel/test`.
+
+The ELF/exec kernel tests cover mappings, BSS/stack zeroing, error propagation,
+file closure and physical page recovery. `scripts/tests/test_exec.py` compiles
+the actual exec and ELF loader with host substitutes under `kernel/test/host`.
+It disables copy elision and checks each allocation failure, fork failure and
+successful transfer of the address space to the child. These substitutes do
+not alter production interfaces or add test hooks to kernel code.

@@ -241,7 +241,7 @@ Error AhciManager::probe_callback(const pci::DeviceInfo* pdev, const pci::Driver
             continue;
         }
 
-        blk::register_device(&devices_[device_count_]);
+        TRY(blk::register_device(&devices_[device_count_]));
 
         cprintf("ahci: port %d: '%s' ready (%d sectors, %d MB)\n", i, devices_[device_count_].name,
                 devices_[device_count_].info.block_count, devices_[device_count_].info.block_count / 2048);

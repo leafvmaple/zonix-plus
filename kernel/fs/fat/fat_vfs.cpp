@@ -141,7 +141,7 @@ vfs::FileSystem* create_vfs_filesystem() {
 namespace {
 
 struct FatFsRegistrar {
-    FatFsRegistrar() { vfs::register_fs("fat", fat::create_vfs_filesystem); }
+    FatFsRegistrar() { assert(vfs::register_fs("fat", fat::create_vfs_filesystem) == Error::None); }
 } fat_registrar;
 
 }  // namespace

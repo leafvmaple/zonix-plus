@@ -21,42 +21,54 @@ static_assert(USER_STACK_TOP > USER_STACK_SIZE + PG_SIZE);
 
 namespace exec {
 
-struct KernelBuf {
-    uint8_t* ptr = nullptr;
-
+class KernelBuf {
+public:
     KernelBuf() = default;
-    ~KernelBuf() { kfree(ptr); }
+    ~KernelBuf() { kfree(ptr_); }
 
-    bool alloc(size_t bytes) {
-        ptr = static_cast<uint8_t*>(kmalloc(bytes));
-        return ptr != nullptr;
+    Error alloc(size_t bytes) {
+        assert(!ptr_);
+        ptr_ = static_cast<uint8_t*>(kmalloc(bytes));
+        return ptr_ ? Error::None : Error::NoMem;
     }
+    uint8_t* data() const { return ptr_; }
 
     // Non-copyable
     KernelBuf(const KernelBuf&) = delete;
     KernelBuf& operator=(const KernelBuf&) = delete;
+
+private:
+    uint8_t* ptr_{};
 };
 
-struct OpenFile {
-    vfs::File* handle = nullptr;
-
+class OpenFile {
+public:
     OpenFile() = default;
 
     ~OpenFile() {
-        if (handle != nullptr) {
-            vfs::close(handle);
+        if (handle_ != nullptr) {
+            vfs::close(handle_);
         }
     }
 
+    Error open(const char* path) {
+        assert(!handle_);
+        return vfs::open(path, &handle_);
+    }
+    vfs::File* handle() const { return handle_; }
+
     OpenFile(const OpenFile&) = delete;
     OpenFile& operator=(const OpenFile&) = delete;
+
+private:
+    vfs::File* handle_{};
 };
 
-pde_t* create_user_pgdir() {
+Result<pde_t*> create_user_pgdir() {
     auto* pgdir = static_cast<pde_t*>(kmalloc(PG_SIZE));
     if (!pgdir) {
-        cprintf("exec: failed to allocate page for PML4\n");
-        return nullptr;
+        cprintf("exec: failed to allocate page table root\n");
+        return Error::NoMem;
     }
 
     memset(pgdir, 0, PG_SIZE);
@@ -67,14 +79,15 @@ pde_t* create_user_pgdir() {
     return pgdir;
 }
 
-uintptr_t setup_user_stack(pde_t* pgdir) {
+Result<uintptr_t> setup_user_stack(pde_t* pgdir) {
+    ENSURE(pgdir);
     uintptr_t user_stack_bottom_va = USER_STACK_TOP - USER_STACK_SIZE;
 
     for (uintptr_t va = user_stack_bottom_va; va < USER_STACK_TOP; va += PG_SIZE) {
         Page* page = pmm::alloc_and_map_page(pgdir, va, VM_USER_RW);
         if (!page) {
             cprintf("exec: failed to allocate user stack page at 0x%lx\n", va);
-            return 0;
+            return Error::NoMem;
         }
 
         memset(phys_to_virt(pmm::page_to_phys(page)), 0, PG_SIZE);
@@ -83,27 +96,50 @@ uintptr_t setup_user_stack(pde_t* pgdir) {
     return USER_STACK_TOP;
 }
 
-static uintptr_t load_binary(const uint8_t* data, size_t size, pde_t* pgdir) {
-    if (elf::is_elf(data, size)) {
-        return elf::load(data, size, pgdir);
+// Own the prepared address space until the child takes it under the interrupt guard.
+class UserImage {
+public:
+    static Result<UserImage> load(const uint8_t* data, size_t size) {
+        UserImage image;
+        image.memory_ = new (std::nothrow) MemoryDesc();
+        ENSURE(image.memory_, Error::NoMem);
+        image.memory_->pgdir = TRY(create_user_pgdir());
+        image.entry_va_ = TRY_LOG(elf::load(data, size, image.memory_->pgdir), "exec: failed to load ELF");
+        image.stack_va_ = TRY_LOG(setup_user_stack(image.memory_->pgdir), "exec: failed to set up user stack");
+        return image;
     }
 
-    cprintf("exec: unrecognised binary format (magic: %02x %02x %02x %02x)\n", size > 0 ? data[0] : 0,
-            size > 1 ? data[1] : 0, size > 2 ? data[2] : 0, size > 3 ? data[3] : 0);
-    return 0;
-}
+    UserImage(const UserImage&) = delete;
+    UserImage& operator=(const UserImage&) = delete;
+    UserImage(UserImage&& other) : memory_(other.memory_), entry_va_(other.entry_va_), stack_va_(other.stack_va_) {
+        other.memory_ = nullptr;
+    }
+    ~UserImage() { delete memory_; }
+
+    uintptr_t entry_va() const { return entry_va_; }
+    uintptr_t stack_va() const { return stack_va_; }
+    MemoryDesc* release_memory() {
+        MemoryDesc* memory = memory_;
+        memory_ = nullptr;
+        return memory;
+    }
+
+private:
+    UserImage() = default;
+    MemoryDesc* memory_{};
+    uintptr_t entry_va_{};
+    uintptr_t stack_va_{};
+};
 
 Result<int> exec(const char* path) {
     ENSURE(path);
 
     OpenFile file;
-    if (vfs::open(path, &file.handle) != Error::None || file.handle == nullptr) {
-        cprintf("exec: file not found: %s\n", path);
-        return Error::NotFound;
-    }
+    TRY_LOG(file.open(path), "exec: failed to open file: %s", path);
+    assert(file.handle());
 
     vfs::Stat st{};
-    TRY_LOG(file.handle->stat(&st), "exec: failed to stat file: %s", path);
+    TRY_LOG(file.handle()->stat(&st), "exec: failed to stat file: %s", path);
 
     ENSURE_LOG(st.type != vfs::NodeType::Directory, Error::Invalid, "exec: cannot execute directory: %s", path);
 
@@ -113,57 +149,28 @@ Result<int> exec(const char* path) {
                MAX_BINARY_SIZE, path);
 
     KernelBuf buf;
-    ENSURE_LOG(buf.alloc(file_size), Error::NoMem, "exec: failed to allocate kernel buffer for file: %s", path);
+    TRY_LOG(buf.alloc(file_size), "exec: failed to allocate kernel buffer for file: %s", path);
 
-    auto rd = vfs::read(file.handle, buf.ptr, file_size, 0);
-    if (!rd.ok() || rd.value() < static_cast<int>(file_size)) {
-        cprintf("exec: failed to read file (%d/%d bytes)\n", rd.ok() ? rd.value() : -1, file_size);
-        return Error::Io;
-    }
+    int bytes_read = TRY_LOG(vfs::read(file.handle(), buf.data(), file_size, 0), "exec: failed to read file: %s", path);
+    ENSURE_LOG(bytes_read == static_cast<int>(file_size), Error::Io, "exec: incomplete read (%d/%d bytes): %s",
+               bytes_read, file_size, path);
 
-    pde_t* user_pgdir = create_user_pgdir();
-    if (!user_pgdir) {
-        cprintf("exec: failed to create user page directory\n");
-        return Error::NoMem;
-    }
-
-    uintptr_t entry_va = load_binary(buf.ptr, file_size, user_pgdir);
-    if (entry_va == 0) {
-        cprintf("exec: failed to load binary\n");
-        pmm::free_user_pgdir(user_pgdir);
-        return Error::Fail;
-    }
-
-    uintptr_t user_stack_va = setup_user_stack(user_pgdir);
-    if (user_stack_va == 0) {
-        cprintf("exec: failed to set up user stack\n");
-        pmm::free_user_pgdir(user_pgdir);
-        return Error::NoMem;
-    }
+    auto image = TRY(UserImage::load(buf.data(), file_size));
+    const uintptr_t entry_va = image.entry_va();
+    const uintptr_t user_stack_va = image.stack_va();
 
     TrapFrame tf{};
     arch_setup_user_tf(&tf, entry_va, user_stack_va);
 
-    MemoryDesc* mm = new MemoryDesc();
-    mm->pgdir = user_pgdir;
-    mm->map_count = 0;
-
     int pid{};
     {
         intr::Guard guard;
-        auto pid_r = sched::fork(0, user_stack_va, &tf);
-        if (!pid_r.ok()) {
-            cprintf("exec: fork failed\n");
-            delete mm;
-            return pid_r.error();
-        }
-        pid = pid_r.value();
+        pid = TRY_LOG(sched::fork(0, user_stack_va, &tf), "exec: fork failed");
 
         Task* proc = sched::find_process(pid);
-        if (proc) {
-            proc->memory = mm;
-            proc->set_name(path);
-        }
+        assert(proc);
+        proc->memory = image.release_memory();
+        proc->set_name(path);
     }
 
     cprintf("exec: started user process '%s' (PID %d) entry=0x%lx rsp=0x%lx\n", path, pid, entry_va, user_stack_va);

@@ -322,7 +322,7 @@ void test_fat_mkdir_rmdir() {
 
     // Verify directory appears in root listing.
     EntryFinder finder("TESTDIR");
-    vfs::readdir("/", finder);
+    TEST_ASSERT(vfs::readdir("/", finder).ok(), "Root readdir succeeds");
     TEST_ASSERT(finder.found, "TESTDIR appears in root readdir");
     TEST_ASSERT(finder.type == vfs::NodeType::Directory, "TESTDIR listed as directory");
 
@@ -377,7 +377,7 @@ void test_fat_create_unlink() {
 
     // Verify file in root listing.
     EntryFinder finder("TESTFILE.TXT");
-    vfs::readdir("/", finder);
+    TEST_ASSERT(vfs::readdir("/", finder).ok(), "Root readdir succeeds");
     TEST_ASSERT(finder.found, "TESTFILE.TXT appears in root readdir");
 
     // Duplicate create should fail.
@@ -422,7 +422,7 @@ void test_fat_nested_mkdir_create() {
 
     // Readdir on subdirectory should find the file.
     EntryFinder finder("INNER.TXT");
-    vfs::readdir("/SUBTEST", finder);
+    TEST_ASSERT(vfs::readdir("/SUBTEST", finder).ok(), "Subdirectory readdir succeeds");
     TEST_ASSERT(finder.found, "INNER.TXT appears in SUBTEST readdir");
 
     // rmdir on non-empty directory should fail.
@@ -526,9 +526,9 @@ void test_fat_readdir_subdir() {
     cprintf("  (RDTEST has %d entries)\n", counter.count);
 
     // Clean up.
-    vfs::unlink("/RDTEST/FILE1.TXT");
-    vfs::unlink("/RDTEST/FILE2.TXT");
-    vfs::rmdir("/RDTEST");
+    TEST_ASSERT(vfs::unlink("/RDTEST/FILE1.TXT") == Error::None, "Removed first directory fixture file");
+    TEST_ASSERT(vfs::unlink("/RDTEST/FILE2.TXT") == Error::None, "Removed second directory fixture file");
+    TEST_ASSERT(vfs::rmdir("/RDTEST") == Error::None, "Removed directory fixture");
 
     TEST_END();
 }

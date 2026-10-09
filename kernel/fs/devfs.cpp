@@ -81,7 +81,7 @@ vfs::FileSystem* create_dev_filesystem() {
 }
 
 struct DevFsRegistrar {
-    DevFsRegistrar() { vfs::register_fs("devfs", create_dev_filesystem); }
+    DevFsRegistrar() { assert(vfs::register_fs("devfs", create_dev_filesystem) == Error::None); }
 } devfs_registrar;
 
 }  // namespace

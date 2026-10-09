@@ -27,6 +27,7 @@ class CxxConfigurationTests(unittest.TestCase):
                      "kernel-rule-config", "naming-boot-config"], cwd=ROOT, text=True,
                     env=dict(os.environ, MAKEFLAGS="", MFLAGS=""), timeout=15
                 ).splitlines()
+                self.assertIn("-Werror=unused-result", result[1].split())
                 for flags in result[1::3]:
                     standards = [flag for flag in flags.split() if flag.startswith("-std=")]
                     self.assertEqual(standards, [CXX_STANDARD_FLAG])

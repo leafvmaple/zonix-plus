@@ -152,7 +152,12 @@ void IdeManager::init() {
         cprintf("ide: %s: detected %d sectors (%d MB)\n", config.name, devices_[device_count_].info.block_count,
                 devices_[device_count_].info.block_count / 2048);
 
-        blk::register_device(&devices_[device_count_]);
+        Error registered = blk::register_device(&devices_[device_count_]);
+        if (registered != Error::None) {
+            cprintf("ide: failed to register %s: %s (%d)\n", config.name, error_str(registered),
+                    static_cast<int>(registered));
+            continue;
+        }
         device_count_++;
     }
 

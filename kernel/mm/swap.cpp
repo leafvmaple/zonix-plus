@@ -110,7 +110,7 @@ Error in(MemoryDesc* mm, uintptr_t va, Page** page_ptr) {
         return Error::NoMem;
     }
 
-    State::manager_.map_swappable(mm, va, page, 1);
+    TRY(State::manager_.map_swappable(mm, va, page, 1));
 
     *page_ptr = page;
     return Error::None;

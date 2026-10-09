@@ -93,7 +93,7 @@ static void test_address_space_recycling() {
     for (int i = 0; i < 32 && clean; ++i) {
         {
             MemoryDesc mm;
-            mm.pgdir = exec::create_user_pgdir();
+            mm.pgdir = exec::create_user_pgdir().value_or(nullptr);
             if (!mm.pgdir) {
                 clean = false;
                 break;
@@ -123,8 +123,8 @@ static void test_address_space_switch() {
     intr::Guard guard;
     MemoryDesc first;
     MemoryDesc second;
-    first.pgdir = exec::create_user_pgdir();
-    second.pgdir = exec::create_user_pgdir();
+    first.pgdir = exec::create_user_pgdir().value_or(nullptr);
+    second.pgdir = exec::create_user_pgdir().value_or(nullptr);
     Page* a = first.pgdir ? pmm::alloc_and_map_page(first.pgdir, 0x600000, VM_WRITE) : nullptr;
     Page* b = second.pgdir ? pmm::alloc_and_map_page(second.pgdir, 0x600000, VM_WRITE) : nullptr;
     if (a && b) {
@@ -238,7 +238,7 @@ void test() {
                     (reinterpret_cast<uintptr_t>(__kernel_pg_dir) & PG_MASK) == 0,
                 "VM adopted the page-aligned assembly kernel root");
     MemoryDesc mm;
-    mm.pgdir = exec::create_user_pgdir();
+    mm.pgdir = exec::create_user_pgdir().value_or(nullptr);
     TEST_ASSERT(mm.pgdir != nullptr, "Created isolated user address space");
     if (!mm.pgdir) {
         TEST_END();

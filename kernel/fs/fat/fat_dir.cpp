@@ -283,6 +283,15 @@ Error FatInfo::resolve_parent(const char* relpath, uint32_t* parent_cluster, cha
     return Error::None;
 }
 
+void FatInfo::rollback_new_chain(uint32_t start_cluster) {
+    // Cleanup failure is secondary: preserve the operation's original error.
+    Error cleanup = free_chain(start_cluster);
+    if (cleanup != Error::None) {
+        cprintf("fat: failed to roll back new chain %d: %s (%d)\n", start_cluster, error_str(cleanup),
+                static_cast<int>(cleanup));
+    }
+}
+
 Error FatInfo::add_dir_entry(uint32_t dir_cluster, const FatDirEntry* new_entry) {
     using Sector = SectorArray<FatDirEntry>;
     Sector sector_buf{};
@@ -313,7 +322,7 @@ Error FatInfo::add_dir_entry(uint32_t dir_cluster, const FatDirEntry* new_entry)
             uint32_t new_cluster = TRY(alloc_cluster());
 
             if (write_entry(cluster, new_cluster) != Error::None) {
-                free_chain(new_cluster);
+                rollback_new_chain(new_cluster);
                 return Error::Io;
             }
 
@@ -323,7 +332,7 @@ Error FatInfo::add_dir_entry(uint32_t dir_cluster, const FatDirEntry* new_entry)
 
             for (uint32_t s = 0; s < sectors_per_cluster_; s++) {
                 if (dev_->write(new_base_sector + s, &sector_buf, 1) != Error::None) {
-                    free_chain(new_cluster);
+                    rollback_new_chain(new_cluster);
                     return Error::Io;
                 }
                 if (s == 0) {
@@ -428,13 +437,13 @@ Error FatInfo::mkdir(const char* relpath) {
 
     uint32_t sector = partition_start_lba_ + cluster_to_sector(new_cluster);
     if (dev_->write(sector, sector_buf, 1) != Error::None) {
-        free_chain(new_cluster);
+        rollback_new_chain(new_cluster);
         return Error::Io;
     }
 
     // Add the entry to the parent directory.
     if (add_dir_entry(parent_cluster, &dir_entry) != Error::None) {
-        free_chain(new_cluster);
+        rollback_new_chain(new_cluster);
         return Error::Io;
     }
 
