@@ -203,8 +203,8 @@ Error SdDevice::wait_xfer_done() {
     return Error::Timeout;
 }
 
-uint32_t SdDevice::read_response(int idx) {
-    return mmio::read32(base_, reg::RESPONSE0 + idx * 4);
+uint32_t SdDevice::read_response(int index) {
+    return mmio::read32(base_, reg::RESPONSE0 + index * 4);
 }
 
 Error SdDevice::read_csd() {
@@ -422,16 +422,16 @@ const pci::DriverId SDHCI_IDS[] = {
     {pci::ANY_ID, pci::ANY_ID, pci::CLASS_SYSTEM_PERIPHERAL, pci::SUBCLASS_SD_HOST, pci::INTERFACE_SDHCI_DMA},
 };
 
-static int probe_one_controller(SdDevice* dev, int device_index, int bus, int dev_id, int func) {
-    uint32_t id = pci::config_read32(bus, dev_id, func, pci::VendorId);
-    cprintf("sdhci: found controller at PCI %d:%d.%d [%04x:%04x]\n", bus, dev_id, func,
+static int probe_one_controller(SdDevice* dev, int device_index, int bus, int slot, int function) {
+    uint32_t id = pci::config_read32(bus, slot, function, pci::VendorId);
+    cprintf("sdhci: found controller at PCI %d:%d.%d [%04x:%04x]\n", bus, slot, function,
             static_cast<unsigned>(id & 0xFFFF), static_cast<unsigned>(id >> 16));
 
-    pci::enable_bus_master(bus, dev_id, func);
+    pci::enable_bus_master(bus, slot, function);
 
-    uint32_t bar0 = pci::read_bar(bus, dev_id, func, 0);
+    uint32_t bar0 = pci::read_bar(bus, slot, function, 0);
     if (bar0 == 0 || (bar0 & 1)) {
-        cprintf("sdhci: invalid BAR0 for %d:%d.%d = 0x%x\n", bus, dev_id, func, bar0);
+        cprintf("sdhci: invalid BAR0 for %d:%d.%d = 0x%x\n", bus, slot, function, bar0);
         return -1;
     }
 
@@ -440,16 +440,16 @@ static int probe_one_controller(SdDevice* dev, int device_index, int bus, int de
 
     uintptr_t va = vmm::mmio_map(phys, mmio_bytes, VM_WRITE | VM_NOCACHE);
     if (va == 0) {
-        cprintf("sdhci: failed to map BAR0 for %d:%d.%d at 0x%lx\n", bus, dev_id, func,
+        cprintf("sdhci: failed to map BAR0 for %d:%d.%d at 0x%lx\n", bus, slot, function,
                 static_cast<unsigned long>(phys));
         return -1;
     }
 
-    cprintf("sdhci: MMIO %d:%d.%d at PA 0x%lx -> VA 0x%lx\n", bus, dev_id, func, static_cast<unsigned long>(phys),
+    cprintf("sdhci: MMIO %d:%d.%d at PA 0x%lx -> VA 0x%lx\n", bus, slot, function, static_cast<unsigned long>(phys),
             static_cast<unsigned long>(va));
 
     if (dev->init(reinterpret_cast<volatile uint8_t*>(va), device_index) != Error::None) {
-        cprintf("sdhci: controller %d:%d.%d init failed\n", bus, dev_id, func);
+        cprintf("sdhci: controller %d:%d.%d init failed\n", bus, slot, function);
         return -1;
     }
 

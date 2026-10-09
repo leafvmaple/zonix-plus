@@ -79,7 +79,7 @@ static void test_mock_readwrite() {
 // Get device by index (existing devices)
 // ============================================================================
 
-static void test_get_device_by_index() {
+static void test_find_device_by_index() {
     TEST_START("BlockManager find_device by index");
 
     TEST_ASSERT(BlockManager::find_device(-1) == nullptr, "Negative index returns nullptr");
@@ -100,7 +100,7 @@ static void test_get_device_by_index() {
 // Get device by name
 // ============================================================================
 
-static void test_get_device_by_name() {
+static void test_find_device_by_name() {
     TEST_START("BlockManager find_device by name");
 
     TEST_ASSERT(BlockManager::find_device(static_cast<const char*>(nullptr)) == nullptr,
@@ -123,7 +123,7 @@ static void test_get_device_by_name() {
 // Get device by type
 // ============================================================================
 
-static void test_get_device_by_type() {
+static void test_find_device_by_type() {
     TEST_START("BlockManager find_device by type");
 
     BlockDevice* none_dev = BlockManager::find_device(blk::DeviceType::None);
@@ -166,9 +166,9 @@ void test() {
 
     test_device_count();
     test_mock_readwrite();
-    test_get_device_by_index();
-    test_get_device_by_name();
-    test_get_device_by_type();
+    test_find_device_by_index();
+    test_find_device_by_name();
+    test_find_device_by_type();
     test_block_constants();
 
     TEST_SUMMARY("Block Manager");

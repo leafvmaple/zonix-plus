@@ -64,8 +64,8 @@ void scan_all_devices() {
                 di.vendor_id = static_cast<uint16_t>(id & 0xFFFF);
                 di.device_id = static_cast<uint16_t>(id >> 16);
                 di.class_code = static_cast<uint8_t>((cr >> 24) & 0xFF);
-                di.subclass_code = static_cast<uint8_t>((cr >> 16) & 0xFF);
-                di.programming_interface = static_cast<uint8_t>((cr >> 8) & 0xFF);
+                di.subclass = static_cast<uint8_t>((cr >> 16) & 0xFF);
+                di.prog_if = static_cast<uint8_t>((cr >> 8) & 0xFF);
                 di.header_type = static_cast<uint8_t>(hdr & 0x7F);
                 enumerated_devices.push_back(di);
             }
@@ -89,9 +89,9 @@ bool id_matches(const pci::DriverId& id, const pci::DeviceInfo& device_info) {
         return false;
     if (id.class_code != pci::ANY_CLASS && id.class_code != device_info.class_code)
         return false;
-    if (id.subclass_code != pci::ANY_CLASS && id.subclass_code != device_info.subclass_code)
+    if (id.subclass != pci::ANY_CLASS && id.subclass != device_info.subclass)
         return false;
-    if (id.programming_interface != pci::ANY_CLASS && id.programming_interface != device_info.programming_interface)
+    if (id.prog_if != pci::ANY_CLASS && id.prog_if != device_info.prog_if)
         return false;
     return true;
 }

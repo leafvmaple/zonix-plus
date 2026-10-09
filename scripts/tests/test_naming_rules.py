@@ -148,6 +148,50 @@ class NamingRules(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     rules.load_naming_exceptions(path)
 
+    def test_exception_file_accepts_distinct_exact_contracts(self):
+        entries = [
+            {"path": "arch/x86/include/asm/pgtable.h", "name": "__kernel_pg_dir", "reason": "Assembly ABI"},
+            {"path": "arch/aarch64/include/asm/pgtable.h", "name": "__kernel_pg_dir", "reason": "Assembly ABI"},
+            {"path": "include/uefi/uefi.h", "name": "EFI_MEMORY_DESCRIPTOR::PhysicalStart", "reason": "UEFI ABI"},
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "exceptions.json"
+            path.write_text(json.dumps(entries))
+            self.assertEqual(rules.load_naming_exceptions(path), {
+                (entry["path"], entry["name"]) for entry in entries
+            })
+
+    def test_exception_file_rejects_duplicate_contracts(self):
+        entry = {"path": "kernel/example.cpp", "name": "__boot_symbol", "reason": "Assembly ABI"}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "exceptions.json"
+            path.write_text(json.dumps([entry, dict(entry, reason="Different explanation")]))
+            with self.assertRaisesRegex(RuntimeError, "Duplicate naming exception"):
+                rules.load_naming_exceptions(path)
+
+    def test_exception_file_rejects_noncanonical_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "exceptions.json"
+            for relative in ("/kernel/example.cpp", "C:/kernel/example.cpp", "kernel\\example.cpp",
+                             "./kernel/example.cpp", "kernel//example.cpp", "kernel/../example.cpp"):
+                with self.subTest(relative=relative):
+                    path.write_text(json.dumps([{"path": relative, "name": "__boot_symbol", "reason": "ABI"}]))
+                    with self.assertRaisesRegex(RuntimeError, "repository-relative"):
+                        rules.load_naming_exceptions(path)
+
+    def test_exception_file_rejects_patterns_and_empty_contracts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "exceptions.json"
+            entry = {"path": "kernel/example.cpp", "name": "__boot_symbol", "reason": "Assembly ABI"}
+            invalid = [[dict(entry, name=name)] for name in ("__boot_?", "__boot_[ab]")]
+            invalid.extend([[dict(entry, path="kernel/*.cpp")], [dict(entry, reason="   ")],
+                            [dict(entry, name=123)], [None], {"contracts": [entry]}])
+            for entries in invalid:
+                with self.subTest(entries=entries):
+                    path.write_text(json.dumps(entries))
+                    with self.assertRaises(RuntimeError):
+                        rules.load_naming_exceptions(path)
+
     def check_unused_source(self, relative, source, selected_elsewhere=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

@@ -171,23 +171,23 @@ struct CapInfo {
     uint32_t length;
 };
 
-bool find_cap(int bus, int dev, int func, uint8_t cap_type, CapInfo* out) {
-    uint32_t reg = pci::config_read32(bus, dev, func, 0x04);
+bool find_cap(int bus, int slot, int function, uint8_t cap_type, CapInfo* out) {
+    uint32_t reg = pci::config_read32(bus, slot, function, 0x04);
     if (!((reg >> 16) & (1 << 4)))
         return false;
 
-    uint8_t ptr = pci::config_read32(bus, dev, func, pci::CapabilitiesPointer) & 0xFF;
+    uint8_t ptr = pci::config_read32(bus, slot, function, pci::CapabilitiesPointer) & 0xFF;
     while (ptr != 0) {
-        uint32_t cap_hdr = pci::config_read32(bus, dev, func, ptr);
+        uint32_t cap_hdr = pci::config_read32(bus, slot, function, ptr);
         uint8_t cap_id = cap_hdr & 0xFF;
         uint8_t cap_next = (cap_hdr >> 8) & 0xFF;
 
         if (cap_id == 0x09) {  // Vendor-specific (VirtIO)
             uint8_t cfg_type = static_cast<uint8_t>(cap_hdr >> 24);
-            uint32_t w1 = pci::config_read32(bus, dev, func, ptr + 4);
+            uint32_t w1 = pci::config_read32(bus, slot, function, ptr + 4);
             uint8_t bar = w1 & 0xFF;
-            uint32_t bar_offset = pci::config_read32(bus, dev, func, ptr + 8);
-            uint32_t bar_length = pci::config_read32(bus, dev, func, ptr + 12);
+            uint32_t bar_offset = pci::config_read32(bus, slot, function, ptr + 8);
+            uint32_t bar_length = pci::config_read32(bus, slot, function, ptr + 12);
 
             if (cfg_type == cap_type) {
                 out->bar = bar;
@@ -201,28 +201,28 @@ bool find_cap(int bus, int dev, int func, uint8_t cap_type, CapInfo* out) {
     return false;
 }
 
-uint32_t read_notify_multiplier(int bus, int dev, int func) {
-    uint8_t ptr = pci::config_read32(bus, dev, func, pci::CapabilitiesPointer) & 0xFF;
+uint32_t read_notify_multiplier(int bus, int slot, int function) {
+    uint8_t ptr = pci::config_read32(bus, slot, function, pci::CapabilitiesPointer) & 0xFF;
     while (ptr != 0) {
-        uint32_t cap_hdr = pci::config_read32(bus, dev, func, ptr);
+        uint32_t cap_hdr = pci::config_read32(bus, slot, function, ptr);
         uint8_t cap_id = cap_hdr & 0xFF;
         uint8_t cap_next = (cap_hdr >> 8) & 0xFF;
         uint8_t cfg_type = static_cast<uint8_t>(cap_hdr >> 24);
 
         if (cap_id == 0x09 && cfg_type == VIRTIO_PCI_CAP_NOTIFY_CFG) {
-            return pci::config_read32(bus, dev, func, ptr + 16);
+            return pci::config_read32(bus, slot, function, ptr + 16);
         }
         ptr = cap_next;
     }
     return 0;
 }
 
-uintptr_t map_bar_region(int bus, int dev, int func, const CapInfo* ci) {
-    uint32_t bar_lo = pci::read_bar(bus, dev, func, ci->bar);
+uintptr_t map_bar_region(int bus, int slot, int function, const CapInfo* ci) {
+    uint32_t bar_lo = pci::read_bar(bus, slot, function, ci->bar);
     uint64_t bar_phys = bar_lo & ~0xFULL;
 
     if ((bar_lo & 0x6) == 0x4) {
-        uint32_t bar_hi = pci::read_bar(bus, dev, func, ci->bar + 1);
+        uint32_t bar_hi = pci::read_bar(bus, slot, function, ci->bar + 1);
         bar_phys |= static_cast<uint64_t>(bar_hi) << 32;
     }
 
@@ -275,32 +275,32 @@ void fill_eventq() {
     arch_wmb();
 }
 
-int init_from_pci_device(int bus, int dev, int func) {
-    cprintf("virtio_kbd: found at PCI %d:%d.%d\n", bus, dev, func);
-    pci::enable_bus_master(bus, dev, func);
+int init_from_pci_device(int bus, int slot, int function) {
+    cprintf("virtio_kbd: found at PCI %d:%d.%d\n", bus, slot, function);
+    pci::enable_bus_master(bus, slot, function);
 
     // Ensure PCI INTx is not disabled (bit 10 of Command register)
-    uint32_t cmd = pci::config_read32(bus, dev, func, pci::Command);
+    uint32_t cmd = pci::config_read32(bus, slot, function, pci::Command);
     cmd &= ~(1U << 10);  // clear Interrupt Disable
-    pci::config_write32(bus, dev, func, pci::Command, cmd);
+    pci::config_write32(bus, slot, function, pci::Command, cmd);
 
     // Walk PCI capabilities to find modern config regions
     CapInfo common_ci{}, notify_ci{}, isr_ci{};
-    if (!find_cap(bus, dev, func, VIRTIO_PCI_CAP_COMMON_CFG, &common_ci)) {
+    if (!find_cap(bus, slot, function, VIRTIO_PCI_CAP_COMMON_CFG, &common_ci)) {
         cprintf("virtio_kbd: common_cfg cap not found\n");
         return -1;
     }
-    if (!find_cap(bus, dev, func, VIRTIO_PCI_CAP_NOTIFY_CFG, &notify_ci)) {
+    if (!find_cap(bus, slot, function, VIRTIO_PCI_CAP_NOTIFY_CFG, &notify_ci)) {
         cprintf("virtio_kbd: notify cap not found\n");
         return -1;
     }
-    find_cap(bus, dev, func, VIRTIO_PCI_CAP_ISR_CFG, &isr_ci);
+    find_cap(bus, slot, function, VIRTIO_PCI_CAP_ISR_CFG, &isr_ci);
 
-    notify_off_multiplier = read_notify_multiplier(bus, dev, func);
+    notify_off_multiplier = read_notify_multiplier(bus, slot, function);
 
     // Map BAR regions
-    uintptr_t common_va = map_bar_region(bus, dev, func, &common_ci);
-    uintptr_t notify_va = map_bar_region(bus, dev, func, &notify_ci);
+    uintptr_t common_va = map_bar_region(bus, slot, function, &common_ci);
+    uintptr_t notify_va = map_bar_region(bus, slot, function, &notify_ci);
     if (common_va == 0 || notify_va == 0) {
         cprintf("virtio_kbd: failed to map BAR regions\n");
         return -1;
@@ -309,7 +309,7 @@ int init_from_pci_device(int bus, int dev, int func) {
     notify_base = reinterpret_cast<volatile uint8_t*>(notify_va);
 
     if (isr_ci.length > 0) {
-        uintptr_t isr_va = map_bar_region(bus, dev, func, &isr_ci);
+        uintptr_t isr_va = map_bar_region(bus, slot, function, &isr_ci);
         isr_cfg = reinterpret_cast<volatile uint8_t*>(isr_va);
     }
 
@@ -388,11 +388,11 @@ int init_from_pci_device(int bus, int dev, int func) {
     *vq_notify_addr = 0;
 
     // Resolve platform IRQ from PCI INTx and enable it in the interrupt controller
-    uint32_t int_reg = pci::config_read32(bus, dev, func, 0x3C);
+    uint32_t int_reg = pci::config_read32(bus, slot, function, 0x3C);
     uint8_t int_pin = (int_reg >> 8) & 0xFF;  // interrupt pin (1-based)
     if (int_pin == 0)
         int_pin = 1;  // default to INTA
-    irq_line = arch_pci_intx_to_irq(static_cast<uint8_t>(dev), int_pin);
+    irq_line = arch_pci_intx_to_irq(static_cast<uint8_t>(slot), int_pin);
     arch_irq_enable_line(irq_line);
 
     cprintf("virtio_kbd: ready, eventq=%d, IRQ=%d\n", qsz, irq_line);

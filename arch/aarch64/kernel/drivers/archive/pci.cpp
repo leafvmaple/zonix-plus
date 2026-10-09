@@ -119,8 +119,9 @@ void assign_bars() {
     }
 }
 
-bool find_by_class(uint8_t cls, uint8_t sub, uint8_t iface, int* out_bus, int* out_dev, int* out_func) {
-    uint32_t expected = (static_cast<uint32_t>(cls) << 16) | (static_cast<uint32_t>(sub) << 8) | iface;
+bool find_by_class(uint8_t class_code, uint8_t subclass, uint8_t prog_if, int* out_bus, int* out_slot,
+                   int* out_function) {
+    uint32_t expected = (static_cast<uint32_t>(class_code) << 16) | (static_cast<uint32_t>(subclass) << 8) | prog_if;
     for (int bus = 0; bus < 1; bus++) {  // QEMU virt: bus 0 only
         for (int slot = 0; slot < 32; slot++) {
             for (int function = 0; function < 8; function++) {
@@ -130,8 +131,8 @@ bool find_by_class(uint8_t cls, uint8_t sub, uint8_t iface, int* out_bus, int* o
                 uint32_t cr = config_read32(bus, slot, function, ClassRevision);
                 if ((cr >> 8) == expected) {
                     *out_bus = bus;
-                    *out_dev = slot;
-                    *out_func = function;
+                    *out_slot = slot;
+                    *out_function = function;
                     return true;
                 }
             }
@@ -140,16 +141,16 @@ bool find_by_class(uint8_t cls, uint8_t sub, uint8_t iface, int* out_bus, int* o
     return false;
 }
 
-bool find_by_id(uint16_t vendor, uint16_t device, int* out_bus, int* out_dev, int* out_func) {
-    uint32_t expected = (static_cast<uint32_t>(device) << 16) | vendor;
+bool find_by_id(uint16_t vendor_id, uint16_t device_id, int* out_bus, int* out_slot, int* out_function) {
+    uint32_t expected = (static_cast<uint32_t>(device_id) << 16) | vendor_id;
     for (int bus = 0; bus < 1; bus++) {
         for (int slot = 0; slot < 32; slot++) {
             for (int function = 0; function < 8; function++) {
                 uint32_t id = config_read32(bus, slot, function, VendorId);
                 if (id == expected) {
                     *out_bus = bus;
-                    *out_dev = slot;
-                    *out_func = function;
+                    *out_slot = slot;
+                    *out_function = function;
                     return true;
                 }
             }

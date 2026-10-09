@@ -170,7 +170,7 @@ static_assert(sizeof(AhciCmdTable) <= ahci::DMA_PAGE_SIZE, "AhciCmdTable must fi
 struct Task;
 
 struct AhciPortConfig {
-    uint8_t port_num{};
+    uint8_t port{};
     uint16_t irq{};
     const char* name{};
 };
@@ -239,7 +239,7 @@ public:
     static int init();
     static Error probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*);
 
-    static AhciDevice* find_device(int device_id);
+    static AhciDevice* find_device(int index);
     static int device_count();
 
     static void interrupt_handler(int port);
@@ -247,7 +247,7 @@ public:
 private:
     inline static uintptr_t base_{};  // AHCI controller MMIO virtual base
     inline static AhciDevice devices_[ahci::MAX_DEVICES]{};
-    inline static int devices_count_{};
+    inline static int device_count_{};
 
     inline static bool ctrl_ready_{};
     inline static bool registered_{};

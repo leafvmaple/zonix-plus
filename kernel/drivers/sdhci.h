@@ -28,7 +28,7 @@ private:
     Error send_cmd(uint8_t index, uint32_t arg, uint16_t flags);
     Error wait_cmd_done();
     Error wait_xfer_done();
-    uint32_t read_response(int idx);
+    uint32_t read_response(int index);
 
     Error card_identify();
     Error read_csd();

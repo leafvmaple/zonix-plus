@@ -103,28 +103,28 @@ static int load_elf_kernel(uint8_t* elf_buffer, BootInfo* bi) {
         return -1;
     }
 
-    bi->kernel_start = 0xFFFFFFFF;
-    bi->kernel_end = 0;
-    bi->kernel_entry = static_cast<uint32_t>(elf->e_entry & 0xFFFFFFFF);  // Physical entry
+    bi->kernel_start_pa = 0xFFFFFFFF;
+    bi->kernel_end_pa = 0;
+    bi->kernel_entry = static_cast<uint32_t>(elf->e_entry & 0xFFFFFFFF);  // ELF entry VA, truncated to 32 bits
 
     auto* ph =
         reinterpret_cast<ProgramHeader64*>(reinterpret_cast<uint8_t*>(elf) + static_cast<uint32_t>(elf->e_phoff));
-    auto* eph = ph + elf->e_phnum;
+    auto* ph_end = ph + elf->e_phnum;
 
-    for (; ph < eph; ph++) {
+    for (; ph < ph_end; ph++) {
         if (ph->p_type != ELF_PT_LOAD) {
             continue;
         }
 
-        auto phys_addr = static_cast<uint32_t>(ph->p_pa);
-        auto* dst = reinterpret_cast<uint8_t*>(phys_addr);
+        auto segment_pa = static_cast<uint32_t>(ph->p_pa);
+        auto* dst = reinterpret_cast<uint8_t*>(segment_pa);
         auto* src = reinterpret_cast<uint8_t*>(elf) + static_cast<uint32_t>(ph->p_offset);
 
-        if (phys_addr < bi->kernel_start) {
-            bi->kernel_start = phys_addr;
+        if (segment_pa < bi->kernel_start_pa) {
+            bi->kernel_start_pa = segment_pa;
         }
-        if (phys_addr + static_cast<uint32_t>(ph->p_memsz) > bi->kernel_end) {
-            bi->kernel_end = phys_addr + static_cast<uint32_t>(ph->p_memsz);
+        if (segment_pa + static_cast<uint32_t>(ph->p_memsz) > bi->kernel_end_pa) {
+            bi->kernel_end_pa = segment_pa + static_cast<uint32_t>(ph->p_memsz);
         }
 
         memcpy(dst, src, static_cast<uint32_t>(ph->p_filesz));
@@ -275,15 +275,15 @@ void bootmain(uint32_t boot_drive_param) {
     bi.magic = BOOT_INFO_MAGIC;
 
     uint32_t e820_count = *reinterpret_cast<uint32_t*>(E820_MEM_BASE);
-    bi.mmap_length = e820_count;
-    bi.mmap_addr = E820_MEM_DATA;
+    bi.mmap_count = e820_count;
+    bi.mmap_pa = E820_MEM_DATA;
 
     auto* mmap_entries = reinterpret_cast<BootMemEntry*>(E820_MEM_DATA);
-    bi.mem_lower = 640;  // Always 640KB
+    bi.lower_memory_kib = 640;  // Always 640KB
     for (uint32_t i = 0; i < e820_count; i++) {
         auto* entry = &mmap_entries[i];
-        if (entry->type == E820_RAM && entry->addr >= 0x100000) {
-            bi.mem_upper += (entry->len >> 10);
+        if (entry->type == E820_RAM && entry->base_pa >= 0x100000) {
+            bi.upper_memory_kib += (entry->size_bytes >> 10);
         }
     }
 

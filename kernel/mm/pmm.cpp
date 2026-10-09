@@ -17,10 +17,10 @@ extern struct BootInfo __kernel_boot_info;
 template<typename F>
 void traverse_boot_mmap(F&& callback) {
     struct BootInfo* bi = &__kernel_boot_info;
-    auto* entries = reinterpret_cast<struct BootMemEntry*>(bi->mmap_addr + KERNEL_BASE);
-    uint32_t count = bi->mmap_length;
+    auto* entries = reinterpret_cast<struct BootMemEntry*>(bi->mmap_pa + KERNEL_BASE);
+    uint32_t count = bi->mmap_count;
     for (uint32_t i = 0; i < count; i++) {
-        callback(entries[i].addr, entries[i].len, entries[i].type);
+        callback(entries[i].base_pa, entries[i].size_bytes, entries[i].type);
     }
 }
 
@@ -53,17 +53,17 @@ constexpr int PAGE_REF_INIT = 1;
 constexpr int USER_PT_SUBTREE_DEPTH = PT_WALK_LEVELS - 2; /* depth passed to free_user_pt_subtree */
 constexpr uintptr_t INVALID_TABLE_PA = static_cast<uintptr_t>(-1);
 
-static bool normalize_available_range(uint64_t addr, uint64_t size, uintptr_t min_addr, uint64_t* out_begin,
+static bool normalize_available_range(uint64_t base_pa, uint64_t size_bytes, uintptr_t min_pa, uint64_t* out_begin,
                                       uint64_t* out_end) {
-    if (size == 0)
+    if (size_bytes == 0)
         return false;
 
     uint64_t limit{};
-    if (__builtin_add_overflow(addr, size, &limit)) {
+    if (__builtin_add_overflow(base_pa, size_bytes, &limit)) {
         limit = static_cast<uint64_t>(-1);
     }
 
-    uint64_t begin = (addr < min_addr) ? static_cast<uint64_t>(min_addr) : addr;
+    uint64_t begin = (base_pa < min_pa) ? static_cast<uint64_t>(min_pa) : base_pa;
     if (begin >= limit)
         return false;
 
@@ -193,10 +193,6 @@ static void free_user_pt_subtree(pde_t* table, int depth) {
 long user_stack[PG_SIZE * 2];
 long* STACK_START = &user_stack[PG_SIZE * 2];
 
-inline size_t page_num(uintptr_t addr) {
-    return addr >> PG_SHIFT;
-}
-
 uintptr_t pmm::page_to_phys(Page* page) {
     return static_cast<uintptr_t>((page - Factory::page_descriptors()) << PG_SHIFT);
 }
@@ -206,7 +202,8 @@ void* pmm::page_to_kva(Page* page) {
 }
 
 Page* pmm::phys_to_page(uintptr_t pa) {
-    return Factory::page_descriptors() + page_num(pa);
+    size_t page_index = pa >> PG_SHIFT;
+    return Factory::page_descriptors() + page_index;
 }
 
 Page* pmm::kva_to_page(void* kva) {
@@ -264,16 +261,16 @@ Result<void*> pmm::user_address(pde_t* pgdir, uintptr_t user_va, bool write) {
 static int page_init() {
     BootInfo* bi = &__kernel_boot_info;
 
-    if (bi->mmap_length == 0) {
+    if (bi->mmap_count == 0) {
         cprintf("pmm: boot memory map is empty\n");
         return -1;
     }
 
     uint64_t max_pa{};
-    traverse_boot_mmap([&max_pa](uint64_t addr, uint64_t size, uint32_t type) {
+    traverse_boot_mmap([&max_pa](uint64_t base_pa, uint64_t size_bytes, uint32_t type) {
         if (type == BOOT_MEM_AVAILABLE) {
             uint64_t limit{};
-            if (__builtin_add_overflow(addr, size, &limit)) {
+            if (__builtin_add_overflow(base_pa, size_bytes, &limit)) {
                 limit = static_cast<uint64_t>(-1);
             }
             max_pa = (limit > max_pa) ? limit : max_pa;
@@ -281,13 +278,13 @@ static int page_init() {
     });
 
     if (max_pa == 0) {
-        cprintf("pmm: no usable memory regions in boot map (%d entries)\n", bi->mmap_length);
+        cprintf("pmm: no usable memory regions in boot map (%d entries)\n", bi->mmap_count);
         return -1;
     }
 
     extern uint8_t KERNEL_END[];
 
-    uint32_t page_count = page_num(round_up(max_pa, PG_SIZE));
+    uint32_t page_count = round_up(max_pa, PG_SIZE) / PG_SIZE;
     if (page_count == 0) {
         cprintf("pmm: max physical address too small (0x%lx)\n", static_cast<uint64_t>(max_pa));
         return -1;
@@ -305,17 +302,17 @@ static int page_init() {
 
     uintptr_t valid_mem =
         virt_to_phys(reinterpret_cast<uintptr_t>(Factory::page_descriptors() + Factory::page_count()));
-    traverse_boot_mmap([valid_mem](uint64_t addr, uint64_t size, uint32_t type) {
+    traverse_boot_mmap([valid_mem](uint64_t base_pa, uint64_t size_bytes, uint32_t type) {
         if (type != BOOT_MEM_AVAILABLE)
             return;
 
         uint64_t begin{};
         uint64_t limit{};
-        if (!normalize_available_range(addr, size, valid_mem, &begin, &limit))
+        if (!normalize_available_range(base_pa, size_bytes, valid_mem, &begin, &limit))
             return;
 
         cprintf("pmm: free region [0x%016lx, 0x%016lx]\n", static_cast<uint64_t>(begin), static_cast<uint64_t>(limit));
-        Factory::allocator().init_memmap(pmm::phys_to_page(begin), page_num(limit - begin));
+        Factory::allocator().init_memmap(pmm::phys_to_page(begin), (limit - begin) / PG_SIZE);
     });
 
     return 0;

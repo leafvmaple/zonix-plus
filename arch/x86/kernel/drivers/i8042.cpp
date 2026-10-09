@@ -50,12 +50,12 @@ int init() {
     // PS/2 controller self-test: send 0xAA, expect 0x55
     arch_port_write8(KBD_STATUS_REG, 0xAA);
 
-    int timeout = 100000;
-    while (timeout-- > 0) {
+    int polls_left = 100000;
+    while (polls_left-- > 0) {
         if (arch_port_read8(KBD_STATUS_REG) & KBD_OBF_FULL)
             break;
     }
-    if (timeout <= 0) {
+    if (polls_left <= 0) {
         cprintf("i8042: PS/2 controller self-test timeout\n");
         return -1;
     }

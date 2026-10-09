@@ -26,7 +26,7 @@ void driver_test_disktest() {
             continue;
         }
 
-        cprintf("--- Testing %s (dev_id=%d) ---\n", dev->name, i);
+        cprintf("--- Testing %s (index=%d) ---\n", dev->name, i);
         cprintf("  Size: %d sectors (%d MB)\n", dev->info.block_count, dev->info.block_count / 2048);
 
         uint32_t test_sector =

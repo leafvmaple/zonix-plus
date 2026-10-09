@@ -56,7 +56,7 @@ void RegisterHostToDeviceFis::set_command(uint8_t cmd, uint32_t lba, uint16_t co
 
 int AhciDevice::detect(const AhciPortConfig* cfg, uintptr_t mmio_base) {
     this->config = cfg;
-    port_base_ = mmio_base + ahci::PORT_BASE_OFFSET + (cfg->port_num * ahci::PORT_REG_SIZE);
+    port_base_ = mmio_base + ahci::PORT_BASE_OFFSET + (cfg->port * ahci::PORT_REG_SIZE);
 
     strncpy(name, cfg->name, sizeof(name));
     if (setup_memory() != 0) {
@@ -69,7 +69,7 @@ int AhciDevice::detect(const AhciPortConfig* cfg, uintptr_t mmio_base) {
 
     present_ = 1;
     type = blk::DeviceType::Disk;
-    info.serial = cfg->port_num;
+    info.serial = cfg->port;
 
     return 0;
 }
@@ -156,11 +156,11 @@ void AhciDevice::interrupt() {
     }
 
     if (is & ahci::IS_PSS) {
-        cprintf("ahci%d: [DEBUG] PSS (PIO Setup FIS) interrupt received. Implementation pending.\n", config->port_num);
+        cprintf("ahci%d: [DEBUG] PSS (PIO Setup FIS) interrupt received. Implementation pending.\n", config->port);
     }
 
     if (is & ahci::IS_PCS) {
-        cprintf("ahci%d: port connect change detected\n", config->port_num);
+        cprintf("ahci%d: port connect change detected\n", config->port);
     }
 
     if (is & ahci::IS_OFS) {
@@ -236,39 +236,39 @@ Error AhciManager::probe_callback(const pci::DeviceInfo* pdev, const pci::Driver
             continue;
         }
 
-        if (devices_[devices_count_].detect(&config, base_) != 0) {
+        if (devices_[device_count_].detect(&config, base_) != 0) {
             cprintf("ahci: port %d: device setup failed\n", i);
             continue;
         }
 
-        blk::register_device(&devices_[devices_count_]);
+        blk::register_device(&devices_[device_count_]);
 
-        cprintf("ahci: port %d: '%s' ready (%d sectors, %d MB)\n", i, devices_[devices_count_].name,
-                devices_[devices_count_].info.block_count, devices_[devices_count_].info.block_count / 2048);
-        devices_count_++;
+        cprintf("ahci: port %d: '%s' ready (%d sectors, %d MB)\n", i, devices_[device_count_].name,
+                devices_[device_count_].info.block_count, devices_[device_count_].info.block_count / 2048);
+        device_count_++;
     }
 
-    cprintf("ahci: initialization complete, %d device(s)\n", devices_count_);
+    cprintf("ahci: initialization complete, %d device(s)\n", device_count_);
     ctrl_ready_ = true;
     return Error::None;
 }
 
-AhciDevice* AhciManager::find_device(int device_id) {
-    if (device_id < 0 || device_id >= devices_count_) {
+AhciDevice* AhciManager::find_device(int index) {
+    if (index < 0 || index >= device_count_) {
         return nullptr;
     }
-    if (!devices_[device_id].present_) {
+    if (!devices_[index].present_) {
         return nullptr;
     }
-    return &devices_[device_id];
+    return &devices_[index];
 }
 
 int AhciManager::device_count() {
-    return devices_count_;
+    return device_count_;
 }
 
 void AhciDevice::print_info() {
-    cprintf("Device: %s (AHCI port %d)\n", name, config->port_num);
+    cprintf("Device: %s (AHCI port %d)\n", name, config->port);
     cprintf("  Size: %d sectors (%d MB)\n", info.block_count, info.block_count / 2048);
     cprintf("  CHS: %d/%d/%d\n", info.cylinders, info.heads, info.sectors);
     cprintf("\n");
@@ -338,12 +338,12 @@ int AhciDevice::issue_cmd(uint8_t command, uint32_t lba, uint16_t count, bool wr
         return -1;
     }
 
-    for (int timeout = 100000; timeout > 0; --timeout) {
+    for (int polls_left = 100000; polls_left > 0; --polls_left) {
         uint32_t tfd = mmio::read32(port_base_, ahci::PORT_TFD);
         if ((tfd & (ahci::TFD_STS_BSY | ahci::TFD_STS_DRQ)) == 0) {
             break;
         }
-        if (timeout == 1) {
+        if (polls_left == 1) {
             return -1;
         }
         arch_spin_hint();
@@ -379,9 +379,9 @@ int AhciDevice::issue_cmd(uint8_t command, uint32_t lba, uint16_t count, bool wr
 }
 
 int AhciDevice::wait_cmd_complete(int timeout_ms) const {
-    int timeout = timeout_ms * 10000;
+    int polls_left = timeout_ms * 10000;
 
-    while (timeout-- > 0) {
+    while (polls_left-- > 0) {
         uint32_t ci = mmio::read32(port_base_, ahci::PORT_CI);
         if ((ci & 1) == 0) {
             uint32_t is = mmio::read32(port_base_, ahci::PORT_IS);
@@ -402,10 +402,10 @@ int AhciDevice::wait_cmd_complete(int timeout_ms) const {
 }
 
 void AhciManager::interrupt_handler(int port) {
-    for (int i = 0; i < devices_count_; i++) {
+    for (int i = 0; i < device_count_; i++) {
         AhciDevice& dev = devices_[i];
 
-        if (!dev.present_ || dev.config->port_num != port) {
+        if (!dev.present_ || dev.config->port != port) {
             continue;
         }
         if (dev.request.op == AhciRequest::Op::None) {

@@ -86,7 +86,7 @@ _start:
     jmp  .Lfinish_probe
 .Lcont:
     addw $E820_DESCRIPTOR_SIZE, %di           # Set the starting address of the mapping address descriptor returned by the next BIOS
-    incl (E820_MEM_BASE)                      # Increment the member variable nr_map of struct e820map
+    incl (E820_MEM_BASE)                      # Increment the E820 descriptor count
     cmpl $0, %ebx                             # If the ebx returned by INT0x15 is zero, it means the detection is over, otherwise continue to detect
     jnz  .Lstart_probe
 .Lfinish_probe:

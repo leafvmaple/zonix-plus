@@ -74,11 +74,23 @@ drive_number field.
 PCI BDF components use bus/slot/function; slot denotes the BDF device field,
 not a physical connector. Keep function spelled out rather than fn, which can
 also mean a function pointer. PCI config-space offset is in bytes, as documented
-by the interface. Block transfers use start_lba for the first logical block and
+by the interface. PCI class bytes use class_code/subclass/prog_if in fields,
+parameters and locals; prog_if means Programming Interface. Prefer prog_if for
+consistency. The register mnemonic pi is acceptable in a very short scope that
+directly explains the PI field, but is not the default variable name. Use iface
+for an interface object or name, not for this PCI class byte.
+
+Block transfers use start_lba for the first logical block and
 block_count for the transfer length. Within ELF and UEFI parsing routines, ph
 and desc may name a program header and memory descriptor; use ph_end,
 desc_size_bytes, desc_version and desc_count consistently with those locals.
 These scoped abbreviations do not authorize arbitrary shortening elsewhere.
+
+Device-manager lookup parameters use index when indexing a device array;
+device_id is reserved for an identity such as the PCI device ID. Polling-loop
+budgets use polls_left rather than timeout; a wall-clock timeout retains its
+unit, such as timeout_ms. Keep size/offset on file interfaces where bytes are
+already implied by the operation, and retain conventional short loop locals.
 
 Ambiguous quantities must carry units/address space: byte_count, page_count,
 timeout_ms, deadline_ticks, page_table_root_pa, user_stack_va. An unqualified
@@ -91,6 +103,15 @@ LBA (`partition_start_lba_`), and a PCI slot (`slot`) from a PCI identity
 (`device_id`). A memory-copy interface names the user address and kernel buffer
 explicitly (`user_src_va`, `kernel_dst`) when both address spaces are involved.
 These names carry units; they are not storage/type prefixes.
+
+BootInfo is a project-owned binary interface. Its memory map uses mmap_count
+for the number of entries and mmap_pa for their physical address. Memory-region
+entries use base_pa/size_bytes; lower_memory_kib/upper_memory_kib state their
+units. Renaming these C++ fields must preserve field order, widths, packing and
+assembly copy sizes. kernel_entry retains its loader-specific encoding:
+BIOS stores the low 32 bits of the ELF entry VA and masks it before jumping;
+UEFI stores the entry PA. Do not add a misleading pa/va suffix without changing
+and validating that contract separately.
 
 Architecture adapters expose operations such as `arch_invalidate_tlb_page` and
 `arch_port_read16_buffer`; buffer counts are numbers of the specified-width
@@ -140,6 +161,11 @@ remain part of the manual audit; caller-supplied environment names stay stable.
 Zero-argument get_ methods must use bare property names. Semantic vocabulary/units
 require human judgment; the
 checker does not infer ownership or units from arbitrary English words.
+Naming exceptions require canonical repository-relative paths and exact
+qualified names. Duplicate entries, patterns and empty contract explanations
+are rejected. Preserve linker, firmware, standard C/C++ and hardware layout
+names; audit the exact declaration and its external consumer before removing
+an exception.
 The clang-tidy configuration mirrors the convention for editor/manual linting;
 the mandatory harness does not require clang-tidy to be installed.
 

@@ -108,7 +108,7 @@ class IdeManager {
 public:
     static void init();
 
-    static IdeDevice* find_device(int device_id);
+    static IdeDevice* find_device(int index);
     static int device_count();
 
     static void interrupt_handler(int channel);
@@ -116,5 +116,5 @@ public:
 private:
     static IdeConfig configs_[ide::MAX_DEVICES];
     static IdeDevice devices_[ide::MAX_DEVICES];
-    static int devices_count_;
+    static int device_count_;
 };

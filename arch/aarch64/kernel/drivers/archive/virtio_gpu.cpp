@@ -358,23 +358,23 @@ struct CapInfo {
     uint32_t length;
 };
 
-bool find_cap(int bus, int dev, int func, uint8_t cap_type, CapInfo* out) {
-    uint32_t reg = pci::config_read32(bus, dev, func, 0x04);
+bool find_cap(int bus, int slot, int function, uint8_t cap_type, CapInfo* out) {
+    uint32_t reg = pci::config_read32(bus, slot, function, 0x04);
     // Check status bit 4 (Capabilities List)
     if (!((reg >> 16) & (1 << 4)))
         return false;
 
-    uint8_t ptr = pci::config_read32(bus, dev, func, pci::CapabilitiesPointer) & 0xFF;
+    uint8_t ptr = pci::config_read32(bus, slot, function, pci::CapabilitiesPointer) & 0xFF;
     while (ptr != 0) {
-        uint32_t cap_hdr = pci::config_read32(bus, dev, func, ptr);
+        uint32_t cap_hdr = pci::config_read32(bus, slot, function, ptr);
         uint8_t cap_id = cap_hdr & 0xFF;
         uint8_t cap_next = (cap_hdr >> 8) & 0xFF;
 
         if (cap_id == 0x09) {  // Vendor-specific (VirtIO uses this)
             // VirtIO PCI cap: cap_hdr[ptr+3] = cfg_type, [ptr+4] = bar,
             //                  [ptr+8] = offset, [ptr+12] = length
-            uint32_t w1 = pci::config_read32(bus, dev, func, ptr + 4);
-            uint8_t cfg_type = (pci::config_read32(bus, dev, func, ptr) >> 24) & 0xFF;
+            uint32_t w1 = pci::config_read32(bus, slot, function, ptr + 4);
+            uint8_t cfg_type = (pci::config_read32(bus, slot, function, ptr) >> 24) & 0xFF;
             // Actually cfg_type is at ptr+3 in the capability
             cfg_type = static_cast<uint8_t>(cap_hdr >> 24);
             // Correct reading: virtio pci cap layout (bytes):
@@ -383,8 +383,8 @@ bool find_cap(int bus, int dev, int func, uint8_t cap_type, CapInfo* out) {
             // +8: offset(32)
             // +12: length(32)
             uint8_t bar = w1 & 0xFF;
-            uint32_t bar_offset = pci::config_read32(bus, dev, func, ptr + 8);
-            uint32_t bar_length = pci::config_read32(bus, dev, func, ptr + 12);
+            uint32_t bar_offset = pci::config_read32(bus, slot, function, ptr + 8);
+            uint32_t bar_length = pci::config_read32(bus, slot, function, ptr + 12);
 
             if (cfg_type == cap_type) {
                 out->bar = bar;
@@ -399,16 +399,16 @@ bool find_cap(int bus, int dev, int func, uint8_t cap_type, CapInfo* out) {
 }
 
 // Read the notify_off_multiplier from the NOTIFY cap (at +16 in that cap)
-uint32_t read_notify_multiplier(int bus, int dev, int func) {
-    uint8_t ptr = pci::config_read32(bus, dev, func, pci::CapabilitiesPointer) & 0xFF;
+uint32_t read_notify_multiplier(int bus, int slot, int function) {
+    uint8_t ptr = pci::config_read32(bus, slot, function, pci::CapabilitiesPointer) & 0xFF;
     while (ptr != 0) {
-        uint32_t cap_hdr = pci::config_read32(bus, dev, func, ptr);
+        uint32_t cap_hdr = pci::config_read32(bus, slot, function, ptr);
         uint8_t cap_id = cap_hdr & 0xFF;
         uint8_t cap_next = (cap_hdr >> 8) & 0xFF;
         uint8_t cfg_type = static_cast<uint8_t>(cap_hdr >> 24);
 
         if (cap_id == 0x09 && cfg_type == VIRTIO_PCI_CAP_NOTIFY_CFG) {
-            return pci::config_read32(bus, dev, func, ptr + 16);
+            return pci::config_read32(bus, slot, function, ptr + 16);
         }
         ptr = cap_next;
     }
@@ -416,13 +416,13 @@ uint32_t read_notify_multiplier(int bus, int dev, int func) {
 }
 
 // Map a BAR + offset region into kernel virtual space
-uintptr_t map_bar_region(int bus, int dev, int func, const CapInfo* ci) {
-    uint32_t bar_lo = pci::read_bar(bus, dev, func, ci->bar);
+uintptr_t map_bar_region(int bus, int slot, int function, const CapInfo* ci) {
+    uint32_t bar_lo = pci::read_bar(bus, slot, function, ci->bar);
     uint64_t bar_phys = bar_lo & ~0xFULL;
 
     // Check if 64-bit BAR
     if ((bar_lo & 0x6) == 0x4) {
-        uint32_t bar_hi = pci::read_bar(bus, dev, func, ci->bar + 1);
+        uint32_t bar_hi = pci::read_bar(bus, slot, function, ci->bar + 1);
         bar_phys |= static_cast<uint64_t>(bar_hi) << 32;
     }
 
@@ -445,32 +445,32 @@ namespace virtio_gpu {
 
 int init() {
     // 1. Find the device on PCI bus
-    int bus, dev, func;
-    if (!pci::find_by_id(VIRTIO_VENDOR, VIRTIO_GPU_DEV, &bus, &dev, &func)) {
+    int bus, slot, function;
+    if (!pci::find_by_id(VIRTIO_VENDOR, VIRTIO_GPU_DEV, &bus, &slot, &function)) {
         cprintf("virtio_gpu: device not found on PCI bus\n");
         return -1;
     }
-    cprintf("virtio_gpu: found at PCI %02d:%02d.%d\n", bus, dev, func);
+    cprintf("virtio_gpu: found at PCI %02d:%02d.%d\n", bus, slot, function);
 
-    pci::enable_bus_master(bus, dev, func);
+    pci::enable_bus_master(bus, slot, function);
 
     // 2. Walk PCI capabilities to find config regions
     CapInfo common_ci{}, notify_ci{}, device_ci{};
-    if (!find_cap(bus, dev, func, VIRTIO_PCI_CAP_COMMON_CFG, &common_ci)) {
+    if (!find_cap(bus, slot, function, VIRTIO_PCI_CAP_COMMON_CFG, &common_ci)) {
         cprintf("virtio_gpu: common cfg capability not found\n");
         return -1;
     }
-    if (!find_cap(bus, dev, func, VIRTIO_PCI_CAP_NOTIFY_CFG, &notify_ci)) {
+    if (!find_cap(bus, slot, function, VIRTIO_PCI_CAP_NOTIFY_CFG, &notify_ci)) {
         cprintf("virtio_gpu: notify capability not found\n");
         return -1;
     }
-    find_cap(bus, dev, func, VIRTIO_PCI_CAP_DEVICE_CFG, &device_ci);
+    find_cap(bus, slot, function, VIRTIO_PCI_CAP_DEVICE_CFG, &device_ci);
 
-    notify_off_multiplier = read_notify_multiplier(bus, dev, func);
+    notify_off_multiplier = read_notify_multiplier(bus, slot, function);
 
     // 3. Map BAR regions
-    uintptr_t common_va = map_bar_region(bus, dev, func, &common_ci);
-    uintptr_t notify_va = map_bar_region(bus, dev, func, &notify_ci);
+    uintptr_t common_va = map_bar_region(bus, slot, function, &common_ci);
+    uintptr_t notify_va = map_bar_region(bus, slot, function, &notify_ci);
     if (common_va == 0 || notify_va == 0) {
         cprintf("virtio_gpu: failed to map BAR regions\n");
         return -1;
@@ -478,7 +478,7 @@ int init() {
     common_cfg = reinterpret_cast<volatile uint8_t*>(common_va);
     notify_base = reinterpret_cast<volatile uint8_t*>(notify_va);
     if (device_ci.length > 0) {
-        uintptr_t dev_va = map_bar_region(bus, dev, func, &device_ci);
+        uintptr_t dev_va = map_bar_region(bus, slot, function, &device_ci);
         device_cfg = reinterpret_cast<volatile uint8_t*>(dev_va);
     }
 

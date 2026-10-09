@@ -35,21 +35,22 @@ int init();
 // Enumerate bus 0 and assign BARs for all devices
 void assign_bars();
 
-// Read/write 32-bit config register at (bus, dev, func, offset)
-uint32_t config_read32(int bus, int dev, int func, int offset);
-void config_write32(int bus, int dev, int func, int offset, uint32_t val);
+// Read/write 32-bit config register at (bus, slot, function, offset)
+uint32_t config_read32(int bus, int slot, int function, int offset);
+void config_write32(int bus, int slot, int function, int offset, uint32_t value);
 
 // Read a BAR value
-uint32_t read_bar(int bus, int dev, int func, int bar_index);
+uint32_t read_bar(int bus, int slot, int function, int bar_index);
 
 // Enable bus-master + memory-space for a device
-void enable_bus_master(int bus, int dev, int func);
+void enable_bus_master(int bus, int slot, int function);
 
 // Find first device matching class/subclass/interface.
-// Returns true on success, filling bus/dev/func.
-bool find_by_class(uint8_t cls, uint8_t sub, uint8_t iface, int* out_bus, int* out_dev, int* out_func);
+// Returns true on success, filling bus/slot/function.
+bool find_by_class(uint8_t class_code, uint8_t subclass, uint8_t prog_if, int* out_bus, int* out_slot,
+                   int* out_function);
 
 // Find first device by vendor/device ID pair.
-bool find_by_id(uint16_t vendor, uint16_t device, int* out_bus, int* out_dev, int* out_func);
+bool find_by_id(uint16_t vendor_id, uint16_t device_id, int* out_bus, int* out_slot, int* out_function);
 
 }  // namespace pci

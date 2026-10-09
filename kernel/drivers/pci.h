@@ -48,8 +48,8 @@ struct DeviceInfo {
     uint16_t vendor_id;
     uint16_t device_id;
     uint8_t class_code;
-    uint8_t subclass_code;
-    uint8_t programming_interface;
+    uint8_t subclass;
+    uint8_t prog_if;
     uint8_t header_type;
 };
 
@@ -60,8 +60,8 @@ struct DriverId {
     uint16_t vendor_id;
     uint16_t device_id;
     uint8_t class_code;
-    uint8_t subclass_code;
-    uint8_t programming_interface;
+    uint8_t subclass;
+    uint8_t prog_if;
 };
 
 using ProbeFn = Error (*)(const DeviceInfo* device_info, const DriverId* id);

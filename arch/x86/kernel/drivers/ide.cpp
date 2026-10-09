@@ -10,7 +10,7 @@
 
 // Global IDE devices
 IdeDevice IdeManager::devices_[ide::MAX_DEVICES] = {};
-int IdeManager::devices_count_ = 0;
+int IdeManager::device_count_ = 0;
 
 IdeConfig IdeManager::configs_[ide::MAX_DEVICES] = {
     {0, 0, ide::IDE0_BASE, ide::IDE0_CTRL, IRQ_IDE1, "hda"},  // Primary Master
@@ -20,9 +20,9 @@ IdeConfig IdeManager::configs_[ide::MAX_DEVICES] = {
 };
 
 static int hd_wait_ready_on_base(uint16_t base) {
-    int timeout = 100000;
+    int polls_left = 100000;
 
-    while (timeout-- > 0) {
+    while (polls_left-- > 0) {
         uint8_t status = arch_port_read8(base + ide::REG_STATUS);
 
         if ((status & (ide::STATUS_BSY | ide::STATUS_DRDY)) == ide::STATUS_DRDY) {
@@ -35,9 +35,9 @@ static int hd_wait_ready_on_base(uint16_t base) {
 
 // Poll until BSY=0 and DRQ=1 (data ready for PIO transfer after a command)
 static int hd_wait_drq(uint16_t base) {
-    int timeout = 100000;
+    int polls_left = 100000;
 
-    while (timeout-- > 0) {
+    while (polls_left-- > 0) {
         uint8_t status = arch_port_read8(base + ide::REG_STATUS);
 
         if (status & ide::STATUS_ERR) {
@@ -142,35 +142,35 @@ void IdeManager::init() {
             continue;  // Not an ATA device (could be ATAPI or absent)
         }
 
-        devices_[devices_count_].detect(&config);
+        devices_[device_count_].detect(&config);
 
-        if (devices_[devices_count_].info.block_count == 0) {
+        if (devices_[device_count_].info.block_count == 0) {
             cprintf("ide: %s: device reports 0 sectors, skipping\n", config.name);
             continue;
         }
 
-        cprintf("ide: %s: detected %d sectors (%d MB)\n", config.name, devices_[devices_count_].info.block_count,
-                devices_[devices_count_].info.block_count / 2048);
+        cprintf("ide: %s: detected %d sectors (%d MB)\n", config.name, devices_[device_count_].info.block_count,
+                devices_[device_count_].info.block_count / 2048);
 
-        blk::register_device(&devices_[devices_count_]);
-        devices_count_++;
+        blk::register_device(&devices_[device_count_]);
+        device_count_++;
     }
 
-    cprintf("ide: found %d device(s)\n", devices_count_);
+    cprintf("ide: found %d device(s)\n", device_count_);
 }
 
-IdeDevice* IdeManager::find_device(int device_id) {
-    if (device_id < 0 || device_id >= devices_count_) {
+IdeDevice* IdeManager::find_device(int index) {
+    if (index < 0 || index >= device_count_) {
         return nullptr;
     }
-    if (!devices_[device_id].present) {
+    if (!devices_[index].present) {
         return nullptr;
     }
-    return &devices_[device_id];
+    return &devices_[index];
 }
 
 int IdeManager::device_count() {
-    return devices_count_;
+    return device_count_;
 }
 
 void IdeDevice::print_info() {
@@ -275,7 +275,7 @@ Error IdeDevice::write(uint32_t start_lba, const void* buf, size_t block_count) 
 }
 
 void IdeManager::interrupt_handler(int channel) {
-    for (int i = 0; i < devices_count_; i++) {
+    for (int i = 0; i < device_count_; i++) {
         IdeDevice& dev = devices_[i];
 
         if (!dev.present || dev.config->channel != channel) {

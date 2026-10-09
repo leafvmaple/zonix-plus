@@ -211,14 +211,14 @@ def main():
     SECT_ALIGN = 0x1000
 
     # We'll emit two PE sections: .text (the raw image) and .reloc
-    num_sections = 2
+    section_count = 2
 
     # PE header sizes
     dos_hdr_size = 0x40
     pe_sig_size = 4
     coff_hdr_size = 20
     opt_hdr_size = 240  # PE32+ optional header
-    sec_hdr_size = 40 * num_sections
+    sec_hdr_size = 40 * section_count
 
     hdr_raw_size = (
         dos_hdr_size + pe_sig_size + coff_hdr_size + opt_hdr_size + sec_hdr_size
@@ -263,7 +263,7 @@ def main():
         out,
         coff_off,
         PE_MACHINE_RISCV64,  # Machine
-        num_sections,  # NumberOfSections
+        section_count,  # NumberOfSections
         0,  # TimeDateStamp
         0,  # PointerToSymbolTable
         0,  # NumberOfSymbols
@@ -379,7 +379,7 @@ def main():
         f.write(out)
 
     print(
-        f"  EFI     {sys.argv[2]}  ({len(out)} bytes, {num_sections} sections, "
+        f"  EFI     {sys.argv[2]}  ({len(out)} bytes, {section_count} sections, "
         f"entry RVA 0x{entry_rva:x})"
     )
 

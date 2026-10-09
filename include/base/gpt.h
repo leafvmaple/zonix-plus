@@ -72,14 +72,14 @@ struct GptHeader {
         using Sector = SectorArray<GptPartitionEntry>;
         Sector sector_buf{};
 
-        int entries_number = 0;
-        while (entries_number < num_partition_entries) {
-            uint32_t lba = static_cast<uint32_t>(partition_entry_lba) + (entries_number / Sector::COUNT);
+        int entry_index = 0;
+        while (entry_index < num_partition_entries) {
+            uint32_t lba = static_cast<uint32_t>(partition_entry_lba) + (entry_index / Sector::COUNT);
             if (reader(lba, &sector_buf) != 0) {
                 return -1;
             }
 
-            for (uint32_t i = 0; i < Sector::COUNT && entries_number < num_partition_entries; i++, entries_number++) {
+            for (uint32_t i = 0; i < Sector::COUNT && entry_index < num_partition_entries; i++, entry_index++) {
                 const auto& entry = sector_buf.entries[i];
                 if (entry.is_empty())
                     continue;

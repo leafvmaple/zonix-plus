@@ -227,15 +227,15 @@ void late_init() {
     struct BootInfo* bi = &::__kernel_boot_info;
 
     cprintf("fbcons_late_init: type=%d addr=0x%lx w=%d h=%d pitch=%d bpp=%d\n", bi->framebuffer_type,
-            static_cast<unsigned long>(bi->framebuffer_addr), bi->framebuffer_width, bi->framebuffer_height,
+            static_cast<unsigned long>(bi->framebuffer_pa), bi->framebuffer_width, bi->framebuffer_height,
             bi->framebuffer_pitch, bi->framebuffer_bpp);
 
-    if (bi->framebuffer_type != 1 || bi->framebuffer_addr == 0) {
+    if (bi->framebuffer_type != 1 || bi->framebuffer_pa == 0) {
         cprintf("fbcons: no framebuffer available\n");
         return;
     }
 
-    uint64_t fb_phys = bi->framebuffer_addr;
+    uint64_t fb_phys = bi->framebuffer_pa;
     uint32_t fb_size = bi->framebuffer_pitch * bi->framebuffer_height;
 
     uintptr_t fb_va = vmm::mmio_map(static_cast<uintptr_t>(fb_phys), fb_size, VM_WRITE | VM_NOCACHE);

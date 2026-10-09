@@ -126,7 +126,7 @@ Error map_physical_range(pde_t* pgdir, uintptr_t va, size_t byte_count, uintptr_
     for (; page_count > 0; page_count--, va += PG_SIZE, pa += PG_SIZE) {
         pte_t* ptep = pmm::get_pte(pgdir, va, 1);
         if (!ptep) {
-            cprintf("vmm: pgdir_init failed to allocate PTE for va=0x%lx\n", va);
+            cprintf("vmm: map_physical_range failed to allocate PTE for va=0x%lx\n", va);
             return Error::NoMem;
         }
         *ptep = make_pte_page(pa, perm);

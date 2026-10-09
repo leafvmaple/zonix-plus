@@ -79,8 +79,8 @@ static int uefi_load_elf(void* elf_buffer, struct BootInfo* boot_info, uint64_t 
         }
     }
 
-    boot_info->kernel_start = static_cast<uint32_t>(kernel_start_pa);
-    boot_info->kernel_end = static_cast<uint32_t>(kernel_end_pa);
+    boot_info->kernel_start_pa = static_cast<uint32_t>(kernel_start_pa);
+    boot_info->kernel_end_pa = static_cast<uint32_t>(kernel_end_pa);
     boot_info->kernel_entry = static_cast<uint32_t>(elf->e_entry - kernel_base_va);
     return 0;
 }
@@ -113,30 +113,30 @@ static EFI_STATUS uefi_get_memory_map(EFI_BOOT_SERVICES* boot_services, struct B
     }
 
     uintptr_t desc_count = map_size_bytes / desc_size_bytes;
-    boot_info->mmap_addr = memory_map_pa;
-    boot_info->mmap_length = 0;
-    boot_info->mem_lower = lower_memory_kib;
-    boot_info->mem_upper = 0;
+    boot_info->mmap_pa = memory_map_pa;
+    boot_info->mmap_count = 0;
+    boot_info->lower_memory_kib = lower_memory_kib;
+    boot_info->upper_memory_kib = 0;
 
     auto* mmap = reinterpret_cast<BootMemEntry*>(static_cast<uintptr_t>(memory_map_pa));
     EFI_MEMORY_DESCRIPTOR* desc = memory_map;
 
     for (uintptr_t i = 0; i < desc_count; i++) {
-        if (boot_info->mmap_length >= memory_map_capacity) {
+        if (boot_info->mmap_count >= memory_map_capacity) {
             break;
         }
 
-        struct BootMemEntry* e = &mmap[boot_info->mmap_length];
-        e->addr = desc->PhysicalStart;
-        e->len = desc->NumberOfPages * 4096;
+        struct BootMemEntry* e = &mmap[boot_info->mmap_count];
+        e->base_pa = desc->PhysicalStart;
+        e->size_bytes = desc->NumberOfPages * 4096;
 
         switch (desc->Type) {
             case EfiConventionalMemory:
             case EfiBootServicesCode:
             case EfiBootServicesData:
                 e->type = BOOT_MEM_AVAILABLE;
-                if (e->addr >= upper_memory_start_pa) {
-                    boot_info->mem_upper += static_cast<uint32_t>(e->len / 1024);
+                if (e->base_pa >= upper_memory_start_pa) {
+                    boot_info->upper_memory_kib += static_cast<uint32_t>(e->size_bytes / 1024);
                 }
                 break;
             case EfiACPIReclaimMemory: e->type = BOOT_MEM_ACPI; break;
@@ -145,16 +145,16 @@ static EFI_STATUS uefi_get_memory_map(EFI_BOOT_SERVICES* boot_services, struct B
             default: e->type = BOOT_MEM_RESERVED; break;
         }
 
-        boot_info->mmap_length++;
+        boot_info->mmap_count++;
         desc = reinterpret_cast<EFI_MEMORY_DESCRIPTOR*>(reinterpret_cast<uint8_t*>(desc) + desc_size_bytes);
     }
 
     /* Merge adjacent regions of the same type */
     uint32_t merged = 0;
-    for (uint32_t i = 0; i < boot_info->mmap_length; i++) {
+    for (uint32_t i = 0; i < boot_info->mmap_count; i++) {
         if (merged > 0 && mmap[merged - 1].type == mmap[i].type &&
-            mmap[merged - 1].addr + mmap[merged - 1].len == mmap[i].addr) {
-            mmap[merged - 1].len += mmap[i].len;
+            mmap[merged - 1].base_pa + mmap[merged - 1].size_bytes == mmap[i].base_pa) {
+            mmap[merged - 1].size_bytes += mmap[i].size_bytes;
             continue;
         }
         if (merged != i) {
@@ -162,7 +162,7 @@ static EFI_STATUS uefi_get_memory_map(EFI_BOOT_SERVICES* boot_services, struct B
         }
         merged++;
     }
-    boot_info->mmap_length = merged;
+    boot_info->mmap_count = merged;
 
     boot_services->FreePool(memory_map);
     return EFI_SUCCESS;
@@ -246,11 +246,11 @@ static void uefi_get_graphics_info(EFI_BOOT_SERVICES* boot_services, struct Boot
     EFI_GUID gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
 
     if (EFI_ERROR(boot_services->LocateProtocol(&gop_guid, nullptr, reinterpret_cast<void**>(&gop)))) {
-        boot_info->framebuffer_addr = 0;
+        boot_info->framebuffer_pa = 0;
         return;
     }
 
-    boot_info->framebuffer_addr = gop->Mode->FrameBufferBase;
+    boot_info->framebuffer_pa = gop->Mode->FrameBufferBase;
     boot_info->framebuffer_width = gop->Mode->Info->HorizontalResolution;
     boot_info->framebuffer_height = gop->Mode->Info->VerticalResolution;
     boot_info->framebuffer_pitch = gop->Mode->Info->PixelsPerScanLine * 4;
@@ -297,7 +297,7 @@ EFI_STATUS uefi_boot_setup(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_tab
     auto* boot_info = reinterpret_cast<BootInfo*>(static_cast<uintptr_t>(config.boot_info_pa));
     memset(boot_info, 0, sizeof(BootInfo));
     boot_info->magic = BOOT_INFO_MAGIC;
-    boot_info->mmap_addr = config.memory_map_pa;
+    boot_info->mmap_pa = config.memory_map_pa;
 
     uefi_print(system_table, uefi_string(L"Getting memory map...\r\n"));
     EFI_STATUS status = uefi_get_memory_map(boot_services, boot_info, config.memory_map_pa, config.memory_map_capacity,

@@ -5,7 +5,7 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import shlex
 import subprocess
@@ -173,12 +173,23 @@ PROTOCOL_ALIASES = {"iterator", "const_iterator", "reverse_iterator", "const_rev
 
 def load_naming_exceptions(path):
     allowed = set()
-    for item in json.loads(path.read_text()):
-        if not item.get("reason") or not item.get("name") or not item.get("path"):
+    entries = json.loads(path.read_text())
+    if not isinstance(entries, list):
+        raise RuntimeError("Naming exceptions must be a list of exact contracts")
+    for item in entries:
+        if not isinstance(item, dict) or not all(
+                isinstance(item.get(key), str) and item[key].strip() for key in ("reason", "name", "path")):
             raise RuntimeError("Naming exceptions require an exact path, name and contract explanation")
-        if "*" in item["name"] or "*" in item["path"]:
+        if any(char in item[key] for key in ("name", "path") for char in "*?[]"):
             raise RuntimeError("Naming exceptions must not exempt entire files or name patterns")
-        allowed.add((item["path"], item["name"]))
+        relative = PurePosixPath(item["path"])
+        if (relative.is_absolute() or relative.as_posix() != item["path"] or ".." in relative.parts
+                or "\\" in item["path"] or ":" in item["path"]):
+            raise RuntimeError("Naming exception paths must be canonical repository-relative paths")
+        key = (item["path"], item["name"])
+        if key in allowed:
+            raise RuntimeError(f"Duplicate naming exception: {item['path']}:{item['name']}")
+        allowed.add(key)
     return allowed
 
 
