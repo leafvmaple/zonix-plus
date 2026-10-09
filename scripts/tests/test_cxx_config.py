@@ -28,7 +28,11 @@ class CxxConfigurationTests(unittest.TestCase):
                     env=dict(os.environ, MAKEFLAGS="", MFLAGS=""), timeout=15
                 ).splitlines()
                 self.assertIn("-Werror=unused-result", result[1].split())
-                self.assertIn("-DZSTL_FREESTANDING", result[1].split())
+                self.assertIn("-ffreestanding", result[1].split())
+                self.assertIn("-nostdinc", result[1].split())
+                self.assertIn("-nostdinc++", result[1].split())
+                self.assertNotIn("-DZSTL_FREESTANDING", result[1].split())
+                self.assertNotIn("-DZSTL_RUNTIME_DECLARATIONS_PROVIDED", result[1].split())
                 self.assertIn("-Iexternal/zstl/include", result[1].split())
                 for flags in result[1::3]:
                     standards = [flag for flag in flags.split() if flag.startswith("-std=")]
@@ -38,9 +42,12 @@ class CxxConfigurationTests(unittest.TestCase):
         configurations = json.loads((ROOT / ".vscode/c_cpp_properties.json").read_text())["configurations"]
         for config in configurations:
             self.assertIn("${workspaceFolder}/external/zstl/include", config["includePath"])
-            self.assertIn("ZSTL_FREESTANDING", config["defines"])
+            self.assertNotIn("ZSTL_FREESTANDING", config["defines"])
+            self.assertNotIn("ZSTL_RUNTIME_DECLARATIONS_PROVIDED", config["defines"])
+            self.assertIn("-ffreestanding", config["compilerArgs"])
         self.assertIn("- -Iexternal/zstl/include", (ROOT / ".clangd").read_text())
-        self.assertIn("- -DZSTL_FREESTANDING", (ROOT / ".clangd").read_text())
+        self.assertNotIn("- -DZSTL_FREESTANDING", (ROOT / ".clangd").read_text())
+        self.assertNotIn("- -DZSTL_RUNTIME_DECLARATIONS_PROVIDED", (ROOT / ".clangd").read_text())
 
     def test_switching_standard_rebuilds_kernel_bios_and_uefi_but_unchanged_standard_does_not(self):
         with tempfile.TemporaryDirectory(prefix="zonix-cxx-config-") as directory:

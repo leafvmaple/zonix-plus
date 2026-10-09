@@ -149,13 +149,26 @@ and transfers. Add views only when pointer/length or iteration duplication needs
 an explicit borrowed interface; a view must not imply ownership.
 
 zstl is the project-level submodule at `external/zstl`. Kernel builds and host
-contract tests use `ZSTL_FREESTANDING` with its include directory and no host C/C++
-headers. `sys/new.hpp` supplies shared placement-new definitions and `sys::nothrow`;
+contract tests use its include directory without a zstl mode macro. zstl itself
+is always self-contained. Kernel compilation still uses `-ffreestanding`,
+`-nostdinc` and `-nostdinc++`; the kernel links no external C runtime or hosted C++
+library. Host contract executables may use the host runtime to run fixtures;
+that does not change zstl's headers or the kernel link policy.
+`sys/new.hpp` supplies shared placement-new definitions and `sys::nothrow`;
 `kernel/cxxrt.cpp` supplies allocating new/delete implementations. Recoverable
 allocations use `new (sys::nothrow)` and check null. Ordinary new is fail-fast on
 exhaustion, so compiler-generated constructors never run on a null allocation.
-Future mini-cocos integration must consume this same zstl include root and build
-mode, rather than introduce a second STL copy or a separate allocation tag type.
+Freestanding and absence of a platform CRT are independent choices. Future
+mini-cocos kernel integration must select `ZOCOS_FREESTANDING=ON` and
+`ZOCOS_USE_CRT=OFF`, supply this checkout through `ZSTL_DIR`, and disable
+`ZOCOS_BUILD_HOST`, `ZOCOS_BUILD_LUA` and `ZOCOS_BUILD_TESTS`. Its optional
+`ZCCrtRuntime.cpp` must not be linked alongside the kernel's allocation ABI.
+Do not define `ZSTL_RUNTIME_DECLARATIONS_PROVIDED`: the kernel uses the declarations
+from zstl. A platform that supplies declarations before including zstl may use
+that switch; it does not select a hosted library or imply a CRT is linked.
+Runtime facilities such as math and file streams still need kernel implementations
+before engine code that calls them can be linked. Merely including their declarations
+does not supply those implementations.
 The pre-commit snapshot exports zstl at the staged gitlink revision, so local
 uncommitted library edits cannot hide an incompatible pinned dependency.
 

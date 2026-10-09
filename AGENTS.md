@@ -21,8 +21,14 @@ existing subsystem design rather than adding a second implementation style.
   implement another first-party standard container or smart pointer. Add missing
   required functionality and its tests to zstl instead.
 - All consumers, including future mini-cocos integration, must select the same
-  zstl include root and `ZSTL_FREESTANDING` mode. The kernel supplies allocating
-  new/delete; placement definitions and allocation tag types come from zstl.
+  zstl include root and runtime ABI. zstl is always self-contained; do not define
+  the obsolete `ZSTL_FREESTANDING` macro. Freestanding compilation and using a
+  platform C runtime are separate choices. The kernel does not link an external
+  CRT; `kernel/cxxrt.cpp` supplies allocating new/delete and byte operations.
+  Placement definitions and allocation tag types come from zstl. Do not define
+  `ZSTL_RUNTIME_DECLARATIONS_PROVIDED` unless a platform header has actually
+  supplied all required declarations. Future mini-cocos kernel builds must use
+  `ZOCOS_FREESTANDING=ON`, `ZOCOS_USE_CRT=OFF` and this same zstl dependency.
 - Follow `docs/ERROR_HANDLING.md` for owning, borrowing and transferring resources.
   Use move-only owners for exclusive resources; retain explicit checked operations
   for cleanup that can fail or requires a subsystem-specific ordering protocol.

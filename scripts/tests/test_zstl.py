@@ -1,4 +1,4 @@
-"""Verify the shared STL dependency in hosted and strict freestanding modes."""
+"""Verify self-contained zstl headers separately from executable runtime policy."""
 from pathlib import Path
 import shutil
 import subprocess
@@ -21,10 +21,24 @@ class ZstlIntegrationTests(unittest.TestCase):
     def test_inline_container_and_lock_contracts_with_gcc(self):
         self._run_contract("container_test.cpp", "c++20", [], compiler=GCC)
 
-    def test_cstring_contract_without_host_wrappers(self):
+    def test_cstring_contract_without_a_mode_macro(self):
         for standard in ("c++17", "c++20"):
             with self.subTest(standard=standard):
-                self._run_contract("cstring_test.cpp", standard, ["-DZSTL_FREESTANDING"])
+                self._run_contract("cstring_test.cpp", standard, [])
+
+    def test_complete_header_surface_without_system_headers_or_mode_macro(self):
+        with tempfile.TemporaryDirectory(prefix="zonix-zstl-no-crt-") as directory:
+            for standard in ("c++17", "c++20"):
+                for target in ("x86_64-none-elf", "aarch64-none-elf", "riscv64-none-elf"):
+                    with self.subTest(standard=standard, target=target):
+                        result = subprocess.run(
+                            [CLANG, "-std=" + standard, "--target=" + target, *ZSTL_FLAGS,
+                             "-ffreestanding", "-nostdinc", "-nostdinc++", "-fno-builtin",
+                             "-fno-exceptions", "-fno-rtti", "-Werror", "-c",
+                             str(ROOT / "kernel/test/host/zstl_no_crt_compile_test.cpp"),
+                             "-o", str(Path(directory) / (standard + target + ".o"))],
+                            capture_output=True, text=True, timeout=30)
+                        self.assertEqual(result.returncode, 0, result.stderr)
 
     def _run_contract(self, source, standard, flags, compiler=CLANG):
         with tempfile.TemporaryDirectory(prefix="zonix-zstl-contract-") as directory:

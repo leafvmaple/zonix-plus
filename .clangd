@@ -26,7 +26,6 @@ CompileFlags:
     - -Iinclude
     - -Ikernel
     - -Iexternal/zstl/include
-    - -DZSTL_FREESTANDING
     - -Iarch/x86/include
     - -Iarch/x86/kernel
     - -m64

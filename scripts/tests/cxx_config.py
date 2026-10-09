@@ -9,4 +9,4 @@ CXX_STANDARD = subprocess.check_output(
     env=dict(os.environ, MAKEFLAGS="", MFLAGS=""), timeout=15
 ).strip()
 CXX_STANDARD_FLAG = "-std=" + CXX_STANDARD
-ZSTL_FLAGS = ["-DZSTL_FREESTANDING", "-I" + str(ROOT / "external/zstl/include")]
+ZSTL_FLAGS = ["-I" + str(ROOT / "external/zstl/include")]
