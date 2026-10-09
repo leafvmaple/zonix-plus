@@ -15,8 +15,13 @@ USER_OBJDIR  := $(OBJDIR)/user
 USER_LD      := $(USER_DIR)/user.ld
 
 # ---------- toolchain flags (user-mode, *not* -mcmodel=kernel) ----------
+USER_CPUFLAGS := -mno-sse -mno-sse2 -mno-mmx -msoft-float
+ifeq ($(ARCH),x86)
+  # Match the legacy FP/SSE state saved by the x86 scheduler.
+  USER_CPUFLAGS := -march=x86-64 -msse -msse2 -mno-avx -mno-avx2
+endif
 USER_CFLAGS  := -g -Wall -O2 -m64 -mno-red-zone \
-                -mno-sse -mno-sse2 -mno-mmx -msoft-float \
+                $(USER_CPUFLAGS) \
                 -nostdinc -ffreestanding -fno-builtin \
                 -fno-stack-protector -fno-pic -gdwarf-2
 USER_ASFLAGS := $(USER_CFLAGS) -D__ASSEMBLY__
@@ -28,6 +33,10 @@ USER_LDFLAGS := -m elf_x86_64 -nostdlib -T $(USER_LD)
 # Exclude zcc (submodule — has its own build system).
 USER_PROGRAMS := $(notdir $(patsubst %/,%,$(dir $(wildcard $(USER_DIR)/*/*.S $(USER_DIR)/*/*.c))))
 USER_PROGRAMS := $(filter-out zcc,$(sort $(USER_PROGRAMS)))
+ifneq ($(ARCH),x86)
+  # These programs exercise the x86 XMM/x87 register ABI.
+  USER_PROGRAMS := $(filter-out ssetest ssepeer,$(USER_PROGRAMS))
+endif
 
 # Uppercase helper (FAT32 8.3 filenames)
 uc = $(shell echo '$(1)' | tr '[:lower:]' '[:upper:]')

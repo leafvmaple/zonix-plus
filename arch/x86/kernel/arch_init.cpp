@@ -10,6 +10,7 @@
 #include <asm/trapframe.h>
 #include <asm/segments.h>
 #include <asm/cpu.h>
+#include <asm/fpu.h>
 #include <base/types.h>
 
 #include "idt.h"
@@ -25,6 +26,7 @@
 namespace {
 
 const InitStep ARCH_STEPS[] = {
+    {"sse/sse2", fpu::init, true},
     {"i8259", i8259::init, true},
     {"i8253", i8253::init, true},
     {"idt", idt::init, true},

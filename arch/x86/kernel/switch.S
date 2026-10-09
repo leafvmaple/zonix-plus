@@ -1,8 +1,14 @@
+#include <asm/context.h>
+
 .code64
 .text
 
 .globl switch_to
 switch_to:                      # switch_to(from, to) -> rdi=from, rsi=to
+    # Eagerly save/restore FP state, including switches from an IRQ or syscall.
+    # Kernel code never uses SIMD, so there is no per-interrupt FP scratch state.
+    fxsave64 CONTEXT_FP_STATE_OFFSET(%rdi)
+    fxrstor64 CONTEXT_FP_STATE_OFFSET(%rsi)
     # Save from's callee-saved registers
     # Context layout: rip, rsp, rbx, rbp, r12, r13, r14, r15
     movq (%rsp), %rax           # save return address (rip)
