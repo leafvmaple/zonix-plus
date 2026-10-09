@@ -36,14 +36,15 @@ inline constexpr uint8_t INTERFACE_SDHCI_DMA = 0x01;
 
 int init();
 
-uint32_t config_read32(int bus_number, int device_number, int function_number, int offset_bytes);
-void config_write32(int bus_number, int device_number, int function_number, int offset_bytes, uint32_t value);
+// Configuration-space offset is measured in bytes.
+uint32_t config_read32(int bus, int slot, int function, int offset);
+void config_write32(int bus, int slot, int function, int offset, uint32_t value);
 int bus_count();
 
 struct DeviceInfo {
-    uint8_t bus_number;
-    uint8_t device_number;
-    uint8_t function_number;
+    uint8_t bus;
+    uint8_t slot;  // BDF device field, not a physical hotplug slot.
+    uint8_t function;
     uint16_t vendor_id;
     uint16_t device_id;
     uint8_t class_code;
@@ -75,7 +76,7 @@ struct Driver {
 Error register_driver(const Driver* driver);
 int probe_drivers();
 
-uint32_t read_bar(int bus_number, int device_number, int function_number, int bar_index);
-void enable_bus_master(int bus_number, int device_number, int function_number);
+uint32_t read_bar(int bus, int slot, int function, int bar_index);
+void enable_bus_master(int bus, int slot, int function);
 
 }  // namespace pci

@@ -21,8 +21,9 @@ struct BlockDevice {
     uint32_t block_count{};  // Size in blocks
     char name[8]{};          // Device name
 
-    virtual Error read(uint32_t block_number, void* buf, size_t block_count) = 0;
-    virtual Error write(uint32_t block_number, const void* buf, size_t block_count) = 0;
+    // start_lba is the first logical block; block_count is the transfer length.
+    virtual Error read(uint32_t start_lba, void* buf, size_t block_count) = 0;
+    virtual Error write(uint32_t start_lba, const void* buf, size_t block_count) = 0;
     virtual void print_info();
 };
 

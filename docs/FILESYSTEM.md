@@ -524,8 +524,8 @@ BlockDevice (抽象基类)
 ├─ size         ── 总扇区数
 ├─ name[8]      ── 设备名 (如 "hda")
 │
-├─ read(block_number, buf, block_count)   ── 读扇区
-├─ write(block_number, buf, block_count)  ── 写扇区
+├─ read(start_lba, buf, block_count)   ── 读扇区
+├─ write(start_lba, buf, block_count)  ── 写扇区
 └─ print_info()                           ── 打印设备信息
 
 扇区大小: BlockDevice::SIZE = 512 字节

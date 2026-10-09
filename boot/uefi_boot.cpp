@@ -51,9 +51,9 @@ static int uefi_load_elf(void* elf_buffer, struct BootInfo* boot_info, uint64_t 
 
     uint64_t kernel_start_pa = ~0ULL, kernel_end_pa = 0;
     auto* ph = reinterpret_cast<ProgramHeader*>(reinterpret_cast<uint8_t*>(elf) + elf->e_phoff);
-    ProgramHeader* program_headers_end = ph + elf->e_phnum;
+    ProgramHeader* ph_end = ph + elf->e_phnum;
 
-    for (; ph < program_headers_end; ph++) {
+    for (; ph < ph_end; ph++) {
         if (ph->p_type != ELF_PT_LOAD) {
             continue;
         }
@@ -90,30 +90,29 @@ static EFI_STATUS uefi_get_memory_map(EFI_BOOT_SERVICES* boot_services, struct B
                                       uint64_t upper_memory_start_pa) {
     uintptr_t map_key = 0;
     uintptr_t map_size_bytes = 0;
-    uintptr_t descriptor_size_bytes = 0;
-    uint32_t descriptor_version = 0;
+    uintptr_t desc_size_bytes = 0;
+    uint32_t desc_version = 0;
     EFI_MEMORY_DESCRIPTOR* memory_map = nullptr;
 
     EFI_STATUS status =
-        boot_services->GetMemoryMap(&map_size_bytes, memory_map, &map_key, &descriptor_size_bytes, &descriptor_version);
+        boot_services->GetMemoryMap(&map_size_bytes, memory_map, &map_key, &desc_size_bytes, &desc_version);
     if (status != EFI_BUFFER_TOO_SMALL) {
         return status;
     }
 
-    map_size_bytes += 2 * descriptor_size_bytes;
+    map_size_bytes += 2 * desc_size_bytes;
     status = boot_services->AllocatePool(EfiLoaderData, map_size_bytes, reinterpret_cast<void**>(&memory_map));
     if (EFI_ERROR(status)) {
         return status;
     }
 
-    status =
-        boot_services->GetMemoryMap(&map_size_bytes, memory_map, &map_key, &descriptor_size_bytes, &descriptor_version);
+    status = boot_services->GetMemoryMap(&map_size_bytes, memory_map, &map_key, &desc_size_bytes, &desc_version);
     if (EFI_ERROR(status)) {
         boot_services->FreePool(memory_map);
         return status;
     }
 
-    uintptr_t descriptor_count = map_size_bytes / descriptor_size_bytes;
+    uintptr_t desc_count = map_size_bytes / desc_size_bytes;
     boot_info->mmap_addr = memory_map_pa;
     boot_info->mmap_length = 0;
     boot_info->mem_lower = lower_memory_kib;
@@ -122,7 +121,7 @@ static EFI_STATUS uefi_get_memory_map(EFI_BOOT_SERVICES* boot_services, struct B
     auto* mmap = reinterpret_cast<BootMemEntry*>(static_cast<uintptr_t>(memory_map_pa));
     EFI_MEMORY_DESCRIPTOR* desc = memory_map;
 
-    for (uintptr_t i = 0; i < descriptor_count; i++) {
+    for (uintptr_t i = 0; i < desc_count; i++) {
         if (boot_info->mmap_length >= memory_map_capacity) {
             break;
         }
@@ -147,7 +146,7 @@ static EFI_STATUS uefi_get_memory_map(EFI_BOOT_SERVICES* boot_services, struct B
         }
 
         boot_info->mmap_length++;
-        desc = reinterpret_cast<EFI_MEMORY_DESCRIPTOR*>(reinterpret_cast<uint8_t*>(desc) + descriptor_size_bytes);
+        desc = reinterpret_cast<EFI_MEMORY_DESCRIPTOR*>(reinterpret_cast<uint8_t*>(desc) + desc_size_bytes);
     }
 
     /* Merge adjacent regions of the same type */
@@ -260,16 +259,16 @@ static void uefi_get_graphics_info(EFI_BOOT_SERVICES* boot_services, struct Boot
 }
 
 static EFI_STATUS uefi_exit_boot_services(EFI_BOOT_SERVICES* boot_services, EFI_HANDLE image_handle) {
-    uintptr_t map_key = 0, map_size_bytes = 0, descriptor_size_bytes = 0;
-    uint32_t descriptor_version = 0;
+    uintptr_t map_key = 0, map_size_bytes = 0, desc_size_bytes = 0;
+    uint32_t desc_version = 0;
     EFI_MEMORY_DESCRIPTOR* memory_map = nullptr;
 
-    boot_services->GetMemoryMap(&map_size_bytes, nullptr, &map_key, &descriptor_size_bytes, &descriptor_version);
-    map_size_bytes += 2 * descriptor_size_bytes;
+    boot_services->GetMemoryMap(&map_size_bytes, nullptr, &map_key, &desc_size_bytes, &desc_version);
+    map_size_bytes += 2 * desc_size_bytes;
     boot_services->AllocatePool(EfiLoaderData, map_size_bytes, reinterpret_cast<void**>(&memory_map));
 
     EFI_STATUS status =
-        boot_services->GetMemoryMap(&map_size_bytes, memory_map, &map_key, &descriptor_size_bytes, &descriptor_version);
+        boot_services->GetMemoryMap(&map_size_bytes, memory_map, &map_key, &desc_size_bytes, &desc_version);
     if (EFI_ERROR(status)) {
         return status;
     }
@@ -278,10 +277,10 @@ static EFI_STATUS uefi_exit_boot_services(EFI_BOOT_SERVICES* boot_services, EFI_
     if (EFI_ERROR(status)) {
         /* Retry once -- map_key may have changed */
         map_size_bytes = 0;
-        boot_services->GetMemoryMap(&map_size_bytes, nullptr, &map_key, &descriptor_size_bytes, &descriptor_version);
-        map_size_bytes += 2 * descriptor_size_bytes;
+        boot_services->GetMemoryMap(&map_size_bytes, nullptr, &map_key, &desc_size_bytes, &desc_version);
+        map_size_bytes += 2 * desc_size_bytes;
         boot_services->AllocatePool(EfiLoaderData, map_size_bytes, reinterpret_cast<void**>(&memory_map));
-        boot_services->GetMemoryMap(&map_size_bytes, memory_map, &map_key, &descriptor_size_bytes, &descriptor_version);
+        boot_services->GetMemoryMap(&map_size_bytes, memory_map, &map_key, &desc_size_bytes, &desc_version);
         status = boot_services->ExitBootServices(image_handle, map_key);
     }
     return status;

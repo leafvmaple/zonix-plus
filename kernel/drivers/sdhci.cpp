@@ -390,19 +390,19 @@ Error SdDevice::init(volatile uint8_t* base, int index) {
     return Error::None;
 }
 
-Error SdDevice::read(uint32_t block_number, void* buf, size_t block_count) {
+Error SdDevice::read(uint32_t start_lba, void* buf, size_t block_count) {
     auto* p = static_cast<uint8_t*>(buf);
     for (size_t i = 0; i < block_count; i++) {
-        if (read_single(block_number + i, p + i * 512) != Error::None)
+        if (read_single(start_lba + i, p + i * 512) != Error::None)
             return Error::Io;
     }
     return Error::None;
 }
 
-Error SdDevice::write(uint32_t block_number, const void* buf, size_t block_count) {
+Error SdDevice::write(uint32_t start_lba, const void* buf, size_t block_count) {
     auto const* p = static_cast<const uint8_t*>(buf);
     for (size_t i = 0; i < block_count; i++) {
-        if (write_single(block_number + i, p + i * 512) != Error::None)
+        if (write_single(start_lba + i, p + i * 512) != Error::None)
             return Error::Io;
     }
     return Error::None;
@@ -500,8 +500,7 @@ Error Manager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*)
     }
 
     int index = static_cast<int>(devices_.size());
-    int rc =
-        probe_one_controller(&devices_[index], index, pdev->bus_number, pdev->device_number, pdev->function_number);
+    int rc = probe_one_controller(&devices_[index], index, pdev->bus, pdev->slot, pdev->function);
     if (rc != 0) {
         return Error::Fail;
     }

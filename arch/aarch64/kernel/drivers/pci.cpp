@@ -7,15 +7,15 @@
 // QEMU virt machine ECAM PCI configuration base (from DTB).
 // Bus 0 only — sufficient for QEMU virt topology.
 static constexpr uintptr_t PCI_ECAM_PHYS = 0x4010000000ULL;
-static constexpr size_t PCI_ECAM_SIZE = 0x00100000;  // 1 MB (bus_number 0)
+static constexpr size_t PCI_ECAM_SIZE = 0x00100000;  // 1 MB (bus 0)
 
 namespace {
 
 volatile uint8_t* ecam_base = nullptr;
 
-uintptr_t ecam_offset(int bus_number, int device_number, int function_number, int offset_bytes) {
-    uintptr_t off = (static_cast<uintptr_t>(bus_number) << 20) | (static_cast<uintptr_t>(device_number) << 15) |
-                    (static_cast<uintptr_t>(function_number) << 12) | (offset_bytes & 0xFFC);
+uintptr_t ecam_offset(int bus, int slot, int function, int offset) {
+    uintptr_t off = (static_cast<uintptr_t>(bus) << 20) | (static_cast<uintptr_t>(slot) << 15) |
+                    (static_cast<uintptr_t>(function) << 12) | (offset & 0xFFC);
     return off;
 }
 
@@ -41,16 +41,16 @@ int init() {
     return 0;
 }
 
-uint32_t config_read32(int bus_number, int device_number, int function_number, int offset_bytes) {
-    return mmio::read32(ecam_base, ecam_offset(bus_number, device_number, function_number, offset_bytes));
+uint32_t config_read32(int bus, int slot, int function, int offset) {
+    return mmio::read32(ecam_base, ecam_offset(bus, slot, function, offset));
 }
 
-void config_write32(int bus_number, int device_number, int function_number, int offset_bytes, uint32_t value) {
-    mmio::write32(ecam_base, ecam_offset(bus_number, device_number, function_number, offset_bytes), value);
+void config_write32(int bus, int slot, int function, int offset, uint32_t value) {
+    mmio::write32(ecam_base, ecam_offset(bus, slot, function, offset), value);
 }
 
 int bus_count() {
     return 1;
-}  // ECAM maps bus_number 0 only
+}  // ECAM maps bus 0 only
 
 }  // namespace pci

@@ -8,10 +8,10 @@ namespace {
 // Kernel virtual address of the ECAM window (set by pci::init)
 volatile uint8_t* ecam_base = nullptr;
 
-// ECAM address for a given BDF + register offset_bytes
-volatile uint32_t* ecam_addr(int bus_number, int device_number, int function_number, int offset_bytes) {
-    uintptr_t off = (static_cast<uintptr_t>(bus_number) << 20) | (static_cast<uintptr_t>(device_number) << 15) |
-                    (static_cast<uintptr_t>(function_number) << 12) | (offset_bytes & 0xFFC);
+// ECAM address for a given BDF + register offset
+volatile uint32_t* ecam_addr(int bus, int slot, int function, int offset) {
+    uintptr_t off = (static_cast<uintptr_t>(bus) << 20) | (static_cast<uintptr_t>(slot) << 15) |
+                    (static_cast<uintptr_t>(function) << 12) | (offset & 0xFFC);
     return reinterpret_cast<volatile uint32_t*>(ecam_base + off);
 }
 
@@ -38,22 +38,22 @@ int init() {
     return 0;
 }
 
-uint32_t config_read32(int bus_number, int device_number, int function_number, int offset_bytes) {
-    return *ecam_addr(bus_number, device_number, function_number, offset_bytes);
+uint32_t config_read32(int bus, int slot, int function, int offset) {
+    return *ecam_addr(bus, slot, function, offset);
 }
 
-void config_write32(int bus_number, int device_number, int function_number, int offset_bytes, uint32_t value) {
-    *ecam_addr(bus_number, device_number, function_number, offset_bytes) = value;
+void config_write32(int bus, int slot, int function, int offset, uint32_t value) {
+    *ecam_addr(bus, slot, function, offset) = value;
 }
 
-uint32_t read_bar(int bus_number, int device_number, int function_number, int bar_index) {
-    return config_read32(bus_number, device_number, function_number, pci::Bar0 + bar_index * 4);
+uint32_t read_bar(int bus, int slot, int function, int bar_index) {
+    return config_read32(bus, slot, function, pci::Bar0 + bar_index * 4);
 }
 
-void enable_bus_master(int bus_number, int device_number, int function_number) {
-    uint32_t cmd = config_read32(bus_number, device_number, function_number, pci::Command);
+void enable_bus_master(int bus, int slot, int function) {
+    uint32_t cmd = config_read32(bus, slot, function, pci::Command);
     cmd |= CMD_BUS_MASTER | CMD_MEMORY_SPACE;
-    config_write32(bus_number, device_number, function_number, pci::Command, cmd);
+    config_write32(bus, slot, function, pci::Command, cmd);
 }
 
 // Simple linear BAR allocator for MMIO32 window
@@ -69,23 +69,23 @@ static uintptr_t alloc_mmio32(size_t size) {
 }
 
 void assign_bars() {
-    for (int device_number = 0; device_number < 32; device_number++) {
-        uint32_t id = config_read32(0, device_number, 0, VendorId);
+    for (int slot = 0; slot < 32; slot++) {
+        uint32_t id = config_read32(0, slot, 0, VendorId);
         if (id == 0xFFFFFFFF || (id & 0xFFFF) == 0xFFFF)
             continue;
 
-        // Disable MMIO + bus_number-master during BAR programming
-        uint32_t cmd = config_read32(0, device_number, 0, Command);
-        config_write32(0, device_number, 0, Command, cmd & ~(CMD_MEMORY_SPACE | CMD_BUS_MASTER));
+        // Disable MMIO + bus-master during BAR programming
+        uint32_t cmd = config_read32(0, slot, 0, Command);
+        config_write32(0, slot, 0, Command, cmd & ~(CMD_MEMORY_SPACE | CMD_BUS_MASTER));
 
         for (int bar = 0; bar < 6; bar++) {
             int reg = Bar0 + bar * 4;
-            uint32_t orig = config_read32(0, device_number, 0, reg);
+            uint32_t orig = config_read32(0, slot, 0, reg);
 
             // Write all 1s to determine size
-            config_write32(0, device_number, 0, reg, 0xFFFFFFFF);
-            uint32_t mask = config_read32(0, device_number, 0, reg);
-            config_write32(0, device_number, 0, reg, orig);  // restore
+            config_write32(0, slot, 0, reg, 0xFFFFFFFF);
+            uint32_t mask = config_read32(0, slot, 0, reg);
+            config_write32(0, slot, 0, reg, orig);  // restore
 
             if (mask == 0 || mask == 0xFFFFFFFF)
                 continue;
@@ -100,38 +100,38 @@ void assign_bars() {
 
             uintptr_t addr = alloc_mmio32(size);
             if (addr == 0) {
-                cprintf("pci: MMIO32 exhausted for dev %d BAR%d\n", device_number, bar);
+                cprintf("pci: MMIO32 exhausted for dev %d BAR%d\n", slot, bar);
                 continue;
             }
 
-            config_write32(0, device_number, 0, reg, static_cast<uint32_t>(addr));
+            config_write32(0, slot, 0, reg, static_cast<uint32_t>(addr));
             if (is_64) {
-                config_write32(0, device_number, 0, reg + 4, 0);  // high 32 bits = 0
-                bar++;                                            // skip next BAR (consumed by 64-bit)
+                config_write32(0, slot, 0, reg + 4, 0);  // high 32 bits = 0
+                bar++;                                   // skip next BAR (consumed by 64-bit)
             }
 
-            cprintf("pci: dev %d BAR%d = 0x%lx (size 0x%lx%s)\n", device_number, bar - (is_64 ? 1 : 0),
+            cprintf("pci: dev %d BAR%d = 0x%lx (size 0x%lx%s)\n", slot, bar - (is_64 ? 1 : 0),
                     static_cast<unsigned long>(addr), static_cast<unsigned long>(size), is_64 ? ", 64-bit" : "");
         }
 
-        // Re-enable MMIO + bus_number-master
-        config_write32(0, device_number, 0, Command, cmd | CMD_MEMORY_SPACE | CMD_BUS_MASTER);
+        // Re-enable MMIO + bus-master
+        config_write32(0, slot, 0, Command, cmd | CMD_MEMORY_SPACE | CMD_BUS_MASTER);
     }
 }
 
 bool find_by_class(uint8_t cls, uint8_t sub, uint8_t iface, int* out_bus, int* out_dev, int* out_func) {
     uint32_t expected = (static_cast<uint32_t>(cls) << 16) | (static_cast<uint32_t>(sub) << 8) | iface;
-    for (int bus_number = 0; bus_number < 1; bus_number++) {  // QEMU virt: bus_number 0 only
-        for (int device_number = 0; device_number < 32; device_number++) {
-            for (int function_number = 0; function_number < 8; function_number++) {
-                uint32_t id = config_read32(bus_number, device_number, function_number, VendorId);
+    for (int bus = 0; bus < 1; bus++) {  // QEMU virt: bus 0 only
+        for (int slot = 0; slot < 32; slot++) {
+            for (int function = 0; function < 8; function++) {
+                uint32_t id = config_read32(bus, slot, function, VendorId);
                 if (id == 0xFFFFFFFF || (id & 0xFFFF) == 0xFFFF)
                     continue;
-                uint32_t cr = config_read32(bus_number, device_number, function_number, ClassRevision);
+                uint32_t cr = config_read32(bus, slot, function, ClassRevision);
                 if ((cr >> 8) == expected) {
-                    *out_bus = bus_number;
-                    *out_dev = device_number;
-                    *out_func = function_number;
+                    *out_bus = bus;
+                    *out_dev = slot;
+                    *out_func = function;
                     return true;
                 }
             }
@@ -142,14 +142,14 @@ bool find_by_class(uint8_t cls, uint8_t sub, uint8_t iface, int* out_bus, int* o
 
 bool find_by_id(uint16_t vendor, uint16_t device, int* out_bus, int* out_dev, int* out_func) {
     uint32_t expected = (static_cast<uint32_t>(device) << 16) | vendor;
-    for (int bus_number = 0; bus_number < 1; bus_number++) {
-        for (int device_number = 0; device_number < 32; device_number++) {
-            for (int function_number = 0; function_number < 8; function_number++) {
-                uint32_t id = config_read32(bus_number, device_number, function_number, VendorId);
+    for (int bus = 0; bus < 1; bus++) {
+        for (int slot = 0; slot < 32; slot++) {
+            for (int function = 0; function < 8; function++) {
+                uint32_t id = config_read32(bus, slot, function, VendorId);
                 if (id == expected) {
-                    *out_bus = bus_number;
-                    *out_dev = device_number;
-                    *out_func = function_number;
+                    *out_bus = bus;
+                    *out_dev = slot;
+                    *out_func = function;
                     return true;
                 }
             }

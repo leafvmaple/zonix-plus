@@ -13,8 +13,8 @@ struct DriverId;
 class SdDevice : public BlockDevice {
 public:
     Error init(volatile uint8_t* base, int index);
-    Error read(uint32_t block_number, void* buf, size_t block_count) override;
-    Error write(uint32_t block_number, const void* buf, size_t block_count) override;
+    Error read(uint32_t start_lba, void* buf, size_t block_count) override;
+    Error write(uint32_t start_lba, const void* buf, size_t block_count) override;
     void print_info() override;
 
 private:

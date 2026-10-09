@@ -1,3 +1,14 @@
+# Owner authorization for commits and pushes
+
+- This is the owner's core project. Never create a Git commit or push unless
+  the owner explicitly tells you to perform that specific operation for the
+  current changes. Obtain authorization before executing the operation.
+- Commit authorization does not authorize pushing. "Continue", "implement",
+  "finish" or "organize" do not authorize either operation. Never carry an
+  authorization from earlier work over to a new change or task.
+- Prepare edits and verification locally, then leave the changes uncommitted
+  for the owner's review until explicitly instructed to commit or push.
+
 # Mandatory kernel rules
 
 These rules apply to every change, including bug fixes and test code. Follow the

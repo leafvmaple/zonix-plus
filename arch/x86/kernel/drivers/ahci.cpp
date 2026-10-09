@@ -193,14 +193,14 @@ int AhciManager::init() {
 Error AhciManager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*) {
     ENSURE(!ctrl_ready_, Error::Busy);
 
-    uint32_t bar5 = pci::read_bar(pdev->bus_number, pdev->device_number, pdev->function_number, 5);
-    ENSURE_LOG(bar5 != 0 && !(bar5 & 1), Error::Invalid, "ahci: invalid BAR5 for PCI %02x:%02x.%x = 0x%08x",
-               pdev->bus_number, pdev->device_number, pdev->function_number, bar5);
+    uint32_t bar5 = pci::read_bar(pdev->bus, pdev->slot, pdev->function, 5);
+    ENSURE_LOG(bar5 != 0 && !(bar5 & 1), Error::Invalid, "ahci: invalid BAR5 for PCI %02x:%02x.%x = 0x%08x", pdev->bus,
+               pdev->slot, pdev->function, bar5);
 
-    pci::enable_bus_master(pdev->bus_number, pdev->device_number, pdev->function_number);
+    pci::enable_bus_master(pdev->bus, pdev->slot, pdev->function);
     uint32_t phys_base = bar5 & 0xFFFFFFF0;
-    cprintf("ahci: Found controller at PCI %02x:%02x.%x, ABAR=0x%08x\n", pdev->bus_number, pdev->device_number,
-            pdev->function_number, phys_base);
+    cprintf("ahci: Found controller at PCI %02x:%02x.%x, ABAR=0x%08x\n", pdev->bus, pdev->slot, pdev->function,
+            phys_base);
 
     base_ = vmm::mmio_map(phys_base, ahci::AHCI_BAR_SIZE, VM_WRITE | VM_NOCACHE);
     ENSURE_LOG(base_ != 0, Error::NoMem, "ahci: failed to map MMIO region at phys=0x%08x", phys_base);
@@ -274,7 +274,7 @@ void AhciDevice::print_info() {
     cprintf("\n");
 }
 
-Error AhciDevice::transfer_blocks(uint32_t block_number, size_t block_count, void* buf, bool write) {
+Error AhciDevice::transfer_blocks(uint32_t start_lba, size_t block_count, void* buf, bool write) {
     const char* op_name = write ? "write" : "read";
 
     if (!present_) {
@@ -282,15 +282,15 @@ Error AhciDevice::transfer_blocks(uint32_t block_number, size_t block_count, voi
         return Error::NoDevice;
     }
 
-    if (block_number + block_count > info.block_count) {
-        cprintf("AhciDevice::%s: out of range (block %d + %d > %d)\n", op_name, block_number, block_count,
+    if (start_lba + block_count > info.block_count) {
+        cprintf("AhciDevice::%s: out of range (block %d + %d > %d)\n", op_name, start_lba, block_count,
                 info.block_count);
         return Error::Invalid;
     }
 
     uint8_t* data = static_cast<uint8_t*>(buf);
     size_t remaining = block_count;
-    uint32_t lba = block_number;
+    uint32_t lba = start_lba;
 
     const uint8_t command = write ? ahci::ATA_CMD_WRITE_DMA_EXT : ahci::ATA_CMD_READ_DMA_EXT;
 
@@ -325,12 +325,12 @@ Error AhciDevice::transfer_blocks(uint32_t block_number, size_t block_count, voi
     return Error::None;
 }
 
-Error AhciDevice::read(uint32_t block_number, void* buf, size_t block_count) {
-    return transfer_blocks(block_number, block_count, buf, false);
+Error AhciDevice::read(uint32_t start_lba, void* buf, size_t block_count) {
+    return transfer_blocks(start_lba, block_count, buf, false);
 }
 
-Error AhciDevice::write(uint32_t block_number, const void* buf, size_t block_count) {
-    return transfer_blocks(block_number, block_count, const_cast<void*>(buf), true);
+Error AhciDevice::write(uint32_t start_lba, const void* buf, size_t block_count) {
+    return transfer_blocks(start_lba, block_count, const_cast<void*>(buf), true);
 }
 
 int AhciDevice::issue_cmd(uint8_t command, uint32_t lba, uint16_t count, bool write) {

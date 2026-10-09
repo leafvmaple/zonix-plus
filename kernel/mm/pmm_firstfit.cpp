@@ -12,8 +12,8 @@
 // - May cause fragmentation at the beginning of memory
 //
 // Time Complexity:
-// - Allocation: O(page_count) where page_count is the number of free blocks
-// - Deallocation: O(page_count) for merging adjacent blocks
+// - Allocation: O(n), where n is the number of free runs
+// - Deallocation: O(page_count + n) to reset pages and merge free runs
 //
 // Space Complexity: O(1) auxiliary space
 

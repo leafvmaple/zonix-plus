@@ -183,16 +183,16 @@ void IdeDevice::print_info() {
     cprintf("\n");
 }
 
-Error IdeDevice::read(uint32_t block_number, void* buf, size_t block_count) {
+Error IdeDevice::read(uint32_t start_lba, void* buf, size_t block_count) {
     ENSURE_LOG(present, Error::NoDevice, "IdeDevice::read: device %s not present", name);
-    ENSURE_LOG(block_number + block_count <= info.block_count, Error::Invalid,
-               "IdeDevice::read: out of range (block %d + %d > %d)", block_number, block_count, info.block_count);
+    ENSURE_LOG(start_lba + block_count <= info.block_count, Error::Invalid,
+               "IdeDevice::read: out of range (block %d + %d > %d)", start_lba, block_count, info.block_count);
 
     uint8_t drive_sel = config->drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
 
     // Read blocks one by one using PIO polling (no scheduler dependency)
     for (size_t i = 0; i < block_count; i++) {
-        uint32_t lba = block_number + i;
+        uint32_t lba = start_lba + i;
 
         // Select drive first, then wait for it to become ready
         arch_port_write8(config->base + ide::REG_DEVICE, drive_sel);
@@ -224,16 +224,16 @@ Error IdeDevice::read(uint32_t block_number, void* buf, size_t block_count) {
     return Error::None;
 }
 
-Error IdeDevice::write(uint32_t block_number, const void* buf, size_t block_count) {
+Error IdeDevice::write(uint32_t start_lba, const void* buf, size_t block_count) {
     ENSURE_LOG(present, Error::NoDevice, "IdeDevice::write: device %s not present", name);
-    ENSURE_LOG(block_number + block_count <= info.block_count, Error::Invalid,
-               "IdeDevice::write: out of range (block %d + %d > %d)", block_number, block_count, info.block_count);
+    ENSURE_LOG(start_lba + block_count <= info.block_count, Error::Invalid,
+               "IdeDevice::write: out of range (block %d + %d > %d)", start_lba, block_count, info.block_count);
 
     uint8_t drive_sel = config->drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
 
     // Write blocks one by one using PIO polling (no scheduler dependency)
     for (size_t i = 0; i < block_count; i++) {
-        uint32_t lba = block_number + i;
+        uint32_t lba = start_lba + i;
 
         // Select drive first, then wait for it to become ready
         arch_port_write8(config->base + ide::REG_DEVICE, drive_sel);

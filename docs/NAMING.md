@@ -60,9 +60,25 @@ their canonical names. Nonstandard traversal aliases use PascalCase.
 
 Use English names. Large scopes and public interfaces need descriptive names;
 short local loops may use i/j, and small scopes may use buf/tmp. Canonical kernel
-abbreviations include pid, fd, irq, pte, pde, pgdir, pa, va, kva, mmio and dma.
+abbreviations include pid, fd, irq, pte, pde, pgdir, pa, va, kva, mmio, dma and lba.
 Treat acronyms as words in project types: GptHeader, PciDevice, AhciManager,
 ElfHeader, Io. Hardware masks retain uppercase acronyms.
+
+Prefer the shortest name that retains the necessary meaning. Do not repeat
+information already supplied by a namespace, type or operation, and do not
+mechanically expand established abbreviations or replace every number with
+num/nr. Counts use count, positions use index, and identities use id. Keep number
+when it belongs to an established domain or external contract, such as the BPB
+drive_number field.
+
+PCI BDF components use bus/slot/function; slot denotes the BDF device field,
+not a physical connector. Keep function spelled out rather than fn, which can
+also mean a function pointer. PCI config-space offset is in bytes, as documented
+by the interface. Block transfers use start_lba for the first logical block and
+block_count for the transfer length. Within ELF and UEFI parsing routines, ph
+and desc may name a program header and memory descriptor; use ph_end,
+desc_size_bytes, desc_version and desc_count consistently with those locals.
+These scoped abbreviations do not authorize arbitrary shortening elsewhere.
 
 Ambiguous quantities must carry units/address space: byte_count, page_count,
 timeout_ms, deadline_ticks, page_table_root_pa, user_stack_va. An unqualified
@@ -71,7 +87,7 @@ meaning. Priority constants distinguish HIGHEST/LOWEST from numeric MAX/MIN.
 
 Distinguish a device's capacity (`block_count`) from the byte width of a block
 (`BLOCK_SIZE_BYTES`), a FAT sector index (`fat_start_sector_`) from a partition
-LBA (`partition_start_lba_`), and a PCI slot (`device_number`) from a PCI identity
+LBA (`partition_start_lba_`), and a PCI slot (`slot`) from a PCI identity
 (`device_id`). A memory-copy interface names the user address and kernel buffer
 explicitly (`user_src_va`, `kernel_dst`) when both address spaces are involved.
 These names carry units; they are not storage/type prefixes.

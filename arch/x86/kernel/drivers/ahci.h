@@ -214,14 +214,14 @@ struct AhciDevice : public BlockDevice {
     int identify();
     void interrupt();
 
-    Error read(uint32_t block_number, void* buf, size_t block_count) override;
-    Error write(uint32_t block_number, const void* buf, size_t block_count) override;
+    Error read(uint32_t start_lba, void* buf, size_t block_count) override;
+    Error write(uint32_t start_lba, const void* buf, size_t block_count) override;
     void print_info() override;
 
 private:
     int issue_cmd(uint8_t command, uint32_t lba, uint16_t count, bool write);
     int wait_cmd_complete(int timeout_ms) const;
-    Error transfer_blocks(uint32_t block_number, size_t block_count, void* buf, bool write);
+    Error transfer_blocks(uint32_t start_lba, size_t block_count, void* buf, bool write);
 
     int present_{};
     uintptr_t port_base_{};

@@ -19,9 +19,9 @@ namespace {
 
 volatile uint8_t* ecam_base = nullptr;
 
-static uintptr_t ecam_offset(int bus_number, int device_number, int function_number, int offset_bytes) {
-    return (static_cast<uintptr_t>(bus_number) << 20) | (static_cast<uintptr_t>(device_number) << 15) |
-           (static_cast<uintptr_t>(function_number) << 12) | (offset_bytes & 0xFFC);
+static uintptr_t ecam_offset(int bus, int slot, int function, int offset) {
+    return (static_cast<uintptr_t>(bus) << 20) | (static_cast<uintptr_t>(slot) << 15) |
+           (static_cast<uintptr_t>(function) << 12) | (offset & 0xFFC);
 }
 
 }  // namespace
@@ -50,18 +50,18 @@ int init() {
     return 0;
 }
 
-uint32_t config_read32(int bus_number, int device_number, int function_number, int offset_bytes) {
+uint32_t config_read32(int bus, int slot, int function, int offset) {
     if (!ecam_base) {
         return 0xFFFFFFFF;
     }
-    return mmio::read32(ecam_base, ecam_offset(bus_number, device_number, function_number, offset_bytes));
+    return mmio::read32(ecam_base, ecam_offset(bus, slot, function, offset));
 }
 
-void config_write32(int bus_number, int device_number, int function_number, int offset_bytes, uint32_t value) {
+void config_write32(int bus, int slot, int function, int offset, uint32_t value) {
     if (!ecam_base) {
         return;
     }
-    mmio::write32(ecam_base, ecam_offset(bus_number, device_number, function_number, offset_bytes), value);
+    mmio::write32(ecam_base, ecam_offset(bus, slot, function, offset), value);
 }
 
 int bus_count() {

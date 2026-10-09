@@ -404,7 +404,7 @@ Error probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*) {
         return Error::Busy;
     }
 
-    int rc = init_from_pci_device(pdev->bus_number, pdev->device_number, pdev->function_number);
+    int rc = init_from_pci_device(pdev->bus, pdev->slot, pdev->function);
     if (rc == 0) {
         initialized = true;
         return Error::None;
