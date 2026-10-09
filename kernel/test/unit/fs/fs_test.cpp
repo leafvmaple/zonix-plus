@@ -14,6 +14,7 @@ namespace {
 
 class LifetimeFile : public vfs::File {
 public:
+    ~LifetimeFile() override { assert(vfs::umount("/mnt") == Error::Busy); }
     Result<int> read(void* buf, size_t size, size_t) override {
         if (size != 0) {
             static_cast<uint8_t*>(buf)[0] = 0x42;
@@ -32,15 +33,28 @@ class LifetimeFs : public vfs::FileSystem {
 public:
     Error mount(BlockDevice*) override { return Error::None; }
     void unmount() override {}
-    Error open(const char* path, vfs::File** out) override {
-        if (strcmp(path, "file") != 0) {
+    Result<vfs::FileHandle> open(const char* path) override {
+        if (strcmp(path, "empty") == 0) {
+            return vfs::FileHandle{};
+        }
+        if (strcmp(path, "file") != 0 && strcmp(path, "partial") != 0) {
             return Error::NotFound;
         }
-        *out = new (sys::nothrow) LifetimeFile();
-        return *out ? Error::None : Error::NoMem;
+        vfs::FileHandle file(new (sys::nothrow) LifetimeFile());
+        ENSURE(file, Error::NoMem);
+        if (strcmp(path, "partial") == 0) {
+            return Error::Io;
+        }
+        return file;
     }
-    Error stat(const char*, vfs::Stat*) override { return Error::NotSupported; }
-    Result<int> readdir(const char*, vfs::DirVisitor&) override { return 0; }
+    Error stat(const char*, vfs::Stat*) override {
+        assert(vfs::umount("/mnt") == Error::Busy);
+        return Error::NotSupported;
+    }
+    Result<int> readdir(const char*, vfs::DirVisitor&) override {
+        assert(vfs::umount("/mnt") == Error::Busy);
+        return 0;
+    }
     void print() override {}
 };
 
@@ -71,6 +85,8 @@ void test_mount_lifetime() {
     TEST_ASSERT(vfs::open("/mnt/file", &first) == Error::None, "First file opened");
     TEST_ASSERT(vfs::open("/mnt/file", &second) == Error::None, "Second file opened");
     TEST_ASSERT(vfs::open("/mnt/missing", &missing) == Error::NotFound, "Failed open rejected");
+    TEST_ASSERT(vfs::open("/mnt/partial", &missing) == Error::Io && !missing, "Failed open destroys partial file");
+    TEST_ASSERT(vfs::open("/mnt/empty", &missing) == Error::Io && !missing, "Empty successful open rejected");
     TEST_ASSERT(vfs::umount("/mnt") == Error::Busy, "Unmount rejected with open files");
     uint8_t byte = 0;
     auto read = vfs::read(first, &byte, 1, 0);
@@ -79,6 +95,8 @@ void test_mount_lifetime() {
     TEST_ASSERT(vfs::umount("/mnt") == Error::Busy, "Other handle still pins the mount");
     // Direct deletion must also release the pin through the virtual destructor.
     delete second;
+    vfs::Stat st;
+    TEST_ASSERT(vfs::stat("/mnt/file", &st) == Error::NotSupported, "stat preserves error and releases its pin");
     TEST_ASSERT(vfs::umount("/mnt") == Error::None, "Unmount succeeds after final close and failed open");
     TEST_END();
 }

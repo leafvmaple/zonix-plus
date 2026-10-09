@@ -37,8 +37,10 @@ public:
     }
 };
 
-vfs::File* create_console_file() {
-    return new (sys::nothrow) ConsoleFile();
+Result<vfs::FileHandle> create_console_file() {
+    vfs::FileHandle file(new (sys::nothrow) ConsoleFile());
+    ENSURE(file, Error::NoMem);
+    return file;
 }
 
 struct ConsoleDevRegistrar {

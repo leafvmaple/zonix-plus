@@ -58,15 +58,16 @@ public:
         return Error::None;
     }
     void unmount() override { mounted_ = nullptr; }
-    Error open(const char* path, vfs::File** out) override {
+    Result<vfs::FileHandle> open(const char* path) override {
         if (strcmp(path, "open") == 0) {
             return Error::NoDevice;
         }
         const char* names[] = {"stat", "read", "short", "negative", "oversized", "elf", "directory", "empty", "large"};
         for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i) {
             if (strcmp(path, names[i]) == 0) {
-                *out = new (sys::nothrow) FailureFile(static_cast<FailureFile::Reply>(i), closed_);
-                return *out ? Error::None : Error::NoMem;
+                vfs::FileHandle file(new (sys::nothrow) FailureFile(static_cast<FailureFile::Reply>(i), closed_));
+                ENSURE(file, Error::NoMem);
+                return file;
             }
         }
         return Error::NotFound;

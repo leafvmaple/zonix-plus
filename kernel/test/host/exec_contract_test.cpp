@@ -246,14 +246,12 @@ void arch_setup_user_tf(TrapFrame*, uintptr_t entry, uintptr_t stack) {
 
 namespace vfs {
 File::~File() = default;
-Error open(const char* path, File** out) {
+Result<FileHandle> open(const char* path) {
     // The file object lives in main; closing records ownership without deleting the fixture.
     if (strcmp(path, "file") != 0) {
         return Error::NotFound;
     }
-    assert(*out == nullptr);
-    *out = ExecFixture::current().file();
-    return Error::None;
+    return FileHandle(ExecFixture::current().file());
 }
 Result<int> read(File* file, void* buf, size_t size, size_t offset) {
     return file->read(buf, size, offset);

@@ -68,20 +68,16 @@ public:
     Error mount(BlockDevice* dev) override { return fat_.mount(dev); }
     void unmount() override { fat_.unmount(); }
 
-    Error open(const char* relpath, vfs::File** out_file) override {
-        ENSURE(relpath && out_file && relpath[0] != '\0');
+    Result<vfs::FileHandle> open(const char* relpath) override {
+        ENSURE(relpath && relpath[0] != '\0');
 
         FatDirEntry entry{};
         TRY(fat_.find_file(relpath, &entry));
         ENSURE(!entry.is_directory());  // Use open for files only.
 
-        auto* file = new (sys::nothrow) FatFile(&fat_, entry);
-        if (!file) {
-            return Error::NoMem;
-        }
-
-        *out_file = file;
-        return Error::None;
+        vfs::FileHandle file(new (sys::nothrow) FatFile(&fat_, entry));
+        ENSURE(file, Error::NoMem);
+        return file;
     }
 
     Error stat(const char* relpath, vfs::Stat* st) override {

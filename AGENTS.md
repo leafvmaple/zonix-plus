@@ -40,6 +40,8 @@ existing subsystem design rather than adding a second implementation style.
   Shared tests must use the same common interface. Do not copy an ISA branch
   into a shared helper, macro or common header to hide it.
 - Do not put inline assembly in shared kernel code.
+- Architecture entry points hand off to `kern_init`; it runs C++ global
+  constructors once. Do not run `.init_array` again in architecture boot code.
 - Each architecture's `head.S` supplies the same `__kernel_pg_dir` array ABI,
   declared in `<asm/pgtable.h>`. Shared VM initialization records it in Manager's
   kernel MM; architecture initialization must not implement Manager's accessors.

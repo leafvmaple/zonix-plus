@@ -5,6 +5,7 @@
 #include "lib/memory.h"
 #include "lib/stdio.h"
 #include "lib/string.h"
+#include "drivers/intr.h"
 
 namespace {
 
@@ -14,7 +15,17 @@ struct CharDevEntry {
 };
 
 constexpr int MAX_CHAR_DEVS = 8;
-Array<CharDevEntry, MAX_CHAR_DEVS> char_device_registry{};
+class State {
+public:
+    static Array<CharDevEntry, MAX_CHAR_DEVS> devices() {
+        intr::Guard guard;
+        return devices_;
+    }
+
+private:
+    friend Error vfs::register_char_dev(const char* name, vfs::CharDevFactory factory);
+    inline static Array<CharDevEntry, MAX_CHAR_DEVS> devices_{};
+};
 
 class DevFileSystem : public vfs::FileSystem {
 public:
@@ -22,13 +33,14 @@ public:
 
     void unmount() override {}
 
-    Error open(const char* relpath, vfs::File** out_file) override {
-        ENSURE(relpath && out_file && relpath[0] != '\0', Error::Invalid);
+    Result<vfs::FileHandle> open(const char* relpath) override {
+        ENSURE(relpath && relpath[0] != '\0', Error::Invalid);
 
-        for (const auto& entry : char_device_registry) {
+        for (const auto& entry : State::devices()) {
             if (strcmp(entry.name, relpath) == 0) {
-                *out_file = entry.create();
-                return *out_file ? Error::None : Error::NoMem;
+                auto file = TRY(entry.create());
+                ENSURE(file, Error::Io);
+                return file;
             }
         }
 
@@ -43,7 +55,7 @@ public:
             return Error::None;
         }
 
-        for (const auto& entry : char_device_registry) {
+        for (const auto& entry : State::devices()) {
             if (strcmp(entry.name, relpath) == 0) {
                 st->set(vfs::NodeType::CharDevice, 0, 0);
                 return Error::None;
@@ -61,7 +73,7 @@ public:
         }
 
         int count = 0;
-        for (const auto& entry : char_device_registry) {
+        for (const auto& entry : State::devices()) {
             visitor.visit({entry.name, vfs::NodeType::CharDevice, 0, 0});
             count++;
         }
@@ -69,8 +81,9 @@ public:
     }
 
     void print() override {
-        cprintf("devfs: %zu device(s) registered\n", char_device_registry.size());
-        for (const auto& entry : char_device_registry) {
+        const auto devices = State::devices();
+        cprintf("devfs: %zu device(s) registered\n", devices.size());
+        for (const auto& entry : devices) {
             cprintf("  /dev/%s\n", entry.name);
         }
     }
@@ -89,14 +102,13 @@ struct DevFsRegistrar {
 namespace vfs {
 
 Error register_char_dev(const char* name, CharDevFactory factory) {
-    ENSURE(name && factory, Error::Invalid);
-
-    if (char_device_registry.full()) {
-        cprintf("devfs: registry full, cannot register '%s'\n", name);
-        return Error::Full;
+    ENSURE(name && name[0] != '\0' && factory, Error::Invalid);
+    intr::Guard guard;
+    for (const auto& entry : State::devices_) {
+        ENSURE(strcmp(entry.name, name) != 0, Error::Exists);
     }
-
-    char_device_registry.push_back({name, factory});
+    ENSURE(!State::devices_.full(), Error::Full);
+    State::devices_.push_back({name, factory});
     return Error::None;
 }
 

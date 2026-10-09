@@ -11,7 +11,8 @@ public:
 
     virtual Error mount(BlockDevice* dev) = 0;
     virtual void unmount() = 0;
-    virtual Error open(const char* relpath, File** out_file) = 0;
+    // Success transfers a new, nonempty file owner; failure releases partial resources locally.
+    virtual Result<FileHandle> open(const char* relpath) = 0;
     virtual Error stat(const char* relpath, Stat* st) = 0;
     virtual Result<int> readdir(const char* relpath, DirVisitor& visitor) = 0;
     virtual Error mkdir(const char* relpath) {
@@ -36,7 +37,7 @@ public:
 using FsFactory = FileSystem* (*)();
 Error register_fs(const char* name, FsFactory factory);
 
-using CharDevFactory = File* (*)();
+using CharDevFactory = Result<FileHandle> (*)();
 Error register_char_dev(const char* name, CharDevFactory factory);
 
 }  // namespace vfs

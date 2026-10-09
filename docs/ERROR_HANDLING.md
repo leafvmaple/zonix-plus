@@ -66,8 +66,48 @@ semantics, including access during a temporary's full expression; do not retain 
 pointers after the expression. `KernelBuffer::data()` rejects temporary borrowing.
 `release()` is `[[nodiscard]]`: immediately attach its returned pointer
 to the receiving owner. Prefer moving the owner when the receiving API supports
-it. The legacy two-argument VFS open API returns an owned raw pointer; new callers
-use `vfs::open(path)` to get `Result<FileHandle>` instead.
+it. `vfs::open(path)`, `FileSystem::open(relpath)` and `CharDevFactory` return
+`Result<FileHandle>`: success transfers a new, nonempty file owner, while error
+results carry no file. Backend/device factories retain local owners for partial
+resources, so errors and `TRY` clean them before returning. The legacy
+two-argument VFS open API is an adapter over the owning API; it returns an owned
+raw pointer on success and clears the output on failure.
+
+VFS path resolution returns an owning result with a scoped mount reference and a
+borrowed relative path. The reference owns one use count, not the permanently
+stored mount slot: its zstl custom deleter decrements that count. Path operations,
+directory visitor callbacks and filesystem printing hold this reference through
+completion. A successful open transfers it to the returned file; the base file
+destructor releases it after the derived destructor finishes. Unmount returns
+`Busy` while any operation or file holds a reference. These counts follow the
+kernel's current single-CPU interrupt-guard synchronization model.
+
+The operation's mount reference remains alive throughout backend execution,
+including destruction of partial file owners on failure. VFS preserves the
+original filesystem/device error. A backend or device factory claiming success
+without a file returns `Io`.
+Unknown filesystem types or mount points return `NotFound`; factory allocation
+failure returns `NoMem`; an already mounted slot returns `Exists`. A transition
+reserves the slot across mount initialization or unmount/destruction and returns
+`Busy` to competing mount/unmount operations. Initialization failure destroys the
+unpublished filesystem before releasing the reservation. Filesystem callbacks
+run outside the VFS interrupt guard; publishing, detaching and count updates use
+short guarded sections. This protects lifetime, not concurrent filesystem data
+updates or references retained by callers beyond an operation.
+
+devfs owns its registry in private static state. Registration rejects empty names,
+duplicates and exhaustion with `Invalid`, `Exists` and `Full`. Names and factory
+function pointers are borrowed for the kernel's lifetime; registration does not
+copy name storage. Readers take a bounded registry snapshot under the interrupt
+guard, then invoke factories and directory visitors outside it. Devices registered
+by a visitor become visible to the next traversal, not partway through the current
+one. Factory errors retain their original code, including failures other than
+allocation exhaustion.
+
+Architecture entry code delegates C++ constructor execution to the common
+`kern_init` path. Each registrar runs once; registration must not rely on accepting
+duplicates to hide repeated startup constructors. The device duplicate check
+also makes repeated registration fail explicitly instead of consuming capacity.
 
 `Task` and `MemoryDesc` cannot be copied or moved: their intrusive list links must
 keep stable addresses, and duplicating a page-table owner would double-release it.
@@ -265,6 +305,14 @@ the actual exec and ELF loader with host substitutes under `kernel/test/host`.
 It disables copy elision and checks each allocation failure, fork failure and
 successful transfer of the address space to the child. These substitutes do
 not alter production interfaces or add test hooks to kernel code.
+
+`scripts/tests/test_vfs.py` compiles the real VFS with host filesystem fixtures
+under `kernel/test/host`. Reentrant unmount attempts exercise operation, visitor
+and file-destructor lifetimes; competing mount calls exercise slot reservations
+during initialization and teardown. Allocation/backend failures verify cleanup,
+retryability and original error propagation, with copy elision disabled. The same
+suite links the real devfs and checks device-factory failures, empty owners,
+duplicate/full registries and registration during a directory visitor callback.
 
 The exec host tests also reject console output inside the interrupt guard and
 check missing/invalid binaries produce no fault logs in propagation helpers.

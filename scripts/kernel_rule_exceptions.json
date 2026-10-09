@@ -80,7 +80,6 @@
   {"path": "kernel/drivers/virtio_kbd.cpp", "name": "vq_notify_addr", "reason": "Pre-existing virtio keyboard state outside this migration; new state must belong to a class."},
   {"path": "kernel/drivers/virtio_kbd.cpp", "name": "vq_size", "reason": "Pre-existing virtio keyboard state outside this migration; new state must belong to a class."},
   {"path": "kernel/drivers/virtio_kbd.cpp", "name": "vq_used", "reason": "Pre-existing virtio keyboard state outside this migration; new state must belong to a class."},
-  {"path": "kernel/fs/devfs.cpp", "name": "char_device_registry", "reason": "Pre-existing devfs state outside this migration; new state must belong to a class."},
   {"path": "kernel/fs/devfs.cpp", "name": "devfs_registrar", "reason": "Existing constructor-based device/filesystem registration hook; no new registry state exemption."},
   {"path": "kernel/fs/fat/fat_vfs.cpp", "name": "fat::fat_registrar", "reason": "Existing constructor-based device/filesystem registration hook; no new registry state exemption."},
   {"path": "kernel/init.cpp", "name": "__init_array_end", "reason": "Assembly/linker ABI symbol; keep its external symbol name and storage contract."},

@@ -40,6 +40,12 @@ struct DirEntry {
     void set(const char* n, NodeType t, uint32_t s, uint32_t a);
 };
 
+class File;
+struct FileCloser {
+    void operator()(File* file) const noexcept;
+};
+using FileHandle = sys::unique_ptr<File, FileCloser>;
+
 class File {
 public:
     virtual ~File();
@@ -53,8 +59,8 @@ public:
     virtual Error stat(Stat* st) = 0;
 
 private:
-    friend Error open(const char* path, File** out_file);
-    size_t* mount_open_files_{};
+    friend Result<FileHandle> open(const char* path);
+    size_t* mount_users_{};
 };
 
 class DirVisitor {
@@ -67,26 +73,23 @@ int init();
 Error mount(const char* mount_point, BlockDevice* dev, const char* fs_type);
 Error umount(const char* mount_point);
 
-Error open(const char* path, File** out_file);
+// Own the returned handle. get()/operator-> borrow; release() hands ownership off.
+Result<FileHandle> open(const char* path);
 Result<int> read(File* file, void* buf, size_t size, size_t offset);
 Result<int> write(File* file, const void* buf, size_t size, size_t offset);
 void close(File* file);
 
-struct FileCloser {
-    void operator()(File* file) const noexcept { close(file); }
-};
-using FileHandle = sys::unique_ptr<File, FileCloser>;
+inline void FileCloser::operator()(File* file) const noexcept {
+    close(file);
+}
 
-// Own the returned handle. get()/operator-> borrow; release() hands ownership off.
-[[nodiscard]] inline Result<FileHandle> open(const char* path) {
-    File* raw{};
-    Error error = open(path, &raw);
-    FileHandle file(raw);
-    if (error != Error::None) {
-        return error;
-    }
-    assert(file);
-    return file;
+// Compatibility boundary: the caller owns *out_file on success, null on failure.
+inline Error open(const char* path, File** out_file) {
+    ENSURE(out_file, Error::Invalid);
+    *out_file = nullptr;
+    auto file = TRY(open(path));
+    *out_file = file.release();
+    return Error::None;
 }
 
 Error stat(const char* path, Stat* st);

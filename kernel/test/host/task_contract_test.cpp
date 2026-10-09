@@ -130,12 +130,13 @@ void operator delete(void* ptr, size_t) noexcept {
 
 namespace vfs {
 File::~File() = default;
-Error open(const char* path, File** file) {
+Result<FileHandle> open(const char* path) {
     assert(strcmp(path, "/dev/console") == 0);
     if (TaskFixture::active().open_fails())
         return Error::Io;
-    *file = new (sys::nothrow) ConsoleFixture;
-    return *file ? Error::None : Error::NoMem;
+    FileHandle file(new (sys::nothrow) ConsoleFixture);
+    ENSURE(file, Error::NoMem);
+    return file;
 }
 void close(File* file) {
     delete file;

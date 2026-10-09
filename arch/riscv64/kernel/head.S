@@ -188,22 +188,7 @@ _start:
     bnez  a2, .Lcopy_bi
 .Lskip_bi_copy:
 
-    /* ----------------------------------------------------------------
-     * Run C++ global constructors.
-     * Use callee-saved registers (s0/s1) so that jalr does not
-     * clobber the loop variables (a0-a7 are caller-saved).
-     * ---------------------------------------------------------------- */
-    la    s0, __init_array_start
-    la    s1, __init_array_end
-    bgeu  s0, s1, .Lno_ctors
-.Lctor_loop:
-    ld    t0, 0(s0)
-    jalr  t0
-    addi  s0, s0, 8
-    bltu  s0, s1, .Lctor_loop
-.Lno_ctors:
-
-    /* kern_init(boot_info*) */
+    /* Common kern_init runs C++ constructors once, before subsystem initialization. */
     la    a0, __kernel_boot_info
     call  kern_init
 

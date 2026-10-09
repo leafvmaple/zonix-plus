@@ -24,7 +24,8 @@ struct MountSlot {
     const char* device_name{};
     FileSystem* fs{};
     const char* fs_type{};
-    size_t open_files{};
+    size_t users{};
+    bool transitioning{};
 };
 
 MountSlot* find_slot(const char* mount_point);
@@ -42,8 +43,25 @@ class State {
     };
 };
 
-struct ResolveResult {
-    MountSlot* slot{};
+struct ReleaseMount {
+    void operator()(MountSlot* slot) const noexcept {
+        intr::Guard guard;
+        assert(slot->users != 0);
+        --slot->users;
+    }
+};
+using MountRef = sys::unique_ptr<MountSlot, ReleaseMount>;
+
+struct FinishTransition {
+    void operator()(MountSlot* slot) const noexcept {
+        intr::Guard guard;
+        slot->transitioning = false;
+    }
+};
+using MountTransition = sys::unique_ptr<MountSlot, FinishTransition>;
+
+struct ResolvedPath {
+    MountRef mount;
     const char* relpath{};
 };
 
@@ -61,48 +79,49 @@ MountSlot* find_slot(const char* mount_point) {
     return nullptr;
 }
 
-int resolve_path(const char* path, ResolveResult* out) {
-    if (!path || !out) {
-        return -1;
-    }
+Result<MountRef> acquire_mount(const char* mount_point) {
+    intr::Guard guard;
+    MountSlot* slot = find_slot(mount_point);
+    ENSURE(slot && slot->fs, Error::NotFound);
+    ++slot->users;
+    return MountRef(slot);
+}
+
+Result<ResolvedPath> resolve_path(const char* path) {
+    ENSURE(path, Error::Invalid);
+    const char* mount_point;
+    const char* relpath;
 
     if (strcmp(path, "/dev") == 0) {
-        out->slot = find_slot("/dev");
-        out->relpath = "";
+        mount_point = "/dev";
+        relpath = "";
     } else if (str_starts_with(path, "/dev/")) {
-        out->slot = find_slot("/dev");
-        out->relpath = str_skip_char(path + 5, '/');
+        mount_point = "/dev";
+        relpath = str_skip_char(path + 5, '/');
     } else if (strcmp(path, "/mnt") == 0) {
-        out->slot = find_slot("/mnt");
-        out->relpath = "";
+        mount_point = "/mnt";
+        relpath = "";
     } else if (str_starts_with(path, "/mnt/")) {
-        out->slot = find_slot("/mnt");
-        out->relpath = str_skip_char(path + 5, '/');
+        mount_point = "/mnt";
+        relpath = str_skip_char(path + 5, '/');
     } else if (path[0] == '/') {
-        out->slot = find_slot("/");
-        out->relpath = str_skip_char(path + 1, '/');
+        mount_point = "/";
+        relpath = str_skip_char(path + 1, '/');
     } else {
-        out->slot = find_slot("/");
-        out->relpath = str_skip_char(path, '/');
+        mount_point = "/";
+        relpath = str_skip_char(path, '/');
     }
 
-    if (!out->slot || !out->slot->fs) {
-        return -1;
-    }
-
-    if (!out->relpath) {
-        return -1;
-    }
-
-    return 0;
+    return ResolvedPath{TRY(acquire_mount(mount_point)), relpath};
 }
 
 }  // namespace
 
 File::~File() {
     intr::Guard guard;
-    if (mount_open_files_) {
-        --*mount_open_files_;
+    if (mount_users_) {
+        assert(*mount_users_ != 0);
+        --*mount_users_;
     }
 }
 
@@ -122,83 +141,75 @@ int init() {
 Error mount(const char* mount_point, BlockDevice* dev, const char* fs_type) {
     ENSURE(mount_point && fs_type, Error::Invalid);
 
-    MountSlot* slot = find_slot(mount_point);
-    if (!slot || slot->fs != nullptr) {
-        return Error::NotFound;
-    }
-
-    FileSystem* fs = nullptr;
-    for (const auto& entry : State::fs_registry_) {
-        if (strcmp(entry.name, fs_type) == 0) {
-            fs = entry.create();
-            break;
+    MountSlot* slot;
+    FsFactory factory{};
+    {
+        intr::Guard guard;
+        slot = find_slot(mount_point);
+        ENSURE(slot, Error::NotFound);
+        ENSURE(!slot->transitioning, Error::Busy);
+        ENSURE(!slot->fs, Error::Exists);
+        for (const auto& entry : State::fs_registry_) {
+            if (strcmp(entry.name, fs_type) == 0) {
+                factory = entry.create;
+                break;
+            }
         }
+        ENSURE(factory, Error::NotFound);
+        slot->transitioning = true;
     }
 
-    auto owner = sys::unique_ptr<FileSystem>(fs);
-    ENSURE(owner, Error::NotFound);
+    // Reserve the slot across allocation and mount(), both of which may sleep.
+    MountTransition transition(slot);
+    auto owner = sys::unique_ptr<FileSystem>(factory());
+    ENSURE(owner, Error::NoMem);
     TRY(owner->mount(dev));
 
-    slot->fs = owner.release();
-    slot->fs_type = fs_type;
-    slot->device = dev;
-    slot->device_name = dev ? dev->name : nullptr;
+    {
+        intr::Guard guard;
+        slot->fs_type = fs_type;
+        slot->device = dev;
+        slot->device_name = dev ? dev->name : nullptr;
+        slot->fs = owner.release();
+    }
 
     return Error::None;
 }
 
 Error umount(const char* mount_point) {
-    intr::Guard guard;
-    MountSlot* slot = find_slot(mount_point);
-    if (!slot || !slot->fs) {
-        return Error::NotFound;
+    ENSURE(mount_point, Error::Invalid);
+    MountSlot* slot;
+    sys::unique_ptr<FileSystem> owner;
+    {
+        intr::Guard guard;
+        slot = find_slot(mount_point);
+        ENSURE(slot, Error::NotFound);
+        ENSURE(!slot->transitioning, Error::Busy);
+        ENSURE(slot->fs, Error::NotFound);
+        ENSURE(slot->users == 0, Error::Busy);
+        slot->transitioning = true;
+        owner.reset(slot->fs);
+        slot->fs = nullptr;
+        slot->fs_type = nullptr;
+        slot->device = nullptr;
+        slot->device_name = nullptr;
     }
-
-    if (slot->open_files != 0) {
-        return Error::Busy;
-    }
-
-    slot->fs->unmount();
-    delete slot->fs;
-
-    slot->fs = nullptr;
-    slot->fs_type = nullptr;
-    slot->device = nullptr;
-    slot->device_name = nullptr;
+    MountTransition transition(slot);
+    owner->unmount();
+    // Destroy the filesystem before making its slot available to another mount.
+    owner.reset();
 
     return Error::None;
 }
 
-Error open(const char* path, File** out_file) {
-    ENSURE(path && out_file, Error::Invalid);
-
-    *out_file = nullptr;
-
-    ResolveResult rr{};
-    // Pin the mount before open(), which may sleep on disk I/O.
-    {
-        intr::Guard guard;
-        if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
-            return Error::NotFound;
-        }
-        if (rr.relpath[0] == '\0') {
-            return Error::Invalid;
-        }
-        ++rr.slot->open_files;
-    }
-    Error rc = rr.slot->fs->open(rr.relpath, out_file);
-    {
-        intr::Guard guard;
-        if (rc == Error::None && *out_file) {
-            (*out_file)->mount_open_files_ = &rr.slot->open_files;
-        } else {
-            --rr.slot->open_files;
-            if (rc == Error::None) {
-                rc = Error::Fail;
-            }
-        }
-    }
-    return rc;
+Result<FileHandle> open(const char* path) {
+    auto resolved = TRY(resolve_path(path));
+    ENSURE(resolved.relpath[0] != '\0', Error::Invalid);
+    auto file = TRY(resolved.mount->fs->open(resolved.relpath));
+    ENSURE(file, Error::Io);
+    assert(!file->mount_users_);
+    file->mount_users_ = &resolved.mount.release()->users;
+    return file;
 }
 
 Result<int> read(File* file, void* buf, size_t size, size_t offset) {
@@ -218,77 +229,45 @@ void close(File* file) {
 }
 
 Error stat(const char* path, Stat* st) {
-    ENSURE(path && st, Error::Invalid);
+    ENSURE(st, Error::Invalid);
 
-    ResolveResult rr{};
-    if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
-        return Error::NotFound;
-    }
-
-    return rr.slot->fs->stat(rr.relpath, st);
+    auto resolved = TRY(resolve_path(path));
+    return resolved.mount->fs->stat(resolved.relpath, st);
 }
 
 Result<int> readdir(const char* path, DirVisitor& visitor) {
-    ENSURE(path, Error::Invalid);
-
-    ResolveResult rr{};
-    if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
-        return Error::NotFound;
-    }
-
-    return rr.slot->fs->readdir(rr.relpath, visitor);
+    auto resolved = TRY(resolve_path(path));
+    return resolved.mount->fs->readdir(resolved.relpath, visitor);
 }
 
 Error mkdir(const char* path) {
-    ENSURE(path, Error::Invalid);
-
-    ResolveResult rr{};
-    if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
-        return Error::NotFound;
-    }
-
-    return rr.slot->fs->mkdir(rr.relpath);
+    auto resolved = TRY(resolve_path(path));
+    return resolved.mount->fs->mkdir(resolved.relpath);
 }
 
 Error create(const char* path) {
-    ENSURE(path, Error::Invalid);
-
-    ResolveResult rr{};
-    if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
-        return Error::NotFound;
-    }
-
-    return rr.slot->fs->create(rr.relpath);
+    auto resolved = TRY(resolve_path(path));
+    return resolved.mount->fs->create(resolved.relpath);
 }
 
 Error unlink(const char* path) {
-    ENSURE(path, Error::Invalid);
-
-    ResolveResult rr{};
-    if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
-        return Error::NotFound;
-    }
-
-    return rr.slot->fs->unlink(rr.relpath);
+    auto resolved = TRY(resolve_path(path));
+    return resolved.mount->fs->unlink(resolved.relpath);
 }
 
 Error rmdir(const char* path) {
-    ENSURE(path, Error::Invalid);
-
-    ResolveResult rr{};
-    if (resolve_path(path, &rr) != 0 || !rr.slot || !rr.slot->fs) {
-        return Error::NotFound;
-    }
-
-    return rr.slot->fs->rmdir(rr.relpath);
+    auto resolved = TRY(resolve_path(path));
+    return resolved.mount->fs->rmdir(resolved.relpath);
 }
 
 bool is_mounted(const char* mount_point) {
+    intr::Guard guard;
     MountSlot* slot = find_slot(mount_point);
     return slot != nullptr && slot->fs != nullptr;
 }
 
 const char* mounted_device(const char* mount_point) {
+    intr::Guard guard;
     MountSlot* slot = find_slot(mount_point);
     if (!slot || !slot->fs) {
         return nullptr;
@@ -297,11 +276,12 @@ const char* mounted_device(const char* mount_point) {
 }
 
 void print_mount_info(const char* mount_point) {
-    MountSlot* slot = find_slot(mount_point);
-    if (!slot || !slot->fs) {
+    auto result = acquire_mount(mount_point);
+    if (!result.ok()) {
         cprintf("vfs: %s is not mounted\n", mount_point ? mount_point : "(null)");
         return;
     }
+    auto slot = result.release_value();
 
     cprintf("  FS: %s\n", slot->fs_type ? slot->fs_type : "unknown");
     if (slot->device_name) {
@@ -313,7 +293,8 @@ void print_mount_info(const char* mount_point) {
 
 Error register_fs(const char* name, FsFactory factory) {
     ENSURE(name && factory, Error::Invalid);
-    ENSURE_LOG(!State::fs_registry_.full(), Error::Full, "vfs: register_fs: registry full, cannot register '%s'", name);
+    intr::Guard guard;
+    ENSURE(!State::fs_registry_.full(), Error::Full);
 
     State::fs_registry_.push_back({name, factory});
     return Error::None;
