@@ -56,15 +56,29 @@ void test_multiple_wakeups(bool all) {
     auto first = sched::kernel_thread(queued_worker, &state);
     auto second = sched::kernel_thread(queued_worker, &state);
     TEST_ASSERT(first.ok() && second.ok(), "Created both queue workers");
-    if (first.ok()) { state.ready.down(); }
-    if (second.ok()) { state.ready.down(); }
+    if (first.ok()) {
+        state.ready.down();
+    }
+    if (second.ok()) {
+        state.ready.down();
+    }
     {
         intr::Guard guard;
-        if (all) { state.queue.wakeup_all(); }
-        else { state.queue.wakeup_one(); state.queue.wakeup_one(); }
+        if (all) {
+            state.queue.wakeup_all();
+        } else {
+            state.queue.wakeup_one();
+            state.queue.wakeup_one();
+        }
     }
-    if (first.ok()) { state.done.down(); sched::wait(first.value(), nullptr).value_or(-1); }
-    if (second.ok()) { state.done.down(); sched::wait(second.value(), nullptr).value_or(-1); }
+    if (first.ok()) {
+        state.done.down();
+        sched::wait(first.value(), nullptr).value_or(-1);
+    }
+    if (second.ok()) {
+        state.done.down();
+        sched::wait(second.value(), nullptr).value_or(-1);
+    }
     TEST_ASSERT(state.visits == 2 && state.queue.empty(), "Both workers resume without resurrecting stack nodes");
     auto third = sched::kernel_thread(queued_worker, &state);
     if (third.ok()) {
@@ -72,7 +86,8 @@ void test_multiple_wakeups(bool all) {
         state.queue.wakeup_one();
         state.done.down();
         auto reaped = sched::wait(third.value(), nullptr);
-        TEST_ASSERT(reaped.ok() && state.visits == 3 && state.queue.empty(), "Fresh enrollment still works after double wakeup");
+        TEST_ASSERT(reaped.ok() && state.visits == 3 && state.queue.empty(),
+                    "Fresh enrollment still works after double wakeup");
     }
     TEST_END();
 }
@@ -91,7 +106,9 @@ void test_user_exception() {
         int code{};
         auto result = sched::wait(child.value(), &code);
         TEST_ASSERT(result.ok() && code == -1, "Faulting child exits and parent keeps running");
-    } else { TEST_ASSERT(false, "Created faulting child"); }
+    } else {
+        TEST_ASSERT(false, "Created faulting child");
+    }
     TEST_END();
 }
 

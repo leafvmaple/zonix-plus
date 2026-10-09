@@ -118,7 +118,8 @@ Error register_driver(const Driver* driver) {
         }
     }
 
-    ENSURE_LOG(registered_drivers.push_back(driver), Error::Full, "pci: driver table full, max=%d", MAX_REGISTERED_DRIVERS);
+    ENSURE_LOG(registered_drivers.push_back(driver), Error::Full, "pci: driver table full, max=%d",
+               MAX_REGISTERED_DRIVERS);
 
     return Error::None;
 }

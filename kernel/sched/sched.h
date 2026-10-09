@@ -22,10 +22,10 @@ enum class TaskState : uint8_t {
 };
 
 namespace sched_prio {
-inline constexpr int HIGHEST_PRIORITY = 0;    // Highest priority
-inline constexpr int DEFAULT = 10;    // Normal processes
-inline constexpr int LOWEST_PRIORITY = 20;   // Lowest priority
-inline constexpr int IDLE_PRIO = 31;  // Idle process only
+inline constexpr int HIGHEST_PRIORITY = 0;  // Highest priority
+inline constexpr int DEFAULT = 10;          // Normal processes
+inline constexpr int LOWEST_PRIORITY = 20;  // Lowest priority
+inline constexpr int IDLE_PRIO = 31;        // Idle process only
 
 inline constexpr int BASE_TIMESLICE = 10;  // 100ms default
 }  // namespace sched_prio
@@ -51,9 +51,9 @@ struct Task {
     int pid{};  // Process ID
 
 private:
-    char name_[32]{};                // Process name
-    Context context_{};              // Process context for switching
-    uintptr_t kernel_stack_{};       // Kernel stack bottom
+    char name_[32]{};             // Process name
+    Context context_{};           // Process context for switching
+    uintptr_t kernel_stack_{};    // Kernel stack bottom
     volatile TaskState state_{};  // Process state
     fd::Table files_{};
     friend struct TaskAccess;
@@ -69,7 +69,7 @@ public:
     int exit_code{};        // Exit code (for zombie processes)
     uint32_t wait_state{};  // Waiting state
 
-    Task* parent{};   // Parent process
+    Task* parent{};         // Parent process
     ListNode child_list{};  // Head of child process list
 
     // Scheduling fields

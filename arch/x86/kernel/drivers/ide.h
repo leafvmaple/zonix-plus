@@ -30,8 +30,8 @@ inline constexpr int REG_COMMAND = 0x7;       // Command register (write)
 
 // IDE control register bits
 inline constexpr uint8_t CTRL_INTERRUPT_DISABLE = 0x02;  // Disable interrupts (set to disable)
-inline constexpr uint8_t CTRL_SRST = 0x04;  // Software reset
-inline constexpr uint8_t CTRL_HOB = 0x80;   // High order byte
+inline constexpr uint8_t CTRL_SRST = 0x04;               // Software reset
+inline constexpr uint8_t CTRL_HOB = 0x80;                // High order byte
 
 // IDE status bits
 inline constexpr uint8_t STATUS_BSY = 0x80;   // Busy

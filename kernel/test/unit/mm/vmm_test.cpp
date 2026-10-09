@@ -94,15 +94,23 @@ static void test_address_space_recycling() {
         {
             MemoryDesc mm;
             mm.pgdir = exec::create_user_pgdir();
-            if (!mm.pgdir) { clean = false; break; }
+            if (!mm.pgdir) {
+                clean = false;
+                break;
+            }
             Page* data = pmm::pgdir_alloc_page(mm.pgdir, 0x400000, user_page_perm(true));
             Page* stack = pmm::pgdir_alloc_page(mm.pgdir, USER_STACK_TOP - PG_SIZE, user_page_perm(true));
             clean = data && stack && data->ref == 1 && stack->ref == 1;
         }
         clean = clean && pmm::free_page_count() == before;
         Page* recycled = pmm::alloc_pages(16);
-        if (!recycled) { clean = false; break; }
-        for (int j = 0; j < 16; ++j) { clean = clean && recycled[j].ref == 0; }
+        if (!recycled) {
+            clean = false;
+            break;
+        }
+        for (int j = 0; j < 16; ++j) {
+            clean = clean && recycled[j].ref == 0;
+        }
         pmm::free_pages(recycled, 16);
     }
     TEST_ASSERT(clean, "32 mappings/teardowns leave all recycled references zero");
@@ -169,8 +177,8 @@ static void test_file_io(MemoryDesc& mm, uintptr_t base) {
     const uintptr_t user = base + PG_SIZE - 31;
     const size_t count = PG_SIZE + 17;
 
-    TEST_ASSERT(syscall(NR_READ, fd, user, count) == static_cast<long>(count) &&
-                    entry->offset == count && file->calls() == 2,
+    TEST_ASSERT(syscall(NR_READ, fd, user, count) == static_cast<long>(count) && entry->offset == count &&
+                    file->calls() == 2,
                 "Read spans user pages and transfers more than one bounce-buffer chunk");
     const auto* first_bytes = static_cast<const uint8_t*>(pmm::page_to_kva(first));
     const auto* second_bytes = static_cast<const uint8_t*>(pmm::page_to_kva(second));
@@ -183,14 +191,13 @@ static void test_file_io(MemoryDesc& mm, uintptr_t base) {
     TEST_ASSERT(contents_valid, "Read copies complete data across the page and chunk boundaries");
     entry->offset = 0;
     file->reset(TransferFile::Reply::Full);
-    TEST_ASSERT(syscall(NR_WRITE, fd, user, count) == static_cast<long>(count) &&
-                    entry->offset == count && file->calls() == 2 && file->input_valid(),
+    TEST_ASSERT(syscall(NR_WRITE, fd, user, count) == static_cast<long>(count) && entry->offset == count &&
+                    file->calls() == 2 && file->input_valid(),
                 "Write copies complete user data before both VFS calls");
 
     constexpr int syscalls[] = {NR_READ, NR_WRITE};
-    constexpr TransferFile::Reply failures[] = {
-        TransferFile::Reply::Error, TransferFile::Reply::Negative, TransferFile::Reply::Oversized
-    };
+    constexpr TransferFile::Reply failures[] = {TransferFile::Reply::Error, TransferFile::Reply::Negative,
+                                                TransferFile::Reply::Oversized};
     for (int nr : syscalls) {
         entry->offset = 0;
         file->reset(TransferFile::Reply::Short);

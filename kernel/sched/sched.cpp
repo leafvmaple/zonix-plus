@@ -52,7 +52,7 @@ static const char* state_str(TaskState state) {
         case TaskState::Runnable: return "R";  // Runnable
         case TaskState::Running: return "R+";  // Running (with +)
         case TaskState::Zombie: return "Z";    // Zombie
-        default: return "?";                      // Unknown
+        default: return "?";                   // Unknown
     }
 }
 
@@ -465,6 +465,9 @@ int TaskManager::init_idle() {
 
     // Kernel threads share the memory manager's kernel address space.
     idle_proc->memory = &vmm::Manager::kernel_mm();
+
+    // Establish the active root before switches compare task address spaces.
+    arch_load_page_table_root(idle_proc->page_table_root_pa());
 
     idle_proc->set_name("idle");
 

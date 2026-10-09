@@ -33,8 +33,7 @@ static inline bool arch_irq_is_enabled(void) {
 
 static inline void arch_load_page_table_root(uintptr_t ttbr) {
     // All processes currently use ASID 0: retire the preceding address space.
-    __asm__ volatile("dsb ishst; msr ttbr0_el1, %0; isb; tlbi vmalle1is; dsb ish; isb"
-                     ::"r"(ttbr) : "memory");
+    __asm__ volatile("dsb ishst; msr ttbr0_el1, %0; isb; tlbi vmalle1is; dsb ish; isb" ::"r"(ttbr) : "memory");
 }
 
 static inline uintptr_t arch_read_page_table_root(void) {

@@ -303,7 +303,8 @@ static int page_init() {
         Factory::page_descriptors()[i].set_reserved();
     }
 
-    uintptr_t valid_mem = virt_to_phys(reinterpret_cast<uintptr_t>(Factory::page_descriptors() + Factory::page_count()));
+    uintptr_t valid_mem =
+        virt_to_phys(reinterpret_cast<uintptr_t>(Factory::page_descriptors() + Factory::page_count()));
     traverse_boot_mmap([valid_mem](uint64_t addr, uint64_t size, uint32_t type) {
         if (type != BOOT_MEM_AVAILABLE)
             return;

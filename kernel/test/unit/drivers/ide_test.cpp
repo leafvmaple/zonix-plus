@@ -110,7 +110,8 @@ void driver_test_intrtest() {
 
     // Check interrupt enable status
     uint8_t ctrl = arch_port_inb(dev->config->ctrl);
-    cprintf("  Control register: 0x%02x (interrupts %s)\n", ctrl, (ctrl & ide::CTRL_INTERRUPT_DISABLE) ? "DISABLED" : "ENABLED");
+    cprintf("  Control register: 0x%02x (interrupts %s)\n", ctrl,
+            (ctrl & ide::CTRL_INTERRUPT_DISABLE) ? "DISABLED" : "ENABLED");
 
     // Check PIC mask
     cprintf("  Checking if IRQ %d is enabled in PIC...\n", dev->config->irq);

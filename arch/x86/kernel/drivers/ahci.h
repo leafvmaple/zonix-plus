@@ -188,11 +188,11 @@ struct AhciDeviceInfo {
 struct AhciRequest {
     enum class Op : int8_t { None = 0, Read = 1, Write = 2 };
 
-    volatile int done{};    // Set to 1 by ISR when operation completes
-    volatile int err{};     // Error flag set by ISR
-    uint8_t* buffer{};      // Pointer to buffer for current transfer
-    Op op{Op::None};        // Operation type
-    Task* waiting{};  // Sleeping task waiting for completion
+    volatile int done{};  // Set to 1 by ISR when operation completes
+    volatile int err{};   // Error flag set by ISR
+    uint8_t* buffer{};    // Pointer to buffer for current transfer
+    Op op{Op::None};      // Operation type
+    Task* waiting{};      // Sleeping task waiting for completion
 
     void reset() {
         done = 0;

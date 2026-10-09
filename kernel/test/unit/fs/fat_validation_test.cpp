@@ -13,7 +13,9 @@ public:
     explicit FatImage(uint8_t cluster_sectors = 16) : cluster_sectors_(cluster_sectors) {
         size = 2 + 4 * cluster_sectors;
         data_ = static_cast<uint8_t*>(kmalloc(size * SIZE));
-        if (!data_) { return; }
+        if (!data_) {
+            return;
+        }
         memset(data_, 0, size * SIZE);
         auto& bs = boot_sector();
         bs.boot_signature_word = BOOT_SIGNATURE;
@@ -35,7 +37,9 @@ public:
         file->attr = FAT_ATTR_ARCHIVE;
         file->first_cluster_low = 3;
         file->file_size = cluster_bytes();
-        for (size_t i = 0; i < cluster_bytes(); ++i) { cluster_data(3)[i] = static_cast<uint8_t>(i); }
+        for (size_t i = 0; i < cluster_bytes(); ++i) {
+            cluster_data(3)[i] = static_cast<uint8_t>(i);
+        }
     }
     ~FatImage() { kfree(data_); }
     FatImage(const FatImage&) = delete;
@@ -48,13 +52,19 @@ public:
     uint32_t link(uint32_t cluster) const { return reinterpret_cast<uint32_t*>(data_ + SIZE)[cluster]; }
     void fail_fat_reads(bool fail) { fail_fat_reads_ = fail; }
     Error read(uint32_t block, void* buffer, size_t count) override {
-        if (block > size || count > size - block) { return Error::Io; }
-        if (fail_fat_reads_ && block == 1) { return Error::Io; }
+        if (block > size || count > size - block) {
+            return Error::Io;
+        }
+        if (fail_fat_reads_ && block == 1) {
+            return Error::Io;
+        }
         memcpy(buffer, data_ + block * SIZE, count * SIZE);
         return Error::None;
     }
     Error write(uint32_t block, const void* buffer, size_t count) override {
-        if (block > size || count > size - block) { return Error::Io; }
+        if (block > size || count > size - block) {
+            return Error::Io;
+        }
         memcpy(data_ + block * SIZE, buffer, count * SIZE);
         return Error::None;
     }
@@ -75,7 +85,10 @@ void test_geometry() {
     FatImage image;
     FatInfo fs;
     TEST_ASSERT(image.ready(), "Allocated heap-backed disk image");
-    if (!image.ready()) { TEST_END(); return; }
+    if (!image.ready()) {
+        TEST_END();
+        return;
+    }
     auto& bs = image.boot_sector();
     bs.sectors_per_cluster = 0;
     TEST_ASSERT(fs.mount(&image) == Error::BadFs, "Zero cluster size rejected before division");
@@ -106,7 +119,11 @@ void test_large_cluster_io() {
     TEST_START("FAT reads and writes full 8KB clusters from a 4KB kernel stack");
     FatImage image;
     FatInfo fs;
-    if (!image.ready()) { TEST_ASSERT(false, "Allocated image"); TEST_END(); return; }
+    if (!image.ready()) {
+        TEST_ASSERT(false, "Allocated image");
+        TEST_END();
+        return;
+    }
     TEST_ASSERT(fs.mount(&image) == Error::None, "Mounted large-cluster fixture");
     FatDirEntry file{};
     TEST_ASSERT(fs.find_file("FILE.TXT", &file) == Error::None, "Found file");
@@ -114,16 +131,21 @@ void test_large_cluster_io() {
     if (bytes) {
         auto result = fs.read_file(&file, bytes, 0, file.file_size);
         bool intact = result.ok() && result.value() == static_cast<int>(image.cluster_bytes());
-        for (size_t i = 0; i < image.cluster_bytes(); ++i) { intact = intact && bytes[i] == static_cast<uint8_t>(i); }
+        for (size_t i = 0; i < image.cluster_bytes(); ++i) {
+            intact = intact && bytes[i] == static_cast<uint8_t>(i);
+        }
         TEST_ASSERT(intact, "Full cluster read preserves every byte");
         memset(bytes, 0xA5, image.cluster_bytes());
         auto written = fs.write_file(&file, bytes, 0, file.file_size);
         TEST_ASSERT(written.ok() && written.value() == static_cast<int>(image.cluster_bytes()) &&
-                    image.cluster_data(3)[image.cluster_bytes() - 1] == 0xA5, "Full cluster write reaches its last byte");
+                        image.cluster_data(3)[image.cluster_bytes() - 1] == 0xA5,
+                    "Full cluster write reaches its last byte");
         auto eof = fs.read_file(&file, bytes, file.file_size, 1);
         TEST_ASSERT(eof.ok() && eof.value() == 0, "Read at EOF returns zero");
         kfree(bytes);
-    } else { TEST_ASSERT(false, "Allocated I/O buffer"); }
+    } else {
+        TEST_ASSERT(false, "Allocated I/O buffer");
+    }
     fs.unmount();
     TEST_END();
 }
@@ -133,7 +155,11 @@ void test_directory_chains() {
     FatImage image(1);
     FatInfo fs;
     IgnoreEntries visitor;
-    if (!image.ready()) { TEST_ASSERT(false, "Allocated image"); TEST_END(); return; }
+    if (!image.ready()) {
+        TEST_ASSERT(false, "Allocated image");
+        TEST_END();
+        return;
+    }
     memset(image.cluster_data(2), 0xE5, image.cluster_bytes());
     memset(image.cluster_data(3), 0xE5, image.cluster_bytes());
     image.set_link(2, 3);
@@ -168,7 +194,11 @@ void test_cyclic_file_removal() {
     TEST_START("Cyclic file cannot free live FAT links or loop during removal");
     FatImage image(1);
     FatInfo fs;
-    if (!image.ready()) { TEST_ASSERT(false, "Allocated image"); TEST_END(); return; }
+    if (!image.ready()) {
+        TEST_ASSERT(false, "Allocated image");
+        TEST_END();
+        return;
+    }
     image.set_link(3, 4);
     image.set_link(4, 3);
     TEST_ASSERT(fs.mount(&image) == Error::None, "Mounted cyclic file fixture");

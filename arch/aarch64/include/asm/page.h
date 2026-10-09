@@ -11,18 +11,18 @@
 #define PTE_ATTR_DEVICE (1UL << 2) /* use MAIR index 1 (device)     */
 
 /* AP[2:1] in bits [7:6] */
-#define PTE_AP_USER (1UL << 6)
+#define PTE_AP_USER      (1UL << 6)
 #define PTE_AP_READ_ONLY (1UL << 7)
-#define PTE_AP_RW_EL1 (0UL << 6) /* EL1 read/write, EL0 none      */
-#define PTE_AP_RW_ALL PTE_AP_USER /* EL1+EL0 read/write          */
-#define PTE_AP_RO_EL1 PTE_AP_READ_ONLY /* EL1 read-only, EL0 none */
-#define PTE_AP_RO_ALL (PTE_AP_USER | PTE_AP_READ_ONLY)
+#define PTE_AP_RW_EL1    (0UL << 6)       /* EL1 read/write, EL0 none      */
+#define PTE_AP_RW_ALL    PTE_AP_USER      /* EL1+EL0 read/write          */
+#define PTE_AP_RO_EL1    PTE_AP_READ_ONLY /* EL1 read-only, EL0 none */
+#define PTE_AP_RO_ALL    (PTE_AP_USER | PTE_AP_READ_ONLY)
 
 /* Hierarchical APTable restrictions apply to the entire subtree. */
-#define PTE_AP_TABLE_NO_USER (1UL << 61)
+#define PTE_AP_TABLE_NO_USER   (1UL << 61)
 #define PTE_AP_TABLE_READ_ONLY (1UL << 62)
-#define PTE_TYPE_MASK (PTE_VALID | PTE_TABLE)
-#define PTE_ADDR_MASK 0x0000FFFFFFFFF000UL
+#define PTE_TYPE_MASK          (PTE_VALID | PTE_TABLE)
+#define PTE_ADDR_MASK          0x0000FFFFFFFFF000UL
 
 #define PTE_UXN (1UL << 54) /* unprivileged execute-never    */
 #define PTE_PXN (1UL << 53) /* privileged execute-never      */

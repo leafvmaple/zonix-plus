@@ -104,8 +104,7 @@ int pg_fault(MemoryDesc* mm, uint32_t error_code, uintptr_t addr) {
         return -1;  // A mapped page fault is not a swap entry.
     }
     if (ptep && *ptep != 0) {
-        if ((error_code & 2) != 0 && (*ptep & swap::ENTRY_HAS_PERMISSIONS) != 0 &&
-            (*ptep & swap::ENTRY_WRITE) == 0) {
+        if ((error_code & 2) != 0 && (*ptep & swap::ENTRY_HAS_PERMISSIONS) != 0 && (*ptep & swap::ENTRY_WRITE) == 0) {
             return -1;
         }
         Page* page = nullptr;

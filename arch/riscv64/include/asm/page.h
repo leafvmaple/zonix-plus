@@ -170,8 +170,7 @@ static inline uint32_t user_page_perm(bool write, bool executable = false) {
     return VM_USER | (write ? VM_WRITE : 0) | (executable ? PTE_X : 0);
 }
 static inline uint32_t merge_user_page_perm(uintptr_t entry, uint32_t perm) {
-    return user_page_perm(pte_writable(entry) || pte_writable(perm),
-                          pte_executable(entry) || pte_executable(perm));
+    return user_page_perm(pte_writable(entry) || pte_writable(perm), pte_executable(entry) || pte_executable(perm));
 }
 
 /* pde_addr: extract PA from a non-leaf PTE (same as pte_addr) */

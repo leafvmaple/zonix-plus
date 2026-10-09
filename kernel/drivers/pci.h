@@ -7,7 +7,7 @@ namespace pci {
 
 enum ConfigOffset : uint8_t {
     VendorId = 0x00,       // Vendor ID (16) + Device ID (16)
-    Command = 0x04,         // Command (16) + Status (16)
+    Command = 0x04,        // Command (16) + Status (16)
     ClassRevision = 0x08,  // Revision ID (8) + Class Code (24)
     HeaderType = 0x0C,     // BIST, Header Type, Latency Timer, Cache Line
     Bar0 = 0x10,
@@ -16,8 +16,8 @@ enum ConfigOffset : uint8_t {
     Bar3 = 0x1C,
     Bar4 = 0x20,
     Bar5 = 0x24,
-    CapabilitiesPointer = 0x34,    // Capabilities pointer
-    Interrupt = 0x3C,  // Interrupt Line + Interrupt Pin
+    CapabilitiesPointer = 0x34,  // Capabilities pointer
+    Interrupt = 0x3C,            // Interrupt Line + Interrupt Pin
 };
 
 inline constexpr uint16_t CMD_IO_SPACE = 0x0001;

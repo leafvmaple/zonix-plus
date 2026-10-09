@@ -20,12 +20,12 @@
 #define STS_IG32 0xE  // 32/64-bit Interrupt Gate
 #define STS_TG32 0xF  // 32/64-bit Trap Gate
 
-#define DPL_KERNEL 0
-#define DPL_USER   3
+#define DPL_KERNEL        0
+#define DPL_USER          3
 #define SELECTOR_RPL_MASK 3
-#define GATE_TYPE_MASK 0x0F
-#define GATE_DPL_SHIFT 5
-#define GATE_DPL_MASK (DPL_USER << GATE_DPL_SHIFT)
+#define GATE_TYPE_MASK    0x0F
+#define GATE_DPL_SHIFT    5
+#define GATE_DPL_MASK     (DPL_USER << GATE_DPL_SHIFT)
 
 #define SEG_KTEXT 1
 #define SEG_KDATA 2

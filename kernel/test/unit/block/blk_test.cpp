@@ -103,7 +103,8 @@ static void test_get_device_by_index() {
 static void test_get_device_by_name() {
     TEST_START("BlockManager find_device by name");
 
-    TEST_ASSERT(BlockManager::find_device(static_cast<const char*>(nullptr)) == nullptr, "nullptr name returns nullptr");
+    TEST_ASSERT(BlockManager::find_device(static_cast<const char*>(nullptr)) == nullptr,
+                "nullptr name returns nullptr");
     TEST_ASSERT(BlockManager::find_device("nonexistent_device_xyz") == nullptr, "Non-existent name returns nullptr");
 
     int count = BlockManager::device_count();

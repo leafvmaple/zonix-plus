@@ -107,7 +107,8 @@ static int load_elf_kernel(uint8_t* elf_buffer, BootInfo* bi) {
     bi->kernel_end = 0;
     bi->kernel_entry = static_cast<uint32_t>(elf->e_entry & 0xFFFFFFFF);  // Physical entry
 
-    auto* ph = reinterpret_cast<ProgramHeader64*>(reinterpret_cast<uint8_t*>(elf) + static_cast<uint32_t>(elf->e_phoff));
+    auto* ph =
+        reinterpret_cast<ProgramHeader64*>(reinterpret_cast<uint8_t*>(elf) + static_cast<uint32_t>(elf->e_phoff));
     auto* eph = ph + elf->e_phnum;
 
     for (; ph < eph; ph++) {

@@ -26,7 +26,8 @@ void test() {
     tf.esr = static_cast<uint64_t>(TRAP_EC_PGFAULT_DATA_LOWER) << 26;
     TEST_ASSERT(!trap::arch_is_page_fault(&tf), "IRQ ignores stale data-abort syndrome");
     tf.vector = ARM64_TRAP_VECTOR_FIQ;
-    TEST_ASSERT(!trap::arch_is_page_fault(&tf) && !trap::arch_is_syscall(&tf), "FIQ does not enter synchronous dispatch");
+    TEST_ASSERT(!trap::arch_is_page_fault(&tf) && !trap::arch_is_syscall(&tf),
+                "FIQ does not enter synchronous dispatch");
     tf.vector = ARM64_TRAP_VECTOR_SYNC;
     TEST_ASSERT(trap::arch_is_page_fault(&tf), "Synchronous data abort still classified");
     tf.esr = static_cast<uint64_t>(TRAP_EC_SYSCALL) << 26;

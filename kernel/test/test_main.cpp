@@ -68,10 +68,19 @@ struct TestSuite {
 
 static const TestSuite SUITES[] = {
     {"Architecture traps", arch_trap_test::test},
-    {"Synchronization", sync_test::test}, {"User Memory", vmm_test::test},   {"String Library", string_test::test},
-    {"Linked List", list_test::test},     {"PMM Allocator", pmm_test::test}, {"Scheduler", sched::test},
-    {"Swap (FIFO)", run_swap_suite},      {"Block Manager", blk_test::test}, {"ELF Loader", elf_test::test},
-    {"FAT validation", fat_validation_test::test}, {"File System", fs_test::test},       {"Shell", shell_test::test},       {"Exec (E2E)", exec_test::test},
+    {"Synchronization", sync_test::test},
+    {"User Memory", vmm_test::test},
+    {"String Library", string_test::test},
+    {"Linked List", list_test::test},
+    {"PMM Allocator", pmm_test::test},
+    {"Scheduler", sched::test},
+    {"Swap (FIFO)", run_swap_suite},
+    {"Block Manager", blk_test::test},
+    {"ELF Loader", elf_test::test},
+    {"FAT validation", fat_validation_test::test},
+    {"File System", fs_test::test},
+    {"Shell", shell_test::test},
+    {"Exec (E2E)", exec_test::test},
 };
 
 int test_run_all(void*) {

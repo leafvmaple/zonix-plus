@@ -97,42 +97,42 @@ Result<T> wrap_tryable(Result<T> r) {
 
 }  // namespace detail
 
-#define TRY(expr)                                   \
-    __extension__({                                 \
+#define TRY(expr)                                             \
+    __extension__({                                           \
         auto zonix_try_result = ::detail::wrap_tryable(expr); \
         if (!zonix_try_result.ok()) [[unlikely]]              \
             return zonix_try_result.release_error();          \
         zonix_try_result.release_value();                     \
     })
 
-#define TRY_LOG(expr, fmt, ...)                           \
-    __extension__({                                       \
-        auto zonix_try_result = ::detail::wrap_tryable(expr);       \
-        if (!zonix_try_result.ok()) [[unlikely]] {                  \
-            cprintf(fmt "\n" __VA_OPT__(, ) __VA_ARGS__); \
-            return zonix_try_result.release_error();                \
-        }                                                 \
-        zonix_try_result.release_value();                           \
+#define TRY_LOG(expr, fmt, ...)                               \
+    __extension__({                                           \
+        auto zonix_try_result = ::detail::wrap_tryable(expr); \
+        if (!zonix_try_result.ok()) [[unlikely]] {            \
+            cprintf(fmt "\n" __VA_OPT__(, ) __VA_ARGS__);     \
+            return zonix_try_result.release_error();          \
+        }                                                     \
+        zonix_try_result.release_value();                     \
     })
 
 // ENSURE(cond) — return Error::Invalid if cond is false.
 // ENSURE(cond, err) — return err if cond is false.
 // ENSURE_LOG(cond, err, fmt, ...) — log + return err if cond is false.
 
-#define ZONIX_ENSURE1(cond)             \
+#define ZONIX_ENSURE1(cond)        \
     do {                           \
         if (!(cond)) [[unlikely]]  \
             return Error::Invalid; \
     } while (0)
 
-#define ZONIX_ENSURE2(cond, err)       \
+#define ZONIX_ENSURE2(cond, err)  \
     do {                          \
         if (!(cond)) [[unlikely]] \
             return (err);         \
     } while (0)
 
 #define ZONIX_ENSURE_SELECT(_1, _2, NAME, ...) NAME
-#define ENSURE(...)                       ZONIX_ENSURE_SELECT(__VA_ARGS__, ZONIX_ENSURE2, ZONIX_ENSURE1)(__VA_ARGS__)
+#define ENSURE(...)                            ZONIX_ENSURE_SELECT(__VA_ARGS__, ZONIX_ENSURE2, ZONIX_ENSURE1)(__VA_ARGS__)
 
 #define ENSURE_LOG(cond, err, fmt, ...)                   \
     do {                                                  \

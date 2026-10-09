@@ -18,15 +18,18 @@ void test() {
     arch_setup_user_tf(&tf, 0x400000, USER_STACK_TOP);
     TEST_ASSERT(tf.from_user(), "User frame reports user origin");
     tf.scause = IRQ_SUPERVISOR_TIMER;
-    TEST_ASSERT(!trap::arch_is_page_fault(&tf) && !trap::arch_is_syscall(&tf), "Interrupt cause cannot enter synchronous dispatch");
+    TEST_ASSERT(!trap::arch_is_page_fault(&tf) && !trap::arch_is_syscall(&tf),
+                "Interrupt cause cannot enter synchronous dispatch");
     tf.scause = CAUSE_USER_ECALL;
     TEST_ASSERT(trap::arch_is_syscall(&tf), "User ecall still classified");
     tf.scause = CAUSE_ILLEGAL_INSN;
-    TEST_ASSERT(!trap::arch_is_syscall(&tf) && !trap::arch_is_page_fault(&tf), "Illegal instruction reaches unhandled dispatch");
+    TEST_ASSERT(!trap::arch_is_syscall(&tf) && !trap::arch_is_page_fault(&tf),
+                "Illegal instruction reaches unhandled dispatch");
     uintptr_t satp{};
     __asm__ volatile("csrr %0, satp" : "=r"(satp));
     TEST_ASSERT((satp & SATP_MODE_MASK) == SATP_SV39, "MMU remains in Sv39 mode");
-    TEST_ASSERT(arch_read_page_table_root() == ((satp & SATP_PPN_MASK) << PG_SHIFT), "Root accessor decodes PPN into physical bytes");
+    TEST_ASSERT(arch_read_page_table_root() == ((satp & SATP_PPN_MASK) << PG_SHIFT),
+                "Root accessor decodes PPN into physical bytes");
     arch_setup_kthread_tf(&tf, 0x400000, 0, 0);
     TEST_ASSERT(!tf.from_user(), "Kernel frame reports kernel origin");
     TEST_END();

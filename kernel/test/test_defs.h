@@ -14,13 +14,13 @@
 #define TEST_ASSERT(cond, msg)         \
     if (!(cond)) {                     \
         cprintf("  [FAIL] %s\n", msg); \
-        zonix_test_result = 0;             \
+        zonix_test_result = 0;         \
     } else {                           \
         cprintf("  [OK] %s\n", msg);   \
     }
 
 #define TEST_END()               \
-    if (zonix_test_result) {         \
+    if (zonix_test_result) {     \
         cprintf("  [PASSED]\n"); \
         tests_passed++;          \
     } else {                     \

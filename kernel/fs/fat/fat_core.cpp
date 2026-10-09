@@ -78,13 +78,16 @@ Error FatInfo::mount(BlockDevice* dev) {
 
     // The block layer and directory buffers support 512-byte logical sectors.
     ENSURE(bs.bytes_per_sector != 0, Error::BadFs);
-    ENSURE(bs.bytes_per_sector == 512 || bs.bytes_per_sector == 1024 ||
-           bs.bytes_per_sector == 2048 || bs.bytes_per_sector == 4096, Error::BadFs);
+    ENSURE(bs.bytes_per_sector == 512 || bs.bytes_per_sector == 1024 || bs.bytes_per_sector == 2048 ||
+               bs.bytes_per_sector == 4096,
+           Error::BadFs);
     ENSURE(bs.bytes_per_sector == BlockDevice::SIZE, Error::NotSupported);
     ENSURE(bs.sectors_per_cluster != 0 && bs.sectors_per_cluster <= 128 &&
-           (bs.sectors_per_cluster & (bs.sectors_per_cluster - 1)) == 0, Error::BadFs);
-    ENSURE(bs.reserved_sectors != 0 && bs.num_fats != 0 && bs.num_fats <= 2 &&
-           bs.fat_size_32 != 0 && bs.root_entries == 0 && bs.fat_size_16 == 0, Error::BadFs);
+               (bs.sectors_per_cluster & (bs.sectors_per_cluster - 1)) == 0,
+           Error::BadFs);
+    ENSURE(bs.reserved_sectors != 0 && bs.num_fats != 0 && bs.num_fats <= 2 && bs.fat_size_32 != 0 &&
+               bs.root_entries == 0 && bs.fat_size_16 == 0,
+           Error::BadFs);
     ENSURE(bs.fs_version == 0 && (bs.ext_flags & 0x80) == 0, Error::NotSupported);
     const uint64_t data_start = bs.reserved_sectors + static_cast<uint64_t>(bs.num_fats) * bs.fat_size_32;
     ENSURE(data_start < bs.total_sectors_32, Error::BadFs);

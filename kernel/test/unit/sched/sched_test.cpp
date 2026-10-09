@@ -22,13 +22,13 @@ static int tests_failed = 0;
 #define TEST_ASSERT(cond, msg)         \
     if (!(cond)) {                     \
         cprintf("  [FAIL] %s\n", msg); \
-        zonix_test_result = 0;             \
+        zonix_test_result = 0;         \
     } else {                           \
         cprintf("  [OK] %s\n", msg);   \
     }
 
 #define TEST_END()               \
-    if (zonix_test_result) {         \
+    if (zonix_test_result) {     \
         cprintf("  [PASSED]\n"); \
         tests_passed++;          \
     } else {                     \
@@ -738,17 +738,22 @@ static void test_policy_removal_and_current() {
     victim->list_node.unlink();
     delete victim;
     last->priority = 0;
-    TEST_ASSERT(policy.pick_next(head, TaskManager::idle_task()) == last, "Freed cursor target cannot poison traversal");
+    TEST_ASSERT(policy.pick_next(head, TaskManager::idle_task()) == last,
+                "Freed cursor target cannot poison traversal");
     first->mark_running();
     first->priority = 0;
     last->priority = 10;
-    TEST_ASSERT(policy.pick_next(head, TaskManager::idle_task(), first) == first, "Running highest-priority task stays on CPU");
+    TEST_ASSERT(policy.pick_next(head, TaskManager::idle_task(), first) == first,
+                "Running highest-priority task stays on CPU");
     last->sleep();
-    TEST_ASSERT(policy.pick_next(head, TaskManager::idle_task(), first) == first, "Only running task does not bounce through idle");
+    TEST_ASSERT(policy.pick_next(head, TaskManager::idle_task(), first) == first,
+                "Only running task does not bounce through idle");
     last->wakeup();
     last->priority = 0;
-    TEST_ASSERT(policy.pick_next(head, TaskManager::idle_task(), first) == last, "Equal-priority peer receives next quantum");
-    TEST_ASSERT(policy.pick_next(head, TaskManager::idle_task(), first) == first, "Round robin returns to running peer");
+    TEST_ASSERT(policy.pick_next(head, TaskManager::idle_task(), first) == last,
+                "Equal-priority peer receives next quantum");
+    TEST_ASSERT(policy.pick_next(head, TaskManager::idle_task(), first) == first,
+                "Round robin returns to running peer");
     first->list_node.unlink();
     last->list_node.unlink();
     delete first;

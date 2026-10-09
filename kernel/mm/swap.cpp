@@ -103,8 +103,7 @@ Error in(MemoryDesc* mm, uintptr_t addr, Page** page_ptr) {
     cprintf("swap_in: loaded addr 0x%x from swap entry 0x%x to page %p\n", addr, swap_entry, page);
 
     // Bit 7 marks entries that preserve the original write permission.
-    uint32_t perm = user_page_perm((swap_entry & ENTRY_HAS_PERMISSIONS) == 0 ||
-                                   (swap_entry & ENTRY_WRITE) != 0);
+    uint32_t perm = user_page_perm((swap_entry & ENTRY_HAS_PERMISSIONS) == 0 || (swap_entry & ENTRY_WRITE) != 0);
     if (pmm::page_insert(mm->pgdir, page, addr, perm) != Error::None) {
         pmm::free_pages(page);
         return Error::NoMem;
