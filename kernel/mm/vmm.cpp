@@ -25,7 +25,6 @@ static void mm_init(MemoryDesc* mm) {
 
 namespace vmm {
 
-uintptr_t Manager::mmio_next_va_ = KERNEL_DEVIO_BASE;
 
 bool user_range_valid(MemoryDesc* mm, uintptr_t user_va, size_t byte_count, bool write) {
     intr::Guard guard;
@@ -132,25 +131,6 @@ Error map_physical_range(pde_t* pgdir, uintptr_t va, size_t byte_count, uintptr_
         *ptep = make_pte_page(pa, perm);
     }
     return Error::None;
-}
-
-// -------------------------------------------------------------------------
-// MMIO virtual address allocator
-// Assigns consecutive virtual addresses starting at KERNEL_DEVIO_BASE.
-// The virtual address has NO arithmetic relationship to the physical one.
-// -------------------------------------------------------------------------
-uintptr_t mmio_map(uintptr_t pa, size_t byte_count, uint32_t perm) {
-    byte_count = round_up(byte_count, PG_SIZE);
-    uintptr_t va = Manager::mmio_next_va_;
-    if (map_physical_range(Manager::kernel_pgdir(), va, byte_count, pa, perm) != Error::None) {
-        cprintf("vmm: mmio_map failed for phys=0x%lx size=0x%lx\n", pa, byte_count);
-        return 0;
-    }
-    // Flush TLB for the newly mapped range so that stale entries
-    // (e.g. from split 2MB blocks) don't interfere.
-    arch_invalidate_tlb_range(va, byte_count);
-    Manager::mmio_next_va_ += byte_count;
-    return va;
 }
 
 int init() {

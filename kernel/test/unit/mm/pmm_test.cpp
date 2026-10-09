@@ -5,6 +5,8 @@
 #include "sched/sched.h"
 
 #include <asm/page.h>
+#include <asm/mmu.h>
+#include "mm/vmm.h"
 
 static int tests_passed = 0;
 static int tests_failed = 0;
@@ -186,6 +188,71 @@ static void test_stress_alloc() {
     TEST_END();
 }
 
+static void test_mmio_table_cleanup() {
+    TEST_START("MMIO unmap prunes tables without freeing device memory");
+    intr::Guard guard;
+    size_t baseline = pmm::free_page_count();
+    {
+        MemoryDesc mm;
+        auto* root = static_cast<pde_t*>(kmalloc(PG_SIZE));
+        TEST_ASSERT(root, "Allocate an owned fixture root");
+        if (!root) {
+            TEST_END();
+            return;
+        }
+        mm.pgdir = root;
+        memset(mm.pgdir, 0, PG_SIZE);
+        constexpr uintptr_t first = 0x400000;
+        constexpr uintptr_t second = first + PG_SIZE;
+        pte_t* leaf = pmm::get_pte(mm.pgdir, first, true);
+        TEST_ASSERT(leaf, "Allocate MMIO fixture tables");
+        if (leaf) {
+            // Borrow an actual page as device storage; unmap must not free it.
+            Page* device = pmm::alloc_pages();
+            TEST_ASSERT(device, "Allocate borrowed device storage");
+            if (device) {
+                size_t with_tables = pmm::free_page_count();
+                *leaf = make_pte_page(pmm::page_to_phys(device), VM_WRITE | VM_NOCACHE);
+                auto* sibling = pmm::get_pte(mm.pgdir, second, true);
+                TEST_ASSERT(sibling, "Sibling shares existing tables");
+                if (sibling) {
+                    *sibling = make_pte_page(pmm::page_to_phys(device), VM_WRITE | VM_NOCACHE);
+                    pmm::unmap_mmio_page(mm.pgdir, first);
+                    TEST_ASSERT(pmm::free_page_count() == with_tables, "Keep tables with a live sibling");
+                    TEST_ASSERT(pte_present(*sibling), "Keep sibling mapping");
+                    pmm::unmap_mmio_page(mm.pgdir, second);
+                    TEST_ASSERT(pmm::free_page_count() == with_tables + PT_WALK_LEVELS - 1,
+                                "Prune every empty allocated level");
+                    TEST_ASSERT(device->ref_count == 0 && device->node().empty(), "Borrowed device page is not freed");
+                } else {
+                    pmm::unmap_mmio_page(mm.pgdir, first);
+                }
+                pmm::free_pages(device);
+            } else {
+                pmm::unmap_mmio_page(mm.pgdir, first);
+            }
+        } else {
+            pmm::unmap_mmio_page(mm.pgdir, first);
+        }
+        // Reproduce a create walk which allocated its first child but failed
+        // before reaching a leaf. Cleanup must also handle missing lower levels.
+        Page* partial = pmm::alloc_pages();
+        TEST_ASSERT(partial, "Allocate a partial page-table walk");
+        if (partial) {
+            memset(pmm::page_to_kva(partial), 0, PG_SIZE);
+            partial->ref_count = 1;
+            partial->set_page_table();
+            mm.pgdir[0] = make_pte_table(pmm::page_to_phys(partial));
+            size_t before_cleanup = pmm::free_page_count();
+            pmm::unmap_mmio_page(mm.pgdir, first);
+            TEST_ASSERT(mm.pgdir[0] == 0 && pmm::free_page_count() == before_cleanup + 1,
+                        "Prune tables from an incomplete create walk");
+        }
+    }
+    TEST_ASSERT(pmm::free_page_count() == baseline, "Owned root and table frames are fully reclaimed");
+    TEST_END();
+}
+
 // ============================================================================
 // Test Runner
 // ============================================================================
@@ -204,6 +271,7 @@ void test() {
     test_page_readwrite();
     test_kmalloc_kfree();
     test_stress_alloc();
+    test_mmio_table_cleanup();
 
     TEST_SUMMARY("PMM Allocator");
 }

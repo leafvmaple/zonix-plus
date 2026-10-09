@@ -3,6 +3,7 @@
 #include <base/types.h>
 #include "block/blk.h"
 #include "lib/result.h"
+#include "mm/mmio.h"
 #include "asm/trap_numbers.h"
 
 namespace pci {
@@ -62,6 +63,7 @@ inline constexpr uint32_t IS_DMPS = 0x00000080;  // Device mechanical presence
 inline constexpr uint32_t IS_PRCS = 0x00400000;  // PhyRdy change
 inline constexpr uint32_t IS_IPMS = 0x00800000;  // Incorrect port multiplier
 inline constexpr uint32_t IS_OFS = 0x01000000;   // Overflow
+inline constexpr uint32_t IS_TFES = 0x40000000;  // Task file error
 
 inline constexpr uint32_t SATA_STS_DET_MASK = 0x0000000F;     // Device detection
 inline constexpr uint32_t SATA_STS_DET_PRESENT = 0x00000003;  // Device present
@@ -209,9 +211,10 @@ struct AhciDevice : public BlockDevice {
     AhciDeviceInfo info{};  // Device information
     AhciRequest request{};  // Current I/O request state
 
-    int detect(const AhciPortConfig* cfg, uintptr_t mmio_base);
-    int setup_memory();
-    int identify();
+    Error detect(const AhciPortConfig* cfg, uintptr_t mmio_base);
+    Error setup_memory();
+    Error identify();
+    Error shutdown();
     void interrupt();
 
     Error read(uint32_t start_lba, void* buf, size_t block_count) override;
@@ -219,12 +222,14 @@ struct AhciDevice : public BlockDevice {
     void print_info() override;
 
 private:
-    int issue_cmd(uint8_t command, uint32_t lba, uint16_t count, bool write);
-    int wait_cmd_complete(int timeout_ms) const;
+    Error issue_cmd(uint8_t command, uint32_t lba, uint16_t count, bool write);
+    Error wait_cmd_complete() const;
+    Error stop_engine();
     Error transfer_blocks(uint32_t start_lba, size_t block_count, void* buf, bool write);
 
     int present_{};
     uintptr_t port_base_{};
+    bool memory_configured_{};
 
     alignas(1024) AhciCmdHeader cmd_list_[ahci::CMD_SLOT_COUNT]{};
     alignas(256) uint8_t fis_base_[256]{};
@@ -245,9 +250,9 @@ public:
     static void interrupt_handler(int port);
 
 private:
-    inline static uintptr_t base_{};  // AHCI controller MMIO virtual base
     inline static AhciDevice devices_[ahci::MAX_DEVICES]{};
-    inline static int device_count_{};
+    inline static sys::inplace_vector<AhciDevice*, ahci::MAX_DEVICES> published_{};
+    inline static vmm::MmioRegion mapping_{};
 
     inline static bool ctrl_ready_{};
     inline static bool registered_{};

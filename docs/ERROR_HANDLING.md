@@ -49,6 +49,7 @@ The reusable owners use the project's GNU++20 freestanding configuration:
 | `KernelBuffer` | `kmalloc` bytes and their requested length | `data()`, `size()`; const access gives const bytes | Move the complete buffer |
 | `vfs::FileHandle` | One open VFS file, closed through `vfs::close` | `get()`, `*`, `->` | Move into `fd::Table::alloc` |
 | `Task` | Its dynamic kernel stack, file table and adopted user MM | `kernel_stack()`, `files()`, `memory()` | Publish after preparation; reap through `wait()` |
+| `vmm::MmioRegion` | One device register mapping and its VA reservation, not device physical memory | `->address()`, `->size()` | Move into the controller Manager after successful publication |
 
 These types are noncopyable. Moves do not allocate and leave the source empty;
 move assignment first cleans up the destination's old resource. Destruction and
@@ -326,6 +327,51 @@ keeps the subsystem's existing code. `inplace_vector::pop_back` requires nonempt
 storage; FAT `..` normalization checks explicitly. Architecture-backed runtime byte
 operations stay in the kernel, with declarations supplied by zstl.
 
+## Storage probes and hardware cleanup
+
+SDHCI, AHCI and IDE propagate `Timeout`, `Io`, `NoDevice`, `Full` and allocation
+errors without replacing them with `-1` or `Fail`. The boot initialization ABI
+still takes `int`; conversion happens only at those entry points. Poll budgets
+are iteration limits, not milliseconds or microseconds.
+
+`blk::register_device` borrows a permanent device object. Null and duplicate
+objects fail; a full registry returns `Full` and keeps its count unchanged.
+`BlockManager::register_devices` validates an entire batch before publishing it,
+so an AHCI controller never registers just the first part of a port batch.
+Managers retain stable slots and expose only successfully published devices.
+IDE initialization skips already published configurations on retry.
+
+`vmm::map_mmio` returns an owner, preserves an unaligned physical byte offset,
+checks range overflow, and rolls back partial mappings on allocation failure.
+Reset/destruction removes PTEs, invalidates translations, prunes empty allocated
+tables and returns the VA range for reuse. Device frames and reserved boot tables
+are borrowed. The legacy `mmio_map` explicitly retains a permanent mapping for
+boot-time callers; it uses the same allocator to prevent overlapping reservations.
+On x86 the MMIO window starts beyond the boot assembly's complete 1GB mapping,
+including its unused tail. The framebuffer console keeps cursor updates and
+timer blinking atomic; output must not expose an out-of-range cursor while
+scrolling to an interrupt or another task.
+
+Use `pci::CommandGuard` for temporary command-register enablement. It restores
+the original 16-bit command on failure and never writes back the upper status
+bits, which are write-one-to-clear. Commit it only when the Manager retains the
+controller resources. SDHCI uses PIO and enables memory decoding without enabling
+PCI bus mastering; failure disables signals, clock and card power before unmapping.
+
+AHCI cleanup is an explicit checked protocol: clear ST, wait for CR to clear,
+clear FRE, then wait for FR to clear. DMA addresses are changed only after both
+engines stop. This follows the [AHCI specification](https://www.intel.com/content/dam/www/public/us/en/documents/technical-specifications/serial-ata-ahci-spec-rev1_2.pdf)
+and [Linux's stop-engine/FIS sequence](https://github.com/torvalds/linux/blob/master/drivers/ata/libahci.c).
+Do not hide this operation in an infallible destructor. If shutdown times out,
+retain the mapping and stable DMA buffers, disable further publication/retry,
+and return the original failure. A transfer error similarly stops the port and
+makes subsequent I/O return `NoDevice`; automatic reset/recovery is not supplied.
+
+IDE Device Control is write-only; reading its address yields alternate status.
+The driver establishes a zero control baseline and a scoped PIO guard restores
+that baseline on every transfer/probe return. Status errors are inspected after
+BSY clears and distinguish hardware failure from a missing response.
+
 ## Verification
 
 
@@ -357,3 +403,13 @@ check missing/invalid binaries produce no fault logs in propagation helpers.
 `kernel/test/unit/fs/fat_validation_test.cpp` injects distinct read/write errors,
 partial writes and secondary rollback failures. It verifies primary codes,
 reclamation of unpublished clusters and retention of possibly published ones.
+
+`scripts/tests/test_storage_drivers.py` links the real drivers, PCI command guard,
+block registry and MMIO allocator against host-only hardware substitutes under
+`arch/x86/test/host`. It checks partial mapping failure and VA reuse, registry
+batch failure, command/status preservation, stop-engine ordering and timeout,
+failed IDENTIFY, retry, cleanup, invalid ranges and unaligned I/O buffers.
+The PMM kernel tests use a local owned address space to check that MMIO unmap
+retains siblings and borrowed device frames, then recycles empty table frames.
+`scripts/tests/test_fbcons.py` injects a context switch at scrolling and checks
+that interrupt masking defers it and framebuffer boundary canaries stay intact.

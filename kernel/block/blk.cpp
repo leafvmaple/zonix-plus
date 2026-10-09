@@ -2,15 +2,33 @@
 
 #include "lib/stdio.h"
 #include "lib/string.h"
+#include "drivers/intr.h"
 
 void BlockManager::init() {
     cprintf("blk_init: initializing block device layer...\n");
 }
 
-void BlockManager::register_device(BlockDevice* device) {
-    if (!devices_.try_push_back(device)) {
-        cprintf("BlockManager::register_device: too many devices\n");
+Error BlockManager::register_device(BlockDevice* device) {
+    return register_devices(&device, 1);
+}
+
+Error BlockManager::register_devices(BlockDevice* const* devices, size_t count) {
+    ENSURE(devices || count == 0, Error::Invalid);
+    intr::Guard guard;
+    ENSURE(count <= MAX_DEVICES - devices_.size(), Error::Full);
+    for (size_t i = 0; i < count; ++i) {
+        ENSURE(devices[i], Error::Invalid);
+        for (auto* registered : devices_) {
+            ENSURE(registered != devices[i], Error::Exists);
+        }
+        for (size_t j = 0; j < i; ++j) {
+            ENSURE(devices[j] != devices[i], Error::Exists);
+        }
     }
+    for (size_t i = 0; i < count; ++i) {
+        assert(devices_.try_push_back(devices[i]));
+    }
+    return Error::None;
 }
 
 BlockDevice* BlockManager::find_device(const char* device_name) {
@@ -93,9 +111,7 @@ int init() {
 }
 
 Error register_device(BlockDevice* device) {
-    ENSURE(device, Error::Invalid);
-    BlockManager::register_device(device);
-    return Error::None;
+    return BlockManager::register_device(device);
 }
 
 }  // namespace blk

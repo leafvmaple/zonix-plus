@@ -38,10 +38,8 @@ public:
 
 private:
     friend int init();
-    friend uintptr_t mmio_map(uintptr_t pa, size_t byte_count, uint32_t perm);
     // Boot assembly provides permanent storage; this MM must never free it.
     inline static MemoryDesc kernel_mm_{MemoryDesc::PageTableOwnership::Borrowed};
-    static uintptr_t mmio_next_va_;
 };
 
 int init();

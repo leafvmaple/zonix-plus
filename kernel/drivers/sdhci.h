@@ -4,6 +4,7 @@
 #include "block/blk.h"
 #include <sys/array.hpp>
 #include "lib/result.h"
+#include "mm/mmio.h"
 
 namespace pci {
 struct DeviceInfo;
@@ -13,6 +14,7 @@ struct DriverId;
 class SdDevice : public BlockDevice {
 public:
     Error init(volatile uint8_t* base, int index);
+    void shutdown();
     Error read(uint32_t start_lba, void* buf, size_t block_count) override;
     Error write(uint32_t start_lba, const void* buf, size_t block_count) override;
     void print_info() override;
@@ -51,6 +53,7 @@ public:
 private:
     inline static bool initialized_{};
     inline static sys::array<SdDevice, MAX_DEVICES> devices_{};
+    inline static sys::array<vmm::MmioRegion, MAX_DEVICES> mappings_{};
     inline static size_t device_count_{};
 };
 

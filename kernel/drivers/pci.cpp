@@ -167,9 +167,22 @@ uint32_t read_bar(int bus, int slot, int function, int bar_index) {
 }
 
 void enable_bus_master(int bus, int slot, int function) {
-    uint32_t cmd = config_read32(bus, slot, function, Command);
+    uint16_t cmd = static_cast<uint16_t>(config_read32(bus, slot, function, Command));
     cmd |= CMD_BUS_MASTER | CMD_MEMORY_SPACE;
     config_write32(bus, slot, function, Command, cmd);
+}
+
+CommandGuard::CommandGuard(const DeviceInfo& device, uint16_t enable_bits)
+    : device_(device),
+      command_(static_cast<uint16_t>(config_read32(device.bus, device.slot, device.function, Command))) {
+    // Upper status bits are write-one-to-clear, never echo them back.
+    config_write32(device.bus, device.slot, device.function, Command, command_ | enable_bits);
+}
+
+CommandGuard::~CommandGuard() {
+    if (!committed_) {
+        config_write32(device_.bus, device_.slot, device_.function, Command, command_);
+    }
 }
 
 

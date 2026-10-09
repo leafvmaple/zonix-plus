@@ -86,6 +86,7 @@ static uintptr_t alloc_table_page(bool create) {
         return INVALID_TABLE_PA;
 
     page->ref_count = PAGE_REF_INIT;
+    page->set_page_table();
     uintptr_t pa = pmm::page_to_phys(page);
     memset(phys_to_virt(pa), 0, PG_SIZE);
     return pa;
@@ -238,6 +239,46 @@ pte_t* pmm::get_pte(pde_t* pgdir, uintptr_t va, bool create) {
     }
 
     return table + level_index(va, PT_WALK_LEVELS - 1);
+}
+
+void pmm::unmap_mmio_page(pde_t* pgdir, uintptr_t va) {
+    intr::Guard guard;
+    pde_t* tables[PT_WALK_LEVELS]{pgdir};
+    pde_t* entries[PT_WALK_LEVELS]{};
+    int depth = 0;
+    for (; depth < PT_WALK_LEVELS - 1; ++depth) {
+        auto* entry = tables[depth] + level_index(va, depth);
+        entries[depth] = entry;
+        if (!pte_present(*entry) || pte_is_block(*entry)) {
+            break;
+        }
+        tables[depth + 1] = phys_to_virt<pde_t>(pte_addr(*entry));
+    }
+    if (depth == PT_WALK_LEVELS - 1) {
+        tables[depth][level_index(va, depth)] = 0;
+        arch_invalidate_tlb_range(va, PG_SIZE);
+    }
+    // Also prune empty tables left by a failed create walk.
+    for (; depth > 0; --depth) {
+        bool empty = true;
+        for (int i = 0; i < PAGE_TABLE_ENTRIES; ++i) {
+            if (tables[depth][i] != 0) {
+                empty = false;
+                break;
+            }
+        }
+        uintptr_t pa = pte_addr(*entries[depth - 1]);
+        if (!empty || (pa >> PG_SHIFT) >= Factory::page_count()) {
+            break;
+        }
+        Page* page = phys_to_page(pa);
+        if (!page->is_page_table() || page->is_reserved()) {
+            break;
+        }
+        *entries[depth - 1] = 0;
+        arch_invalidate_tlb_range(va, PG_SIZE);
+        free_table_page(pa);
+    }
 }
 
 Result<void*> pmm::user_address(pde_t* pgdir, uintptr_t user_va, bool write) {

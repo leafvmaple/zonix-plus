@@ -32,7 +32,8 @@ public:
     static constexpr int MAX_DEVICES = 4;
 
     static void init();
-    static void register_device(BlockDevice* device);
+    static Error register_device(BlockDevice* device);
+    static Error register_devices(BlockDevice* const* devices, size_t count);
     static BlockDevice* find_device(const char* name);
     static BlockDevice* find_device(int index);
     static BlockDevice* find_device(blk::DeviceType type);

@@ -79,4 +79,20 @@ int probe_drivers();
 uint32_t read_bar(int bus, int slot, int function, int bar_index);
 void enable_bus_master(int bus, int slot, int function);
 
+// Restore command decoding on failed probes. Commit only after hardware is safe
+// to retain; DMA engines must be stopped explicitly before rollback.
+class CommandGuard {
+public:
+    CommandGuard(const DeviceInfo& device, uint16_t enable_bits);
+    ~CommandGuard();
+    CommandGuard(const CommandGuard&) = delete;
+    CommandGuard& operator=(const CommandGuard&) = delete;
+    void commit() { committed_ = true; }
+
+private:
+    DeviceInfo device_;
+    uint16_t command_;
+    bool committed_{};
+};
+
 }  // namespace pci

@@ -18,6 +18,7 @@
 #include "mm/vmm.h"
 #include "lib/stdio.h"
 #include "lib/memory.h"
+#include "drivers/intr.h"
 
 // Embedded PSF font (linked via objcopy from fonts/console.psf)
 extern "C" const uint8_t _binary_fonts_console_psf_start[];
@@ -155,6 +156,9 @@ void init(uintptr_t fb_vaddr, uint32_t width, uint32_t height, uint32_t pitch, u
 }
 
 void putc(int c) {
+    // Cursor coordinates temporarily pass the last row before scrolling. Timer
+    // blinking and another task's output must not observe that intermediate state.
+    intr::Guard guard;
     if (!active) {
         if (early_log_pos < EARLY_LOG_SIZE)
             early_log[early_log_pos++] = static_cast<char>(c);
@@ -204,6 +208,7 @@ void putc(int c) {
 }
 
 void tick() {
+    intr::Guard guard;
     if (!active)
         return;
     cursor_tick++;

@@ -106,7 +106,7 @@ struct IdeDevice : public BlockDevice {
 // IDE device manager class
 class IdeManager {
 public:
-    static void init();
+    static Error init();
 
     static IdeDevice* find_device(int index);
     static int device_count();

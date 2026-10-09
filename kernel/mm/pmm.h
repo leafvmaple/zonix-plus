@@ -11,6 +11,7 @@
 enum class PageFlag : uint8_t {
     Reserved = 0,
     Property = 1,
+    PageTable = 2,
 };
 
 // Page descriptor structures
@@ -21,6 +22,9 @@ struct Page {
     ListNode list_node{};             // free list link
 
     void set_reserved() { flags |= (1 << static_cast<uint32_t>(PageFlag::Reserved)); }
+    void set_page_table() { flags |= (1 << static_cast<uint32_t>(PageFlag::PageTable)); }
+    bool is_page_table() const { return (flags & (1 << static_cast<uint32_t>(PageFlag::PageTable))) != 0; }
+
     void clear_reserved() { flags &= ~(1 << static_cast<uint32_t>(PageFlag::Reserved)); }
 
     [[nodiscard]] bool is_reserved() const { return (flags & (1 << static_cast<uint32_t>(PageFlag::Reserved))) != 0; }
@@ -58,6 +62,9 @@ void invalidate_tlb_page(pde_t* pgdir, uintptr_t va);
 
 Page* alloc_and_map_page(pde_t* pgdir, uintptr_t va, uint32_t perm);
 pte_t* get_pte(pde_t* pgdir, uintptr_t va, bool create);
+// Remove an MMIO leaf without freeing its device physical address. Prune empty
+// allocated tables, preserving reserved assembly-backed boot tables.
+void unmap_mmio_page(pde_t* pgdir, uintptr_t va);
 Error page_insert(pde_t* pgdir, Page* page, uintptr_t va, uint32_t perm);
 // Validate every page-table level and return a kernel alias for a user address.
 Result<void*> user_address(pde_t* pgdir, uintptr_t user_va, bool write);

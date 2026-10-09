@@ -8,7 +8,7 @@
 #include "drivers/i8259.h"
 #include "drivers/intr.h"
 
-// Global IDE devices
+// Permanent, address-stable devices owned by the IDE manager.
 IdeDevice IdeManager::devices_[ide::MAX_DEVICES] = {};
 int IdeManager::device_count_ = 0;
 
@@ -19,37 +19,43 @@ IdeConfig IdeManager::configs_[ide::MAX_DEVICES] = {
     {1, 1, ide::IDE1_BASE, ide::IDE1_CTRL, IRQ_IDE2, "hdd"},  // Secondary Slave
 };
 
-static int hd_wait_ready_on_base(uint16_t base) {
-    int polls_left = 100000;
+namespace {
 
-    while (polls_left-- > 0) {
+constexpr int COMMAND_POLL_LIMIT = 100000;
+
+Error wait_status(uint16_t base, uint8_t required) {
+    for (int polls = COMMAND_POLL_LIMIT; polls > 0; --polls) {
         uint8_t status = arch_port_read8(base + ide::REG_STATUS);
-
-        if ((status & (ide::STATUS_BSY | ide::STATUS_DRDY)) == ide::STATUS_DRDY) {
-            return 0;
+        if (status == 0 || status == 0xFF) {
+            return Error::NoDevice;
         }
+        if ((status & ide::STATUS_BSY) == 0) {
+            ENSURE((status & (ide::STATUS_ERR | ide::STATUS_DF)) == 0, Error::Io);
+            if ((status & required) == required) {
+                return Error::None;
+            }
+        }
+        arch_spin_hint();
     }
-
-    return -1;
+    return Error::Timeout;
 }
 
-// Poll until BSY=0 and DRQ=1 (data ready for PIO transfer after a command)
-static int hd_wait_drq(uint16_t base) {
-    int polls_left = 100000;
-
-    while (polls_left-- > 0) {
-        uint8_t status = arch_port_read8(base + ide::REG_STATUS);
-
-        if (status & ide::STATUS_ERR) {
-            return -1;
-        }
-        if (!(status & ide::STATUS_BSY) && (status & ide::STATUS_DRQ)) {
-            return 0;
-        }
+// The IDE driver owns Device Control, initializes it to zero, and uses only
+// nIEN during synchronous PIO. The register is write-only (reads are status).
+class PioInterruptMask {
+public:
+    explicit PioInterruptMask(uint16_t control) : control_(control) {
+        arch_port_write8(control_, ide::CTRL_INTERRUPT_DISABLE);
     }
+    ~PioInterruptMask() { arch_port_write8(control_, 0); }
+    PioInterruptMask(const PioInterruptMask&) = delete;
+    PioInterruptMask& operator=(const PioInterruptMask&) = delete;
 
-    return -1;
-}
+private:
+    uint16_t control_;
+};
+
+}  // namespace
 
 void IdeDevice::detect(const IdeConfig* cfg) {
     this->config = cfg;
@@ -63,7 +69,7 @@ void IdeDevice::detect(const IdeConfig* cfg) {
     info.cylinders = identify_data[1];
     info.heads = identify_data[3];
     info.sectors = identify_data[6];
-    info.block_count = *reinterpret_cast<uint32_t*>(&identify_data[60]);
+    info.block_count = static_cast<uint32_t>(identify_data[60]) | (static_cast<uint32_t>(identify_data[61]) << 16);
     block_count = info.block_count;
     info.valid = 1;
 
@@ -104,7 +110,10 @@ void IdeDevice::interrupt() {
     request.waitq.wakeup_one();
 }
 
-void IdeManager::init() {
+Error IdeManager::init() {
+    // Published objects are permanent. Retry skips their configurations rather
+    // than registering duplicates or overwriting a live device slot.
+    Error first_error = Error::None;
     i8259::enable(IRQ_IDE1);
     i8259::enable(IRQ_IDE2);
 
@@ -113,6 +122,19 @@ void IdeManager::init() {
     // Try to detect all 4 possible devices
     for (int i = 0; i < ide::MAX_DEVICES; i++) {
         auto& config = configs_[i];
+        bool published = false;
+        for (int j = 0; j < device_count_; ++j) {
+            if (devices_[j].config == &config) {
+                published = true;
+                break;
+            }
+        }
+        if (published) {
+            continue;
+        }
+        ENSURE(device_count_ < ide::MAX_DEVICES, Error::Full);
+        arch_port_write8(config.ctrl, 0);
+        PioInterruptMask interrupt_mask(config.ctrl);
         uint8_t drive_sel = config.drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
 
         // Select drive
@@ -129,23 +151,24 @@ void IdeManager::init() {
             continue;  // No device or floating bus
         }
 
-        // Wait for BSY to clear
-        if (hd_wait_ready_on_base(config.base) != 0) {
-            cprintf("ide: %s: device timeout waiting for ready\n", config.name);
-            continue;  // Device not ready
-        }
-
-        // Check that DRQ is set (IDENTIFY data ready) and no error
-        status = arch_port_read8(config.base + ide::REG_STATUS);
-        if ((status & ide::STATUS_ERR) || !(status & ide::STATUS_DRQ)) {
-            cprintf("ide: %s: IDENTIFY failed (status=0x%02x)\n", config.name, status);
-            continue;  // Not an ATA device (could be ATAPI or absent)
+        Error ready = wait_status(config.base, ide::STATUS_DRQ);
+        if (ready != Error::None) {
+            cprintf("ide: %s: IDENTIFY failed: %s\n", config.name, error_str(ready));
+            if (first_error == Error::None) {
+                first_error = ready;
+            }
+            continue;
         }
 
         devices_[device_count_].detect(&config);
 
-        if (devices_[device_count_].info.block_count == 0) {
-            cprintf("ide: %s: device reports 0 sectors, skipping\n", config.name);
+        if (devices_[device_count_].info.block_count == 0 || devices_[device_count_].info.block_count > (1U << 28)) {
+            devices_[device_count_].present = 0;
+            devices_[device_count_].info.valid = 0;
+            cprintf("ide: %s: unsupported sector count %u\n", config.name, devices_[device_count_].info.block_count);
+            if (first_error == Error::None) {
+                first_error = devices_[device_count_].info.block_count == 0 ? Error::NoDevice : Error::NotSupported;
+            }
             continue;
         }
 
@@ -156,12 +179,15 @@ void IdeManager::init() {
         if (registered != Error::None) {
             cprintf("ide: failed to register %s: %s (%d)\n", config.name, error_str(registered),
                     static_cast<int>(registered));
-            continue;
+            devices_[device_count_].present = 0;
+            devices_[device_count_].info.valid = 0;
+            return registered;
         }
         device_count_++;
     }
 
     cprintf("ide: found %d device(s)\n", device_count_);
+    return first_error;
 }
 
 IdeDevice* IdeManager::find_device(int index) {
@@ -190,9 +216,10 @@ void IdeDevice::print_info() {
 
 Error IdeDevice::read(uint32_t start_lba, void* buf, size_t block_count) {
     ENSURE_LOG(present, Error::NoDevice, "IdeDevice::read: device %s not present", name);
-    ENSURE_LOG(start_lba + block_count <= info.block_count, Error::Invalid,
+    ENSURE_LOG(start_lba <= info.block_count && block_count <= info.block_count - start_lba, Error::Invalid,
                "IdeDevice::read: out of range (block %d + %d > %d)", start_lba, block_count, info.block_count);
 
+    ENSURE(buf || block_count == 0, Error::Invalid);
     uint8_t drive_sel = config->drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
 
     // Read blocks one by one using PIO polling (no scheduler dependency)
@@ -202,10 +229,10 @@ Error IdeDevice::read(uint32_t start_lba, void* buf, size_t block_count) {
         // Select drive first, then wait for it to become ready
         arch_port_write8(config->base + ide::REG_DEVICE, drive_sel);
         arch_io_wait();
-        ENSURE_LOG(hd_wait_ready_on_base(config->base) == 0, Error::Io, "IdeDevice::read: device %s not ready", name);
+        TRY(wait_status(config->base, ide::STATUS_DRDY));
 
         // Disable IDE interrupt for this PIO transfer (nIEN bit)
-        arch_port_write8(config->ctrl, ide::CTRL_INTERRUPT_DISABLE);
+        PioInterruptMask interrupt_mask(config->ctrl);
 
         arch_port_write8(config->base + ide::REG_SECTOR_COUNT, 1);
         arch_port_write8(config->base + ide::REG_LBA_LOW, lba & 0xFF);
@@ -214,16 +241,10 @@ Error IdeDevice::read(uint32_t start_lba, void* buf, size_t block_count) {
         arch_port_write8(config->base + ide::REG_DEVICE, drive_sel | ((lba >> 24) & 0x0F));
         arch_port_write8(config->base + ide::REG_COMMAND, ide::CMD_READ);
 
-        if (hd_wait_drq(config->base) != 0) {
-            arch_port_write8(config->ctrl, 0);
-            cprintf("IdeDevice::read: DRQ timeout on %s (LBA %d)\n", name, lba);
-            return Error::Timeout;
-        }
+        TRY(wait_status(config->base, ide::STATUS_DRQ));
 
         arch_port_read16_buffer(config->base + ide::REG_DATA, reinterpret_cast<uint8_t*>(buf) + i * ide::SECTOR_SIZE,
                                 ide::SECTOR_SIZE / 2);
-
-        arch_port_write8(config->ctrl, 0);  // Re-enable IDE interrupt
     }
 
     return Error::None;
@@ -231,9 +252,10 @@ Error IdeDevice::read(uint32_t start_lba, void* buf, size_t block_count) {
 
 Error IdeDevice::write(uint32_t start_lba, const void* buf, size_t block_count) {
     ENSURE_LOG(present, Error::NoDevice, "IdeDevice::write: device %s not present", name);
-    ENSURE_LOG(start_lba + block_count <= info.block_count, Error::Invalid,
+    ENSURE_LOG(start_lba <= info.block_count && block_count <= info.block_count - start_lba, Error::Invalid,
                "IdeDevice::write: out of range (block %d + %d > %d)", start_lba, block_count, info.block_count);
 
+    ENSURE(buf || block_count == 0, Error::Invalid);
     uint8_t drive_sel = config->drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
 
     // Write blocks one by one using PIO polling (no scheduler dependency)
@@ -243,10 +265,10 @@ Error IdeDevice::write(uint32_t start_lba, const void* buf, size_t block_count) 
         // Select drive first, then wait for it to become ready
         arch_port_write8(config->base + ide::REG_DEVICE, drive_sel);
         arch_io_wait();
-        ENSURE_LOG(hd_wait_ready_on_base(config->base) == 0, Error::Io, "IdeDevice::write: device %s not ready", name);
+        TRY(wait_status(config->base, ide::STATUS_DRDY));
 
         // Disable IDE interrupt for this PIO transfer (nIEN bit)
-        arch_port_write8(config->ctrl, ide::CTRL_INTERRUPT_DISABLE);
+        PioInterruptMask interrupt_mask(config->ctrl);
 
         arch_port_write8(config->base + ide::REG_SECTOR_COUNT, 1);
         arch_port_write8(config->base + ide::REG_LBA_LOW, lba & 0xFF);
@@ -256,24 +278,14 @@ Error IdeDevice::write(uint32_t start_lba, const void* buf, size_t block_count) 
         arch_port_write8(config->base + ide::REG_COMMAND, ide::CMD_WRITE);
 
         // Wait for drive to signal it is ready to accept data
-        if (hd_wait_drq(config->base) != 0) {
-            arch_port_write8(config->ctrl, 0);
-            cprintf("IdeDevice::write: DRQ timeout on %s (LBA %d)\n", name, lba);
-            return Error::Timeout;
-        }
+        TRY(wait_status(config->base, ide::STATUS_DRQ));
 
         arch_port_write16_buffer(config->base + ide::REG_DATA,
                                  const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(buf)) + i * ide::SECTOR_SIZE,
                                  ide::SECTOR_SIZE / 2);
 
         // Wait for write to complete
-        if (hd_wait_ready_on_base(config->base) != 0) {
-            arch_port_write8(config->ctrl, 0);
-            cprintf("IdeDevice::write: completion timeout on %s (LBA %d)\n", name, lba);
-            return Error::Timeout;
-        }
-
-        arch_port_write8(config->ctrl, 0);  // Re-enable IDE interrupt
+        TRY(wait_status(config->base, ide::STATUS_DRDY));
     }
 
     return Error::None;
