@@ -374,6 +374,7 @@ Error SdDevice::write_single(uint32_t lba, const void* buf) {
 }
 
 Error SdDevice::init(volatile uint8_t* base, int index) {
+    sys::lock_guard<Mutex> guard(io_mutex_);
     base_ = base;
 
     uint16_t ver = mmio::read16(base_, reg::HOST_VERSION);
@@ -395,6 +396,7 @@ Error SdDevice::init(volatile uint8_t* base, int index) {
 }
 
 void SdDevice::shutdown() {
+    sys::lock_guard<Mutex> guard(io_mutex_);
     if (!base_) {
         return;
     }
@@ -411,6 +413,7 @@ void SdDevice::shutdown() {
 }
 
 Error SdDevice::read(uint32_t start_lba, void* buf, size_t count) {
+    sys::lock_guard<Mutex> guard(io_mutex_);
     ENSURE(base_, Error::NoDevice);
     ENSURE(start_lba <= block_count && count <= block_count - start_lba, Error::Invalid);
     ENSURE(buf || count == 0, Error::Invalid);
@@ -423,6 +426,7 @@ Error SdDevice::read(uint32_t start_lba, void* buf, size_t count) {
 }
 
 Error SdDevice::write(uint32_t start_lba, const void* buf, size_t count) {
+    sys::lock_guard<Mutex> guard(io_mutex_);
     ENSURE(base_, Error::NoDevice);
     ENSURE(start_lba <= block_count && count <= block_count - start_lba, Error::Invalid);
     ENSURE(buf || count == 0, Error::Invalid);

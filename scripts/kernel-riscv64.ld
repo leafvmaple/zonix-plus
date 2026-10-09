@@ -53,7 +53,7 @@ SECTIONS {
 
     . = ALIGN(0x1000);
     .data : {
-        *(.data)
+        *(.data .sdata .sdata.*)
     }
 
     /* Boot page directory — aligned to page boundary */
@@ -65,7 +65,8 @@ SECTIONS {
     . = ALIGN(0x1000);
     .bss (NOLOAD) : {
         PROVIDE(__bss_start = .);
-        *(.bss .bss.*)
+        /* Small globals must be cleared and reserved along with ordinary BSS. */
+        *(.bss .bss.* .sbss .sbss.*)
         *(COMMON)
         PROVIDE(__bss_end = .);
     }

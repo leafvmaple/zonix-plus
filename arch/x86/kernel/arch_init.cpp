@@ -26,11 +26,8 @@
 namespace {
 
 const InitStep ARCH_STEPS[] = {
-    {"sse/sse2", fpu::init, true},
-    {"i8259", i8259::init, true},
-    {"i8253", i8253::init, true},
-    {"idt", idt::init, true},
-    {"tss", tss::init, true},
+    {"sse/sse2", fpu::init, true}, {"i8259", i8259::init, true}, {"i8253", i8253::init, true},
+    {"idt", idt::init, true},      {"tss", tss::init, true},
 };
 
 const InitStep PCI_STEPS[] = {

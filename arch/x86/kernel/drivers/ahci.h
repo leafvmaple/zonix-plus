@@ -3,6 +3,7 @@
 #include <base/types.h>
 #include "block/blk.h"
 #include "lib/result.h"
+#include "lib/mutex.h"
 #include "mm/mmio.h"
 #include "asm/trap_numbers.h"
 
@@ -212,8 +213,6 @@ struct AhciDevice : public BlockDevice {
     AhciRequest request{};  // Current I/O request state
 
     Error detect(const AhciPortConfig* cfg, uintptr_t mmio_base);
-    Error setup_memory();
-    Error identify();
     Error shutdown();
     void interrupt();
 
@@ -222,11 +221,15 @@ struct AhciDevice : public BlockDevice {
     void print_info() override;
 
 private:
+    Error setup_memory();
+    Error identify();
+    Error shutdown_locked();
     Error issue_cmd(uint8_t command, uint32_t lba, uint16_t count, bool write);
     Error wait_cmd_complete() const;
     Error stop_engine();
     Error transfer_blocks(uint32_t start_lba, size_t block_count, void* buf, bool write);
 
+    Mutex io_mutex_{};
     int present_{};
     uintptr_t port_base_{};
     bool memory_configured_{};

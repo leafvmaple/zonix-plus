@@ -40,6 +40,14 @@ Error wait_status(uint16_t base, uint8_t required) {
     return Error::Timeout;
 }
 
+bool identify_is_atapi(uint16_t base) {
+    uint8_t status = arch_port_read8(base + ide::REG_STATUS);
+    return (status & (ide::STATUS_BSY | ide::STATUS_DF | ide::STATUS_ERR)) == ide::STATUS_ERR &&
+           arch_port_read8(base + ide::REG_ERROR) == ide::ERROR_ABORTED &&
+           arch_port_read8(base + ide::REG_LBA_MID) == ide::ATAPI_SIGNATURE_MID &&
+           arch_port_read8(base + ide::REG_LBA_HIGH) == ide::ATAPI_SIGNATURE_HIGH;
+}
+
 // The IDE driver owns Device Control, initializes it to zero, and uses only
 // nIEN during synchronous PIO. The register is write-only (reads are status).
 class PioInterruptMask {
@@ -133,6 +141,7 @@ Error IdeManager::init() {
             continue;
         }
         ENSURE(device_count_ < ide::MAX_DEVICES, Error::Full);
+        sys::lock_guard<Mutex> guard(channel_mutexes_[config.channel]);
         arch_port_write8(config.ctrl, 0);
         PioInterruptMask interrupt_mask(config.ctrl);
         uint8_t drive_sel = config.drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
@@ -142,6 +151,11 @@ Error IdeManager::init() {
         arch_io_wait();
 
         // Send IDENTIFY command
+        // Clear stale task-file bytes; a packet device writes its signature
+        // when it aborts ATA IDENTIFY, rather than returning ATA identify data.
+        arch_port_write8(config.base + ide::REG_LBA_LOW, 0);
+        arch_port_write8(config.base + ide::REG_LBA_MID, 0);
+        arch_port_write8(config.base + ide::REG_LBA_HIGH, 0);
         arch_port_write8(config.base + ide::REG_COMMAND, ide::CMD_IDENTIFY);
         arch_io_wait();
 
@@ -153,6 +167,10 @@ Error IdeManager::init() {
 
         Error ready = wait_status(config.base, ide::STATUS_DRQ);
         if (ready != Error::None) {
+            if (ready == Error::Io && identify_is_atapi(config.base)) {
+                cprintf("ide: %s: skipping unsupported ATAPI device\n", config.name);
+                continue;
+            }
             cprintf("ide: %s: IDENTIFY failed: %s\n", config.name, error_str(ready));
             if (first_error == Error::None) {
                 first_error = ready;
@@ -215,6 +233,8 @@ void IdeDevice::print_info() {
 }
 
 Error IdeDevice::read(uint32_t start_lba, void* buf, size_t block_count) {
+    ENSURE(config && config->channel < ide::CHANNEL_COUNT, Error::NoDevice);
+    sys::lock_guard<Mutex> guard(IdeManager::channel_mutexes_[config->channel]);
     ENSURE_LOG(present, Error::NoDevice, "IdeDevice::read: device %s not present", name);
     ENSURE_LOG(start_lba <= info.block_count && block_count <= info.block_count - start_lba, Error::Invalid,
                "IdeDevice::read: out of range (block %d + %d > %d)", start_lba, block_count, info.block_count);
@@ -222,7 +242,7 @@ Error IdeDevice::read(uint32_t start_lba, void* buf, size_t block_count) {
     ENSURE(buf || block_count == 0, Error::Invalid);
     uint8_t drive_sel = config->drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
 
-    // Read blocks one by one using PIO polling (no scheduler dependency)
+    // Retain the channel for all sectors in this PIO request.
     for (size_t i = 0; i < block_count; i++) {
         uint32_t lba = start_lba + i;
 
@@ -251,6 +271,8 @@ Error IdeDevice::read(uint32_t start_lba, void* buf, size_t block_count) {
 }
 
 Error IdeDevice::write(uint32_t start_lba, const void* buf, size_t block_count) {
+    ENSURE(config && config->channel < ide::CHANNEL_COUNT, Error::NoDevice);
+    sys::lock_guard<Mutex> guard(IdeManager::channel_mutexes_[config->channel]);
     ENSURE_LOG(present, Error::NoDevice, "IdeDevice::write: device %s not present", name);
     ENSURE_LOG(start_lba <= info.block_count && block_count <= info.block_count - start_lba, Error::Invalid,
                "IdeDevice::write: out of range (block %d + %d > %d)", start_lba, block_count, info.block_count);
@@ -258,7 +280,7 @@ Error IdeDevice::write(uint32_t start_lba, const void* buf, size_t block_count) 
     ENSURE(buf || block_count == 0, Error::Invalid);
     uint8_t drive_sel = config->drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
 
-    // Write blocks one by one using PIO polling (no scheduler dependency)
+    // Retain the channel for all sectors in this PIO request.
     for (size_t i = 0; i < block_count; i++) {
         uint32_t lba = start_lba + i;
 

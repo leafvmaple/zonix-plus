@@ -18,7 +18,7 @@ class StorageDriverTests(unittest.TestCase):
         cls.binary = Path(cls.directory.name) / "storage-tests"
         flags = [CXX_STANDARD_FLAG, *ZSTL_FLAGS, "-nostdinc", "-nostdinc++", "-ffreestanding",
                  "-fno-exceptions", "-fno-rtti", "-O2", "-ffunction-sections", "-fdata-sections",
-                 "-Werror=unused-result", "-Werror=unused-value", "-Wl,--gc-sections"]
+                 "-Werror=unused-result", "-Werror=unused-value", "-pthread", "-Wl,--gc-sections"]
         includes = ["arch/x86/test/host/storage_include", "kernel", "include",
                     "arch/x86/include", "arch/x86/kernel"]
         flags += ["-I" + str(ROOT / path) for path in includes]
@@ -73,6 +73,27 @@ class StorageDriverTests(unittest.TestCase):
 
     def test_ide_errors_interrupt_cleanup_and_repeat_init(self):
         for case in ["ide_io", "ide_timeout", "ide_full", "ide_success", "ide_identify_timeout"]:
+            with self.subTest(case=case):
+                self.run_case(case)
+
+    def test_complete_ahci_transactions_and_independent_ports(self):
+        for case in ["ahci_concurrent", "ahci_independent"]:
+            with self.subTest(case=case):
+                self.run_case(case)
+
+    def test_complete_sdhci_transactions_and_independent_controllers(self):
+        for case in ["sd_concurrent", "sd_independent"]:
+            with self.subTest(case=case):
+                self.run_case(case)
+
+    def test_ide_master_slave_share_channel_but_channels_are_independent(self):
+        for case in ["ide_same", "ide_concurrent", "ide_independent"]:
+            with self.subTest(case=case):
+                self.run_case(case)
+
+    def test_ide_skips_only_aborted_identify_with_fresh_atapi_signature(self):
+        for case in ["ide_atapi", "ide_atapi_io", "ide_atapi_df", "ide_atapi_timeout", "ide_atapi_ata_io",
+                     "ide_identify_abrt", "ide_identify_stale"]:
             with self.subTest(case=case):
                 self.run_case(case)
 

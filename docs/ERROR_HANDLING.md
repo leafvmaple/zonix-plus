@@ -371,6 +371,20 @@ IDE Device Control is write-only; reading its address yields alternate status.
 The driver establishes a zero control baseline and a scoped PIO guard restores
 that baseline on every transfer/probe return. Status errors are inspected after
 BSY clears and distinguish hardware failure from a missing response.
+ATA IDENTIFY aborts with ABRT and the fresh `0x14/0xEB` signature are unsupported
+ATAPI devices, so probing skips them. Clear stale LBA bytes before IDENTIFY;
+an unrelated abort, media/device fault or timeout remains an initialization error.
+
+Serialize a complete storage transaction with the existing blocking `Mutex`
+and `sys::lock_guard`: AHCI owns one mutex per port, SDHCI per controller, and
+IDE's Manager owns one per channel shared by its master/slave devices. Hold it
+across validation, every command/chunk, buffer copying and error cleanup; a
+per-command or per-device IDE lock does not protect the complete request.
+Initialization/shutdown use the same resource lock. AHCI's private
+`shutdown_locked` is called only while that port is already locked, so failure
+cleanup does not recursively acquire a non-recursive mutex. IRQ handlers must
+not acquire these sleeping locks; the current I/O paths poll with device IRQs
+disabled. CPU interrupts remain available during a normal polling transaction.
 
 ## Verification
 
@@ -409,6 +423,17 @@ block registry and MMIO allocator against host-only hardware substitutes under
 `arch/x86/test/host`. It checks partial mapping failure and VA reuse, registry
 batch failure, command/status preservation, stop-engine ordering and timeout,
 failed IDENTIFY, retry, cleanup, invalid ranges and unaligned I/O buffers.
+Its host concurrency fixture pauses the first hardware command and introduces
+a competing thread. Multi-chunk read/read, read/write, write/read and write/write
+requests check buffer contents and retain a single lock until the last copy.
+IDE master/slave contend on the same channel; separate AHCI ports, SDHCI
+controllers and IDE channels finish independently while the first command is
+paused. Error paths are followed by another request to verify lock release.
+Only the host fixture substitutes the Mutex backend; `sync_test` exercises the
+real kernel Mutex with sleeping contenders and interrupt-state restoration.
+`scripts/tests/test_kernel_linker.py` links a RISC-V fixture whose small BSS
+crosses a page boundary, checking every small global lies inside the BSS clear
+range and `KERNEL_END` reservation; page metadata must not overwrite live globals.
 The PMM kernel tests use a local owned address space to check that MMIO unmap
 retains siblings and borrowed device frames, then recycles empty table frames.
 `scripts/tests/test_fbcons.py` injects a context switch at scrolling and checks

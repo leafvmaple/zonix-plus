@@ -4,6 +4,7 @@
 #include "block/blk.h"
 #include <sys/array.hpp>
 #include "lib/result.h"
+#include "lib/mutex.h"
 #include "mm/mmio.h"
 
 namespace pci {
@@ -20,6 +21,7 @@ public:
     void print_info() override;
 
 private:
+    Mutex io_mutex_{};
     volatile uint8_t* base_{};
     uint16_t rca_{};
     bool sdhc_{};

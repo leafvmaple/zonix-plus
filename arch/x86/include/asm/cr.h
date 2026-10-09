@@ -12,12 +12,12 @@
 #define CR0_CD 0x40000000  // Cache Disable
 #define CR0_PG 0x80000000  // Paging
 
-#define CR4_PSE 0x00000010  // Page Size Extension
-#define CR4_PAE 0x00000020  // Physical Address Extension
-#define CR4_PGE 0x00000080  // Page Global Enable
-#define CR4_OSFXSR 0x00000200  // OS supports FXSAVE/FXRSTOR and SSE
+#define CR4_PSE        0x00000010  // Page Size Extension
+#define CR4_PAE        0x00000020  // Physical Address Extension
+#define CR4_PGE        0x00000080  // Page Global Enable
+#define CR4_OSFXSR     0x00000200  // OS supports FXSAVE/FXRSTOR and SSE
 #define CR4_OSXMMEXCPT 0x00000400  // OS supports SIMD floating-point exceptions
-#define CR4_OSXSAVE 0x00040000  // OS supports XSAVE and extended vector state
+#define CR4_OSXSAVE    0x00040000  // OS supports XSAVE and extended vector state
 
 /* Model Specific Registers (MSR) */
 #define MSR_EFER 0xC0000080  // Extended Feature Enable Register

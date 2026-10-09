@@ -17,11 +17,9 @@ void test_sse() {
     uintptr_t cr0{}, cr4{};
     asm volatile("mov %%cr0, %0" : "=r"(cr0));
     asm volatile("mov %%cr4, %0" : "=r"(cr4));
-    TEST_ASSERT((cr0 & (CR0_EM | CR0_TS)) == 0 &&
-                    (cr0 & (CR0_MP | CR0_NE)) == (CR0_MP | CR0_NE),
+    TEST_ASSERT((cr0 & (CR0_EM | CR0_TS)) == 0 && (cr0 & (CR0_MP | CR0_NE)) == (CR0_MP | CR0_NE),
                 "Native floating point enabled without lazy switching");
-    TEST_ASSERT((cr4 & (CR4_OSFXSR | CR4_OSXMMEXCPT)) == (CR4_OSFXSR | CR4_OSXMMEXCPT) &&
-                    (cr4 & CR4_OSXSAVE) == 0,
+    TEST_ASSERT((cr4 & (CR4_OSFXSR | CR4_OSXMMEXCPT)) == (CR4_OSFXSR | CR4_OSXMMEXCPT) && (cr4 & CR4_OSXSAVE) == 0,
                 "SSE exceptions enabled; unsupported extended state disabled");
 
     // Temporarily mount the userdata disk and release it before shared FS tests.
@@ -44,6 +42,9 @@ void test_sse() {
     const Error mounted = vfs::mount("/mnt", userdata, "fat");
     TEST_ASSERT(mounted == Error::None, "Mounted SSE user test images");
     if (mounted == Error::None) {
+        // The peers can finish while the parent is preempted, even before wait.
+        // Record the timer baseline before publishing either runnable child.
+        const auto start_ticks = timer::ticks;
         auto first = exec::exec("/mnt/SSETEST.ELF");
         auto second = exec::exec("/mnt/SSEPEER.ELF");
         {
@@ -61,7 +62,6 @@ void test_sse() {
             }
         }
         TEST_ASSERT(first.ok() && second.ok(), "Started two SSE users with distinct register patterns");
-        const auto start_ticks = timer::ticks;
         const Result<int>* pids[] = {&first, &second};
         for (const auto* pid : pids) {
             if (pid->ok()) {

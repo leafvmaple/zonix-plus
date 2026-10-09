@@ -1,9 +1,11 @@
 #pragma once
 
 #include <base/types.h>
+#include <sys/array.hpp>
 
 #include "block/blk.h"
 #include "lib/result.h"
+#include "lib/mutex.h"
 #include "lib/waitqueue.h"
 
 // IDE/ATA disk constants
@@ -15,6 +17,7 @@ inline constexpr uint16_t IDE1_BASE = 0x170;  // Secondary IDE controller base
 inline constexpr uint16_t IDE0_CTRL = 0x3F6;  // Primary IDE control register
 inline constexpr uint16_t IDE1_CTRL = 0x376;  // Secondary IDE control register
 inline constexpr int MAX_DEVICES = 4;         // Maximum IDE devices (2 channels × 2 drives)
+inline constexpr int CHANNEL_COUNT = 2;
 
 // IDE registers (relative to base)
 inline constexpr int REG_DATA = 0x0;          // Data register
@@ -40,6 +43,10 @@ inline constexpr uint8_t STATUS_DF = 0x20;    // Drive fault
 inline constexpr uint8_t STATUS_DSC = 0x10;   // Drive seek complete
 inline constexpr uint8_t STATUS_DRQ = 0x08;   // Data request
 inline constexpr uint8_t STATUS_ERR = 0x01;   // Error
+
+inline constexpr uint8_t ERROR_ABORTED = 0x04;
+inline constexpr uint8_t ATAPI_SIGNATURE_MID = 0x14;
+inline constexpr uint8_t ATAPI_SIGNATURE_HIGH = 0xEB;
 
 // IDE commands
 inline constexpr uint8_t CMD_READ = 0x20;      // Read sectors
@@ -114,7 +121,11 @@ public:
     static void interrupt_handler(int channel);
 
 private:
+    // Master and slave share the channel's task-file registers and Device Control.
+    inline static sys::array<Mutex, ide::CHANNEL_COUNT> channel_mutexes_{};
     static IdeConfig configs_[ide::MAX_DEVICES];
     static IdeDevice devices_[ide::MAX_DEVICES];
     static int device_count_;
+
+    friend struct IdeDevice;
 };

@@ -10,6 +10,7 @@
 #include "lib/stdarg.h"
 #include <asm/mmu.h>
 #include <sys/iterator.hpp>
+#include "storage_concurrency_test.h"
 
 extern "C" int vprintf(const char*, va_list);
 extern "C" void* aligned_alloc(size_t, size_t);
@@ -31,13 +32,19 @@ public:
         int allocations{};
         int dma_address_writes{};
         int transfers{};
-        int sd_command{};
+        int sd_command[2]{};
         uint16_t command{1};
         uint32_t bar{0x100008};
         bool echoed_status{};
         uint8_t control[2]{};
-        bool primary_master{true};
-        uint8_t ide_command{};
+        uint8_t ide_drives[2]{};
+        bool all_ide_drives{};
+        bool secondary_atapi{};
+        uint8_t atapi_error{ide::ERROR_ABORTED};
+        uint8_t atapi_status{ide::STATUS_DRDY | ide::STATUS_ERR};
+        bool ata_aborted{};
+        uint8_t ide_commands[2]{};
+        uint32_t ide_lba[2]{};
         bool fail_stop_after_command{};
     };
     static State& state() { return state_; }
@@ -105,6 +112,20 @@ void operator delete(void* pointer, size_t) noexcept {
 
 intr::Guard::Guard() : flag_(0) {}
 intr::Guard::~Guard() = default;
+
+// The host fixture substitutes the scheduling backend, just as it substitutes
+// MMIO and interrupt masking. Real blocking Mutex semantics run in sync_test.
+void Mutex::lock() {
+    StorageConcurrency::before_lock(this);
+    while (__atomic_exchange_n(&held_, true, __ATOMIC_ACQUIRE)) {
+        sched_yield();
+    }
+    StorageConcurrency::acquired();
+}
+void Mutex::unlock() {
+    StorageConcurrency::releasing();
+    __atomic_store_n(&held_, false, __ATOMIC_RELEASE);
+}
 namespace storage_host {
 void arch_invalidate_tlb_range(uintptr_t, size_t) {}
 }  // namespace storage_host
@@ -149,27 +170,32 @@ namespace storage_host {
 uint32_t read32(uintptr_t address) {
     using Fixture = HardwareFixture;
     if (Fixture::state().backend == Fixture::Backend::Sd) {
-        uintptr_t offset = address - KERNEL_DEVIO_BASE;
+        size_t controller = (address - KERNEL_DEVIO_BASE) / PG_SIZE;
+        uintptr_t offset = (address - KERNEL_DEVIO_BASE) % PG_SIZE;
         if (offset == 0x24) {
             return 0;  // No command/data inhibit.
         }
         if (offset == 0x10) {
-            switch (Fixture::state().sd_command) {
+            switch (Fixture::state().sd_command[controller]) {
                 case 8: return 0x1AA;
                 case 41: return 0xC0000000;
                 case 3: return 0x00010000;
                 default: return 0;
             }
         }
-        if (offset == 0x1C && Fixture::state().sd_command == 9) {
+        if (offset == 0x1C && Fixture::state().sd_command[controller] == 9) {
             return 1U << 22;  // CSD v2, 1024 sectors.
+        }
+        if (offset == 0x20 && StorageConcurrency::active()) {
+            uint32_t lba = Fixture::state().registers[(controller * PG_SIZE + 0x08) / 4];
+            return StorageConcurrency::pattern(lba) * 0x01010101U;
         }
     }
     return Fixture::reg(address);
 }
 uint16_t read16(uintptr_t address) {
     using Fixture = HardwareFixture;
-    uintptr_t offset = address - KERNEL_DEVIO_BASE;
+    uintptr_t offset = (address - KERNEL_DEVIO_BASE) % PG_SIZE;
     if (Fixture::state().backend == Fixture::Backend::Sd) {
         if (offset == 0x2C) {
             return Fixture::state().fault == Fixture::Fault::Clock ? 0 : 3;
@@ -183,7 +209,8 @@ uint16_t read16(uintptr_t address) {
     return static_cast<uint16_t>(read32(address & ~uintptr_t(3)) >> ((address & 3) * 8));
 }
 uint8_t read8(uintptr_t address) {
-    if (HardwareFixture::state().backend == HardwareFixture::Backend::Sd && address - KERNEL_DEVIO_BASE == 0x2F) {
+    if (HardwareFixture::state().backend == HardwareFixture::Backend::Sd &&
+        (address - KERNEL_DEVIO_BASE) % PG_SIZE == 0x2F) {
         return HardwareFixture::state().fault == HardwareFixture::Fault::Reset ? 1 : 0;
     }
     return static_cast<uint8_t>(read32(address & ~uintptr_t(3)) >> ((address & 3) * 8));
@@ -195,6 +222,12 @@ uint64_t read64(uintptr_t address) {
 void write32(uintptr_t address, uint32_t value) {
     using Fixture = HardwareFixture;
     uintptr_t offset = address - KERNEL_DEVIO_BASE;
+    if (Fixture::state().backend == Fixture::Backend::Sd && offset % PG_SIZE == 0x20 && StorageConcurrency::active()) {
+        size_t controller = offset / PG_SIZE;
+        uint32_t lba = Fixture::state().registers[(controller * PG_SIZE + 0x08) / 4];
+        assert(value == StorageConcurrency::pattern(lba) * 0x01010101U);
+        return;
+    }
     if (Fixture::state().backend == Fixture::Backend::Ahci && offset >= ahci::PORT_BASE_OFFSET) {
         uintptr_t port = offset - (offset - ahci::PORT_BASE_OFFSET) % ahci::PORT_REG_SIZE;
         uintptr_t field = offset - port;
@@ -232,18 +265,44 @@ void write32(uintptr_t address, uint32_t value) {
                 auto* table = phys_to_virt<AhciCmdTable>(header->ctba | (static_cast<uintptr_t>(header->ctbau) << 32));
                 auto* data =
                     phys_to_virt<uint16_t>(table->prdt[0].dba | (static_cast<uintptr_t>(table->prdt[0].dbau) << 32));
-                memset(data, 0, 512);
-                data[60] = 128;
+                if (StorageConcurrency::active()) {
+                    auto* fis = reinterpret_cast<RegisterHostToDeviceFis*>(table->cfis);
+                    uint32_t lba = fis->lba0 | (static_cast<uint32_t>(fis->lba1) << 8) |
+                                   (static_cast<uint32_t>(fis->lba2) << 16) | (static_cast<uint32_t>(fis->lba3) << 24);
+                    size_t blocks = fis->countl | (static_cast<size_t>(fis->counth) << 8);
+                    StorageConcurrency::command((port - ahci::PORT_BASE_OFFSET) / ahci::PORT_REG_SIZE, lba, blocks);
+                    assert(table->prdt[0].dbc + 1 == blocks * 512);
+                    auto* bytes = reinterpret_cast<uint8_t*>(data);
+                    for (size_t sector = 0; sector < blocks; ++sector) {
+                        if (header->write) {
+                            for (size_t byte = 0; byte < 512; ++byte) {
+                                assert(bytes[sector * 512 + byte] == StorageConcurrency::pattern(lba + sector));
+                            }
+                        } else {
+                            memset(bytes + sector * 512, StorageConcurrency::pattern(lba + sector), 512);
+                        }
+                    }
+                } else {
+                    memset(data, 0, 512);
+                    data[60] = 128;
+                }
                 value = 0;
-                ++Fixture::state().transfers;
+                __atomic_add_fetch(&Fixture::state().transfers, 1, __ATOMIC_RELAXED);
             }
         }
     }
     Fixture::reg(address) = value;
 }
 void write16(uintptr_t address, uint16_t value) {
-    if (HardwareFixture::state().backend == HardwareFixture::Backend::Sd && address - KERNEL_DEVIO_BASE == 0x0E) {
-        HardwareFixture::state().sd_command = value >> 8;
+    if (HardwareFixture::state().backend == HardwareFixture::Backend::Sd &&
+        (address - KERNEL_DEVIO_BASE) % PG_SIZE == 0x0E) {
+        size_t controller = (address - KERNEL_DEVIO_BASE) / PG_SIZE;
+        HardwareFixture::state().sd_command[controller] = value >> 8;
+        if (StorageConcurrency::active()) {
+            assert((value >> 8) == 17 || (value >> 8) == 24);
+            uint32_t lba = HardwareFixture::state().registers[(controller * PG_SIZE + 0x08) / 4];
+            StorageConcurrency::command(controller, lba, 1);
+        }
         return;
     }
     auto& word = HardwareFixture::reg(address & ~uintptr_t(3));
@@ -264,36 +323,80 @@ void write64(uintptr_t address, uint64_t value) {
 namespace storage_host {
 uint8_t arch_port_read8(uint16_t port) {
     using Fixture = HardwareFixture;
-    if ((port & ~7U) != ide::IDE0_BASE || !Fixture::state().primary_master) {
+    int channel = (port & ~7U) == ide::IDE1_BASE;
+    int field = port & 7U;
+    bool atapi = Fixture::state().secondary_atapi && channel == 1 && Fixture::state().ide_drives[channel] == 0;
+    if (!Fixture::state().all_ide_drives && !atapi && (channel != 0 || Fixture::state().ide_drives[channel] != 0)) {
         return 0;
     }
-    if (Fixture::state().ide_command != 0 && Fixture::state().fault == Fixture::Fault::Io) {
+    if (field == ide::REG_LBA_MID || field == ide::REG_LBA_HIGH) {
+        return static_cast<uint8_t>(Fixture::state().ide_lba[channel] >> ((field - ide::REG_LBA_LOW) * 8));
+    }
+    if (field == ide::REG_ERROR) {
+        return atapi ? Fixture::state().atapi_error : Fixture::state().ata_aborted ? ide::ERROR_ABORTED : 0;
+    }
+    if (atapi && Fixture::state().ide_commands[channel] == ide::CMD_IDENTIFY) {
+        return Fixture::state().atapi_status;
+    }
+    if (Fixture::state().ata_aborted && Fixture::state().ide_commands[channel] == ide::CMD_IDENTIFY) {
         return ide::STATUS_DRDY | ide::STATUS_ERR;
     }
-    if (Fixture::state().ide_command != 0 && Fixture::state().fault == Fixture::Fault::Timeout) {
+    if (Fixture::state().ide_commands[channel] != 0 && Fixture::state().fault == Fixture::Fault::Io) {
+        return ide::STATUS_DRDY | ide::STATUS_ERR;
+    }
+    if (Fixture::state().ide_commands[channel] != 0 && Fixture::state().fault == Fixture::Fault::Timeout) {
         return ide::STATUS_BSY;
     }
     return ide::STATUS_DRDY | ide::STATUS_DRQ;
 }
 void arch_port_write8(uint16_t port, uint8_t value) {
+    int channel = (port & ~7U) == ide::IDE1_BASE;
+    int field = port & 7U;
+    if (field == ide::REG_DEVICE && port != ide::IDE0_CTRL && port != ide::IDE1_CTRL) {
+        HardwareFixture::state().ide_commands[channel] = 0;
+        HardwareFixture::state().ide_drives[channel] = (value & 0x10) != 0;
+    }
+    if (field >= ide::REG_LBA_LOW && field <= ide::REG_LBA_HIGH && port != ide::IDE0_CTRL && port != ide::IDE1_CTRL) {
+        unsigned int shift = (field - ide::REG_LBA_LOW) * 8;
+        auto& lba = HardwareFixture::state().ide_lba[channel];
+        lba = (lba & ~(0xFFU << shift)) | (static_cast<uint32_t>(value) << shift);
+    }
+    if (field == ide::REG_COMMAND) {
+        HardwareFixture::state().ide_commands[channel] = value;
+        if (value == ide::CMD_IDENTIFY && channel == 1 && HardwareFixture::state().secondary_atapi &&
+            HardwareFixture::state().ide_drives[channel] == 0) {
+            HardwareFixture::state().ide_lba[channel] = (static_cast<uint32_t>(ide::ATAPI_SIGNATURE_MID) << 8) |
+                                                        (static_cast<uint32_t>(ide::ATAPI_SIGNATURE_HIGH) << 16);
+        }
+        if (StorageConcurrency::active()) {
+            assert(value == ide::CMD_READ || value == ide::CMD_WRITE);
+            StorageConcurrency::command(channel, HardwareFixture::state().ide_lba[channel], 1);
+        }
+    }
     if (port == ide::IDE0_CTRL || port == ide::IDE1_CTRL) {
         HardwareFixture::state().control[port == ide::IDE1_CTRL] = value;
     }
-    if (port == ide::IDE0_BASE + ide::REG_DEVICE) {
-        HardwareFixture::state().primary_master = (value & 0x10) == 0;
-        HardwareFixture::state().ide_command = 0;
-    }
-    if (port == ide::IDE0_BASE + ide::REG_COMMAND) {
-        HardwareFixture::state().ide_command = value;
-    }
 }
-void arch_port_read16_buffer(uint16_t, void* buffer, size_t count) {
+void arch_port_read16_buffer(uint16_t port, void* buffer, size_t count) {
+    if (StorageConcurrency::active()) {
+        int channel = port == ide::IDE1_BASE;
+        memset(buffer, StorageConcurrency::pattern(HardwareFixture::state().ide_lba[channel]), count * 2);
+        return;
+    }
     memset(buffer, 0, count * 2);
     auto* words = static_cast<uint16_t*>(buffer);
     words[60] = 128;
     ++HardwareFixture::state().transfers;
 }
-void arch_port_write16_buffer(uint16_t, void*, size_t) {
+void arch_port_write16_buffer(uint16_t port, void* buffer, size_t count) {
+    if (StorageConcurrency::active()) {
+        int channel = port == ide::IDE1_BASE;
+        auto* bytes = static_cast<uint8_t*>(buffer);
+        for (size_t byte = 0; byte < count * 2; ++byte) {
+            assert(bytes[byte] == StorageConcurrency::pattern(HardwareFixture::state().ide_lba[channel]));
+        }
+        return;
+    }
     ++HardwareFixture::state().transfers;
 }
 
@@ -349,6 +452,14 @@ static void test_mmio() {
     temporary.release_value().reset();
     assert(vmm::mmio_map(0xC000, PG_SIZE, VM_WRITE) == KERNEL_DEVIO_BASE + PG_SIZE);
     assert(HardwareFixture::mapped_pages() == 2 && HardwareFixture::state().allocations == 2);
+}
+
+static void test_concurrent_requests(BlockDevice* first, BlockDevice* second, int first_resource, int second_resource,
+                                     size_t blocks, bool independent) {
+    StorageConcurrency::run(first, second, first_resource, second_resource, blocks, false, false, independent);
+    StorageConcurrency::run(first, second, first_resource, second_resource, blocks, true, false, independent);
+    StorageConcurrency::run(first, second, first_resource, second_resource, blocks, false, true, independent);
+    StorageConcurrency::run(first, second, first_resource, second_resource, blocks, true, true, independent);
 }
 
 static void test_ahci(const char* test) {
@@ -411,6 +522,12 @@ static void test_ahci(const char* test) {
     assert(AhciManager::device_count() == 2 && BlockManager::device_count() == 2);
     assert(AhciManager::probe_callback(&pci_device, nullptr) == Error::Busy);
     auto* device = AhciManager::find_device(0);
+    if (strcmp(test, "ahci_concurrent") == 0 || strcmp(test, "ahci_independent") == 0) {
+        bool independent = strcmp(test, "ahci_independent") == 0;
+        test_concurrent_requests(device, independent ? AhciManager::find_device(1) : device, 0, independent ? 1 : 0, 9,
+                                 independent);
+        return;
+    }
     uint8_t buffer[513]{};
     assert(device->read(0, nullptr, 1) == Error::Invalid);
     assert(device->read(1, buffer, static_cast<size_t>(-1)) == Error::Invalid);
@@ -468,6 +585,17 @@ static void test_sd(const char* test) {
     }
     assert(sdhci::device_count() == 1 && BlockManager::device_count() == 1);
     auto* device = sdhci::find_device();
+    if (strcmp(test, "sd_concurrent") == 0) {
+        test_concurrent_requests(device, device, 0, 0, 2, false);
+        return;
+    }
+    if (strcmp(test, "sd_independent") == 0) {
+        SdDevice second;
+        assert(second.init(reinterpret_cast<volatile uint8_t*>(KERNEL_DEVIO_BASE + PG_SIZE), 1) == Error::None);
+        test_concurrent_requests(device, &second, 0, 1, 2, true);
+        second.shutdown();
+        return;
+    }
     uint8_t buffer[513]{};
     assert(device->read(0, nullptr, 1) == Error::Invalid);
     assert(device->read(1, buffer, static_cast<size_t>(-1)) == Error::Invalid);
@@ -477,11 +605,59 @@ static void test_sd(const char* test) {
     assert(device->read(0, buffer, 1) == Error::Io);
     Fixture::state().fault = Fixture::Fault::Timeout;
     assert(device->write(0, buffer, 1) == Error::Timeout);
+    Fixture::state().fault = Fixture::Fault::None;
+    assert(device->read(0, buffer, 1) == Error::None);  // Error returns released the mutex.
 }
 
 static void test_ide(const char* test) {
     using Fixture = HardwareFixture;
     Fixture::state().backend = Fixture::Backend::Ide;
+    if (sys::strncmp(test, "ide_atapi", 9) == 0) {
+        Fixture::state().secondary_atapi = true;
+        Error expected = Error::None;
+        int count = 1;
+        if (strcmp(test, "ide_atapi_ata_io") == 0) {
+            Fixture::state().fault = Fixture::Fault::Io;
+            expected = Error::Io;
+            count = 0;
+        }
+        if (strcmp(test, "ide_atapi_io") == 0) {
+            Fixture::state().atapi_error = 0x40;  // UNC is a genuine media error.
+            expected = Error::Io;
+        }
+        if (strcmp(test, "ide_atapi_df") == 0) {
+            Fixture::state().atapi_status |= ide::STATUS_DF;
+            expected = Error::Io;
+        }
+        if (strcmp(test, "ide_atapi_timeout") == 0) {
+            Fixture::state().atapi_status = ide::STATUS_BSY;
+            expected = Error::Timeout;
+        }
+        assert(IdeManager::init() == expected && IdeManager::device_count() == count);
+        assert(BlockManager::device_count() == count && Fixture::state().transfers == count);
+        assert(Fixture::state().control[0] == 0 && Fixture::state().control[1] == 0);
+        return;
+    }
+    if (strcmp(test, "ide_identify_abrt") == 0 || strcmp(test, "ide_identify_stale") == 0) {
+        Fixture::state().ata_aborted = true;
+        if (strcmp(test, "ide_identify_stale") == 0) {
+            Fixture::state().ide_lba[0] = (static_cast<uint32_t>(ide::ATAPI_SIGNATURE_MID) << 8) |
+                                          (static_cast<uint32_t>(ide::ATAPI_SIGNATURE_HIGH) << 16);
+        }
+        assert(IdeManager::init() == Error::Io && IdeManager::device_count() == 0);
+        assert(Fixture::state().control[0] == 0 && Fixture::state().transfers == 0);
+        return;
+    }
+    if (strcmp(test, "ide_concurrent") == 0 || strcmp(test, "ide_independent") == 0 || strcmp(test, "ide_same") == 0) {
+        Fixture::state().all_ide_drives = true;
+        assert(IdeManager::init() == Error::None && IdeManager::device_count() == 4);
+        bool independent = strcmp(test, "ide_independent") == 0;
+        int second = independent ? 2 : strcmp(test, "ide_same") == 0 ? 0 : 1;
+        test_concurrent_requests(IdeManager::find_device(0), IdeManager::find_device(second), 0, independent ? 1 : 0, 2,
+                                 independent);
+        assert(Fixture::state().control[0] == 0 && Fixture::state().control[1] == 0);
+        return;
+    }
     if (strcmp(test, "ide_full") == 0) {
         fill_registry();
         assert(IdeManager::init() == Error::Full);
@@ -515,6 +691,8 @@ static void test_ide(const char* test) {
     assert(Fixture::state().control[0] == 0);
     assert(device->write(0, buffer, 1) == expected);
     assert(Fixture::state().control[0] == 0);
+    Fixture::state().fault = Fixture::Fault::None;
+    assert(device->read(0, buffer, 1) == Error::None);  // Error returns released the channel.
 }
 
 extern "C" int main(int argc, char** argv) {

@@ -59,6 +59,7 @@ void RegisterHostToDeviceFis::set_command(uint8_t cmd, uint32_t lba, uint16_t co
 }
 
 Error AhciDevice::detect(const AhciPortConfig* cfg, uintptr_t mmio_base) {
+    sys::lock_guard<Mutex> guard(io_mutex_);
     this->config = cfg;
     port_base_ = mmio_base + ahci::PORT_BASE_OFFSET + (cfg->port * ahci::PORT_REG_SIZE);
 
@@ -150,6 +151,11 @@ Error AhciDevice::stop_engine() {
 }
 
 Error AhciDevice::shutdown() {
+    sys::lock_guard<Mutex> guard(io_mutex_);
+    return shutdown_locked();
+}
+
+Error AhciDevice::shutdown_locked() {
     present_ = 0;
     if (port_base_ == 0) {
         return Error::None;
@@ -313,6 +319,8 @@ void AhciDevice::print_info() {
 }
 
 Error AhciDevice::transfer_blocks(uint32_t start_lba, size_t block_count, void* buf, bool write) {
+    // Slot 0, command metadata and the bounce buffer belong to this entire request.
+    sys::lock_guard<Mutex> guard(io_mutex_);
     const char* op_name = write ? "write" : "read";
 
     if (!present_) {
@@ -345,7 +353,7 @@ Error AhciDevice::transfer_blocks(uint32_t start_lba, size_t block_count, void* 
         Error completed = wait_cmd_complete();
         if (completed != Error::None) {
             // Stop timed-out DMA before the caller can submit another command.
-            Error stopped = shutdown();
+            Error stopped = shutdown_locked();
             if (stopped != Error::None) {
                 cprintf("ahci: %s: failed to stop DMA: %s\n", name, error_str(stopped));
             }
