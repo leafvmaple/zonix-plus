@@ -98,7 +98,8 @@ static void cmd_exec(int argc, char** argv) {
         int exit_code = 0;
         (void)sched::wait(pid_r.value(), &exit_code);
     } else {
-        cprintf("Failed to execute: %s\n", filename);
+        Error error = pid_r.error();
+        cprintf("exec: failed to execute '%s': %s (%d)\n", path_buf, error_str(error), static_cast<int>(error));
     }
 }
 

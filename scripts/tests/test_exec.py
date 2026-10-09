@@ -35,6 +35,8 @@ class ExecContractTests(unittest.TestCase):
         result = subprocess.run([str(self.binary), mode], capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("[OK] exec ownership and errors: " + mode, result.stdout)
+        self.assertNotIn("failed", result.stdout)
+        self.assertNotIn("invalid ELF", result.stdout)
 
     def test_success_transfers_address_space_to_child_once(self):
         self.run_case("success")
@@ -47,6 +49,12 @@ class ExecContractTests(unittest.TestCase):
 
     def test_fork_failure_preserves_error_and_reclaims_complete_image(self):
         self.run_case("fork")
+
+    def test_missing_file_returns_without_a_fault_log(self):
+        self.run_case("missing")
+
+    def test_invalid_elf_returns_without_a_fault_log(self):
+        self.run_case("bad-elf")
 
 
 if __name__ == "__main__":

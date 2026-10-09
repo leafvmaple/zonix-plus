@@ -117,8 +117,10 @@ void FatInfo::unmount() {
     if (buffer_dirty_ && buffer_sector_ != FAT_INVALID_SECTOR) {
         for (uint32_t i = 0; i < fat_count_; i++) {
             uint32_t fat_sector = fat_start_sector_ + (i * fat_sector_count_) + (buffer_sector_ - fat_start_sector_);
-            if (dev_->write(partition_start_lba_ + fat_sector, buffer_, 1) != Error::None) {
-                cprintf("fat_unmount: failed to write FAT sector %d\n", fat_sector);
+            Error error = dev_->write(partition_start_lba_ + fat_sector, buffer_, 1);
+            if (error != Error::None) {
+                cprintf("fat: unmount failed to flush LBA %d: %s (%d)\n", partition_start_lba_ + fat_sector,
+                        error_str(error), static_cast<int>(error));
             }
         }
         buffer_dirty_ = false;
@@ -198,12 +200,20 @@ Error FatInfo::write_entry(uint32_t cluster, uint32_t value) {
 Result<uint32_t> FatInfo::alloc_cluster() {
     for (uint32_t c = 2; c < cluster_count_ + 2; c++) {
         if (TRY(read_entry(c)) == fat::FAT32_FREE) {
-            TRY(write_entry(c, fat::FAT32_EOC_MAX));
+            Error error = write_entry(c, fat::FAT32_EOC_MAX);
+            if (error != Error::None) {
+                rollback_new_chain(c);
+                return error;
+            }
 
             uint8_t zero[512]{};
             uint32_t sector = cluster_to_sector(c);
             for (uint32_t s = 0; s < sectors_per_cluster_; s++) {
-                TRY(dev_->write(partition_start_lba_ + sector + s, zero, 1));
+                error = dev_->write(partition_start_lba_ + sector + s, zero, 1);
+                if (error != Error::None) {
+                    rollback_new_chain(c);
+                    return error;
+                }
             }
             return c;
         }

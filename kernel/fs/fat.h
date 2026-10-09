@@ -63,7 +63,7 @@ private:
         bool finished_{};
     };
     [[nodiscard]] bool valid_cluster(uint32_t cluster) const;
-    Result<int> read_dir(uint32_t start_cluster, DirVisitor& visitor, bool verbose_read_error);
+    Result<int> read_dir(uint32_t start_cluster, DirVisitor& visitor);
 
     Result<uint32_t> read_entry(uint32_t cluster);
     Error write_entry(uint32_t cluster, uint32_t value);
@@ -74,13 +74,13 @@ private:
 
     Error find_entry(uint32_t start_cluster, const char* name, FatDirEntry* out);
     Error resolve_parent(const char* relpath, uint32_t* parent_cluster, char* child_name, size_t name_size);
-    Error add_dir_entry(uint32_t dir_cluster, const FatDirEntry* entry);
+    // On failure, report whether a partial write may have published the entry.
+    Error add_dir_entry(uint32_t dir_cluster, const FatDirEntry* entry, bool* entry_may_exist = nullptr);
     Error remove_dir_entry(uint32_t dir_cluster, const char* name);
     void make_83_name(const char* name, char out_name[8], char out_ext[3]);
 
     void do_init_state(BlockDevice* dev, uint32_t partition_start, const Fat32BootSector& bs);
-    Result<int> do_file_io(FatDirEntry* entry, uint8_t* io_buf, uint32_t offset, uint32_t size, const char* op,
-                           bool writeback);
+    Result<int> do_file_io(FatDirEntry* entry, uint8_t* io_buf, uint32_t offset, uint32_t size, bool writeback);
 
     [[nodiscard]] uint32_t cluster_to_sector(uint32_t cluster) const;
 

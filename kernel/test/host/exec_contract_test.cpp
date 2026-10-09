@@ -73,6 +73,7 @@ public:
     }
     void enter_guard() { ++guards_; }
     void leave_guard() { --guards_; }
+    bool guarded() const { return guards_ != 0; }
     void setup_frame(uintptr_t entry, uintptr_t stack) {
         assert(entry == 0x400000 && stack == USER_STACK_TOP);
         frame_ready_ = true;
@@ -91,9 +92,9 @@ public:
         return &child_;
     }
     void close_file() { ++closed_; }
-    void verify_failure(Error expected, Result<int>& result) {
+    void verify_failure(Error expected, Result<int>& result, int closed = 1) {
         assert(!result.ok() && result.error() == expected);
-        assert(live_ == 0 && mapped_ == 0 && guards_ == 0 && closed_ == 1);
+        assert(live_ == 0 && mapped_ == 0 && guards_ == 0 && closed_ == closed);
         assert(!child_.memory);
     }
     void verify_success(Result<int>& result) {
@@ -132,6 +133,7 @@ private:
 
 class ExecutableFile : public vfs::File {
 public:
+    void invalidate() { invalid_ = true; }
     Error stat(vfs::Stat* st) override {
         st->set(vfs::NodeType::File, 512, 0);
         return Error::None;
@@ -140,7 +142,7 @@ public:
         assert(size == 512);
         memset(buf, 0, size);
         auto* eh = static_cast<ElfHeader*>(buf);
-        eh->e_magic = ELF_MAGIC;
+        eh->e_magic = invalid_ ? 0 : ELF_MAGIC;
         eh->e_elf[0] = 2;
         eh->e_type = 2;
         eh->e_machine = EM_CURRENT;
@@ -161,11 +163,15 @@ public:
         return static_cast<int>(size);
     }
     Result<int> write(const void*, size_t, size_t) override { return Error::NotSupported; }
+
+private:
+    bool invalid_{};
 };
 
 }  // namespace
 
 int cprintf(const char* format, ...) {
+    assert(!ExecFixture::current().guarded());
     va_list args;
     va_start(args, format);
     int written = vprintf(format, args);
@@ -264,15 +270,23 @@ extern "C" int main(int argc, char** argv) {
     assert(vmm::init() == 0);
     if (strcmp(argv[1], "fork") == 0) {
         fixture.fail_fork();
+    } else if (strcmp(argv[1], "bad-elf") == 0) {
+        file.invalidate();
+    } else if (strcmp(argv[1], "missing") == 0) {
+        // No allocation failure: VFS refuses the requested path.
     } else if (strcmp(argv[1], "success") != 0) {
         fixture.fail_allocation(argv[1][0] - '0');
     }
-    auto result = exec::exec("file");
+    auto result = exec::exec(strcmp(argv[1], "missing") == 0 ? "missing" : "file");
     if (strcmp(argv[1], "success") == 0) {
         fixture.verify_success(result);
     } else if (strcmp(argv[1], "fork") == 0) {
         fixture.verify_failure(Error::Busy, result);
         fixture.verify_fork_failure();
+    } else if (strcmp(argv[1], "bad-elf") == 0) {
+        fixture.verify_failure(Error::Invalid, result);
+    } else if (strcmp(argv[1], "missing") == 0) {
+        fixture.verify_failure(Error::NotFound, result, 0);
     } else {
         fixture.verify_failure(Error::NoMem, result);
     }

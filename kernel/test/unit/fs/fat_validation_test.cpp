@@ -55,12 +55,23 @@ public:
     }
     uint32_t link(uint32_t cluster) const { return reinterpret_cast<uint32_t*>(data_ + BLOCK_SIZE_BYTES)[cluster]; }
     void fail_fat_reads(bool fail) { fail_fat_reads_ = fail; }
+    void fail_read_at(uint32_t block, Error error) {
+        read_block_ = block;
+        read_error_ = error;
+    }
+    void fail_write_at(uint32_t block, size_t matching_write, Error error, size_t slot = 0, bool partial = false) {
+        assert(slot < 2 && matching_write > 0);
+        write_failures_[slot] = {block, matching_write, error, partial};
+    }
     Error read(uint32_t block, void* buffer, size_t count) override {
         if (block > block_count || count > block_count - block) {
             return Error::Io;
         }
         if (fail_fat_reads_ && block == 1) {
             return Error::Io;
+        }
+        if (read_error_ != Error::None && block == read_block_) {
+            return read_error_;
         }
         memcpy(buffer, data_ + block * BLOCK_SIZE_BYTES, count * BLOCK_SIZE_BYTES);
         return Error::None;
@@ -69,11 +80,31 @@ public:
         if (block > block_count || count > block_count - block) {
             return Error::Io;
         }
+        for (auto& failure : write_failures_) {
+            if (failure.error != Error::None && failure.block == block && --failure.remaining == 0) {
+                Error error = failure.error;
+                failure.error = Error::None;
+                if (failure.partial) {
+                    // Model a write which takes effect before reporting failure.
+                    memcpy(data_ + block * BLOCK_SIZE_BYTES, buffer, count * BLOCK_SIZE_BYTES);
+                }
+                return error;
+            }
+        }
         memcpy(data_ + block * BLOCK_SIZE_BYTES, buffer, count * BLOCK_SIZE_BYTES);
         return Error::None;
     }
 
 private:
+    struct WriteFailure {
+        uint32_t block{};
+        size_t remaining{};
+        Error error{Error::None};
+        bool partial{};
+    };
+    WriteFailure write_failures_[2]{};
+    uint32_t read_block_{};
+    Error read_error_{Error::None};
     uint8_t* data_{};
     uint8_t cluster_sectors_{};
     bool fail_fat_reads_{};
@@ -221,6 +252,133 @@ void test_cyclic_file_removal() {
     TEST_END();
 }
 
+void test_device_errors() {
+    TEST_START("FAT propagates device errors from root, subdirectory and file I/O");
+    FatImage image(1);
+    FatInfo fs;
+    IgnoreEntries visitor;
+    if (!image.ready()) {
+        TEST_ASSERT(false, "Allocated image");
+        TEST_END();
+        return;
+    }
+    auto* entries = reinterpret_cast<FatDirEntry*>(image.cluster_data(2));
+    entries[1] = entries[0];
+    memcpy(entries[1].name, "SUB     ", 8);
+    memcpy(entries[1].ext, "   ", 3);
+    entries[1].attr = FAT_ATTR_DIRECTORY;
+    entries[1].first_cluster_low = 5;
+    entries[1].file_size = 0;
+    TEST_ASSERT(fs.mount(&image) == Error::None, "Mounted device-error fixture");
+    image.fail_read_at(2, Error::Timeout);
+    auto listing = fs.read_dir("", visitor);
+    TEST_ASSERT(!listing.ok() && listing.error() == Error::Timeout, "Root listing preserves timeout");
+    image.fail_read_at(5, Error::NoDevice);
+    listing = fs.read_dir("SUB", visitor);
+    TEST_ASSERT(!listing.ok() && listing.error() == Error::NoDevice, "Subdirectory listing preserves device loss");
+    image.fail_read_at(3, Error::Timeout);
+    FatDirEntry file = entries[0];
+    uint8_t byte{};
+    auto read = fs.read_file(&file, &byte, 0, 1);
+    TEST_ASSERT(!read.ok() && read.error() == Error::Timeout, "File read preserves timeout");
+    image.fail_read_at(0, Error::None);
+    image.fail_write_at(3, 1, Error::Busy);
+    auto written = fs.write_file(&file, &byte, 0, 1);
+    TEST_ASSERT(!written.ok() && written.error() == Error::Busy, "File write preserves busy");
+    memcpy(image.cluster_data(5), &file, sizeof(file));
+    TEST_ASSERT(fs.rmdir("SUB") == Error::NotEmpty, "Nonempty directory is an ordinary refusal");
+    fs.unmount();
+    TEST_END();
+}
+
+void test_mkdir_rollback() {
+    TEST_START("FAT mkdir preserves primary errors and owns rollback resources");
+    for (int phase = 0; phase < 5; ++phase) {
+        FatImage image(1);
+        FatInfo fs;
+        if (!image.ready()) {
+            TEST_ASSERT(false, "Allocated image");
+            break;
+        }
+        image.set_link(4, fat::FAT32_FREE);
+        TEST_ASSERT(fs.mount(&image) == Error::None, "Mounted mkdir failure fixture");
+        Error expected = Error::Timeout;
+        if (phase == 0) {
+            expected = Error::NoDevice;
+            image.fail_write_at(1, 1, expected);
+        } else if (phase == 1) {
+            image.fail_write_at(4, 1, expected);
+        } else if (phase == 2) {
+            expected = Error::Busy;
+            image.fail_write_at(4, 2, expected);
+        } else if (phase == 3) {
+            expected = Error::NoDevice;
+            image.fail_write_at(2, 1, expected, 0, true);
+        } else {
+            image.fail_write_at(4, 2, expected);
+            image.fail_write_at(1, 2, Error::Busy, 1);
+        }
+        TEST_ASSERT(fs.mkdir("NEW") == expected, "Original allocation/write error survives cleanup");
+        if (phase < 3) {
+            TEST_ASSERT(image.link(4) == fat::FAT32_FREE, "Unpublished cluster is reclaimed");
+        } else {
+            TEST_ASSERT(image.link(4) == fat::FAT32_EOC_MAX, "Uncertain publication/failed cleanup retains allocation");
+        }
+        if (phase == 3) {
+            FatDirEntry entry{};
+            TEST_ASSERT(fs.find_file("NEW", &entry) == Error::None && entry.cluster() == 4,
+                        "Partially published directory still references an allocated cluster");
+        }
+        fs.unmount();
+    }
+    TEST_END();
+}
+
+void test_directory_extension_rollback() {
+    TEST_START("FAT initializes directory extensions before publishing their links");
+    for (int phase = 0; phase < 4; ++phase) {
+        FatImage image(1);
+        FatInfo fs;
+        if (!image.ready()) {
+            TEST_ASSERT(false, "Allocated image");
+            break;
+        }
+        auto* entries = reinterpret_cast<FatDirEntry*>(image.cluster_data(2));
+        FatDirEntry file = entries[0];
+        for (size_t i = 0; i < image.cluster_bytes() / sizeof(FatDirEntry); ++i) {
+            entries[i] = file;
+        }
+        image.set_link(4, phase == 3 ? fat::FAT32_EOC_MAX : fat::FAT32_FREE);
+        if (phase == 2) {
+            image.set_link(5, fat::FAT32_FREE);
+        }
+        TEST_ASSERT(fs.mount(&image) == Error::None, "Mounted full-directory fixture");
+        Error expected = Error::Timeout;
+        if (phase == 0) {
+            image.fail_write_at(4, 2, expected);
+        } else if (phase == 1) {
+            expected = Error::NoDevice;
+            image.fail_write_at(1, 2, expected);
+        } else if (phase == 2) {
+            image.fail_write_at(1, 3, expected);
+            image.fail_write_at(1, 3, Error::Busy, 1);
+        } else {
+            expected = Error::Full;
+        }
+        Error error = phase == 2 ? fs.mkdir("NEW") : fs.create_file("NEW.TXT");
+        TEST_ASSERT(error == expected, "Extension failure retains its precise primary error");
+        TEST_ASSERT(image.link(2) == fat::FAT32_EOC_MAX, "Failed extension does not publish a freed tail");
+        if (phase < 2) {
+            TEST_ASSERT(image.link(4) == fat::FAT32_FREE, "Safely detached extension is reclaimed");
+        } else if (phase == 2) {
+            TEST_ASSERT(image.link(4) == fat::FAT32_EOC_MAX && image.link(5) == fat::FAT32_EOC_MAX,
+                        "Failed tail restoration retains both extension and referenced child");
+        }
+        fs.unmount();
+    }
+    TEST_END();
+}
+
 }  // namespace
 
 namespace fat_validation_test {
@@ -231,6 +389,9 @@ void test() {
     test_large_cluster_io();
     test_directory_chains();
     test_cyclic_file_removal();
+    test_device_errors();
+    test_mkdir_rollback();
+    test_directory_extension_rollback();
     TEST_SUMMARY("FAT validation");
 }
 }  // namespace fat_validation_test

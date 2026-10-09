@@ -11,6 +11,10 @@
 
 namespace cmd {
 
+static void report_fs_error(const char* operation, const char* path, Error error) {
+    cprintf("%s: '%s': %s (%d)\n", operation, path, error_str(error), static_cast<int>(error));
+}
+
 class LsVisitor : public vfs::DirVisitor {
 public:
     int visit(const vfs::DirEntry& entry) override {
@@ -62,7 +66,7 @@ static void cmd_ls(int argc, char** argv) {
     auto count = vfs::readdir(path, visitor);
 
     if (!count.ok()) {
-        cprintf("Failed to read directory\n");
+        report_fs_error("ls", path, count.error());
     } else {
         cprintf("\nTotal: %d file(s)\n", count.value());
     }
@@ -102,15 +106,17 @@ static void cmd_cat(int argc, char** argv) {
     }
 
     vfs::File* file = nullptr;
-    if (vfs::open(path_buf, &file) != Error::None || !file) {
-        cprintf("File not found: %s\n", filename);
+    Error error = vfs::open(path_buf, &file);
+    if (error != Error::None || !file) {
+        report_fs_error("cat: open", path_buf, error != Error::None ? error : Error::Invalid);
         return;
     }
 
     vfs::Stat st{};
-    if (file->stat(&st) != Error::None) {
+    error = file->stat(&st);
+    if (error != Error::None) {
         vfs::close(file);
-        cprintf("Failed to stat file: %s\n", filename);
+        report_fs_error("cat: stat", path_buf, error);
         return;
     }
 
@@ -146,7 +152,9 @@ static void cmd_cat(int argc, char** argv) {
 
         auto rd = vfs::read(file, file_buf, chunk_size, offset);
         if (!rd.ok() || rd.value() <= 0) {
-            cprintf("\nError reading file at offset %d\n", offset);
+            error = rd.ok() ? Error::Io : rd.error();
+            cprintf("\ncat: read '%s' at offset %d: %s (%d)\n", path_buf, offset, error_str(error),
+                    static_cast<int>(error));
             break;
         }
         int read = rd.value();
@@ -196,8 +204,9 @@ static void cmd_mkdir(int argc, char** argv) {
         return;
     }
 
-    if (vfs::mkdir(path_buf) != Error::None) {
-        cprintf("Failed to create directory: %s\n", dirname);
+    Error error = vfs::mkdir(path_buf);
+    if (error != Error::None) {
+        report_fs_error("mkdir", path_buf, error);
     }
 }
 
@@ -226,8 +235,9 @@ static void cmd_touch(int argc, char** argv) {
         return;
     }
 
-    if (vfs::create(path_buf) != Error::None) {
-        cprintf("Failed to create file: %s\n", filename);
+    Error error = vfs::create(path_buf);
+    if (error != Error::None) {
+        report_fs_error("touch", path_buf, error);
     }
 }
 
@@ -256,8 +266,9 @@ static void cmd_rm(int argc, char** argv) {
         return;
     }
 
-    if (vfs::unlink(path_buf) != Error::None) {
-        cprintf("Failed to remove file: %s\n", filename);
+    Error error = vfs::unlink(path_buf);
+    if (error != Error::None) {
+        report_fs_error("rm", path_buf, error);
     }
 }
 
@@ -286,8 +297,9 @@ static void cmd_rmdir(int argc, char** argv) {
         return;
     }
 
-    if (vfs::rmdir(path_buf) != Error::None) {
-        cprintf("Failed to remove directory: %s\n", dirname);
+    Error error = vfs::rmdir(path_buf);
+    if (error != Error::None) {
+        report_fs_error("rmdir", path_buf, error);
     }
 }
 

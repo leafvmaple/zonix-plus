@@ -22,14 +22,8 @@ bool is_elf(const uint8_t* data, size_t size) {
 }
 
 Error validate(const ElfHeader* eh, size_t file_size) {
-    ENSURE_LOG(eh, Error::Invalid, "elf: null ELF header");
-    ENSURE_LOG(file_size >= sizeof(ElfHeader), Error::Invalid, "elf: file too small (%d bytes)", file_size);
-
-    ENSURE_LOG(eh->is_valid(), Error::Invalid,
-               "elf: invalid ELF header (magic=0x%08x, class=%d, version=%d, machine=0x%04x)", eh->e_magic,
-               eh->e_elf[0], eh->e_version, eh->e_machine);
-
-    ENSURE_LOG(eh->is_executable(), Error::Invalid, "elf: not an executable ELF file");
+    ENSURE(eh && file_size >= sizeof(ElfHeader));
+    ENSURE(eh->is_valid() && eh->is_executable());
 
     ENSURE(eh->e_ehsize == sizeof(ElfHeader) && eh->e_phentsize == sizeof(ProgramHeader));
     ENSURE(eh->e_phoff >= sizeof(ElfHeader) && eh->e_phoff <= file_size);
@@ -100,10 +94,7 @@ Result<uintptr_t> load(const uint8_t* data, size_t size, pde_t* pgdir) {
             }
 
             Page* page = pmm::alloc_and_map_page(pgdir, va, perm);
-            if (!page) {
-                cprintf("elf: failed to allocate page for va=0x%lx\n", va);
-                return Error::NoMem;
-            }
+            ENSURE(page, Error::NoMem);
 
             // Zero fresh page (covers BSS and padding)
             memset(phys_to_virt(pmm::page_to_phys(page)), 0, PG_SIZE);

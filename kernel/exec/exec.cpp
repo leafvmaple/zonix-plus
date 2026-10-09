@@ -66,10 +66,7 @@ private:
 
 Result<pde_t*> create_user_pgdir() {
     auto* pgdir = static_cast<pde_t*>(kmalloc(PG_SIZE));
-    if (!pgdir) {
-        cprintf("exec: failed to allocate page table root\n");
-        return Error::NoMem;
-    }
+    ENSURE(pgdir, Error::NoMem);
 
     memset(pgdir, 0, PG_SIZE);
     // Copy higher-half kernel mappings (top-level entries USER_TOP_ENTRIES..PAGE_TABLE_ENTRIES-1)
@@ -85,10 +82,7 @@ Result<uintptr_t> setup_user_stack(pde_t* pgdir) {
 
     for (uintptr_t va = user_stack_bottom_va; va < USER_STACK_TOP; va += PG_SIZE) {
         Page* page = pmm::alloc_and_map_page(pgdir, va, VM_USER_RW);
-        if (!page) {
-            cprintf("exec: failed to allocate user stack page at 0x%lx\n", va);
-            return Error::NoMem;
-        }
+        ENSURE(page, Error::NoMem);
 
         memset(phys_to_virt(pmm::page_to_phys(page)), 0, PG_SIZE);
     }
@@ -104,8 +98,8 @@ public:
         image.memory_ = new (std::nothrow) MemoryDesc();
         ENSURE(image.memory_, Error::NoMem);
         image.memory_->pgdir = TRY(create_user_pgdir());
-        image.entry_va_ = TRY_LOG(elf::load(data, size, image.memory_->pgdir), "exec: failed to load ELF");
-        image.stack_va_ = TRY_LOG(setup_user_stack(image.memory_->pgdir), "exec: failed to set up user stack");
+        image.entry_va_ = TRY(elf::load(data, size, image.memory_->pgdir));
+        image.stack_va_ = TRY(setup_user_stack(image.memory_->pgdir));
         return image;
     }
 
@@ -135,25 +129,22 @@ Result<int> exec(const char* path) {
     ENSURE(path);
 
     OpenFile file;
-    TRY_LOG(file.open(path), "exec: failed to open file: %s", path);
+    TRY(file.open(path));
     assert(file.handle());
 
     vfs::Stat st{};
-    TRY_LOG(file.handle()->stat(&st), "exec: failed to stat file: %s", path);
+    TRY(file.handle()->stat(&st));
 
-    ENSURE_LOG(st.type != vfs::NodeType::Directory, Error::Invalid, "exec: cannot execute directory: %s", path);
+    ENSURE(st.type != vfs::NodeType::Directory);
 
     uint32_t file_size = st.size;
-    ENSURE_LOG(file_size > 0, Error::Invalid, "exec: empty file: %s", path);
-    ENSURE_LOG(file_size <= MAX_BINARY_SIZE, Error::Invalid, "exec: file too large (%d bytes, max %d): %s", file_size,
-               MAX_BINARY_SIZE, path);
+    ENSURE(file_size > 0 && file_size <= MAX_BINARY_SIZE);
 
     KernelBuf buf;
-    TRY_LOG(buf.alloc(file_size), "exec: failed to allocate kernel buffer for file: %s", path);
+    TRY(buf.alloc(file_size));
 
-    int bytes_read = TRY_LOG(vfs::read(file.handle(), buf.data(), file_size, 0), "exec: failed to read file: %s", path);
-    ENSURE_LOG(bytes_read == static_cast<int>(file_size), Error::Io, "exec: incomplete read (%d/%d bytes): %s",
-               bytes_read, file_size, path);
+    int bytes_read = TRY(vfs::read(file.handle(), buf.data(), file_size, 0));
+    ENSURE(bytes_read == static_cast<int>(file_size), Error::Io);
 
     auto image = TRY(UserImage::load(buf.data(), file_size));
     const uintptr_t entry_va = image.entry_va();
@@ -165,7 +156,7 @@ Result<int> exec(const char* path) {
     int pid{};
     {
         intr::Guard guard;
-        pid = TRY_LOG(sched::fork(0, user_stack_va, &tf), "exec: fork failed");
+        pid = TRY(sched::fork(0, user_stack_va, &tf));
 
         Task* proc = sched::find_process(pid);
         assert(proc);

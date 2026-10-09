@@ -152,6 +152,23 @@ error destruction does not panic.
   operation and interrupt boundaries before implementing it. Normal propagation
   remains allocation-free and does not acquire an implicit global trace buffer.
 
+The exec/ELF validation and allocation chain returns errors silently. The shell
+reports a failed execution with the resolved path and original code/name; syscall
+callers receive the error directly. In particular, fork failure does not print
+while holding the interrupt guard. Successful loader diagnostics are unchanged.
+
+FAT directory/file helpers propagate device codes unchanged, and expected
+`NotEmpty`/`Full` refusals do not print. The filesystem shell commands report the
+operation, resolved path and original code/name. Rollback failures are secondary
+and may print their own distinct context; they never overwrite the primary error.
+
+Initialize an unpublished directory extension before linking it. Reclaim it only
+after detachment is confirmed. A failed device write can have partially taken
+effect: if publication or tail restoration is uncertain, retain any possibly
+referenced clusters and report the uncertainty. This favors an allocated orphan
+over a dangling reference to a freed cluster. It does not provide transactional
+FAT updates or power-loss recovery; those require a separate filesystem design.
+
 ## Verification
 
 `kernel/test/unit/lib/result_test.cpp` exercises state transitions, copying,
@@ -168,3 +185,9 @@ the actual exec and ELF loader with host substitutes under `kernel/test/host`.
 It disables copy elision and checks each allocation failure, fork failure and
 successful transfer of the address space to the child. These substitutes do
 not alter production interfaces or add test hooks to kernel code.
+
+The exec host tests also reject console output inside the interrupt guard and
+check missing/invalid binaries produce no fault logs in propagation helpers.
+`kernel/test/unit/fs/fat_validation_test.cpp` injects distinct read/write errors,
+partial writes and secondary rollback failures. It verifies primary codes,
+reclamation of unpublished clusters and retention of possibly published ones.
