@@ -468,6 +468,16 @@ failed setup never publishes `Ready`, reject duplicate initialization without
 MMIO, and retry safely stopped devices. They also check offline borrowed pointers
 never access hardware, SDHCI PCI identity/slot stability, pre-submission AHCI
 timeouts, runtime DMA quarantine and continued use of ready sibling devices.
+The queued-failure matrix covers all four read/write combinations, errors and
+timeouts on the first command or after a successful chunk, plus AHCI DMA-stop
+failure. It pauses the first command until a second thread reaches its mutex:
+same-device waiters must acquire/release once, recheck availability and perform
+zero hardware accesses. Read buffers retain the successful prefix and untouched
+tail. Independent resources must finish while the first command is paused;
+IDE's same-channel sibling waits for cleanup and then uses the channel normally.
+Faults are scoped to the issuing test thread, so they cannot silently fault an
+independent request. The fixture also checks stable registry slots, retained MMIO
+owners and DMA addresses, and restored IDE Device Control after failure.
 Only the host fixture substitutes the Mutex backend; `sync_test` exercises the
 real kernel Mutex with sleeping contenders and interrupt-state restoration.
 `scripts/tests/test_kernel_linker.py` links a RISC-V fixture whose small BSS

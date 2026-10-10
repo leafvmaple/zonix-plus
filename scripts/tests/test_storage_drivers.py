@@ -110,6 +110,31 @@ class StorageDriverTests(unittest.TestCase):
             with self.subTest(case=case):
                 self.run_case(case)
 
+    def failure_cases(self, driver, resource, fault):
+        for direction in ["rr", "rw", "wr", "ww"]:
+            for stage in ["first", "partial"]:
+                case = f"queued_{driver}_{resource}_{fault}_{direction}_{stage}"
+                with self.subTest(case=case):
+                    self.run_case(case)
+
+    def test_queued_requests_recheck_failed_device_state(self):
+        for driver in ["ahci", "sd", "ide"]:
+            for fault in ["io", "timeout"]:
+                self.failure_cases(driver, "same", fault)
+
+    def test_independent_resources_progress_during_failure(self):
+        for driver in ["ahci", "sd", "ide"]:
+            for fault in ["io", "timeout"]:
+                self.failure_cases(driver, "independent", fault)
+
+    def test_ide_sibling_waits_for_failed_request_cleanup(self):
+        for fault in ["io", "timeout"]:
+            self.failure_cases("ide", "sibling", fault)
+
+    def test_queued_requests_cannot_reuse_quarantined_dma(self):
+        for resource in ["same", "independent"]:
+            self.failure_cases("ahci", resource, "quarantine")
+
 
 if __name__ == "__main__":
     unittest.main()
