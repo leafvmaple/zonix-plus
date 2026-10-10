@@ -341,6 +341,40 @@ so an AHCI controller never registers just the first part of a port batch.
 Managers retain stable slots and expose only successfully published devices.
 IDE initialization skips already published configurations on retry.
 
+AHCI, SDHCI and IDE use `blk::DeviceState` as their availability authority:
+
+| State | Meaning | Allowed transition |
+| --- | --- | --- |
+| `Offline` | Uninitialized, safely stopped or failed PIO device; reject I/O | Explicit initialization to `Initializing` |
+| `Initializing` | Hardware setup/IDENTIFY is incomplete; reject I/O | Success to `Ready`, cleanup to `Offline`, unsafe DMA cleanup to `Quarantined` |
+| `Ready` | Initialization completed; accept validated I/O under the resource lock | Shutdown or hardware failure to `Offline`, unsafe DMA cleanup to `Quarantined` |
+| `Quarantined` | AHCI cannot prove DMA engines stopped; retain mapping and buffers | Terminal; reject I/O, shutdown and initialization retries |
+
+Parameter/range errors leave a ready device ready. Hardware I/O errors and
+timeouts return their original error after cleanup; subsequent requests return
+`NoDevice` without touching hardware. AHCI applies this to command submission
+failures as well as completion failures. IDE's scoped guard restores Device
+Control; SDHCI disables signals, clock and card power. A secondary AHCI stop
+failure is logged and cannot replace the original transfer/initialization error.
+
+Typed driver lookups expose only `Ready` devices. Published counts and block
+registry entries retain their original, address-stable slots even after failure;
+existing borrowers receive `NoDevice`. Never overwrite or register a replacement
+in a published slot. SDHCI remembers each published PCI location and rejects a
+second probe of it; IDE probe retries skip published configurations. Unpublished
+failed slots remain reusable after safe cleanup. AHCI's controller state reserves
+an in-progress probe and retains either a published controller (`Ready`) or an
+unsafe failed probe (`Quarantined`); individual port failures do not disable ready
+sibling ports.
+
+`state()` is a diagnostic/lookup snapshot in the current single-CPU kernel, not
+a substitute for locking. Read/write and initialization must recheck state while
+holding the device/channel mutex. A ready or quarantined object rejects duplicate
+initialization with `Busy` before any hardware access. Explicit AHCI `detect` or
+SDHCI `init` may restore a safely offline object when its caller still owns the
+valid mapping/configuration. No automatic reset, hot-unplug or IDE channel
+recovery is provided.
+
 `vmm::map_mmio` returns an owner, preserves an unaligned physical byte offset,
 checks range overflow, and rolls back partial mappings on allocation failure.
 Reset/destruction removes PTEs, invalidates translations, prunes empty allocated
@@ -429,6 +463,11 @@ requests check buffer contents and retain a single lock until the last copy.
 IDE master/slave contend on the same channel; separate AHCI ports, SDHCI
 controllers and IDE channels finish independently while the first command is
 paused. Error paths are followed by another request to verify lock release.
+Lifecycle cases observe `Initializing` through hardware substitutes, verify
+failed setup never publishes `Ready`, reject duplicate initialization without
+MMIO, and retry safely stopped devices. They also check offline borrowed pointers
+never access hardware, SDHCI PCI identity/slot stability, pre-submission AHCI
+timeouts, runtime DMA quarantine and continued use of ready sibling devices.
 Only the host fixture substitutes the Mutex backend; `sync_test` exercises the
 real kernel Mutex with sleeping contenders and interrupt-state restoration.
 `scripts/tests/test_kernel_linker.py` links a RISC-V fixture whose small BSS

@@ -65,23 +65,59 @@ private:
 
 }  // namespace
 
-void IdeDevice::detect(const IdeConfig* cfg) {
+Result<bool> IdeDevice::detect_locked(const IdeConfig* cfg) {
+    ENSURE(cfg && cfg->channel < ide::CHANNEL_COUNT, Error::Invalid);
+    ENSURE(state_ == blk::DeviceState::Offline, Error::Busy);
     this->config = cfg;
-
+    state_ = blk::DeviceState::Initializing;
+    info = {};
+    block_count = 0;
     type = blk::DeviceType::Disk;
-    present = 1;
+    strncpy(name, cfg->name, sizeof(name));
+
+    auto detected = identify_locked();
+    state_ = detected.ok() && detected.value() ? blk::DeviceState::Ready : blk::DeviceState::Offline;
+    return detected;
+}
+
+Result<bool> IdeDevice::identify_locked() {
+    const auto& cfg = *config;
+    arch_port_write8(cfg.ctrl, 0);
+    PioInterruptMask interrupt_mask(cfg.ctrl);
+    uint8_t drive_sel = cfg.drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
+    arch_port_write8(cfg.base + ide::REG_DEVICE, drive_sel);
+    arch_io_wait();
+
+    // Packet devices replace these cleared bytes with their signature when
+    // aborting ATA IDENTIFY. A stale signature must not hide an ATA error.
+    arch_port_write8(cfg.base + ide::REG_LBA_LOW, 0);
+    arch_port_write8(cfg.base + ide::REG_LBA_MID, 0);
+    arch_port_write8(cfg.base + ide::REG_LBA_HIGH, 0);
+    arch_port_write8(cfg.base + ide::REG_COMMAND, ide::CMD_IDENTIFY);
+    arch_io_wait();
+
+    uint8_t status = arch_port_read8(cfg.base + ide::REG_STATUS);
+    if (status == 0 || status == 0xFF) {
+        return false;
+    }
+    Error ready = wait_status(cfg.base, ide::STATUS_DRQ);
+    if (ready == Error::Io && identify_is_atapi(cfg.base)) {
+        cprintf("ide: %s: skipping unsupported ATAPI device\n", cfg.name);
+        return false;
+    }
+    TRY(ready);
 
     uint16_t identify_data[256]{};
-    arch_port_read16_buffer(cfg->base + ide::REG_DATA, identify_data, 256);
+    arch_port_read16_buffer(cfg.base + ide::REG_DATA, identify_data, 256);
 
     info.cylinders = identify_data[1];
     info.heads = identify_data[3];
     info.sectors = identify_data[6];
     info.block_count = static_cast<uint32_t>(identify_data[60]) | (static_cast<uint32_t>(identify_data[61]) << 16);
     block_count = info.block_count;
-    info.valid = 1;
-
-    strncpy(name, cfg->name, sizeof(name));
+    ENSURE(block_count != 0, Error::NoDevice);
+    ENSURE(block_count <= (1U << 28), Error::NotSupported);
+    return true;
 }
 
 void IdeDevice::interrupt() {
@@ -119,6 +155,7 @@ void IdeDevice::interrupt() {
 }
 
 Error IdeManager::init() {
+    sys::lock_guard<Mutex> probe_guard(probe_mutex_);
     // Published objects are permanent. Retry skips their configurations rather
     // than registering duplicates or overwriting a live device slot.
     Error first_error = Error::None;
@@ -142,51 +179,17 @@ Error IdeManager::init() {
         }
         ENSURE(device_count_ < ide::MAX_DEVICES, Error::Full);
         sys::lock_guard<Mutex> guard(channel_mutexes_[config.channel]);
-        arch_port_write8(config.ctrl, 0);
-        PioInterruptMask interrupt_mask(config.ctrl);
-        uint8_t drive_sel = config.drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
-
-        // Select drive
-        arch_port_write8(config.base + ide::REG_DEVICE, drive_sel);
-        arch_io_wait();
-
-        // Send IDENTIFY command
-        // Clear stale task-file bytes; a packet device writes its signature
-        // when it aborts ATA IDENTIFY, rather than returning ATA identify data.
-        arch_port_write8(config.base + ide::REG_LBA_LOW, 0);
-        arch_port_write8(config.base + ide::REG_LBA_MID, 0);
-        arch_port_write8(config.base + ide::REG_LBA_HIGH, 0);
-        arch_port_write8(config.base + ide::REG_COMMAND, ide::CMD_IDENTIFY);
-        arch_io_wait();
-
-        // Check if device is present
-        uint8_t status = arch_port_read8(config.base + ide::REG_STATUS);
-        if (status == 0 || status == 0xFF) {
-            continue;  // No device or floating bus
-        }
-
-        Error ready = wait_status(config.base, ide::STATUS_DRQ);
-        if (ready != Error::None) {
-            if (ready == Error::Io && identify_is_atapi(config.base)) {
-                cprintf("ide: %s: skipping unsupported ATAPI device\n", config.name);
-                continue;
-            }
-            cprintf("ide: %s: IDENTIFY failed: %s\n", config.name, error_str(ready));
+        auto& device = devices_[device_count_];
+        auto detected = device.detect_locked(&config);
+        if (!detected.ok()) {
+            Error error = detected.release_error();
+            cprintf("ide: %s: IDENTIFY failed: %s\n", config.name, error_str(error));
             if (first_error == Error::None) {
-                first_error = ready;
+                first_error = error;
             }
             continue;
         }
-
-        devices_[device_count_].detect(&config);
-
-        if (devices_[device_count_].info.block_count == 0 || devices_[device_count_].info.block_count > (1U << 28)) {
-            devices_[device_count_].present = 0;
-            devices_[device_count_].info.valid = 0;
-            cprintf("ide: %s: unsupported sector count %u\n", config.name, devices_[device_count_].info.block_count);
-            if (first_error == Error::None) {
-                first_error = devices_[device_count_].info.block_count == 0 ? Error::NoDevice : Error::NotSupported;
-            }
+        if (!detected.value()) {
             continue;
         }
 
@@ -197,8 +200,7 @@ Error IdeManager::init() {
         if (registered != Error::None) {
             cprintf("ide: failed to register %s: %s (%d)\n", config.name, error_str(registered),
                     static_cast<int>(registered));
-            devices_[device_count_].present = 0;
-            devices_[device_count_].info.valid = 0;
+            device.state_ = blk::DeviceState::Offline;
             return registered;
         }
         device_count_++;
@@ -212,7 +214,7 @@ IdeDevice* IdeManager::find_device(int index) {
     if (index < 0 || index >= device_count_) {
         return nullptr;
     }
-    if (!devices_[index].present) {
+    if (devices_[index].state() != blk::DeviceState::Ready) {
         return nullptr;
     }
     return &devices_[index];
@@ -233,81 +235,59 @@ void IdeDevice::print_info() {
 }
 
 Error IdeDevice::read(uint32_t start_lba, void* buf, size_t block_count) {
+    return transfer_blocks(start_lba, buf, block_count, false);
+}
+
+Error IdeDevice::write(uint32_t start_lba, const void* buf, size_t block_count) {
+    return transfer_blocks(start_lba, const_cast<void*>(buf), block_count, true);
+}
+
+Error IdeDevice::transfer_blocks(uint32_t start_lba, void* buf, size_t block_count, bool write) {
     ENSURE(config && config->channel < ide::CHANNEL_COUNT, Error::NoDevice);
     sys::lock_guard<Mutex> guard(IdeManager::channel_mutexes_[config->channel]);
-    ENSURE_LOG(present, Error::NoDevice, "IdeDevice::read: device %s not present", name);
+    ENSURE(state_ == blk::DeviceState::Ready, Error::NoDevice);
     ENSURE_LOG(start_lba <= info.block_count && block_count <= info.block_count - start_lba, Error::Invalid,
-               "IdeDevice::read: out of range (block %d + %d > %d)", start_lba, block_count, info.block_count);
+               "IDE request out of range (block %d + %d > %d)", start_lba, block_count, info.block_count);
 
     ENSURE(buf || block_count == 0, Error::Invalid);
-    uint8_t drive_sel = config->drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
-
     // Retain the channel for all sectors in this PIO request.
     for (size_t i = 0; i < block_count; i++) {
-        uint32_t lba = start_lba + i;
-
-        // Select drive first, then wait for it to become ready
-        arch_port_write8(config->base + ide::REG_DEVICE, drive_sel);
-        arch_io_wait();
-        TRY(wait_status(config->base, ide::STATUS_DRDY));
-
-        // Disable IDE interrupt for this PIO transfer (nIEN bit)
-        PioInterruptMask interrupt_mask(config->ctrl);
-
-        arch_port_write8(config->base + ide::REG_SECTOR_COUNT, 1);
-        arch_port_write8(config->base + ide::REG_LBA_LOW, lba & 0xFF);
-        arch_port_write8(config->base + ide::REG_LBA_MID, (lba >> 8) & 0xFF);
-        arch_port_write8(config->base + ide::REG_LBA_HIGH, (lba >> 16) & 0xFF);
-        arch_port_write8(config->base + ide::REG_DEVICE, drive_sel | ((lba >> 24) & 0x0F));
-        arch_port_write8(config->base + ide::REG_COMMAND, ide::CMD_READ);
-
-        TRY(wait_status(config->base, ide::STATUS_DRQ));
-
-        arch_port_read16_buffer(config->base + ide::REG_DATA, reinterpret_cast<uint8_t*>(buf) + i * ide::SECTOR_SIZE,
-                                ide::SECTOR_SIZE / 2);
+        Error error = transfer_sector_locked(start_lba + i, static_cast<uint8_t*>(buf) + i * ide::SECTOR_SIZE, write);
+        if (error != Error::None) {
+            state_ = blk::DeviceState::Offline;
+            return error;
+        }
     }
 
     return Error::None;
 }
 
-Error IdeDevice::write(uint32_t start_lba, const void* buf, size_t block_count) {
-    ENSURE(config && config->channel < ide::CHANNEL_COUNT, Error::NoDevice);
-    sys::lock_guard<Mutex> guard(IdeManager::channel_mutexes_[config->channel]);
-    ENSURE_LOG(present, Error::NoDevice, "IdeDevice::write: device %s not present", name);
-    ENSURE_LOG(start_lba <= info.block_count && block_count <= info.block_count - start_lba, Error::Invalid,
-               "IdeDevice::write: out of range (block %d + %d > %d)", start_lba, block_count, info.block_count);
-
-    ENSURE(buf || block_count == 0, Error::Invalid);
+Error IdeDevice::transfer_sector_locked(uint32_t lba, uint8_t* buf, bool write) {
     uint8_t drive_sel = config->drive ? ide::DEV_SLAVE : ide::DEV_MASTER;
 
-    // Retain the channel for all sectors in this PIO request.
-    for (size_t i = 0; i < block_count; i++) {
-        uint32_t lba = start_lba + i;
+    // Select drive first, then wait for it to become ready
+    arch_port_write8(config->base + ide::REG_DEVICE, drive_sel);
+    arch_io_wait();
+    TRY(wait_status(config->base, ide::STATUS_DRDY));
 
-        // Select drive first, then wait for it to become ready
-        arch_port_write8(config->base + ide::REG_DEVICE, drive_sel);
-        arch_io_wait();
+    // Disable IDE interrupt for this PIO transfer (nIEN bit)
+    PioInterruptMask interrupt_mask(config->ctrl);
+
+    arch_port_write8(config->base + ide::REG_SECTOR_COUNT, 1);
+    arch_port_write8(config->base + ide::REG_LBA_LOW, lba & 0xFF);
+    arch_port_write8(config->base + ide::REG_LBA_MID, (lba >> 8) & 0xFF);
+    arch_port_write8(config->base + ide::REG_LBA_HIGH, (lba >> 16) & 0xFF);
+    arch_port_write8(config->base + ide::REG_DEVICE, drive_sel | ((lba >> 24) & 0x0F));
+    arch_port_write8(config->base + ide::REG_COMMAND, write ? ide::CMD_WRITE : ide::CMD_READ);
+
+    // Wait for drive to signal it is ready to accept data
+    TRY(wait_status(config->base, ide::STATUS_DRQ));
+
+    if (write) {
+        arch_port_write16_buffer(config->base + ide::REG_DATA, buf, ide::SECTOR_SIZE / 2);
         TRY(wait_status(config->base, ide::STATUS_DRDY));
-
-        // Disable IDE interrupt for this PIO transfer (nIEN bit)
-        PioInterruptMask interrupt_mask(config->ctrl);
-
-        arch_port_write8(config->base + ide::REG_SECTOR_COUNT, 1);
-        arch_port_write8(config->base + ide::REG_LBA_LOW, lba & 0xFF);
-        arch_port_write8(config->base + ide::REG_LBA_MID, (lba >> 8) & 0xFF);
-        arch_port_write8(config->base + ide::REG_LBA_HIGH, (lba >> 16) & 0xFF);
-        arch_port_write8(config->base + ide::REG_DEVICE, drive_sel | ((lba >> 24) & 0x0F));
-        arch_port_write8(config->base + ide::REG_COMMAND, ide::CMD_WRITE);
-
-        // Wait for drive to signal it is ready to accept data
-        TRY(wait_status(config->base, ide::STATUS_DRQ));
-
-        arch_port_write16_buffer(config->base + ide::REG_DATA,
-                                 const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(buf)) + i * ide::SECTOR_SIZE,
-                                 ide::SECTOR_SIZE / 2);
-
-        // Wait for write to complete
-        TRY(wait_status(config->base, ide::STATUS_DRDY));
+    } else {
+        arch_port_read16_buffer(config->base + ide::REG_DATA, buf, ide::SECTOR_SIZE / 2);
     }
 
     return Error::None;
@@ -317,7 +297,7 @@ void IdeManager::interrupt_handler(int channel) {
     for (int i = 0; i < device_count_; i++) {
         IdeDevice& dev = devices_[i];
 
-        if (!dev.present || dev.config->channel != channel) {
+        if (dev.state() != blk::DeviceState::Ready || dev.config->channel != channel) {
             continue;
         }
         if (dev.request.op == IdeRequest::Op::None) {

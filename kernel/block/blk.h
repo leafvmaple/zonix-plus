@@ -12,6 +12,14 @@ enum class DeviceType : uint8_t {
     Swap = 2,  // Swap device
 };
 
+// Hardware lifecycle, separate from registration and retained resource ownership.
+enum class DeviceState : uint8_t {
+    Offline,
+    Initializing,
+    Ready,
+    Quarantined,
+};
+
 }  // namespace blk
 
 struct BlockDevice {

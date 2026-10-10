@@ -22,7 +22,7 @@ void driver_test_disktest() {
     for (int i = 0; i < IdeManager::device_count(); i++) {
         IdeDevice* dev = IdeManager::find_device(i);
 
-        if (dev == nullptr || !dev->present) {
+        if (dev == nullptr || dev->state() != blk::DeviceState::Ready) {
             continue;
         }
 

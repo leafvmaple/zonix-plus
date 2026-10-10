@@ -62,7 +62,8 @@ class StorageDriverTests(unittest.TestCase):
 
     def test_ahci_probe_failure_and_retry(self):
         for case in ["ahci_map", "ahci_version", "ahci_cr", "ahci_fr", "ahci_dma_stop", "ahci_io", "ahci_timeout",
-                     "ahci_full", "ahci_retry", "ahci_success", "ahci_transfer_io", "ahci_transfer_timeout"]:
+                     "ahci_full", "ahci_retry", "ahci_success", "ahci_transfer_io", "ahci_transfer_timeout",
+                     "ahci_issue_timeout", "ahci_transfer_quarantine"]:
             with self.subTest(case=case):
                 self.run_case(case)
 
@@ -72,7 +73,8 @@ class StorageDriverTests(unittest.TestCase):
                 self.run_case(case)
 
     def test_ide_errors_interrupt_cleanup_and_repeat_init(self):
-        for case in ["ide_io", "ide_timeout", "ide_full", "ide_success", "ide_identify_timeout"]:
+        for case in ["ide_io", "ide_timeout", "ide_write_io", "ide_write_timeout", "ide_full", "ide_success",
+                     "ide_identify_timeout"]:
             with self.subTest(case=case):
                 self.run_case(case)
 
@@ -80,6 +82,17 @@ class StorageDriverTests(unittest.TestCase):
         for case in ["ahci_concurrent", "ahci_independent"]:
             with self.subTest(case=case):
                 self.run_case(case)
+
+    def test_offline_devices_never_touch_hardware(self):
+        self.run_case("default_offline")
+
+    def test_initialization_cleanup_and_explicit_retry(self):
+        for case in ["ahci_lifecycle", "sd_lifecycle"]:
+            with self.subTest(case=case):
+                self.run_case(case)
+
+    def test_sdhci_retains_published_slots_after_io_failure(self):
+        self.run_case("sd_slots")
 
     def test_complete_sdhci_transactions_and_independent_controllers(self):
         for case in ["sd_concurrent", "sd_independent"]:

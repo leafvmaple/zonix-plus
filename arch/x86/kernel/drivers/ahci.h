@@ -185,7 +185,6 @@ struct AhciDeviceInfo {
     uint16_t cylinders{};    // CHS: cylinders
     uint16_t heads{};        // CHS: heads
     uint16_t sectors{};      // CHS: sectors per track
-    int valid{};             // Device is valid
 };
 
 struct AhciRequest {
@@ -214,6 +213,7 @@ struct AhciDevice : public BlockDevice {
 
     Error detect(const AhciPortConfig* cfg, uintptr_t mmio_base);
     Error shutdown();
+    [[nodiscard]] blk::DeviceState state() const { return state_; }
     void interrupt();
 
     Error read(uint32_t start_lba, void* buf, size_t block_count) override;
@@ -230,7 +230,7 @@ private:
     Error transfer_blocks(uint32_t start_lba, size_t block_count, void* buf, bool write);
 
     Mutex io_mutex_{};
-    int present_{};
+    blk::DeviceState state_{blk::DeviceState::Offline};
     uintptr_t port_base_{};
     bool memory_configured_{};
 
@@ -249,15 +249,17 @@ public:
 
     static AhciDevice* find_device(int index);
     static int device_count();
+    [[nodiscard]] static blk::DeviceState state() { return controller_state_; }
 
     static void interrupt_handler(int port);
 
 private:
+    static Error probe_controller(const pci::DeviceInfo* pdev);
     inline static AhciDevice devices_[ahci::MAX_DEVICES]{};
     inline static sys::inplace_vector<AhciDevice*, ahci::MAX_DEVICES> published_{};
     inline static vmm::MmioRegion mapping_{};
 
-    inline static bool ctrl_ready_{};
+    inline static blk::DeviceState controller_state_{blk::DeviceState::Offline};
     inline static bool registered_{};
 
     inline static AhciPortConfig port_configs_[ahci::MAX_DEVICES] = {

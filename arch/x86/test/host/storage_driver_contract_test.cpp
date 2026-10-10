@@ -20,7 +20,7 @@ extern "C" [[noreturn]] void exit(int);
 class HardwareFixture {
 public:
     enum class Backend { Ahci, Sd, Ide };
-    enum class Fault { None, Reset, Clock, Cr, Fr, Io, Timeout };
+    enum class Fault { None, Reset, Clock, Cr, Fr, Io, Timeout, TaskBusy };
     struct State {
         Backend backend{Backend::Ahci};
         Fault fault{};
@@ -46,8 +46,31 @@ public:
         uint8_t ide_commands[2]{};
         uint32_t ide_lba[2]{};
         bool fail_stop_after_command{};
+        size_t accesses{};
+        AhciDevice* initializing_ahci{};
+        SdDevice* initializing_sd{};
+        bool initializing_controller{};
+        bool reenter_probe{};
     };
     static State& state() { return state_; }
+
+    static void touch_hardware() {
+        __atomic_add_fetch(&state_.accesses, static_cast<size_t>(1), __ATOMIC_RELAXED);
+        if (state_.initializing_ahci) {
+            assert(state_.initializing_ahci->state() == blk::DeviceState::Initializing);
+        }
+        if (state_.initializing_sd) {
+            assert(state_.initializing_sd->state() == blk::DeviceState::Initializing);
+        }
+        if (state_.initializing_controller) {
+            assert(AhciManager::state() == blk::DeviceState::Initializing);
+        }
+        if (state_.reenter_probe) {
+            state_.reenter_probe = false;
+            pci::DeviceInfo device{};
+            assert(AhciManager::probe_callback(&device, nullptr) == Error::Busy);
+        }
+    }
 
     static size_t index(uintptr_t address) { return (address - KERNEL_DEVIO_BASE) / 4; }
     static uint32_t& reg(uintptr_t address) {
@@ -169,6 +192,12 @@ void config_write32(int, int, int, int offset, uint32_t value) {
 namespace storage_host {
 uint32_t read32(uintptr_t address) {
     using Fixture = HardwareFixture;
+    Fixture::touch_hardware();
+    if (Fixture::state().backend == Fixture::Backend::Ahci && Fixture::state().fault == Fixture::Fault::TaskBusy &&
+        address - KERNEL_DEVIO_BASE >= ahci::PORT_BASE_OFFSET &&
+        (address - KERNEL_DEVIO_BASE - ahci::PORT_BASE_OFFSET) % ahci::PORT_REG_SIZE == ahci::PORT_TFD) {
+        return ahci::TFD_STS_BSY;
+    }
     if (Fixture::state().backend == Fixture::Backend::Sd) {
         size_t controller = (address - KERNEL_DEVIO_BASE) / PG_SIZE;
         uintptr_t offset = (address - KERNEL_DEVIO_BASE) % PG_SIZE;
@@ -195,6 +224,7 @@ uint32_t read32(uintptr_t address) {
 }
 uint16_t read16(uintptr_t address) {
     using Fixture = HardwareFixture;
+    Fixture::touch_hardware();
     uintptr_t offset = (address - KERNEL_DEVIO_BASE) % PG_SIZE;
     if (Fixture::state().backend == Fixture::Backend::Sd) {
         if (offset == 0x2C) {
@@ -209,6 +239,7 @@ uint16_t read16(uintptr_t address) {
     return static_cast<uint16_t>(read32(address & ~uintptr_t(3)) >> ((address & 3) * 8));
 }
 uint8_t read8(uintptr_t address) {
+    HardwareFixture::touch_hardware();
     if (HardwareFixture::state().backend == HardwareFixture::Backend::Sd &&
         (address - KERNEL_DEVIO_BASE) % PG_SIZE == 0x2F) {
         return HardwareFixture::state().fault == HardwareFixture::Fault::Reset ? 1 : 0;
@@ -221,6 +252,7 @@ uint64_t read64(uintptr_t address) {
 
 void write32(uintptr_t address, uint32_t value) {
     using Fixture = HardwareFixture;
+    Fixture::touch_hardware();
     uintptr_t offset = address - KERNEL_DEVIO_BASE;
     if (Fixture::state().backend == Fixture::Backend::Sd && offset % PG_SIZE == 0x20 && StorageConcurrency::active()) {
         size_t controller = offset / PG_SIZE;
@@ -294,6 +326,7 @@ void write32(uintptr_t address, uint32_t value) {
     Fixture::reg(address) = value;
 }
 void write16(uintptr_t address, uint16_t value) {
+    HardwareFixture::touch_hardware();
     if (HardwareFixture::state().backend == HardwareFixture::Backend::Sd &&
         (address - KERNEL_DEVIO_BASE) % PG_SIZE == 0x0E) {
         size_t controller = (address - KERNEL_DEVIO_BASE) / PG_SIZE;
@@ -310,6 +343,7 @@ void write16(uintptr_t address, uint16_t value) {
     word = (word & ~(0xFFFFU << shift)) | (static_cast<uint32_t>(value) << shift);
 }
 void write8(uintptr_t address, uint8_t value) {
+    HardwareFixture::touch_hardware();
     auto& word = HardwareFixture::reg(address & ~uintptr_t(3));
     unsigned int shift = (address & 3) * 8;
     word = (word & ~(0xFFU << shift)) | (static_cast<uint32_t>(value) << shift);
@@ -323,6 +357,7 @@ void write64(uintptr_t address, uint64_t value) {
 namespace storage_host {
 uint8_t arch_port_read8(uint16_t port) {
     using Fixture = HardwareFixture;
+    Fixture::touch_hardware();
     int channel = (port & ~7U) == ide::IDE1_BASE;
     int field = port & 7U;
     bool atapi = Fixture::state().secondary_atapi && channel == 1 && Fixture::state().ide_drives[channel] == 0;
@@ -350,6 +385,7 @@ uint8_t arch_port_read8(uint16_t port) {
     return ide::STATUS_DRDY | ide::STATUS_DRQ;
 }
 void arch_port_write8(uint16_t port, uint8_t value) {
+    HardwareFixture::touch_hardware();
     int channel = (port & ~7U) == ide::IDE1_BASE;
     int field = port & 7U;
     if (field == ide::REG_DEVICE && port != ide::IDE0_CTRL && port != ide::IDE1_CTRL) {
@@ -378,6 +414,7 @@ void arch_port_write8(uint16_t port, uint8_t value) {
     }
 }
 void arch_port_read16_buffer(uint16_t port, void* buffer, size_t count) {
+    HardwareFixture::touch_hardware();
     if (StorageConcurrency::active()) {
         int channel = port == ide::IDE1_BASE;
         memset(buffer, StorageConcurrency::pattern(HardwareFixture::state().ide_lba[channel]), count * 2);
@@ -389,6 +426,7 @@ void arch_port_read16_buffer(uint16_t port, void* buffer, size_t count) {
     ++HardwareFixture::state().transfers;
 }
 void arch_port_write16_buffer(uint16_t port, void* buffer, size_t count) {
+    HardwareFixture::touch_hardware();
     if (StorageConcurrency::active()) {
         int channel = port == ide::IDE1_BASE;
         auto* bytes = static_cast<uint8_t*>(buffer);
@@ -465,6 +503,7 @@ static void test_concurrent_requests(BlockDevice* first, BlockDevice* second, in
 static void test_ahci(const char* test) {
     using Fixture = HardwareFixture;
     Fixture::ahci();
+    assert(AhciManager::state() == blk::DeviceState::Offline);
     pci::DeviceInfo pci_device{};
     Error expected = Error::None;
     if (strcmp(test, "ahci_dma_stop") == 0) {
@@ -499,10 +538,15 @@ static void test_ahci(const char* test) {
         fill_registry();
         expected = Error::Full;
     }
+    Fixture::state().initializing_controller = true;
+    Fixture::state().reenter_probe = true;
     Error result = AhciManager::probe_callback(&pci_device, nullptr);
+    Fixture::state().initializing_controller = false;
+    Fixture::state().reenter_probe = false;
     assert(result == expected);
     bool quarantined = Fixture::state().fault == Fixture::Fault::Cr || Fixture::state().fault == Fixture::Fault::Fr;
     if (quarantined) {
+        assert(AhciManager::state() == blk::DeviceState::Quarantined);
         assert(AhciManager::device_count() == 0);
         assert(Fixture::state().fail_stop_after_command ? Fixture::state().dma_address_writes != 0
                                                         : Fixture::state().dma_address_writes == 0);
@@ -511,6 +555,7 @@ static void test_ahci(const char* test) {
         return;
     }
     if (expected != Error::None) {
+        assert(AhciManager::state() == blk::DeviceState::Offline);
         assert(AhciManager::device_count() == 0 && Fixture::mapped_pages() == 0);
         assert(Fixture::state().allocations == 0 && Fixture::state().command == 1);
         if (strcmp(test, "ahci_retry") != 0) {
@@ -520,8 +565,10 @@ static void test_ahci(const char* test) {
         assert(AhciManager::probe_callback(&pci_device, nullptr) == Error::None);
     }
     assert(AhciManager::device_count() == 2 && BlockManager::device_count() == 2);
+    assert(AhciManager::state() == blk::DeviceState::Ready);
     assert(AhciManager::probe_callback(&pci_device, nullptr) == Error::Busy);
     auto* device = AhciManager::find_device(0);
+    assert(device && device->state() == blk::DeviceState::Ready);
     if (strcmp(test, "ahci_concurrent") == 0 || strcmp(test, "ahci_independent") == 0) {
         bool independent = strcmp(test, "ahci_independent") == 0;
         test_concurrent_requests(device, independent ? AhciManager::find_device(1) : device, 0, independent ? 1 : 0, 9,
@@ -532,16 +579,39 @@ static void test_ahci(const char* test) {
     assert(device->read(0, nullptr, 1) == Error::Invalid);
     assert(device->read(1, buffer, static_cast<size_t>(-1)) == Error::Invalid);
     assert(device->read(128, nullptr, 0) == Error::None);
+    assert(device->state() == blk::DeviceState::Ready);
     if (strcmp(test, "ahci_transfer_io") == 0) {
         Fixture::state().fault = Fixture::Fault::Io;
     }
     if (strcmp(test, "ahci_transfer_timeout") == 0) {
         Fixture::state().fault = Fixture::Fault::Timeout;
     }
+    if (strcmp(test, "ahci_issue_timeout") == 0) {
+        Fixture::state().fault = Fixture::Fault::TaskBusy;
+    }
+    if (strcmp(test, "ahci_transfer_quarantine") == 0) {
+        Fixture::state().fail_stop_after_command = true;
+    }
     Error transfer = device->read(0, buffer + 1, 1);
     if (Fixture::state().fault != Fixture::Fault::None) {
-        assert(transfer == (Fixture::state().fault == Fixture::Fault::Io ? Error::Io : Error::Timeout));
+        bool unsafe = strcmp(test, "ahci_transfer_quarantine") == 0;
+        assert(transfer == (Fixture::state().fault == Fixture::Fault::Io || unsafe ? Error::Io : Error::Timeout));
+        assert(device->state() == (unsafe ? blk::DeviceState::Quarantined : blk::DeviceState::Offline));
+        assert(AhciManager::find_device(0) == nullptr);
+        size_t accesses = Fixture::state().accesses;
         assert(device->read(0, buffer, 1) == Error::NoDevice);
+        assert(device->write(0, buffer, 1) == Error::NoDevice);
+        assert(Fixture::state().accesses == accesses);
+        if (unsafe) {
+            AhciPortConfig config{0, IRQ_IDE1, "test"};
+            assert(device->detect(&config, KERNEL_DEVIO_BASE) == Error::Busy);
+            assert(device->shutdown() == Error::Busy);
+            assert(Fixture::state().accesses == accesses);
+            assert(Fixture::mapped_pages() != 0 && BlockManager::device_count() == 2);
+        }
+        Fixture::state().fault = Fixture::Fault::None;
+        Fixture::state().fail_stop_after_command = false;
+        assert(AhciManager::find_device(1)->read(0, buffer, 1) == Error::None);
     } else {
         assert(transfer == Error::None && device->write(0, buffer + 1, 1) == Error::None);
     }
@@ -585,6 +655,11 @@ static void test_sd(const char* test) {
     }
     assert(sdhci::device_count() == 1 && BlockManager::device_count() == 1);
     auto* device = sdhci::find_device();
+    assert(device && device->state() == blk::DeviceState::Ready);
+    size_t allocations = Fixture::state().allocations;
+    size_t accesses = Fixture::state().accesses;
+    assert(sdhci::Manager::probe_callback(&pci_device, nullptr) == Error::Busy);
+    assert(Fixture::state().allocations == allocations && Fixture::state().accesses == accesses);
     if (strcmp(test, "sd_concurrent") == 0) {
         test_concurrent_requests(device, device, 0, 0, 2, false);
         return;
@@ -599,14 +674,23 @@ static void test_sd(const char* test) {
     uint8_t buffer[513]{};
     assert(device->read(0, nullptr, 1) == Error::Invalid);
     assert(device->read(1, buffer, static_cast<size_t>(-1)) == Error::Invalid);
+    assert(device->state() == blk::DeviceState::Ready);
     assert(device->read(0, buffer + 1, 1) == Error::None);
     assert(device->write(0, buffer + 1, 1) == Error::None);
     Fixture::state().fault = Fixture::Fault::Io;
     assert(device->read(0, buffer, 1) == Error::Io);
+    assert(device->state() == blk::DeviceState::Offline && sdhci::find_device() == nullptr);
+    accesses = Fixture::state().accesses;
+    assert(device->write(0, buffer, 1) == Error::NoDevice);
+    assert(Fixture::state().accesses == accesses);
+    Fixture::state().fault = Fixture::Fault::None;
+    assert(device->init(reinterpret_cast<volatile uint8_t*>(KERNEL_DEVIO_BASE), 0) == Error::None);
     Fixture::state().fault = Fixture::Fault::Timeout;
     assert(device->write(0, buffer, 1) == Error::Timeout);
     Fixture::state().fault = Fixture::Fault::None;
-    assert(device->read(0, buffer, 1) == Error::None);  // Error returns released the mutex.
+    assert(device->read(0, buffer, 1) == Error::NoDevice);
+    assert(device->init(reinterpret_cast<volatile uint8_t*>(KERNEL_DEVIO_BASE), 0) == Error::None);
+    assert(device->read(0, buffer, 1) == Error::None);  // Explicit reset can restore this stable object.
 }
 
 static void test_ide(const char* test) {
@@ -675,24 +759,137 @@ static void test_ide(const char* test) {
     assert(IdeManager::device_count() == 1);
     assert(IdeManager::init() == Error::None && BlockManager::device_count() == 1);
     auto* device = IdeManager::find_device(0);
+    assert(device && device->state() == blk::DeviceState::Ready);
     uint8_t buffer[512]{};
     assert(device->read(0, nullptr, 1) == Error::Invalid);
     assert(device->write(1, buffer, static_cast<size_t>(-1)) == Error::Invalid);
-    if (strcmp(test, "ide_io") == 0) {
+    assert(device->state() == blk::DeviceState::Ready);
+    if (strcmp(test, "ide_io") == 0 || strcmp(test, "ide_write_io") == 0) {
         Fixture::state().fault = Fixture::Fault::Io;
     }
-    if (strcmp(test, "ide_timeout") == 0) {
+    if (strcmp(test, "ide_timeout") == 0 || strcmp(test, "ide_write_timeout") == 0) {
         Fixture::state().fault = Fixture::Fault::Timeout;
     }
     Error expected = Fixture::state().fault == Fixture::Fault::Io        ? Error::Io
                      : Fixture::state().fault == Fixture::Fault::Timeout ? Error::Timeout
                                                                          : Error::None;
-    assert(device->read(0, buffer, 1) == expected);
+    bool write_first = sys::strncmp(test, "ide_write_", 10) == 0;
+    assert((write_first ? device->write(0, buffer, 1) : device->read(0, buffer, 1)) == expected);
     assert(Fixture::state().control[0] == 0);
-    assert(device->write(0, buffer, 1) == expected);
+    assert(device->write(0, buffer, 1) == (expected == Error::None ? Error::None : Error::NoDevice));
     assert(Fixture::state().control[0] == 0);
     Fixture::state().fault = Fixture::Fault::None;
-    assert(device->read(0, buffer, 1) == Error::None);  // Error returns released the channel.
+    assert(device->read(0, buffer, 1) == (expected == Error::None ? Error::None : Error::NoDevice));
+    if (expected != Error::None) {
+        assert(device->state() == blk::DeviceState::Offline && IdeManager::find_device(0) == nullptr);
+        assert(IdeManager::init() == Error::None && BlockManager::device_count() == 1);
+        assert(device->state() == blk::DeviceState::Offline);  // A retry never overwrites a published object.
+        size_t accesses = Fixture::state().accesses;
+        assert(device->read(0, buffer, 1) == Error::NoDevice);
+        assert(device->write(0, buffer, 1) == Error::NoDevice);
+        assert(Fixture::state().accesses == accesses);
+    }
+}
+
+static void test_default_offline() {
+    AhciDevice ahci_device;
+    SdDevice sd_device;
+    IdeDevice ide_device;
+    BlockDevice* devices[]{&ahci_device, &sd_device, &ide_device};
+    assert(ahci_device.state() == blk::DeviceState::Offline);
+    assert(sd_device.state() == blk::DeviceState::Offline);
+    assert(ide_device.state() == blk::DeviceState::Offline);
+    uint8_t buffer[512]{};
+    for (auto* device : devices) {
+        assert(device->read(0, buffer, 1) == Error::NoDevice);
+        assert(device->write(0, buffer, 1) == Error::NoDevice);
+    }
+    assert(HardwareFixture::state().accesses == 0);
+}
+
+static void test_ahci_lifecycle() {
+    using Fixture = HardwareFixture;
+    Fixture::ahci();
+    AhciDevice device;
+    AhciPortConfig config{0, IRQ_IDE1, "test"};
+    assert(device.detect(nullptr, KERNEL_DEVIO_BASE) == Error::Invalid);
+    assert(device.state() == blk::DeviceState::Offline && Fixture::state().accesses == 0);
+    Fixture::state().initializing_ahci = &device;
+    assert(device.detect(&config, KERNEL_DEVIO_BASE) == Error::None);
+    Fixture::state().initializing_ahci = nullptr;
+    assert(device.state() == blk::DeviceState::Ready);
+    size_t accesses = Fixture::state().accesses;
+    assert(device.detect(&config, KERNEL_DEVIO_BASE) == Error::Busy);
+    assert(Fixture::state().accesses == accesses);
+    assert(device.shutdown() == Error::None && device.state() == blk::DeviceState::Offline);
+    accesses = Fixture::state().accesses;
+    assert(device.shutdown() == Error::None && Fixture::state().accesses == accesses);
+    Fixture::state().fault = Fixture::Fault::Io;
+    Fixture::state().initializing_ahci = &device;
+    assert(device.detect(&config, KERNEL_DEVIO_BASE) == Error::Io);
+    Fixture::state().initializing_ahci = nullptr;
+    assert(device.state() == blk::DeviceState::Offline);
+    assert(Fixture::state().registers[(ahci::PORT_BASE_OFFSET + ahci::PORT_CLB) / 4] == 0);
+    Fixture::state().fault = Fixture::Fault::None;
+    assert(device.detect(&config, KERNEL_DEVIO_BASE) == Error::None);
+    uint8_t buffer[512]{};
+    assert(device.read(0, buffer, 1) == Error::None);
+    assert(device.shutdown() == Error::None);
+}
+
+static void test_sd_lifecycle() {
+    using Fixture = HardwareFixture;
+    Fixture::state().backend = Fixture::Backend::Sd;
+    SdDevice device;
+    auto* base = reinterpret_cast<volatile uint8_t*>(KERNEL_DEVIO_BASE);
+    assert(device.init(nullptr, 0) == Error::Invalid);
+    assert(device.state() == blk::DeviceState::Offline && Fixture::state().accesses == 0);
+    const Fixture::Fault faults[]{Fixture::Fault::Reset, Fixture::Fault::Clock, Fixture::Fault::Io};
+    for (auto fault : faults) {
+        Fixture::state().fault = fault;
+        Fixture::state().initializing_sd = &device;
+        assert(device.init(base, 0) == (fault == Fixture::Fault::Io ? Error::Io : Error::Timeout));
+        Fixture::state().initializing_sd = nullptr;
+        assert(device.state() == blk::DeviceState::Offline);
+        assert(Fixture::state().registers[0x28 / 4] == 0);
+        Fixture::state().fault = Fixture::Fault::None;
+        Fixture::state().initializing_sd = &device;
+        assert(device.init(base, 0) == Error::None);
+        Fixture::state().initializing_sd = nullptr;
+        assert(device.state() == blk::DeviceState::Ready);
+        size_t accesses = Fixture::state().accesses;
+        assert(device.init(base, 0) == Error::Busy && Fixture::state().accesses == accesses);
+        device.shutdown();
+        assert(device.state() == blk::DeviceState::Offline);
+        accesses = Fixture::state().accesses;
+        device.shutdown();
+        assert(Fixture::state().accesses == accesses);
+    }
+}
+
+static void test_sd_published_slots() {
+    using Fixture = HardwareFixture;
+    Fixture::state().backend = Fixture::Backend::Sd;
+    pci::DeviceInfo first{};
+    pci::DeviceInfo second{};
+    second.slot = 1;
+    assert(sdhci::Manager::probe_callback(&first, nullptr) == Error::None);
+    assert(sdhci::Manager::probe_callback(&second, nullptr) == Error::None);
+    auto* device = sdhci::find_device(0);
+    auto* sibling = sdhci::find_device(1);
+    assert(device && sibling && device != sibling);
+    uint8_t buffer[512]{};
+    Fixture::state().fault = Fixture::Fault::Io;
+    assert(device->write(0, buffer, 1) == Error::Io);
+    assert(device->state() == blk::DeviceState::Offline);
+    Fixture::state().fault = Fixture::Fault::None;
+    size_t accesses = Fixture::state().accesses;
+    assert(sdhci::Manager::probe_callback(&first, nullptr) == Error::Busy);
+    assert(device->read(0, buffer, 1) == Error::NoDevice);
+    assert(Fixture::state().accesses == accesses);
+    assert(sdhci::find_device(0) == nullptr && sdhci::find_device(1) == sibling);
+    assert(sdhci::device_count() == 2 && BlockManager::device_count() == 2 && Fixture::mapped_pages() == 2);
+    assert(sibling->read(0, buffer, 1) == Error::None);
 }
 
 extern "C" int main(int argc, char** argv) {
@@ -701,7 +898,15 @@ extern "C" int main(int argc, char** argv) {
     // not borrow assembly boot tables or the running kernel address space.
     vmm::Manager::kernel_mm().pgdir = HardwareFixture::state().root;
     const char* test = argv[1];
-    if (strcmp(test, "mmio") == 0) {
+    if (strcmp(test, "default_offline") == 0) {
+        test_default_offline();
+    } else if (strcmp(test, "ahci_lifecycle") == 0) {
+        test_ahci_lifecycle();
+    } else if (strcmp(test, "sd_lifecycle") == 0) {
+        test_sd_lifecycle();
+    } else if (strcmp(test, "sd_slots") == 0) {
+        test_sd_published_slots();
+    } else if (strcmp(test, "mmio") == 0) {
         test_mmio();
     } else if (strcmp(test, "pci") == 0) {
         pci::DeviceInfo device{};

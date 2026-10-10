@@ -60,14 +60,28 @@ void RegisterHostToDeviceFis::set_command(uint8_t cmd, uint32_t lba, uint16_t co
 
 Error AhciDevice::detect(const AhciPortConfig* cfg, uintptr_t mmio_base) {
     sys::lock_guard<Mutex> guard(io_mutex_);
+    ENSURE(cfg && cfg->port < ahci::MAX_DEVICES && mmio_base != 0, Error::Invalid);
+    ENSURE(state_ == blk::DeviceState::Offline, Error::Busy);
+    state_ = blk::DeviceState::Initializing;
+    info = {};
+    block_count = 0;
     this->config = cfg;
     port_base_ = mmio_base + ahci::PORT_BASE_OFFSET + (cfg->port * ahci::PORT_REG_SIZE);
 
     strncpy(name, cfg->name, sizeof(name));
-    TRY(setup_memory());
-    TRY(identify());
+    Error error = setup_memory();
+    if (error == Error::None) {
+        error = identify();
+    }
+    if (error != Error::None) {
+        Error stopped = shutdown_locked();
+        if (stopped != Error::None) {
+            cprintf("ahci: failed initialization cleanup: %s\n", error_str(stopped));
+        }
+        return error;
+    }
 
-    present_ = 1;
+    state_ = blk::DeviceState::Ready;
     type = blk::DeviceType::Disk;
     info.serial = cfg->port;
 
@@ -86,7 +100,6 @@ Error AhciDevice::identify() {
     info.block_count = static_cast<uint32_t>(id[60]) | (static_cast<uint32_t>(id[61]) << 16);  // Total LBA28 sectors
     block_count = info.block_count;
     ENSURE(block_count != 0, Error::NoDevice);
-    info.valid = 1;
 
     return Error::None;
 }
@@ -156,11 +169,16 @@ Error AhciDevice::shutdown() {
 }
 
 Error AhciDevice::shutdown_locked() {
-    present_ = 0;
+    ENSURE(state_ != blk::DeviceState::Quarantined, Error::Busy);
     if (port_base_ == 0) {
+        state_ = blk::DeviceState::Offline;
         return Error::None;
     }
-    TRY(stop_engine());
+    Error stopped = stop_engine();
+    if (stopped != Error::None) {
+        state_ = blk::DeviceState::Quarantined;
+        return stopped;
+    }
     if (memory_configured_) {
         mmio::write32(port_base_, ahci::PORT_CLB, 0);
         mmio::write32(port_base_, ahci::PORT_CLBU, 0);
@@ -169,6 +187,7 @@ Error AhciDevice::shutdown_locked() {
     }
     memory_configured_ = false;
     port_base_ = 0;
+    state_ = blk::DeviceState::Offline;
     return Error::None;
 }
 
@@ -222,7 +241,19 @@ int AhciManager::init() {
 
 Error AhciManager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*) {
     ENSURE(pdev, Error::Invalid);
-    ENSURE(!ctrl_ready_, Error::Busy);
+    {
+        intr::Guard guard;
+        ENSURE(controller_state_ == blk::DeviceState::Offline, Error::Busy);
+        controller_state_ = blk::DeviceState::Initializing;
+    }
+    Error error = probe_controller(pdev);
+    if (controller_state_ == blk::DeviceState::Initializing) {
+        controller_state_ = blk::DeviceState::Offline;
+    }
+    return error;
+}
+
+Error AhciManager::probe_controller(const pci::DeviceInfo* pdev) {
     uint32_t bar = pci::read_bar(pdev->bus, pdev->slot, pdev->function, 5);
     ENSURE(bar != 0 && (bar & 1U) == 0, Error::Invalid);
     ENSURE((bar & 6U) == 0, Error::NotSupported);
@@ -274,7 +305,7 @@ Error AhciManager::probe_callback(const pci::DeviceInfo* pdev, const pci::Driver
                 assert(published_.try_push_back(static_cast<AhciDevice*>(candidates[i])));
             }
             mapping_ = sys::move(mapping);
-            ctrl_ready_ = true;
+            controller_state_ = blk::DeviceState::Ready;
             command.commit();
             return Error::None;
         }
@@ -289,7 +320,7 @@ Error AhciManager::probe_callback(const pci::DeviceInfo* pdev, const pci::Driver
     }
     if (unsafe) {
         mapping_ = sys::move(mapping);
-        ctrl_ready_ = true;  // Quarantined; never reuse potentially live DMA buffers.
+        controller_state_ = blk::DeviceState::Quarantined;
         command.commit();
     } else {
         mmio::write32(base, ahci::AHCI_GHC, original_ghc);
@@ -301,7 +332,7 @@ AhciDevice* AhciManager::find_device(int index) {
     if (index < 0 || static_cast<size_t>(index) >= published_.size()) {
         return nullptr;
     }
-    if (!published_[index]->present_) {
+    if (published_[index]->state() != blk::DeviceState::Ready) {
         return nullptr;
     }
     return published_[index];
@@ -323,7 +354,7 @@ Error AhciDevice::transfer_blocks(uint32_t start_lba, size_t block_count, void* 
     sys::lock_guard<Mutex> guard(io_mutex_);
     const char* op_name = write ? "write" : "read";
 
-    if (!present_) {
+    if (state_ != blk::DeviceState::Ready) {
         cprintf("AhciDevice::%s: device %s not present\n", op_name, name);
         return Error::NoDevice;
     }
@@ -349,8 +380,10 @@ Error AhciDevice::transfer_blocks(uint32_t start_lba, size_t block_count, void* 
             memcpy(dma_buf_, data, bytes);
         }
 
-        TRY(issue_cmd(command, lba, count, write));
-        Error completed = wait_cmd_complete();
+        Error completed = issue_cmd(command, lba, count, write);
+        if (completed == Error::None) {
+            completed = wait_cmd_complete();
+        }
         if (completed != Error::None) {
             // Stop timed-out DMA before the caller can submit another command.
             Error stopped = shutdown_locked();
@@ -443,7 +476,7 @@ void AhciManager::interrupt_handler(int port) {
     for (auto* device : published_) {
         AhciDevice& dev = *device;
 
-        if (!dev.present_ || dev.config->port != port) {
+        if (dev.state() != blk::DeviceState::Ready || dev.config->port != port) {
             continue;
         }
         if (dev.request.op == AhciRequest::Op::None) {

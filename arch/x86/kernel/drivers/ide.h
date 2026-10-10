@@ -75,7 +75,6 @@ struct DiskInfo {
     uint16_t cylinders{};    // Number of cylinders
     uint16_t heads{};        // Number of heads
     uint16_t sectors{};      // Sectors per track
-    int valid{};             // Device is valid
 };
 
 struct IdeRequest {
@@ -97,17 +96,25 @@ struct IdeRequest {
 
 // IDE device structure
 struct IdeDevice : public BlockDevice {
-    int present{};              // Device is present
     const IdeConfig* config{};  // Pointer to device configuration
     DiskInfo info{};            // Disk information
     IdeRequest request{};       // Current I/O request state
 
-    void detect(const IdeConfig* cfg);
     void interrupt();
+    [[nodiscard]] blk::DeviceState state() const { return state_; }
 
     Error read(uint32_t start_lba, void* buf, size_t block_count) override;
     Error write(uint32_t start_lba, const void* buf, size_t block_count) override;
     void print_info() override;
+
+private:
+    Result<bool> detect_locked(const IdeConfig* cfg);
+    Result<bool> identify_locked();
+    Error transfer_blocks(uint32_t start_lba, void* buf, size_t count, bool write);
+    Error transfer_sector_locked(uint32_t lba, uint8_t* buf, bool write);
+
+    blk::DeviceState state_{blk::DeviceState::Offline};
+    friend class IdeManager;
 };
 
 // IDE device manager class
@@ -123,6 +130,7 @@ public:
 private:
     // Master and slave share the channel's task-file registers and Device Control.
     inline static sys::array<Mutex, ide::CHANNEL_COUNT> channel_mutexes_{};
+    inline static Mutex probe_mutex_{};
     static IdeConfig configs_[ide::MAX_DEVICES];
     static IdeDevice devices_[ide::MAX_DEVICES];
     static int device_count_;

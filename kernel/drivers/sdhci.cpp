@@ -375,21 +375,35 @@ Error SdDevice::write_single(uint32_t lba, const void* buf) {
 
 Error SdDevice::init(volatile uint8_t* base, int index) {
     sys::lock_guard<Mutex> guard(io_mutex_);
+    ENSURE(base, Error::Invalid);
+    ENSURE(state_ == blk::DeviceState::Offline, Error::Busy);
+    state_ = blk::DeviceState::Initializing;
     base_ = base;
 
     uint16_t ver = mmio::read16(base_, reg::HOST_VERSION);
     cprintf("sdhci: controller version %d.%02d\n", (ver >> 8) + 1, ver & 0xFF);
 
-    TRY(reset());
-    TRY(clock_setup());
-    TRY(power_on());
-    TRY(card_identify());
+    Error error = reset();
+    if (error == Error::None) {
+        error = clock_setup();
+    }
+    if (error == Error::None) {
+        error = power_on();
+    }
+    if (error == Error::None) {
+        error = card_identify();
+    }
+    if (error != Error::None) {
+        shutdown_locked();
+        return error;
+    }
 
     type = blk::DeviceType::Disk;
     name[0] = 's';
     name[1] = 'd';
     name[2] = static_cast<char>('0' + index);
     name[3] = '\0';
+    state_ = blk::DeviceState::Ready;
 
     cprintf("sdhci: SD card initialized as '%s'\n", name);
     return Error::None;
@@ -397,7 +411,12 @@ Error SdDevice::init(volatile uint8_t* base, int index) {
 
 void SdDevice::shutdown() {
     sys::lock_guard<Mutex> guard(io_mutex_);
+    shutdown_locked();
+}
+
+void SdDevice::shutdown_locked() {
     if (!base_) {
+        state_ = blk::DeviceState::Offline;
         return;
     }
     // This driver uses PIO, never DMA. Disable signals and remove card power
@@ -410,30 +429,30 @@ void SdDevice::shutdown() {
     rca_ = 0;
     sdhc_ = false;
     block_count = 0;
+    state_ = blk::DeviceState::Offline;
 }
 
 Error SdDevice::read(uint32_t start_lba, void* buf, size_t count) {
+    return transfer_blocks(start_lba, buf, count, false);
+}
+
+Error SdDevice::write(uint32_t start_lba, const void* buf, size_t count) {
+    return transfer_blocks(start_lba, const_cast<void*>(buf), count, true);
+}
+
+Error SdDevice::transfer_blocks(uint32_t start_lba, void* buf, size_t count, bool write) {
     sys::lock_guard<Mutex> guard(io_mutex_);
-    ENSURE(base_, Error::NoDevice);
+    ENSURE(state_ == blk::DeviceState::Ready, Error::NoDevice);
     ENSURE(start_lba <= block_count && count <= block_count - start_lba, Error::Invalid);
     ENSURE(buf || count == 0, Error::Invalid);
     ENSURE(sdhc_ || (start_lba <= (1U << 23) && count <= (1U << 23) - start_lba), Error::Invalid);
     auto* data = static_cast<uint8_t*>(buf);
     for (size_t i = 0; i < count; ++i) {
-        TRY(read_single(start_lba + i, data + i * 512));
-    }
-    return Error::None;
-}
-
-Error SdDevice::write(uint32_t start_lba, const void* buf, size_t count) {
-    sys::lock_guard<Mutex> guard(io_mutex_);
-    ENSURE(base_, Error::NoDevice);
-    ENSURE(start_lba <= block_count && count <= block_count - start_lba, Error::Invalid);
-    ENSURE(buf || count == 0, Error::Invalid);
-    ENSURE(sdhc_ || (start_lba <= (1U << 23) && count <= (1U << 23) - start_lba), Error::Invalid);
-    auto* data = static_cast<const uint8_t*>(buf);
-    for (size_t i = 0; i < count; ++i) {
-        TRY(write_single(start_lba + i, data + i * 512));
+        Error error = write ? write_single(start_lba + i, data + i * 512) : read_single(start_lba + i, data + i * 512);
+        if (error != Error::None) {
+            shutdown_locked();
+            return error;
+        }
     }
     return Error::None;
 }
@@ -483,16 +502,22 @@ SdDevice* Manager::find_device(int index) {
     if (index < 0 || static_cast<size_t>(index) >= device_count_) {
         return nullptr;
     }
-    return &devices_[index];
+    return devices_[index].state() == blk::DeviceState::Ready ? &devices_[index] : nullptr;
 }
 
 Error Manager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*) {
+    ENSURE(pdev, Error::Invalid);
+    sys::lock_guard<Mutex> guard(probe_mutex_);
+    for (size_t i = 0; i < device_count_; ++i) {
+        const auto& location = locations_[i];
+        ENSURE(location.bus != pdev->bus || location.slot != pdev->slot || location.function != pdev->function,
+               Error::Busy);
+    }
     if (device_count_ == devices_.size()) {
         cprintf("sdhci: too many controllers, max=%d\n", MAX_DEVICES);
         return Error::Full;
     }
 
-    ENSURE(pdev, Error::Invalid);
     uint32_t bar = pci::read_bar(pdev->bus, pdev->slot, pdev->function, 0);
     // Only 32-bit memory BARs are supported here; do not truncate a 64-bit BAR.
     ENSURE(bar != 0 && (bar & 1U) == 0, Error::Invalid);
@@ -516,6 +541,7 @@ Error Manager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*)
         return error;
     }
     mappings_[index] = sys::move(mapping);
+    locations_[index] = {pdev->bus, pdev->slot, pdev->function};
     command.commit();
 
     // Publish the stable slot only after initialization and block registration succeed.
