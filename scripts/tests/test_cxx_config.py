@@ -53,7 +53,8 @@ class CxxConfigurationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="zonix-cxx-config-") as directory:
             root = Path(directory)
             for name in ("Makefile", "arch/x86/Makefile", "arch/x86/boot/Makefile",
-                         "arch/x86/boot/bios/Makefile", "arch/x86/boot/uefi/Makefile", "user/Makefile"):
+                         "arch/x86/boot/bios/Makefile", "arch/x86/boot/uefi/Makefile", "user/Makefile",
+                         "include/kernel/boot_options.h"):
                 target = root / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(ROOT / name, target)

@@ -1,4 +1,5 @@
 #include "fs/fat.h"
+#include <kernel/log.h>
 
 #include "lib/memory.h"
 #include "lib/stdio.h"
@@ -27,13 +28,13 @@ Result<uint32_t> find_partition_start(BlockDevice* dev) {
             [dev](uint32_t lba, void* sector_buf) { return static_cast<int>(dev->read(lba, sector_buf, 1)); });
         ENSURE_LOG(esp_lba >= 0, Error::NotFound, "fat_mount: ESP partition not found");
 
-        cprintf("fat_mount: found ESP at LBA %d\n", static_cast<uint32_t>(esp_lba));
+        klog::debug("fat_mount: found ESP at LBA %d\n", static_cast<uint32_t>(esp_lba));
         return static_cast<uint32_t>(esp_lba);
     }
 
     // Traditional MBR.
     if (mbr.partitions[0].is_fat32()) {
-        cprintf("fat_mount: MBR detected, partition starts at LBA %d\n", mbr.partitions[0].start_lba);
+        klog::debug("fat_mount: MBR detected, partition starts at LBA %d\n", mbr.partitions[0].start_lba);
         return mbr.partitions[0].start_lba;
     }
 
@@ -106,9 +107,7 @@ Error FatInfo::mount(BlockDevice* dev) {
     memcpy(oem, bs.oem, 8);
     memcpy(label, bs.volume_label, 11);
 
-    cprintf("FAT%d mounted: %s\n", fat_type_, label);
-    cprintf("  OEM: %s\n", oem);
-    cprintf("  Partition Start: LBA %d\n", part_start);
+    klog::debug("fat: FAT%d on %s, label=%s OEM=%s partition LBA=%u\n", fat_type_, dev->name, label, oem, part_start);
 
     return Error::None;
 }
@@ -119,8 +118,8 @@ void FatInfo::unmount() {
             uint32_t fat_sector = fat_start_sector_ + (i * fat_sector_count_) + (buffer_sector_ - fat_start_sector_);
             Error error = dev_->write(partition_start_lba_ + fat_sector, buffer_, 1);
             if (error != Error::None) {
-                cprintf("fat: unmount failed to flush LBA %d: %s (%d)\n", partition_start_lba_ + fat_sector,
-                        error_str(error), static_cast<int>(error));
+                klog::error("fat: unmount failed to flush LBA %d: %s (%d)\n", partition_start_lba_ + fat_sector,
+                            error_str(error), static_cast<int>(error));
             }
         }
         buffer_dirty_ = false;

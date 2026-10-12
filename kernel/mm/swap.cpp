@@ -1,4 +1,5 @@
 #include "swap.h"
+#include <kernel/log.h>
 #include "block/blk.h"
 #include "drivers/intr.h"
 #include "lib/kernel_buffer.h"
@@ -101,9 +102,7 @@ int init() {
     if (State::manager_.init() != Error::None) {
         return -1;
     }
-    if (swapfs_init() != 0) {
-        cprintf("swap: disabled (no usable dedicated swap device)\n");
-    }
+    (void)swapfs_init();
     return 0;
 }
 
@@ -116,15 +115,18 @@ int swapfs_init() {
     // and their filesystem partitions are never selected as a fallback.
     auto* device = BlockManager::find_device(blk::DeviceType::Swap);
     if (!device) {
+        klog::debug("swap: disabled (no dedicated swap device)\n");
         return -1;
     }
     uint32_t slot_limit = static_cast<uint32_t>(
         sys::min(static_cast<size_t>(device->block_count / BLOCKS_PER_PAGE) + 1, MAX_OFFSET_LIMIT));
     if (slot_limit <= 1) {
+        klog::warn("swap: device '%s' is too small; swap disabled\n", device->name);
         return -1;
     }
     auto allocation = KernelBuffer::alloc((slot_limit + 7) / 8);
     if (!allocation.ok()) {
+        klog::warn("swap: slot allocation failed: %s; swap disabled\n", error_str(allocation.error()));
         return -1;
     }
     auto slots = allocation.release_value();
@@ -133,7 +135,7 @@ int swapfs_init() {
     State::slot_limit_ = slot_limit;
     State::next_slot_ = 1;
     State::device_ = device;
-    cprintf("swap: dedicated device '%s', %u page slots\n", device->name, slot_limit - 1);
+    klog::info("swap: dedicated device '%s', %u page slots\n", device->name, slot_limit - 1);
     return 0;
 }
 

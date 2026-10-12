@@ -1,10 +1,10 @@
 #pragma once
 
 #include <uefi/uefi.h>
-#include <kernel/bootinfo.h>
+#include <kernel/boot_info.h>
 
 struct UefiBootConfig {
-    const wchar_t* banner;    // e.g. L"\r\nZonix UEFI Bootloader (x86_64) v1.0\r\n\r\n"
+    const wchar_t* banner;    // One-line loading message, including architecture.
     const char* loader_name;  // e.g. "Zonix UEFI"
     uint64_t kernel_base_va;
     uint64_t boot_info_pa;   // physical address for BootInfo

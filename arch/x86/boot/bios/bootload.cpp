@@ -13,7 +13,7 @@
 
 #include <base/elf.h>
 #include <base/types.h>
-#include <kernel/bootinfo.h>
+#include <kernel/boot_info.h>
 #include <base/bpb.h>
 
 #include "../bootlib.h"

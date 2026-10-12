@@ -1,4 +1,5 @@
 #include "ide.h"
+#include <kernel/log.h>
 #include "lib/result.h"
 #include "lib/stdio.h"
 #include "lib/string.h"
@@ -102,7 +103,7 @@ Result<bool> IdeDevice::identify_locked() {
     }
     Error ready = wait_status(cfg.base, ide::STATUS_DRQ);
     if (ready == Error::Io && identify_is_atapi(cfg.base)) {
-        cprintf("ide: %s: skipping unsupported ATAPI device\n", cfg.name);
+        klog::warn("ide: %s: skipping unsupported ATAPI device\n", cfg.name);
         return false;
     }
     TRY(ready);
@@ -125,7 +126,7 @@ void IdeDevice::interrupt() {
         uint8_t status = arch_port_read8(config->base + ide::REG_STATUS);
         if (status & ide::STATUS_ERR) {
             uint8_t err = arch_port_read8(config->base + ide::REG_ERROR);
-            cprintf("hd_intr: disk error on %s (status=0x%02x, error=0x%02x)\n", name, status, err);
+            klog::error("hd_intr: disk error on %s (status=0x%02x, error=0x%02x)\n", name, status, err);
             request.err = -1;
             break;
         }
@@ -162,7 +163,7 @@ Error IdeManager::init() {
     i8259::enable(IRQ_IDE1);
     i8259::enable(IRQ_IDE2);
 
-    cprintf("ide: probing %d channels (%d possible devices)...\n", ide::MAX_DEVICES / 2, ide::MAX_DEVICES);
+    klog::debug("ide: probing %d channels (%d possible devices)...\n", ide::MAX_DEVICES / 2, ide::MAX_DEVICES);
 
     // Try to detect all 4 possible devices
     for (int i = 0; i < ide::MAX_DEVICES; i++) {
@@ -183,7 +184,7 @@ Error IdeManager::init() {
         auto detected = device.detect_locked(&config);
         if (!detected.ok()) {
             Error error = detected.release_error();
-            cprintf("ide: %s: IDENTIFY failed: %s\n", config.name, error_str(error));
+            klog::error("ide: %s: IDENTIFY failed: %s\n", config.name, error_str(error));
             if (first_error == Error::None) {
                 first_error = error;
             }
@@ -193,20 +194,20 @@ Error IdeManager::init() {
             continue;
         }
 
-        cprintf("ide: %s: detected %d sectors (%d MB)\n", config.name, devices_[device_count_].info.block_count,
-                devices_[device_count_].info.block_count / 2048);
+        klog::debug("ide: %s: detected %d sectors (%d MB)\n", config.name, devices_[device_count_].info.block_count,
+                    devices_[device_count_].info.block_count / 2048);
 
         Error registered = blk::register_device(&devices_[device_count_]);
         if (registered != Error::None) {
-            cprintf("ide: failed to register %s: %s (%d)\n", config.name, error_str(registered),
-                    static_cast<int>(registered));
+            klog::error("ide: failed to register %s: %s (%d)\n", config.name, error_str(registered),
+                        static_cast<int>(registered));
             device.state_ = blk::DeviceState::Offline;
             return registered;
         }
         device_count_++;
     }
 
-    cprintf("ide: found %d device(s)\n", device_count_);
+    klog::debug("ide: found %d device(s)\n", device_count_);
     return first_error;
 }
 

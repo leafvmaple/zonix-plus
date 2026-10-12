@@ -1,4 +1,5 @@
 #include <sys/iterator.hpp>
+#include <kernel/log.h>
 #include "ahci.h"
 #include "drivers/pci.h"
 #include "drivers/mmio.h"
@@ -76,7 +77,7 @@ Error AhciDevice::detect(const AhciPortConfig* cfg, uintptr_t mmio_base) {
     if (error != Error::None) {
         Error stopped = shutdown_locked();
         if (stopped != Error::None) {
-            cprintf("ahci: failed initialization cleanup: %s\n", error_str(stopped));
+            klog::error("ahci: failed initialization cleanup: %s\n", error_str(stopped));
         }
         return error;
     }
@@ -205,11 +206,11 @@ void AhciDevice::interrupt() {
     }
 
     if (is & ahci::IS_PSS) {
-        cprintf("ahci%d: [DEBUG] PSS (PIO Setup FIS) interrupt received. Implementation pending.\n", config->port);
+        klog::debug("ahci%d: PSS (PIO Setup FIS) interrupt received. Implementation pending.\n", config->port);
     }
 
     if (is & ahci::IS_PCS) {
-        cprintf("ahci%d: port connect change detected\n", config->port);
+        klog::info("ahci%d: port connect change detected\n", config->port);
     }
 
     if (is & ahci::IS_OFS) {
@@ -227,7 +228,7 @@ int AhciManager::init() {
         return 0;
     }
 
-    cprintf("ahci: registering PCI driver...\n");
+    klog::debug("ahci: registering PCI driver...\n");
 
     Error registered = pci::register_driver(&AHCI_DRIVER);
     if (registered != Error::None) {
@@ -293,7 +294,7 @@ Error AhciManager::probe_controller(const pci::DeviceInfo* pdev) {
                 unsafe = true;
                 break;
             }
-            cprintf("ahci: port %d setup failed: %s\n", port, error_str(error));
+            klog::error("ahci: port %d setup failed: %s\n", port, error_str(error));
             continue;
         }
         candidates[count++] = &device;
@@ -315,7 +316,7 @@ Error AhciManager::probe_controller(const pci::DeviceInfo* pdev) {
         Error stopped = device.shutdown();
         if (stopped != Error::None) {
             unsafe = true;
-            cprintf("ahci: port shutdown failed: %s; retaining controller resources\n", error_str(stopped));
+            klog::error("ahci: port shutdown failed: %s; retaining controller resources\n", error_str(stopped));
         }
     }
     if (unsafe) {
@@ -355,14 +356,14 @@ Error AhciDevice::transfer_blocks(uint32_t start_lba, size_t block_count, void* 
     const char* op_name = write ? "write" : "read";
 
     if (state_ != blk::DeviceState::Ready) {
-        cprintf("AhciDevice::%s: device %s not present\n", op_name, name);
+        klog::error("AhciDevice::%s: device %s not present\n", op_name, name);
         return Error::NoDevice;
     }
 
     ENSURE(buf || block_count == 0, Error::Invalid);
     if (start_lba > info.block_count || block_count > info.block_count - start_lba) {
-        cprintf("AhciDevice::%s: out of range (block %d + %d > %d)\n", op_name, start_lba, block_count,
-                info.block_count);
+        klog::error("AhciDevice::%s: out of range (block %d + %d > %d)\n", op_name, start_lba, block_count,
+                    info.block_count);
         return Error::Invalid;
     }
 
@@ -388,7 +389,7 @@ Error AhciDevice::transfer_blocks(uint32_t start_lba, size_t block_count, void* 
             // Stop timed-out DMA before the caller can submit another command.
             Error stopped = shutdown_locked();
             if (stopped != Error::None) {
-                cprintf("ahci: %s: failed to stop DMA: %s\n", name, error_str(stopped));
+                klog::error("ahci: %s: failed to stop DMA: %s\n", name, error_str(stopped));
             }
             return completed;
         }

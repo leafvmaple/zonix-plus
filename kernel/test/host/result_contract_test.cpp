@@ -16,6 +16,13 @@ int cprintf(const char* format, ...) {
     return written;
 }
 
+void klog::write(klog::Level, const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    vprintf(format, args);
+    va_end(args);
+}
+
 void panic_at(const char*, int, const char*, ...) {
     exit(77);
 }

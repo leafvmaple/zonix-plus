@@ -10,11 +10,44 @@
 #include "sched/sched.h"
 
 #include <kernel/sysinfo.h>
+#include <kernel/log.h>
 #include "lib/cons_defs.h"
 
 namespace cmd {
 
 static void cmd_help(int argc, char** argv);
+
+static void cmd_dmesg(int argc, char** argv) {
+    static_cast<void>(argv);
+    if (argc != 1) {
+        cprintf("Usage: dmesg\n");
+        return;
+    }
+    klog::dump();
+}
+
+static void cmd_loglevel(int argc, char** argv) {
+    if (argc == 1) {
+        cprintf("Console log level: %s\n", klog::level_name(klog::console_level()));
+        return;
+    }
+    if (argc == 2) {
+        constexpr klog::Level levels[] = {
+            klog::Level::Debug,
+            klog::Level::Info,
+            klog::Level::Warn,
+            klog::Level::Error,
+        };
+        for (auto level : levels) {
+            if (strcmp(argv[1], klog::level_name(level)) == 0) {
+                klog::set_console_level(level);
+                cprintf("Console log level: %s\n", klog::level_name(level));
+                return;
+            }
+        }
+    }
+    cprintf("Usage: loglevel [debug|info|warn|error]\n");
+}
 
 static void cmd_pgdir(int argc, char** argv) {
     static_cast<void>(argc);
@@ -111,6 +144,8 @@ static void cmd_help(int argc, char** argv) {
 
 void register_sys_commands() {
     shell::register_command("help", "Show this help message", cmd_help);
+    shell::register_command("dmesg", "Show retained kernel logs (all levels)", cmd_dmesg);
+    shell::register_command("loglevel", "Set console logs: debug/info/warn/error", cmd_loglevel);
     shell::register_command("pgdir", "Print page directory", cmd_pgdir);
     shell::register_command("clear", "Clear the screen", cmd_clear);
     shell::register_command("uname", "Print system information (-a for all)", cmd_uname);

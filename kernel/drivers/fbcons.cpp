@@ -10,10 +10,11 @@
  */
 
 #include "drivers/fbcons.h"
+#include <kernel/log.h>
 
 #include <base/types.h>
 #include <asm/page.h>
-#include <kernel/bootinfo.h>
+#include <kernel/boot_info.h>
 #include <kernel/psf.h>
 #include "mm/vmm.h"
 #include "lib/stdio.h"
@@ -231,12 +232,12 @@ bool is_active() {
 void late_init() {
     struct BootInfo* bi = &::__kernel_boot_info;
 
-    cprintf("fbcons_late_init: type=%d addr=0x%lx w=%d h=%d pitch=%d bpp=%d\n", bi->framebuffer_type,
-            static_cast<unsigned long>(bi->framebuffer_pa), bi->framebuffer_width, bi->framebuffer_height,
-            bi->framebuffer_pitch, bi->framebuffer_bpp);
+    klog::debug("fbcons: type=%d addr=0x%lx w=%d h=%d pitch=%d bpp=%d\n", bi->framebuffer_type,
+                static_cast<unsigned long>(bi->framebuffer_pa), bi->framebuffer_width, bi->framebuffer_height,
+                bi->framebuffer_pitch, bi->framebuffer_bpp);
 
     if (bi->framebuffer_type != 1 || bi->framebuffer_pa == 0) {
-        cprintf("fbcons: no framebuffer available\n");
+        klog::debug("fbcons: no framebuffer available\n");
         return;
     }
 
@@ -245,14 +246,19 @@ void late_init() {
 
     uintptr_t fb_va = vmm::mmio_map(static_cast<uintptr_t>(fb_phys), fb_size, VM_WRITE | VM_NOCACHE);
     if (fb_va == 0) {
-        cprintf("fbcons: mmio_map failed for phys 0x%lx size 0x%x\n", static_cast<unsigned long>(fb_phys), fb_size);
+        klog::error("fbcons: mmio_map failed for phys 0x%lx size 0x%x\n", static_cast<unsigned long>(fb_phys), fb_size);
         return;
     }
 
-    cprintf("fbcons: phys 0x%lx -> virt 0x%lx (%dx%d)\n", static_cast<unsigned long>(fb_phys),
-            static_cast<unsigned long>(fb_va), bi->framebuffer_width, bi->framebuffer_height);
+    klog::debug("fbcons: phys 0x%lx -> virt 0x%lx (%dx%d)\n", static_cast<unsigned long>(fb_phys),
+                static_cast<unsigned long>(fb_va), bi->framebuffer_width, bi->framebuffer_height);
 
     init(fb_va, bi->framebuffer_width, bi->framebuffer_height, bi->framebuffer_pitch, bi->framebuffer_bpp);
+    if (is_active()) {
+        klog::info("console: framebuffer %dx%d\n", bi->framebuffer_width, bi->framebuffer_height);
+    } else {
+        klog::warn("console: framebuffer initialization failed; using architecture console\n");
+    }
 }
 
 }  // namespace fbcons

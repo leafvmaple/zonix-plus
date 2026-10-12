@@ -32,7 +32,7 @@ UEFI_COMMON_SRC := boot/uefi_boot.cpp
 UEFI_SO       := $(OBJDIR)/$(BOOT_UEFI_DIR)/bootload.so
 
 bootriscv64 = $(call totarget,BOOTRISCV64.EFI)
-$(bootriscv64): $(BOOT_UEFI_DIR)/bootload.cpp $(UEFI_COMMON_SRC) $(UEFI_LD_SCRIPT) $(CXX_STANDARD_STAMP) | $$(dir $$@)
+$(bootriscv64): $(BOOT_UEFI_DIR)/bootload.cpp $(UEFI_COMMON_SRC) $(UEFI_LD_SCRIPT) include/kernel/boot_options.h $(CXX_STANDARD_STAMP) $(BOOT_VERBOSE_STAMP) | $$(dir $$@)
 	$(Q)mkdir -p $(OBJDIR)/$(BOOT_UEFI_DIR) $(OBJDIR)/boot
 	$(Q)$(UEFI_CXX) $(UEFI_CXXFLAGS) -c $(BOOT_UEFI_DIR)/bootload.cpp \
 		-o $(OBJDIR)/$(BOOT_UEFI_DIR)/bootload.o

@@ -6,7 +6,7 @@
 #include <asm/arch.h>
 #include <asm/trapframe.h>
 #include <asm/memlayout.h>
-#include <kernel/bootinfo.h>
+#include <kernel/boot_info.h>
 
 #include "drivers/gic.h"
 #include "drivers/timer.h"

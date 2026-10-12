@@ -1,4 +1,5 @@
 #include "drivers/uart8250.h"
+#include <kernel/log.h>
 
 #include <kernel/config.h>
 #include <asm/arch.h>
@@ -15,7 +16,7 @@ int init() {
     // Scratch register test: verify UART is present
     arch_port_write8(COM1_PORT + 7, 0xA5);
     if (arch_port_read8(COM1_PORT + 7) != 0xA5) {
-        cprintf("uart8250: COM1 not detected (scratch test failed)\n");
+        klog::warn("uart8250: COM1 not detected (scratch test failed)\n");
         return -1;
     }
 
@@ -31,7 +32,7 @@ int init() {
     arch_port_write8(COM1_PORT + 4, 0x1E);  // Set loopback mode
     arch_port_write8(COM1_PORT + 0, 0x42);  // Send test byte
     if (arch_port_read8(COM1_PORT + 0) != 0x42) {
-        cprintf("uart8250: COM1 loopback test failed\n");
+        klog::warn("uart8250: COM1 loopback test failed\n");
         return -1;
     }
 

@@ -1,4 +1,5 @@
 #include <boot/uefi_boot.h>
+#include <kernel/boot_options.h>
 #include <base/elf.h>
 
 /*
@@ -299,7 +300,9 @@ EFI_STATUS uefi_boot_setup(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_tab
     boot_info->magic = BOOT_INFO_MAGIC;
     boot_info->mmap_pa = config.memory_map_pa;
 
-    uefi_print(system_table, uefi_string(L"Getting memory map...\r\n"));
+    if constexpr (BOOT_VERBOSE) {
+        uefi_print(system_table, uefi_string(L"Getting memory map...\r\n"));
+    }
     EFI_STATUS status = uefi_get_memory_map(boot_services, boot_info, config.memory_map_pa, config.memory_map_capacity,
                                             config.lower_memory_kib, config.upper_memory_start_pa);
     if (EFI_ERROR(status)) {
@@ -307,7 +310,9 @@ EFI_STATUS uefi_boot_setup(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_tab
         return status;
     }
 
-    uefi_print(system_table, uefi_string(L"Loading kernel...\r\n"));
+    if constexpr (BOOT_VERBOSE) {
+        uefi_print(system_table, uefi_string(L"Loading kernel...\r\n"));
+    }
     void* kernel_buf = nullptr;
     uintptr_t kernel_size_bytes = 0;
     status = uefi_load_kernel_file(boot_services, image_handle, &kernel_buf, &kernel_size_bytes);
@@ -326,7 +331,9 @@ EFI_STATUS uefi_boot_setup(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_tab
         }
     }
 
-    uefi_print(system_table, uefi_string(L"Parsing ELF kernel...\r\n"));
+    if constexpr (BOOT_VERBOSE) {
+        uefi_print(system_table, uefi_string(L"Parsing ELF kernel...\r\n"));
+    }
     if (uefi_load_elf(kernel_buf, boot_info, config.kernel_base_va) != 0) {
         uefi_print(system_table, uefi_string(L"ELF parse failed\r\n"));
         return EFI_LOAD_ERROR;
@@ -338,12 +345,15 @@ EFI_STATUS uefi_boot_setup(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_tab
         boot_info->loader_name[i] = config.loader_name[i];
     }
 
-    uefi_print(system_table, uefi_string(L"Kernel entry (phys): "));
-    uefi_print_hex(system_table, boot_info->kernel_entry);
+    if constexpr (BOOT_VERBOSE) {
+        uefi_print(system_table, uefi_string(L"Kernel entry (phys): "));
+        uefi_print_hex(system_table, boot_info->kernel_entry);
+        uefi_print(system_table, uefi_string(L"Exiting Boot Services...\r\n"));
+    }
 
-    uefi_print(system_table, uefi_string(L"Exiting Boot Services...\r\n"));
     status = uefi_exit_boot_services(boot_services, image_handle);
     if (EFI_ERROR(status)) {
+        uefi_print(system_table, uefi_string(L"ExitBootServices failed\r\n"));
         return status;
     }
 

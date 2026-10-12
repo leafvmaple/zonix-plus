@@ -142,11 +142,7 @@ void shell::init() {
         shell_register_extensions();
     }
 
-    cprintf("\n");
-    cprintf("=============================================\n");
-    cprintf("  Welcome to Zonix OS Interactive Console\n");
-    cprintf("  Type 'help' to see available commands\n");
-    cprintf("=============================================\n");
+    cprintf("Zonix console ready. Type 'help' for commands.\n");
 }
 
 void shell::handle_char(char c) {

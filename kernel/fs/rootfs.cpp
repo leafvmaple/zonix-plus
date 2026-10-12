@@ -1,4 +1,5 @@
 #include "rootfs.h"
+#include <kernel/log.h>
 
 #include "fs/vfs.h"
 #include "block/blk.h"
@@ -16,12 +17,12 @@ int init() {
         }
 
         if (vfs::mount("/", dev, "fat") == Error::None) {
-            cprintf("rootfs: mounted %s at /\n", dev->name);
+            klog::info("rootfs: %s mounted at / (fat)\n", dev->name);
             return 0;
         }
     }
 
-    cprintf("rootfs: no mountable system disk found\n");
+    klog::warn("rootfs: no mountable system disk found\n");
     return -1;
 }
 

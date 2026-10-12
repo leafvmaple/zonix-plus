@@ -23,7 +23,7 @@ struct BufferSink {
     size_t pos{};
     size_t size{};
     void put(char c) {
-        if (pos < size - 1)
+        if (size != 0 && pos < size - 1)
             buf[pos] = c;
         pos++;
     }
@@ -175,15 +175,19 @@ int cprintf(const char* fmt, ...) {
     return n;
 }
 
-int snprintf(char* buf, size_t size, const char* fmt, ...) {
-    if (size == 0)
-        return 0;
-
-    BufferSink sink{buf, 0, size};
+extern "C" int snprintf(char* buf, size_t size, const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
-    int n = vformat(sink, fmt, args);
+    int n = vsnprintf(buf, size, fmt, args);
     va_end(args);
-    buf[sink.pos < size ? sink.pos : size - 1] = '\0';
+    return n;
+}
+
+extern "C" int vsnprintf(char* buf, size_t size, const char* fmt, va_list args) {
+    BufferSink sink{buf, 0, size};
+    int n = vformat(sink, fmt, args);
+    if (size != 0) {
+        buf[sink.pos < size ? sink.pos : size - 1] = '\0';
+    }
     return n;
 }

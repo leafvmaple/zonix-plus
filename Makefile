@@ -8,6 +8,8 @@ ARCH ?= x86
 V    ?= 0  # Verbose mode: make V=1
 # Build kernel test suites: make TEST=1
 TEST ?= 0
+# Show detailed boot logs; all levels remain available in dmesg.
+BOOT_VERBOSE ?= 0
 
 # Shared by the kernel, boot firmware, host harness and analysis tools.
 CXX_STANDARD := gnu++20
@@ -81,7 +83,7 @@ tobin     = $(addprefix $(BINDIR)$(SLASH),$(addsuffix .bin,$(1)))
 # Single compile rule (with auto-deps via DEPFLAGS)
 # .S files get -D__ASSEMBLY__ so headers can hide C/C++ constructs.
 define compile
-$$(call toobj,$(1)): $(1) $$(TEST_MODE_STAMP) $$(CXX_STANDARD_STAMP) | $$$$(dir $$$$@)
+$$(call toobj,$(1)): $(1) $$(TEST_MODE_STAMP) $$(CXX_STANDARD_STAMP) $$(BOOT_VERBOSE_STAMP) | $$$$(dir $$$$@)
 	$(Q)$(2) -I$$(dir $(1)) $(3) $(if $(filter %.S,$(1)),-D__ASSEMBLY__) $(DEPFLAGS) -c $$< -o $$@
 ALLOBJS += $$(call toobj,$(1))
 endef
@@ -124,13 +126,14 @@ INCLUDE := include \
 CFLAGS   += $(addprefix -I,$(INCLUDE))
 ZSTL_DIR := external/zstl
 CXXFLAGS += $(addprefix -I,$(INCLUDE)) -Werror=unused-result \
-            -I$(ZSTL_DIR)/include
+            -I$(ZSTL_DIR)/include -DCONFIG_BOOT_VERBOSE=$(BOOT_VERBOSE)
 
 # Track TEST mode changes: when TEST switches, all .o files must be recompiled
 # (because -DTEST_MODE=1 changes preprocessor output).  Must be defined before
 # the compile rules are eval'd by add_packet_files_cxx below.
 TEST_MODE_STAMP := $(OBJDIR)/.test_mode
 CXX_STANDARD_STAMP := $(OBJDIR)/.cxx_standard
+BOOT_VERBOSE_STAMP := $(OBJDIR)/.boot_verbose
 
 $(call add_packet_files_cc,$(call listf_cc,$(KSRCDIR)),kernel)
 $(call add_packet_files_cxx,$(call listf_cxx,$(KSRCDIR)),kernel)
@@ -146,6 +149,9 @@ $(TEST_MODE_STAMP): FORCE | $(OBJDIR)/
 $(CXX_STANDARD_STAMP): FORCE | $(OBJDIR)/
 	$(Q)if [ ! -f $@ ] || [ "$$(cat $@)" != "$(CXX_STANDARD)" ]; then echo "$(CXX_STANDARD)" > $@; fi
 
+$(BOOT_VERBOSE_STAMP): FORCE | $(OBJDIR)/
+	$(Q)if [ ! -f $@ ] || [ "$$(cat $@)" != "$(BOOT_VERBOSE)" ]; then echo "$(BOOT_VERBOSE)" > $@; fi
+
 $(kernel): $(KOBJS) $(KERNEL_EXTRA_OBJS) $(KERNEL_LD_SCRIPT) $(TEST_MODE_STAMP) | $$(dir $$@)
 	$(Q)$(LD) $(LDFLAGS) -T $(KERNEL_LD_SCRIPT) $(KOBJS) $(KERNEL_EXTRA_OBJS) -o $@
 	$(if $(KERNEL_POST_LINK),$(KERNEL_POST_LINK))
@@ -156,6 +162,7 @@ $(kernel): $(KOBJS) $(KERNEL_EXTRA_OBJS) $(KERNEL_LD_SCRIPT) $(TEST_MODE_STAMP) 
 # Boot (BIOS + UEFI) — architecture-specific toolchains
 # ==========================================================================
 include arch/$(ARCH)/boot/Makefile
+UEFI_CXXFLAGS += -DCONFIG_BOOT_VERBOSE=$(BOOT_VERBOSE)
 
 # VBR compatibility alias
 BOBJS = $(call toobj,$(bootfiles))
@@ -278,6 +285,7 @@ help:
 	@echo "  ARCH=x86|aarch64|riscv64  Target architecture (default: x86)"
 	@echo "  DISK=ahci|ide        User-data disk controller (default: ahci)"
 	@echo "  TEST=0|1             Include kernel test suites (default: 0)"
+	@echo "  BOOT_VERBOSE=0|1     Detailed startup logs (default: 0)"
 	@echo "  V=1                  Verbose build output"
 	@echo ""
 

@@ -6,6 +6,7 @@
  */
 
 #include "cons/cons.h"
+#include <kernel/log.h>
 #include "drivers/pl011.h"
 #include "lib/stdio.h"
 #include <base/types.h>
@@ -19,7 +20,8 @@ int arch_init() {
     if (rc != 0) {
         return rc;
     }
-    cprintf("Zonix OS (aarch64) is Loading at [0x%p]...\n", KERNEL_START);
+    klog::info("Zonix OS (aarch64)\n");
+    klog::debug("boot: kernel start at %p\n", KERNEL_START);
     return 0;
 }
 

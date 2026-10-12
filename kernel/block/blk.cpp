@@ -1,11 +1,12 @@
 #include "blk.h"
+#include <kernel/log.h>
 
 #include "lib/stdio.h"
 #include "lib/string.h"
 #include "drivers/intr.h"
 
 void BlockManager::init() {
-    cprintf("blk_init: initializing block device layer...\n");
+    klog::debug("blk: initializing block device layer...\n");
 }
 
 Error BlockManager::register_device(BlockDevice* device) {
@@ -101,12 +102,10 @@ int init() {
 
     int rc = probe_backends();
     if (rc != 0) {
-        cprintf("blk: probe_backends failed (rc=%d)\n", rc);
+        klog::error("blk: probe_backends failed (rc=%d)\n", rc);
         return rc;
     }
 
-    int count = BlockManager::device_count();
-    cprintf("blk: %d device(s) registered (before PCI probe)\n", count);
     return 0;
 }
 

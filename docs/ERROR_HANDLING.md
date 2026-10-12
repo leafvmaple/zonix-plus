@@ -278,8 +278,8 @@ in both cases.
 `TRY(expr)` accepts `Error`, `Result<void>` and `Result<T>`. It evaluates `expr`
 once, returns the original error from the enclosing function on failure, and
 extracts the value on success. Status-only success has a void result.
-`TRY_LOG` follows the same rules and logs on failure; its caller must provide
-the logging declaration. Both macros use the existing GNU statement-expression
+`TRY_LOG` follows the same rules and records an Error-level kernel log on failure.
+Both macros use the existing GNU statement-expression
 extension supported by the kernel toolchain.
 
 ```cpp
@@ -317,6 +317,15 @@ error destruction does not panic.
 ## Logging rules
 
 - Use `TRY` for routine propagation. Pure forwarding layers do not print.
+- Kernel diagnostics use `<kernel/log.h>`: Debug for probe/address details,
+  Info for concise successful summaries, Warn for degradation, and Error for
+  failed operations. `TRY_LOG`/`ENSURE_LOG` use this same Error-level entry point.
+  Console/test/program output remains independent and uses `cprintf`.
+- The log retains the newest 128 records without allocation (256 bytes per
+  message, including its terminator). Longer messages are marked truncated;
+  `dmesg` reports discarded records. All levels are retained regardless of the
+  console threshold. `make BOOT_VERBOSE=1` selects Debug at boot; `loglevel`
+  changes the live threshold. Panic output bypasses this filter.
 - Use `ENSURE` for a recoverable precondition failure; choose an explicit code
   when `Invalid` is inaccurate. `assert` diagnoses an internal invariant failure.
 - Expected outcomes (missing optional files, retryable busy states, probing an

@@ -1,4 +1,5 @@
 #include "drivers/pci.h"
+#include <kernel/log.h>
 #include <sys/inplace_vector.hpp>
 #include <sys/array.hpp>
 #include "lib/stdio.h"
@@ -58,7 +59,7 @@ void scan_all_devices() {
                 }
 
                 if (State::enumerated_devices_.size() == State::enumerated_devices_.capacity()) {
-                    cprintf("pci: device table full, max=%d\n", MAX_ENUM_DEVICES);
+                    klog::warn("pci: device table full, max=%d\n", MAX_ENUM_DEVICES);
                     State::scan_complete_ = true;
                     reset_bindings();
                     return;

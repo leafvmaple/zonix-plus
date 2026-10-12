@@ -1,4 +1,5 @@
 #include "drivers/i8253.h"
+#include <kernel/log.h>
 #include "drivers/i8259.h"
 #include "lib/stdio.h"
 
@@ -58,7 +59,7 @@ int init() {
         time.tm_mon = cmos_read(8);
         time.tm_year = cmos_read(9);
         if (++retries > max_cmos_retries) {
-            cprintf("i8253: CMOS read unstable after %d retries\n", max_cmos_retries);
+            klog::warn("i8253: CMOS read unstable after %d retries\n", max_cmos_retries);
             return -1;
         }
     } while (time.tm_sec != cmos_read(0));

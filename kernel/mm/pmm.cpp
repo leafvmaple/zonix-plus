@@ -1,4 +1,5 @@
 #include "pmm.h"
+#include <kernel/log.h>
 #include "debug/assert.h"
 #include "drivers/intr.h"
 
@@ -10,7 +11,7 @@
 #include <asm/arch.h>
 #include <asm/page.h>
 #include <asm/mmu.h>
-#include <kernel/bootinfo.h>
+#include <kernel/boot_info.h>
 
 // Declared in head.S — kernel's own copy of boot_info
 extern struct BootInfo __kernel_boot_info;
@@ -32,7 +33,7 @@ class Factory {
 public:
     static int init() {
         allocator_.init();
-        cprintf("pmm: allocator = %s\n", allocator_.name());
+        klog::debug("pmm: allocator = %s\n", allocator_.name());
         return 0;
     }
 
@@ -309,7 +310,7 @@ static int page_init() {
     BootInfo* bi = &__kernel_boot_info;
 
     if (bi->mmap_count == 0) {
-        cprintf("pmm: boot memory map is empty\n");
+        klog::error("pmm: boot memory map is empty\n");
         return -1;
     }
 
@@ -325,7 +326,7 @@ static int page_init() {
     });
 
     if (max_pa == 0) {
-        cprintf("pmm: no usable memory regions in boot map (%d entries)\n", bi->mmap_count);
+        klog::error("pmm: no usable memory regions in boot map (%d entries)\n", bi->mmap_count);
         return -1;
     }
 
@@ -333,15 +334,15 @@ static int page_init() {
 
     uint32_t page_count = round_up(max_pa, PG_SIZE) / PG_SIZE;
     if (page_count == 0) {
-        cprintf("pmm: max physical address too small (0x%lx)\n", static_cast<uint64_t>(max_pa));
+        klog::error("pmm: max physical address too small (0x%lx)\n", static_cast<uint64_t>(max_pa));
         return -1;
     }
 
     Factory::set_page_descriptors(reinterpret_cast<Page*>(round_up(reinterpret_cast<void*>(KERNEL_END), PG_SIZE)),
                                   page_count);
 
-    cprintf("pmm: %d pages, page array at [0x%p], max_pa=0x%lx\n", Factory::page_count(), Factory::page_descriptors(),
-            static_cast<uint64_t>(max_pa));
+    klog::debug("pmm: %d pages, page array at [0x%p], max_pa=0x%lx\n", Factory::page_count(),
+                Factory::page_descriptors(), static_cast<uint64_t>(max_pa));
 
     for (uint32_t i = 0; i < Factory::page_count(); i++) {
         Factory::page_descriptors()[i].set_reserved();
@@ -358,7 +359,8 @@ static int page_init() {
         if (!normalize_available_range(base_pa, size_bytes, valid_mem, &begin, &limit))
             return;
 
-        cprintf("pmm: free region [0x%016lx, 0x%016lx]\n", static_cast<uint64_t>(begin), static_cast<uint64_t>(limit));
+        klog::debug("pmm: free region [0x%016lx, 0x%016lx]\n", static_cast<uint64_t>(begin),
+                    static_cast<uint64_t>(limit));
         Factory::allocator().init_memmap(pmm::phys_to_page(begin), (limit - begin) / PG_SIZE);
     });
 
@@ -446,17 +448,17 @@ int pmm::init() {
 
     int rc = page_init();
     if (rc != 0) {
-        cprintf("pmm: page_init failed (rc=%d)\n", rc);
+        klog::error("pmm: page_init failed (rc=%d)\n", rc);
         return rc;
     }
 
     size_t free_pages = Factory::allocator().free_page_count();
     if (free_pages == 0) {
-        cprintf("pmm: no free pages after initialization\n");
+        klog::error("pmm: no free pages after initialization\n");
         return -1;
     }
 
-    cprintf("pmm: initialized, %d free pages (%d MB)\n", static_cast<int>(free_pages),
-            static_cast<int>((free_pages * PG_SIZE) / (1024ULL * 1024)));
+    klog::info("memory: %d free pages (%d MiB)\n", static_cast<int>(free_pages),
+               static_cast<int>((free_pages * PG_SIZE) / (1024ULL * 1024)));
     return 0;
 }

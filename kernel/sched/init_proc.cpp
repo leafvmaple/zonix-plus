@@ -1,4 +1,5 @@
 #include "sched.h"
+#include <kernel/log.h>
 #include "cons/shell.h"
 #include "lib/stdio.h"
 #include <asm/arch.h>
@@ -17,13 +18,14 @@ static int init_main(void* arg) {
         shell_proc->set_name("shell");
     }
 
-    cprintf("init: started shell process (PID %d)\n", shell_pid);
+    klog::debug("init: started shell process (PID %d)\n", shell_pid);
 
     while (true) {
         int exit_code{};
         auto pid_r = TaskManager::wait(0, &exit_code);
         if (pid_r.ok() && pid_r.value() > 0) {
-            cprintf("init: reaped child PID %d (exit code %d)\n", pid_r.value(), exit_code);
+            klog::write(exit_code == 0 ? klog::Level::Debug : klog::Level::Warn,
+                        "init: reaped child PID %d (exit code %d)\n", pid_r.value(), exit_code);
         }
     }
 
@@ -33,24 +35,24 @@ static int init_main(void* arg) {
 
 int TaskManager::init() {
     if (init_idle() != 0) {
-        cprintf("sched: failed to create idle process\n");
+        klog::error("sched: failed to create idle process\n");
         return -1;
     }
 
     if (init_init_proc() != 0) {
-        cprintf("sched: failed to create init process\n");
+        klog::error("sched: failed to create init process\n");
         return -1;
     }
 
-    cprintf("sched: policy = %s\n", Scheduler::policy_name());
-    cprintf("sched init: idle process PID = 0, init process PID = 1\n");
+    klog::debug("sched: policy = %s\n", Scheduler::policy_name());
+    klog::debug("sched init: idle process PID = 0, init process PID = 1\n");
     return 0;
 }
 
 int TaskManager::init_idle() {
     auto idle_proc = sys::unique_ptr<Task>(new (sys::nothrow) Task());
     if (!idle_proc) {
-        cprintf("sched: init_idle: failed to allocate Task\n");
+        klog::error("sched: init_idle: failed to allocate Task\n");
         return -1;
     }
     idle_proc->boot_stack_ = reinterpret_cast<uintptr_t>(user_stack);
@@ -81,13 +83,13 @@ int TaskManager::init_init_proc() {
 
     auto ret = fork(0, 0, &trap_frame);
     if (!ret.ok()) {
-        cprintf("sched: init_init_proc: fork failed (%s)\n", error_str(ret.error()));
+        klog::error("sched: init_init_proc: fork failed (%s)\n", error_str(ret.error()));
         return -1;
     }
 
     init_proc_ = find_process(ret.value());
     if (!init_proc_) {
-        cprintf("sched: init_init_proc: find_process(%d) returned null\n", ret.value());
+        klog::error("sched: init_init_proc: find_process(%d) returned null\n", ret.value());
         return -1;
     }
 

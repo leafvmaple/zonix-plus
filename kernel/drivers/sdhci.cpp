@@ -1,4 +1,5 @@
 #include <sys/iterator.hpp>
+#include <kernel/log.h>
 #include "sdhci.h"
 #include "drivers/mmio.h"
 #include "drivers/pci.h"
@@ -88,7 +89,7 @@ Error SdDevice::reset() {
             return Error::None;
     }
 
-    cprintf("sdhci: reset timeout\n");
+    klog::error("sdhci: reset timeout\n");
     return Error::Timeout;
 }
 
@@ -110,7 +111,7 @@ Error SdDevice::clock_setup() {
         }
     }
 
-    cprintf("sdhci: clock not stable\n");
+    klog::error("sdhci: clock not stable\n");
     return Error::Timeout;
 }
 
@@ -138,7 +139,7 @@ Error SdDevice::send_cmd(uint8_t index, uint32_t arg, uint16_t flags) {
             break;
     }
     if (wait_time == COMMAND_POLL_LIMIT) {
-        cprintf("sdhci: CMD%d cmd inhibit timeout\n", index);
+        klog::error("sdhci: CMD%d cmd inhibit timeout\n", index);
         return Error::Timeout;
     }
 
@@ -148,7 +149,7 @@ Error SdDevice::send_cmd(uint8_t index, uint32_t arg, uint16_t flags) {
                 break;
         }
         if (wait_time == COMMAND_POLL_LIMIT) {
-            cprintf("sdhci: CMD%d dat inhibit timeout\n", index);
+            klog::error("sdhci: CMD%d dat inhibit timeout\n", index);
             return Error::Timeout;
         }
     }
@@ -171,7 +172,7 @@ Error SdDevice::wait_cmd_done() {
             uint16_t err = mmio::read16(base_, reg::ERR_STATUS);
             mmio::write16(base_, reg::INT_STATUS, status);
             mmio::write16(base_, reg::ERR_STATUS, err);
-            cprintf("sdhci: command error, status=0x%x err=0x%x\n", status, err);
+            klog::error("sdhci: command error, status=0x%x err=0x%x\n", status, err);
             return Error::Io;
         }
         if (status & INT_CMD_DONE) {
@@ -180,7 +181,7 @@ Error SdDevice::wait_cmd_done() {
         }
     }
 
-    cprintf("sdhci: command complete timeout\n");
+    klog::error("sdhci: command complete timeout\n");
     return Error::Timeout;
 }
 
@@ -191,7 +192,7 @@ Error SdDevice::wait_xfer_done() {
             uint16_t err = mmio::read16(base_, reg::ERR_STATUS);
             mmio::write16(base_, reg::INT_STATUS, status);
             mmio::write16(base_, reg::ERR_STATUS, err);
-            cprintf("sdhci: transfer error, status=0x%x err=0x%x\n", status, err);
+            klog::error("sdhci: transfer error, status=0x%x err=0x%x\n", status, err);
             return Error::Io;
         }
         if (status & INT_XFER_DONE) {
@@ -200,7 +201,7 @@ Error SdDevice::wait_xfer_done() {
         }
     }
 
-    cprintf("sdhci: transfer complete timeout\n");
+    klog::error("sdhci: transfer complete timeout\n");
     return Error::Timeout;
 }
 
@@ -230,7 +231,7 @@ Error SdDevice::read_csd() {
         // C_SIZE [69:48] = RESPONSE1[29:8]
         uint32_t c_size = (r1 >> 8) & 0x3FFFFF;
         block_count = (c_size + 1) * 1024;
-        cprintf("sdhci: CSD v2, C_SIZE=%u -> %u sectors (%u MB)\n", c_size, block_count, block_count / 2048);
+        klog::debug("sdhci: CSD v2, C_SIZE=%u -> %u sectors (%u MB)\n", c_size, block_count, block_count / 2048);
     } else if (csd_structure == 0) {
         // CSD v1 (SDSC): capacity = BLOCKNR * BLOCK_LEN
         // READ_BL_LEN [83:80] = RESPONSE2[11:8]
@@ -241,10 +242,10 @@ Error SdDevice::read_csd() {
         uint32_t c_size_mult = (r1 >> 7) & 0x7;
         uint32_t blocknr = (c_size + 1) << (c_size_mult + 2);
         block_count = (blocknr * (1U << read_bl_len)) / 512;
-        cprintf("sdhci: CSD v1, C_SIZE=%u C_SIZE_MULT=%u READ_BL_LEN=%u -> %u sectors (%u MB)\n", c_size, c_size_mult,
-                read_bl_len, block_count, block_count / 2048);
+        klog::debug("sdhci: CSD v1, C_SIZE=%u C_SIZE_MULT=%u READ_BL_LEN=%u -> %u sectors (%u MB)\n", c_size,
+                    c_size_mult, read_bl_len, block_count, block_count / 2048);
     } else {
-        cprintf("sdhci: unknown CSD structure %u, defaulting to 131072 sectors\n", csd_structure);
+        klog::warn("sdhci: unknown CSD structure %u, defaulting to 131072 sectors\n", csd_structure);
         block_count = 131072;
     }
 
@@ -259,7 +260,7 @@ Error SdDevice::card_identify() {
 
     uint32_t r7 = read_response(0);
     if ((r7 & 0xFF) != 0xAA) {
-        cprintf("sdhci: CMD8 check pattern mismatch: 0x%x\n", r7);
+        klog::error("sdhci: CMD8 check pattern mismatch: 0x%x\n", r7);
         return Error::Io;
     }
 
@@ -274,13 +275,13 @@ Error SdDevice::card_identify() {
         uint32_t ocr = read_response(0);
         if (ocr & OCR_BUSY) {
             sdhc_ = (ocr & OCR_CCS) != 0;
-            cprintf("sdhci: card ready, %s\n", sdhc_ ? "SDHC/SDXC" : "SDSC");
+            klog::debug("sdhci: card ready, %s\n", sdhc_ ? "SDHC/SDXC" : "SDSC");
             break;
         }
     }
 
     if (retry == ACMD41_RETRIES) {
-        cprintf("sdhci: ACMD41 timeout — card not ready\n");
+        klog::error("sdhci: ACMD41 timeout — card not ready\n");
         return Error::Timeout;
     }
 
@@ -289,7 +290,7 @@ Error SdDevice::card_identify() {
     TRY_LOG(send_cmd(SD_CMD3_SEND_RCA, 0, CMD_RESP_48 | CMD_CRC_EN | CMD_IDX_EN), "sdhci: CMD3 failed");
 
     rca_ = static_cast<uint16_t>(read_response(0) >> 16);
-    cprintf("sdhci: RCA = 0x%x\n", rca_);
+    klog::debug("sdhci: RCA = 0x%x\n", rca_);
 
     TRY(read_csd());
 
@@ -315,7 +316,7 @@ Error SdDevice::read_single(uint32_t lba, void* buf) {
     for (int i = 0; i < COMMAND_POLL_LIMIT; i++) {
         uint16_t status = mmio::read16(base_, reg::INT_STATUS);
         if (status & INT_ERROR) {
-            cprintf("sdhci: read data error\n");
+            klog::error("sdhci: read data error\n");
             return Error::Io;
         }
         if (status & INT_BUF_RD_READY) {
@@ -323,7 +324,7 @@ Error SdDevice::read_single(uint32_t lba, void* buf) {
             break;
         }
         if (i == COMMAND_POLL_LIMIT - 1) {
-            cprintf("sdhci: read buffer ready timeout\n");
+            klog::error("sdhci: read buffer ready timeout\n");
             return Error::Timeout;
         }
     }
@@ -350,7 +351,7 @@ Error SdDevice::write_single(uint32_t lba, const void* buf) {
     for (int i = 0; i < COMMAND_POLL_LIMIT; i++) {
         uint16_t status = mmio::read16(base_, reg::INT_STATUS);
         if (status & INT_ERROR) {
-            cprintf("sdhci: write data error\n");
+            klog::error("sdhci: write data error\n");
             return Error::Io;
         }
         if (status & INT_BUF_WR_READY) {
@@ -358,7 +359,7 @@ Error SdDevice::write_single(uint32_t lba, const void* buf) {
             break;
         }
         if (i == COMMAND_POLL_LIMIT - 1) {
-            cprintf("sdhci: write buffer ready timeout\n");
+            klog::error("sdhci: write buffer ready timeout\n");
             return Error::Timeout;
         }
     }
@@ -381,7 +382,7 @@ Error SdDevice::init(volatile uint8_t* base, int index) {
     base_ = base;
 
     uint16_t ver = mmio::read16(base_, reg::HOST_VERSION);
-    cprintf("sdhci: controller version %d.%02d\n", (ver >> 8) + 1, ver & 0xFF);
+    klog::debug("sdhci: controller version %d.%02d\n", (ver >> 8) + 1, ver & 0xFF);
 
     Error error = reset();
     if (error == Error::None) {
@@ -405,7 +406,7 @@ Error SdDevice::init(volatile uint8_t* base, int index) {
     name[3] = '\0';
     state_ = blk::DeviceState::Ready;
 
-    cprintf("sdhci: SD card initialized as '%s'\n", name);
+    klog::debug("sdhci: SD card initialized as '%s'\n", name);
     return Error::None;
 }
 
@@ -514,7 +515,7 @@ Error Manager::probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*)
                Error::Busy);
     }
     if (device_count_ == devices_.size()) {
-        cprintf("sdhci: too many controllers, max=%d\n", MAX_DEVICES);
+        klog::error("sdhci: too many controllers, max=%d\n", MAX_DEVICES);
         return Error::Full;
     }
 

@@ -1,4 +1,4 @@
-#include "kernel/bootinfo.h"
+#include "kernel/boot_info.h"
 #include <uefi/uefi.h>
 #include <boot/uefi_boot.h>
 #include <asm/board.h>
@@ -7,7 +7,7 @@
 
 extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_table) {
     const UefiBootConfig cfg = {
-        .banner = uefi_string(L"\r\nZonix UEFI Bootloader (RISC-V 64) v1.0\r\n\r\n"),
+        .banner = uefi_string(L"Loading Zonix (UEFI, riscv64)...\r\n"),
         .loader_name = "Zonix UEFI RISC-V",
         .kernel_base_va = 0xFFFFFFC000000000ULL,
         .boot_info_pa = BOARD_BOOT_INFO_ADDR,

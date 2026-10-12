@@ -106,6 +106,14 @@ int cprintf(const char* format, ...) {
     va_end(args);
     return result;
 }
+
+// Hardware fixtures use host stdout instead of the kernel console/history.
+void klog::write(klog::Level, const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    vprintf(format, args);
+    va_end(args);
+}
 void panic_at(const char* file, int line, const char* format, ...) {
     cprintf("assertion at %s:%d: ", file, line);
     va_list args;

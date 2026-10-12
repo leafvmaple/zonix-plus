@@ -1,4 +1,5 @@
 #include "cons/cons.h"
+#include <kernel/log.h>
 
 #include <kernel/config.h>
 #include <asm/arch.h>
@@ -20,17 +21,18 @@ int arch_init() {
 
     rc = cga::init();
     if (rc != 0)
-        cprintf("cons: cga init failed (rc=%d)\n", rc);
+        klog::warn("cons: cga init failed (rc=%d)\n", rc);
 
     rc = uart8250::init();
     if (rc != 0)
-        cprintf("cons: uart8250 init failed (rc=%d), serial output disabled\n", rc);
+        klog::warn("cons: uart8250 init failed (rc=%d), serial output disabled\n", rc);
 
     rc = i8042::init();
     if (rc != 0)
-        cprintf("cons: i8042 init failed (rc=%d), keyboard input disabled\n", rc);
+        klog::warn("cons: i8042 init failed (rc=%d), keyboard input disabled\n", rc);
 
-    cprintf("Zonix OS (x86_64) is Loading at [0x%p]...\n", KERNEL_START);
+    klog::info("Zonix OS (x86_64)\n");
+    klog::debug("boot: kernel start at %p\n", KERNEL_START);
     return 0;
 }
 

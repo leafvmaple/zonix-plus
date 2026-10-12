@@ -21,7 +21,7 @@ UEFI_LDFLAGS := /subsystem:efi_application /entry:efi_main \
 UEFI_COMMON_SRC := boot/uefi_boot.cpp
 
 bootaa64 = $(call totarget,BOOTAA64.EFI)
-$(bootaa64): $(BOOT_UEFI_DIR)/bootload.cpp $(UEFI_COMMON_SRC) $(CXX_STANDARD_STAMP) | $$(dir $$@)
+$(bootaa64): $(BOOT_UEFI_DIR)/bootload.cpp $(UEFI_COMMON_SRC) include/kernel/boot_options.h $(CXX_STANDARD_STAMP) $(BOOT_VERBOSE_STAMP) | $$(dir $$@)
 	$(Q)mkdir -p $(OBJDIR)/$(BOOT_UEFI_DIR) $(OBJDIR)/boot
 	$(Q)$(UEFI_CXX) $(UEFI_CXXFLAGS) -c $(BOOT_UEFI_DIR)/bootload.cpp -o $(OBJDIR)/$(BOOT_UEFI_DIR)/bootload.o
 	$(Q)$(UEFI_CXX) $(UEFI_CXXFLAGS) -c $(UEFI_COMMON_SRC) -o $(OBJDIR)/boot/uefi_boot.o

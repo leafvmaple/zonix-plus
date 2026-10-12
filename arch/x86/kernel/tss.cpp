@@ -10,6 +10,7 @@
  */
 
 #include "tss.h"
+#include <kernel/log.h>
 
 #include <asm/segments.h>
 #include "lib/memory.h"
@@ -40,7 +41,7 @@ int init() {
     uint16_t tss_sel = GD_TSS;
     __asm__ volatile("ltr %0" : : "r"(tss_sel));
 
-    cprintf("tss: initialised (base=0x%lx, limit=%d)\n", base, limit);
+    klog::debug("tss: initialised (base=0x%lx, limit=%d)\n", base, limit);
 
     return 0;
 }

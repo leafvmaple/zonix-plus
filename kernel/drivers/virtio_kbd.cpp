@@ -1,4 +1,5 @@
 #include "virtio_kbd.h"
+#include <kernel/log.h>
 #include "virtio/pci_transport.h"
 #include "virtio/split_queue.h"
 #include "cons/cons.h"
@@ -66,7 +67,8 @@ public:
         command.commit();
         arch_irq_enable_line(irq_);
         notification_.notify();
-        cprintf("virtio_kbd: ready, eventq=%d, IRQ=%d\n", queue_.size(), irq_);
+        klog::info("input: VirtIO keyboard ready\n");
+        klog::debug("virtio_kbd: ready, eventq=%d, IRQ=%d\n", queue_.size(), irq_);
         return Error::None;
     }
 
@@ -151,10 +153,10 @@ private:
     }
 
     void fail() {
-        cprintf("virtio_kbd: invalid event queue, stopping device\n");
+        klog::error("virtio_kbd: invalid event queue, stopping device\n");
         Error error = stop();
         if (error != Error::None) {
-            cprintf("virtio_kbd: reset failed (%s), DMA resources retained\n", error_str(error));
+            klog::error("virtio_kbd: reset failed (%s), DMA resources retained\n", error_str(error));
         }
     }
 

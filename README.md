@@ -90,7 +90,17 @@ make ARCH=riscv64
 
 # Include in-kernel unit tests
 make ARCH=x86 TEST=1
+
+# Show detailed loader and kernel startup logs
+make ARCH=x86 BOOT_VERBOSE=1
 ```
+
+Normal boot displays concise summaries and warnings/errors. All kernel log
+levels are retained in a fixed 128-record buffer; use `dmesg` to read them and
+`loglevel debug` to show future debug messages on the console. Set
+`BOOT_VERBOSE=0` to restore normal boot output; changing this option rebuilds
+the affected objects automatically. Shell/program output and `TEST=1` reports
+are independent of the log threshold.
 
 ## Run
 
@@ -117,6 +127,8 @@ make debug ARCH=x86
 | Command | Description |
 |---------|-------------|
 | `help` | Show available commands |
+| `dmesg` | Show retained kernel logs, including hidden debug messages |
+| `loglevel [debug\|info\|warn\|error]` | Show or change the console log threshold |
 | `uname [-a]` | System information |
 | `ps` | List all processes (PID, state, parent, stack, MM) |
 | `clear` | Clear the screen |

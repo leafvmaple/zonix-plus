@@ -2,6 +2,7 @@
 
 #include "debug/assert.h"
 #include "lib/memory.h"
+#include <kernel/log.h>
 
 enum class [[nodiscard]] Error : int {
     None = 0,
@@ -286,14 +287,14 @@ Result<T> wrap_tryable(Result<T> r) {
         zonix_try_result.release_value();                     \
     })
 
-#define TRY_LOG(expr, fmt, ...)                               \
-    __extension__({                                           \
-        auto zonix_try_result = ::detail::wrap_tryable(expr); \
-        if (!zonix_try_result.ok()) [[unlikely]] {            \
-            cprintf(fmt "\n" __VA_OPT__(, ) __VA_ARGS__);     \
-            return zonix_try_result.release_error();          \
-        }                                                     \
-        zonix_try_result.release_value();                     \
+#define TRY_LOG(expr, fmt, ...)                                 \
+    __extension__({                                             \
+        auto zonix_try_result = ::detail::wrap_tryable(expr);   \
+        if (!zonix_try_result.ok()) [[unlikely]] {              \
+            ::klog::error(fmt "\n" __VA_OPT__(, ) __VA_ARGS__); \
+            return zonix_try_result.release_error();            \
+        }                                                       \
+        zonix_try_result.release_value();                       \
     })
 
 // ENSURE(cond) — return Error::Invalid if cond is false.
@@ -315,10 +316,10 @@ Result<T> wrap_tryable(Result<T> r) {
 #define ZONIX_ENSURE_SELECT(_1, _2, NAME, ...) NAME
 #define ENSURE(...)                            ZONIX_ENSURE_SELECT(__VA_ARGS__, ZONIX_ENSURE2, ZONIX_ENSURE1)(__VA_ARGS__)
 
-#define ENSURE_LOG(cond, err, fmt, ...)                   \
-    do {                                                  \
-        if (!(cond)) [[unlikely]] {                       \
-            cprintf(fmt "\n" __VA_OPT__(, ) __VA_ARGS__); \
-            return (err);                                 \
-        }                                                 \
+#define ENSURE_LOG(cond, err, fmt, ...)                         \
+    do {                                                        \
+        if (!(cond)) [[unlikely]] {                             \
+            ::klog::error(fmt "\n" __VA_OPT__(, ) __VA_ARGS__); \
+            return (err);                                       \
+        }                                                       \
     } while (0)

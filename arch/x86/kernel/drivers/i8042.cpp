@@ -1,4 +1,5 @@
 #include "drivers/i8042.h"
+#include <kernel/log.h>
 
 #include <asm/drivers/i8042.h>
 #include <asm/drivers/i8259.h>
@@ -56,13 +57,13 @@ int init() {
             break;
     }
     if (polls_left <= 0) {
-        cprintf("i8042: PS/2 controller self-test timeout\n");
+        klog::warn("i8042: PS/2 controller self-test timeout\n");
         return -1;
     }
 
     uint8_t result = arch_port_read8(KBD_DATA_REG);
     if (result != 0x55) {
-        cprintf("i8042: PS/2 controller self-test failed (0x%02x)\n", result);
+        klog::warn("i8042: PS/2 controller self-test failed (0x%02x)\n", result);
         return -1;
     }
 

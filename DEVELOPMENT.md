@@ -57,7 +57,7 @@ zonix-plus/
 │   └── trap/                   # 中断/异常分发
 ├── include/                    # 架构无关公共头文件
 │   ├── base/                   # 基础类型 (types.h, elf.h, bpb.h, mbr.h)
-│   ├── kernel/                 # 内核配置 (config.h, bootinfo.h, version.h, ...)
+│   ├── kernel/                 # 内核配置 (config.h, boot_info.h, version.h, ...)
 │   └── uefi/                   # UEFI 类型定义
 ├── boot/                       # 通用 UEFI 引导 (uefi_boot.cpp)
 ├── user/                       # 用户态程序 (hello, ...)

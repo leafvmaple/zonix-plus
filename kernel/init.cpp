@@ -11,7 +11,8 @@
 #include "sched/sched.h"
 #include "lib/stdio.h"
 #include "lib/unistd.h"
-#include <kernel/bootinfo.h>
+#include <kernel/boot_info.h>
+#include <kernel/log.h>
 #include <asm/arch.h>
 
 #ifdef TEST_MODE
@@ -33,14 +34,15 @@ static void cxx_init() {
 
 static void run_steps(const InitStep* steps, size_t count) {
     for (size_t i = 0; i < count; i++) {
+        klog::debug("init: %s starting\n", steps[i].name);
         int rc = steps[i].fn();
-        cprintf("  %-12s", steps[i].name);
         if (rc != 0) {
-            cprintf(" [FAIL] (rc=%d)\n", rc);
+            klog::write(steps[i].required ? klog::Level::Error : klog::Level::Warn, "init: %s [FAIL] (rc=%d), %s\n",
+                        steps[i].name, rc, steps[i].required ? "halting" : "continuing");
             if (steps[i].required)
                 arch_halt();
         } else {
-            cprintf(" [OK]\n");
+            klog::debug("init: %s completed\n", steps[i].name);
         }
     }
 }
@@ -61,6 +63,17 @@ static int pci_registers() {
     return 0;
 }
 
+static int probe_pci_devices() {
+    int rc = pci::probe_drivers();
+    // PCI drivers publish disks after blk::init; report the final registry once.
+    for (int i = 0; i < BlockManager::device_count(); ++i) {
+        auto* device = BlockManager::find_device(i);
+        klog::info("%s: %s, %lu MiB\n", device->type == blk::DeviceType::Swap ? "swap device" : "disk", device->name,
+                   static_cast<uint64_t>(device->block_count) * BlockDevice::BLOCK_SIZE_BYTES / (1024 * 1024));
+    }
+    return rc;
+}
+
 static const InitStep KERN_STEPS[] = {
     {"early_init", early_init, true},
     {"pmm", pmm::init, true},
@@ -71,7 +84,7 @@ static const InitStep KERN_STEPS[] = {
     {"blk", blk::init, true},
     {"sdhci", sdhci::init, false},
     {"pci_reg", pci_registers, false},
-    {"pci_probe", pci::probe_drivers, false},
+    {"pci_probe", probe_pci_devices, false},
     {"rootfs", rootfs::init, false},
     {"swap", swap::init, false},
     {"sched", sched::init, true},

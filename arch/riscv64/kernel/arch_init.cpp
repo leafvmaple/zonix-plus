@@ -5,7 +5,7 @@
 #include <asm/cpu.h>
 #include <asm/page.h>
 #include <asm/board.h>
-#include <kernel/bootinfo.h>
+#include <kernel/boot_info.h>
 
 #include "drivers/plic.h"
 #include "drivers/timer.h"

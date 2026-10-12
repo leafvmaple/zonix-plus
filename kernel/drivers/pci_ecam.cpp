@@ -1,4 +1,5 @@
 #include "drivers/pci_ecam.h"
+#include <kernel/log.h>
 #include "drivers/mmio.h"
 #include "drivers/pci.h"
 #include "lib/stdio.h"
@@ -15,8 +16,8 @@ Error EcamConfig::init(uintptr_t pa, size_t byte_count) {
     bus_count_ = static_cast<int>(byte_count / bus_bytes);
     uint32_t id = read32(0, 0, 0, VendorId);
     if (id != 0xFFFFFFFF && (id & 0xFFFF) != 0xFFFF) {
-        cprintf("pci: ECAM mapped, host bridge %04x:%04x\n", static_cast<unsigned>(id & 0xFFFF),
-                static_cast<unsigned>(id >> 16));
+        klog::debug("pci: ECAM mapped, host bridge %04x:%04x\n", static_cast<unsigned>(id & 0xFFFF),
+                    static_cast<unsigned>(id >> 16));
     }
     return Error::None;
 }
