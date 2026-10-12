@@ -22,7 +22,7 @@
  */
 
 inline constexpr uintptr_t pte_addr(uintptr_t pte) {
-    return pte & 0x000FFFFFFFFFF000ULL;
+    return pte & PTE_ADDR_MASK;
 }
 inline constexpr uintptr_t pde_addr(uintptr_t pde) {
     return pte_addr(pde);

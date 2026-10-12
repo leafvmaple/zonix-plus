@@ -1,56 +1,20 @@
 #include "drivers/pci.h"
-#include "drivers/mmio.h"
-#include "lib/stdio.h"
-#include "mm/vmm.h"
-#include <asm/page.h>
-
-// QEMU virt machine ECAM PCI configuration base (from DTB).
-// Bus 0 only — sufficient for QEMU virt topology.
-static constexpr uintptr_t PCI_ECAM_PHYS = 0x4010000000ULL;
-static constexpr size_t PCI_ECAM_SIZE = 0x00100000;  // 1 MB (bus 0)
-
-namespace {
-
-volatile uint8_t* ecam_base = nullptr;
-
-uintptr_t ecam_offset(int bus, int slot, int function, int offset) {
-    uintptr_t off = (static_cast<uintptr_t>(bus) << 20) | (static_cast<uintptr_t>(slot) << 15) |
-                    (static_cast<uintptr_t>(function) << 12) | (offset & 0xFFC);
-    return off;
-}
-
-}  // namespace
+#include "drivers/pci_ecam.h"
 
 namespace pci {
 
 int init() {
-    uintptr_t va = vmm::mmio_map(PCI_ECAM_PHYS, PCI_ECAM_SIZE, VM_WRITE | VM_NOCACHE);
-    if (va == 0) {
-        cprintf("pci: failed to map ECAM\n");
-        return -1;
-    }
-    ecam_base = reinterpret_cast<volatile uint8_t*>(va);
-
-    uint32_t id0 = mmio::read32(ecam_base, 0);
-    if (id0 == 0xFFFFFFFF || (id0 & 0xFFFF) == 0xFFFF) {
-        cprintf("pci: no devices on bus 0\n");
-        return -1;
-    }
-    cprintf("pci: ECAM mapped, host bridge %04x:%04x\n", static_cast<unsigned>(id0 & 0xFFFF),
-            static_cast<unsigned>(id0 >> 16));
-    return 0;
+    Error error = EcamConfig::init(0x4010000000ULL, 0x00100000);
+    return error == Error::None ? 0 : -1;
 }
-
 uint32_t config_read32(int bus, int slot, int function, int offset) {
-    return mmio::read32(ecam_base, ecam_offset(bus, slot, function, offset));
+    return EcamConfig::read32(bus, slot, function, offset);
 }
-
 void config_write32(int bus, int slot, int function, int offset, uint32_t value) {
-    mmio::write32(ecam_base, ecam_offset(bus, slot, function, offset), value);
+    EcamConfig::write32(bus, slot, function, offset, value);
 }
-
 int bus_count() {
-    return 1;
-}  // ECAM maps bus 0 only
+    return EcamConfig::bus_count();
+}
 
 }  // namespace pci

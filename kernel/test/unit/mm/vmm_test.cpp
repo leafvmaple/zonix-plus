@@ -284,12 +284,13 @@ void test() {
     TEST_ASSERT(*pmm::get_pte(mm.pgdir, base + PG_SIZE, false) == before, "Permission fault leaves mapping intact");
     TEST_ASSERT(vmm::pg_fault(nullptr, 0, base) == -1, "Null address space rejected");
     TEST_ASSERT(vmm::pg_fault(&mm, 4, USER_SPACE_TOP) == -1, "Kernel-space fault rejected");
-    TEST_ASSERT(vmm::pg_fault(&mm, 2 | 4, base + 2 * PG_SIZE) == 0, "Demand write fault resolved");
+    TEST_ASSERT(vmm::pg_fault(&mm, 2 | 4, base + 2 * PG_SIZE) == -1, "Unallocated user address fault rejected");
     bytes[0] = 0xff;
-    TEST_ASSERT(vmm::copy_from_user(&mm, bytes, base + 2 * PG_SIZE, 1) == Error::None && bytes[0] == 0,
-                "Demand page is zero-initialized");
+    TEST_ASSERT(vmm::copy_from_user(&mm, bytes, base + 2 * PG_SIZE, 1) == Error::Invalid && bytes[0] == 0xff,
+                "Rejected fault creates no readable mapping");
     bytes[0] = 0x42;
-    TEST_ASSERT(vmm::copy_to_user(&mm, base + 2 * PG_SIZE, bytes, 1) == Error::None, "Demand page is writable");
+    TEST_ASSERT(vmm::copy_to_user(&mm, base + 2 * PG_SIZE, bytes, 1) == Error::Invalid,
+                "Rejected fault creates no writable mapping");
     pte_t* swapped = pmm::get_pte(mm.pgdir, base + 3 * PG_SIZE, true);
     TEST_ASSERT(swapped != nullptr, "Created swap-entry fixture");
     if (swapped) {

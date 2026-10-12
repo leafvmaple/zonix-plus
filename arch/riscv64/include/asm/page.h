@@ -45,16 +45,6 @@
 #define PTE_KERN_RWX (PTE_V | PTE_R | PTE_W | PTE_X | PTE_A | PTE_D)
 #define PTE_USER_RW  (PTE_V | PTE_R | PTE_W | PTE_U | PTE_A | PTE_D)
 
-/* VM_* generic permission flags used by kernel/mm/vmm.cpp */
-#define VM_PRESENT   (PTE_V | PTE_A)
-#define VM_WRITE     PTE_W
-#define VM_USER      PTE_U
-#define VM_NOCACHE   0UL /* no separate uncached bit in Sv39 */
-#define VM_LARGEPAGE 0UL /* 2MB: VPN[0]=0, leaf at level 2  */
-#define VM_NOEXEC    0UL /* absence of PTE_X = no-execute   */
-
-#define VM_USER_RW (VM_PRESENT | VM_WRITE | VM_USER)
-
 /* Page size */
 #define PG_SIZE  4096
 #define PG_SHIFT 12
@@ -73,6 +63,9 @@
 #ifndef __ASSEMBLY__
 
 #include <base/types.h>
+#include <kernel/vm_flags.h>
+
+inline constexpr uintptr_t PTE_FLAGS_MASK = (1UL << PTE_PPN_SHIFT) - 1;
 
 using pte_t = uintptr_t;
 using pde_t = uintptr_t;
@@ -139,7 +132,13 @@ static inline uintptr_t make_pte_table(uintptr_t pa) {
 }
 
 static inline uintptr_t make_pte_page(uintptr_t pa, uint32_t perm) {
-    return ((pa >> PG_SHIFT) << PTE_PPN_SHIFT) | PTE_V | PTE_R | PTE_A | PTE_D | perm;
+    return ((pa >> PG_SHIFT) << PTE_PPN_SHIFT) | PTE_V | PTE_R | PTE_A | PTE_D | ((perm & VM_WRITE) != 0 ? PTE_W : 0) |
+           ((perm & VM_USER) != 0 ? PTE_U : 0) | ((perm & VM_NOEXEC) == 0 ? PTE_X : 0);
+}
+
+static inline uintptr_t split_page_entry(uintptr_t entry, uintptr_t pa, int child_shift) {
+    static_cast<void>(child_shift);
+    return ((pa >> PG_SHIFT) << PTE_PPN_SHIFT) | (entry & PTE_FLAGS_MASK);
 }
 
 static inline bool pte_present(uintptr_t entry) {
@@ -166,11 +165,9 @@ static inline bool pte_user_table_accessible(uintptr_t entry, bool write) {
     static_cast<void>(write);
     return true;
 }
-static inline uint32_t user_page_perm(bool write, bool executable = false) {
-    return VM_USER | (write ? VM_WRITE : 0) | (executable ? PTE_X : 0);
-}
 static inline uint32_t merge_user_page_perm(uintptr_t entry, uint32_t perm) {
-    return user_page_perm(pte_writable(entry) || pte_writable(perm), pte_executable(entry) || pte_executable(perm));
+    return user_page_perm(pte_writable(entry) || (perm & VM_WRITE) != 0,
+                          pte_executable(entry) || (perm & VM_NOEXEC) == 0);
 }
 
 /* pde_addr: extract PA from a non-leaf PTE (same as pte_addr) */

@@ -8,4 +8,8 @@ char getc();
 void putc(int c);
 void push_input(char c);  // called by input ISRs (pl011, virtio_kbd, ...)
 
+// Hardware backends selected by the build; buffering and framebuffer are shared.
+int arch_init();
+void arch_putc(int c);
+
 }  // namespace cons

@@ -5,6 +5,12 @@
 
 namespace trap {
 
+// Common fault attributes; each architecture translates its trap encoding.
+inline constexpr uint32_t PAGE_FAULT_PROTECTION = 1U << 0;
+inline constexpr uint32_t PAGE_FAULT_WRITE = 1U << 1;
+inline constexpr uint32_t PAGE_FAULT_USER = 1U << 2;
+inline constexpr uint32_t PAGE_FAULT_EXECUTE = 1U << 4;
+
 void handle_timer_tick();
 int handle_page_fault(TrapFrame* tf, uint32_t err, uintptr_t fault_addr);
 bool handle_syscall(TrapFrame* tf);

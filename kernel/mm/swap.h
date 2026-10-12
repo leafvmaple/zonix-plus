@@ -29,18 +29,21 @@ namespace swap {
 inline constexpr size_t MAX_OFFSET_LIMIT = 1 << 24;  // Exclusive bound of the 24-bit swap slot index
 inline constexpr uintptr_t ENTRY_HAS_PERMISSIONS = 0x80;
 inline constexpr uintptr_t ENTRY_WRITE = 0x02;
+inline constexpr uintptr_t ENTRY_EXECUTE = 0x04;
 
 int init();
 Error init_mm(MemoryDesc* mm);
 Error in(MemoryDesc* mm, uintptr_t va, Page** page_ptr);
-// Attempt up to page_count iterations; the return value includes iterations
-// that continue after mapping or disk-write failures.
+// Swap up to page_count exclusively mapped pages. Return successful swaps;
+// a failed attempt retains the resident mapping and requeues its page.
 int out(MemoryDesc* mm, int page_count, int in_timer_tick);
 
 // Swap disk operations
 int swapfs_init();
 Error swapfs_read(uintptr_t entry, Page* page);
 Error swapfs_write(uintptr_t entry, Page* page);
+// Release a slot after replacing a swap entry or destroying its address space.
+void release_entry(uintptr_t entry);
 
 // Helper function to find virtual address for a page
 uintptr_t find_va_for_page(MemoryDesc* mm, Page* page);

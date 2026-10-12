@@ -126,6 +126,11 @@ static inline void arch_rmb(void) {
     __asm__ volatile("fence r,r" ::: "memory");
 }
 
+// Ordinary R/W fences do not order device input/output accesses.
+static inline void arch_io_mb(void) {
+    __asm__ volatile("fence iorw,iorw" ::: "memory");
+}
+
 /* ------------------------------------------------------------------ */
 /* CPU hints & power                                                   */
 /* ------------------------------------------------------------------ */

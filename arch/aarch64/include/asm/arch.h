@@ -87,6 +87,11 @@ static inline void arch_wmb(void) {
     __asm__ volatile("dmb ishst" ::: "memory");
 }
 
+// Devices can be outside the CPU's inner-shareable domain.
+static inline void arch_io_mb(void) {
+    __asm__ volatile("dmb osh" ::: "memory");
+}
+
 static inline void arch_spin_hint(void) {
     __asm__ volatile("yield");
 }

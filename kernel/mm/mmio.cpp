@@ -10,6 +10,8 @@ class MmioAllocator {
 public:
     static Result<MmioRegion> map(uintptr_t pa, size_t byte_count, uint32_t perm) {
         ENSURE(byte_count != 0, Error::Invalid);
+        ENSURE((perm & VM_USER) == 0, Error::Invalid);
+        perm |= VM_NOEXEC;
         size_t offset = pa & (PG_SIZE - 1);
         size_t span{};
         ENSURE(!__builtin_add_overflow(byte_count, offset, &span) && !__builtin_add_overflow(span, PG_SIZE - 1, &span),

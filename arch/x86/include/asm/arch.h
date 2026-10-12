@@ -92,6 +92,11 @@ static inline void arch_wmb(void) {
     __asm__ volatile("sfence" ::: "memory");
 }
 
+// Order normal memory and MMIO accesses at device protocol boundaries.
+static inline void arch_io_mb(void) {
+    __asm__ volatile("mfence" ::: "memory");
+}
+
 static inline void arch_spin_hint(void) {
     __asm__ volatile("pause");
 }

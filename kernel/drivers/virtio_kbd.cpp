@@ -1,243 +1,27 @@
-#include <sys/iterator.hpp>
-/**
- * @file virtio_kbd.cpp
- * @brief Virtio-input keyboard driver (modern PCI transport).
- *
- * Provides GUI keyboard input via virtio-keyboard-pci on QEMU virt.
- * Uses VirtIO 1.x modern PCI transport with capability-based BAR regions,
- * the same approach as virtio_gpu.cpp.
- *
- * virtio-keyboard-pci (device ID 0x1052 = 0x1040+18) is a modern-only
- * device — it does NOT support the legacy BAR0 register layout.
- *
- * Virtio-input device has two virtqueues:
- *   VQ 0 (eventq): device → driver — delivers input_event structs
- *   VQ 1 (statusq): driver → device — for LED status (unused)
- *
- * Each event is: { le16 type, le16 code, le32 value } = 8 bytes.
- * We only care about EV_KEY (type=1) with value=1 (key press).
- */
-
 #include "virtio_kbd.h"
-#include "drivers/mmio.h"
-#include "drivers/pci.h"
+#include "virtio/pci_transport.h"
+#include "virtio/split_queue.h"
 #include "cons/cons.h"
-#include "lib/result.h"
+#include "drivers/intr.h"
 #include "lib/stdio.h"
-#include "lib/memory.h"
-#include "mm/vmm.h"
 #include <asm/arch.h>
 #include <asm/page.h>
 #include <asm/mmu.h>
+#include <sys/array.hpp>
+#include <sys/iterator.hpp>
 
 namespace {
 
-// ============================================================================
-// VirtIO constants
-// ============================================================================
-
 constexpr uint16_t VIRTIO_VENDOR = 0x1AF4;
-constexpr uint16_t VIRTIO_INPUT_DEV = 0x1052;  // 0x1040 + 18
-
-constexpr uint8_t VIRTIO_STATUS_ACK = 1;
-constexpr uint8_t VIRTIO_STATUS_DRIVER = 2;
-constexpr uint8_t VIRTIO_STATUS_DRIVER_OK = 4;
-constexpr uint8_t VIRTIO_STATUS_FEATURES_OK = 8;
-
-constexpr uint8_t VIRTIO_PCI_CAP_COMMON_CFG = 1;
-constexpr uint8_t VIRTIO_PCI_CAP_NOTIFY_CFG = 2;
-constexpr uint8_t VIRTIO_PCI_CAP_ISR_CFG = 3;
-
-constexpr uint16_t VRING_DESC_F_WRITE = 2;
-
-// Linux input event types
+constexpr uint16_t VIRTIO_INPUT_DEV = 0x1052;
 constexpr uint16_t EV_KEY = 1;
 
-// ============================================================================
-// VirtIO structures
-// ============================================================================
-
-struct VirtioInputEvent {
+struct InputEvent {
     uint16_t type;
     uint16_t code;
     uint32_t value;
 };
-
-struct VringDesc {
-    uint64_t addr;
-    uint32_t len;
-    uint16_t flags;
-    uint16_t next;
-};
-
-struct VringAvail {
-    uint16_t flags;
-    uint16_t idx;
-    uint16_t ring[];
-};
-
-struct VringUsedElem {
-    uint32_t id;
-    uint32_t len;
-};
-
-struct VringUsed {
-    uint16_t flags;
-    uint16_t idx;
-    VringUsedElem ring[];
-};
-
-// ============================================================================
-// Driver state
-// ============================================================================
-
-constexpr uint16_t MAX_QUEUE_SIZE = 64;
-
-// Mapped register regions (from PCI capabilities)
-volatile uint8_t* common_cfg = nullptr;
-volatile uint8_t* notify_base = nullptr;
-volatile uint8_t* isr_cfg = nullptr;
-uint32_t notify_off_multiplier = 0;
-
-// Eventq (VQ 0)
-uint16_t vq_size = 0;
-VringDesc* vq_desc = nullptr;
-VringAvail* vq_avail = nullptr;
-VringUsed* vq_used = nullptr;
-uint16_t last_used_idx = 0;
-
-// Event buffers — one per descriptor
-VirtioInputEvent event_bufs[MAX_QUEUE_SIZE];
-
-// Cached notify address (avoid reading common_cfg in interrupt context)
-volatile uint16_t* vq_notify_addr = nullptr;
-
-int irq_line = -1;
-bool initialized = false;
-bool registered = false;
-
-// ============================================================================
-// Common config register accessors (VirtIO 1.x §4.1.4.3)
-// ============================================================================
-
-uint8_t read_status() {
-    return mmio::read8(common_cfg, 0x14);
-}
-void write_status(uint8_t v) {
-    mmio::write8(common_cfg, 0x14, v);
-}
-void select_queue(uint16_t q) {
-    mmio::write16(common_cfg, 0x16, q);
-}
-uint16_t read_queue_size() {
-    return mmio::read16(common_cfg, 0x18);
-}
-void write_queue_size(uint16_t v) {
-    mmio::write16(common_cfg, 0x18, v);
-}
-void write_queue_enable(uint16_t v) {
-    mmio::write16(common_cfg, 0x1C, v);
-}
-uint16_t read_queue_notify_off() {
-    return mmio::read16(common_cfg, 0x1E);
-}
-
-void write_queue_desc(uint64_t v) {
-    mmio::write32(common_cfg, 0x20, static_cast<uint32_t>(v));
-    mmio::write32(common_cfg, 0x24, static_cast<uint32_t>(v >> 32));
-}
-void write_queue_avail(uint64_t v) {
-    mmio::write32(common_cfg, 0x28, static_cast<uint32_t>(v));
-    mmio::write32(common_cfg, 0x2C, static_cast<uint32_t>(v >> 32));
-}
-void write_queue_used(uint64_t v) {
-    mmio::write32(common_cfg, 0x30, static_cast<uint32_t>(v));
-    mmio::write32(common_cfg, 0x34, static_cast<uint32_t>(v >> 32));
-}
-
-void write_driver_features(uint64_t v) {
-    mmio::write32(common_cfg, 0x08, 0);
-    mmio::write32(common_cfg, 0x0C, static_cast<uint32_t>(v));
-    mmio::write32(common_cfg, 0x08, 1);
-    mmio::write32(common_cfg, 0x0C, static_cast<uint32_t>(v >> 32));
-}
-
-// ============================================================================
-// PCI capability helpers (same pattern as virtio_gpu)
-// ============================================================================
-
-struct CapInfo {
-    uint8_t bar;
-    uint32_t offset;
-    uint32_t length;
-};
-
-bool find_cap(int bus, int slot, int function, uint8_t cap_type, CapInfo* out) {
-    uint32_t reg = pci::config_read32(bus, slot, function, 0x04);
-    if (!((reg >> 16) & (1 << 4)))
-        return false;
-
-    uint8_t ptr = pci::config_read32(bus, slot, function, pci::CapabilitiesPointer) & 0xFF;
-    while (ptr != 0) {
-        uint32_t cap_hdr = pci::config_read32(bus, slot, function, ptr);
-        uint8_t cap_id = cap_hdr & 0xFF;
-        uint8_t cap_next = (cap_hdr >> 8) & 0xFF;
-
-        if (cap_id == 0x09) {  // Vendor-specific (VirtIO)
-            uint8_t cfg_type = static_cast<uint8_t>(cap_hdr >> 24);
-            uint32_t w1 = pci::config_read32(bus, slot, function, ptr + 4);
-            uint8_t bar = w1 & 0xFF;
-            uint32_t bar_offset = pci::config_read32(bus, slot, function, ptr + 8);
-            uint32_t bar_length = pci::config_read32(bus, slot, function, ptr + 12);
-
-            if (cfg_type == cap_type) {
-                out->bar = bar;
-                out->offset = bar_offset;
-                out->length = bar_length;
-                return true;
-            }
-        }
-        ptr = cap_next;
-    }
-    return false;
-}
-
-uint32_t read_notify_multiplier(int bus, int slot, int function) {
-    uint8_t ptr = pci::config_read32(bus, slot, function, pci::CapabilitiesPointer) & 0xFF;
-    while (ptr != 0) {
-        uint32_t cap_hdr = pci::config_read32(bus, slot, function, ptr);
-        uint8_t cap_id = cap_hdr & 0xFF;
-        uint8_t cap_next = (cap_hdr >> 8) & 0xFF;
-        uint8_t cfg_type = static_cast<uint8_t>(cap_hdr >> 24);
-
-        if (cap_id == 0x09 && cfg_type == VIRTIO_PCI_CAP_NOTIFY_CFG) {
-            return pci::config_read32(bus, slot, function, ptr + 16);
-        }
-        ptr = cap_next;
-    }
-    return 0;
-}
-
-uintptr_t map_bar_region(int bus, int slot, int function, const CapInfo* ci) {
-    uint32_t bar_lo = pci::read_bar(bus, slot, function, ci->bar);
-    uint64_t bar_phys = bar_lo & ~0xFULL;
-
-    if ((bar_lo & 0x6) == 0x4) {
-        uint32_t bar_hi = pci::read_bar(bus, slot, function, ci->bar + 1);
-        bar_phys |= static_cast<uint64_t>(bar_hi) << 32;
-    }
-
-    uintptr_t phys = static_cast<uintptr_t>(bar_phys) + ci->offset;
-    size_t map_size = ci->length;
-    if (map_size < PG_SIZE)
-        map_size = PG_SIZE;
-
-    return vmm::mmio_map(phys, map_size, VM_WRITE | VM_NOCACHE);
-}
-
-// ============================================================================
-// Linux keycode → ASCII translation (subset)
-// ============================================================================
+static_assert(sizeof(InputEvent) == 8);
 
 static const char KEYMAP_NORMAL[128] = {
     0,    0x1B, '1', '2',  '3',  '4', '5',  '6',   // 0-7
@@ -258,235 +42,176 @@ static const char KEYMAP_NORMAL[128] = {
     0,    0,    0,   0,    0,    0,   0,    0,     // 120-127
 };
 
-// ============================================================================
-// Virtqueue helpers
-// ============================================================================
-
-void fill_eventq() {
-    for (uint16_t i = 0; i < vq_size; i++) {
-        vq_desc[i].addr = virt_to_phys(&event_bufs[i]);
-        vq_desc[i].len = sizeof(VirtioInputEvent);
-        vq_desc[i].flags = VRING_DESC_F_WRITE;
-        vq_desc[i].next = 0;
-
-        vq_avail->ring[i] = i;
-    }
-    arch_wmb();
-    vq_avail->idx = vq_size;
-    arch_wmb();
-}
-
-int init_from_pci_device(int bus, int slot, int function) {
-    cprintf("virtio_kbd: found at PCI %d:%d.%d\n", bus, slot, function);
-    pci::enable_bus_master(bus, slot, function);
-
-    // Ensure PCI INTx is not disabled (bit 10 of Command register)
-    uint32_t cmd = pci::config_read32(bus, slot, function, pci::Command);
-    cmd &= ~(1U << 10);  // clear Interrupt Disable
-    pci::config_write32(bus, slot, function, pci::Command, cmd);
-
-    // Walk PCI capabilities to find modern config regions
-    CapInfo common_ci{}, notify_ci{}, isr_ci{};
-    if (!find_cap(bus, slot, function, VIRTIO_PCI_CAP_COMMON_CFG, &common_ci)) {
-        cprintf("virtio_kbd: common_cfg cap not found\n");
-        return -1;
-    }
-    if (!find_cap(bus, slot, function, VIRTIO_PCI_CAP_NOTIFY_CFG, &notify_ci)) {
-        cprintf("virtio_kbd: notify cap not found\n");
-        return -1;
-    }
-    find_cap(bus, slot, function, VIRTIO_PCI_CAP_ISR_CFG, &isr_ci);
-
-    notify_off_multiplier = read_notify_multiplier(bus, slot, function);
-
-    // Map BAR regions
-    uintptr_t common_va = map_bar_region(bus, slot, function, &common_ci);
-    uintptr_t notify_va = map_bar_region(bus, slot, function, &notify_ci);
-    if (common_va == 0 || notify_va == 0) {
-        cprintf("virtio_kbd: failed to map BAR regions\n");
-        return -1;
-    }
-    common_cfg = reinterpret_cast<volatile uint8_t*>(common_va);
-    notify_base = reinterpret_cast<volatile uint8_t*>(notify_va);
-
-    if (isr_ci.length > 0) {
-        uintptr_t isr_va = map_bar_region(bus, slot, function, &isr_ci);
-        isr_cfg = reinterpret_cast<volatile uint8_t*>(isr_va);
-    }
-
-    // Device init sequence (VirtIO 1.x §3.1.1)
-    write_status(0);  // reset
-    write_status(read_status() | VIRTIO_STATUS_ACK);
-    write_status(read_status() | VIRTIO_STATUS_DRIVER);
-
-    // Accept VIRTIO_F_VERSION_1 (bit 32) — required for modern devices
-    write_driver_features(1ULL << 32);
-    write_status(read_status() | VIRTIO_STATUS_FEATURES_OK);
-
-    if (!(read_status() & VIRTIO_STATUS_FEATURES_OK)) {
-        cprintf("virtio_kbd: features negotiation failed\n");
-        return -1;
-    }
-
-    // Set up eventq (VQ 0)
-    select_queue(0);
-    uint16_t qsz = read_queue_size();
-    if (qsz == 0) {
-        cprintf("virtio_kbd: eventq size is 0\n");
-        return -1;
-    }
-    if (qsz > MAX_QUEUE_SIZE)
-        qsz = MAX_QUEUE_SIZE;
-    vq_size = qsz;
-    write_queue_size(qsz);
-
-    // Allocate separate contiguous regions for desc, avail, used
-    size_t desc_sz = sizeof(VringDesc) * qsz;
-    size_t avail_sz = sizeof(uint16_t) * (3 + qsz);
-    size_t used_sz = sizeof(uint16_t) * 3 + sizeof(VringUsedElem) * qsz;
-
-    size_t desc_pages = (desc_sz + PG_SIZE - 1) / PG_SIZE;
-    size_t avail_pages = (avail_sz + PG_SIZE - 1) / PG_SIZE;
-    size_t used_pages = (used_sz + PG_SIZE - 1) / PG_SIZE;
-
-    vq_desc = static_cast<VringDesc*>(kmalloc(desc_pages * PG_SIZE));
-    vq_avail = static_cast<VringAvail*>(kmalloc(avail_pages * PG_SIZE));
-    vq_used = static_cast<VringUsed*>(kmalloc(used_pages * PG_SIZE));
-    if (!vq_desc || !vq_avail || !vq_used) {
-        kfree(vq_desc);
-        kfree(vq_avail);
-        kfree(vq_used);
-        vq_desc = nullptr;
-        vq_avail = nullptr;
-        vq_used = nullptr;
-        cprintf("virtio_kbd: VQ alloc failed\n");
-        return -1;
-    }
-
-    memset(vq_desc, 0, desc_pages * PG_SIZE);
-    memset(vq_avail, 0, avail_pages * PG_SIZE);
-    memset(vq_used, 0, used_pages * PG_SIZE);
-
-    // Tell device the physical addresses
-    write_queue_desc(virt_to_phys(reinterpret_cast<uintptr_t>(vq_desc)));
-    write_queue_avail(virt_to_phys(reinterpret_cast<uintptr_t>(vq_avail)));
-    write_queue_used(virt_to_phys(reinterpret_cast<uintptr_t>(vq_used)));
-
-    // Fill eventq with writable buffers
-    fill_eventq();
-
-    // Enable queue
-    write_queue_enable(1);
-
-    // Mark device ready
-    write_status(read_status() | VIRTIO_STATUS_DRIVER_OK);
-
-    // Cache notify address and kick the device
-    select_queue(0);
-    uint16_t q_notify_off = read_queue_notify_off();
-    size_t notify_off = static_cast<size_t>(q_notify_off) * static_cast<size_t>(notify_off_multiplier);
-    vq_notify_addr = reinterpret_cast<volatile uint16_t*>(notify_base + notify_off);
-    *vq_notify_addr = 0;
-
-    // Resolve platform IRQ from PCI INTx and enable it in the interrupt controller
-    uint32_t int_reg = pci::config_read32(bus, slot, function, 0x3C);
-    uint8_t int_pin = (int_reg >> 8) & 0xFF;  // interrupt pin (1-based)
-    if (int_pin == 0)
-        int_pin = 1;  // default to INTA
-    irq_line = arch_pci_intx_to_irq(static_cast<uint8_t>(slot), int_pin);
-    arch_irq_enable_line(irq_line);
-
-    cprintf("virtio_kbd: ready, eventq=%d, IRQ=%d\n", qsz, irq_line);
-    return 0;
-}
-
-Error probe_callback(const pci::DeviceInfo* pdev, const pci::DriverId*) {
-    if (initialized) {
-        return Error::Busy;
-    }
-
-    int rc = init_from_pci_device(pdev->bus, pdev->slot, pdev->function);
-    if (rc == 0) {
-        initialized = true;
+// Input policy owns its event buffers and interprets completed events. PCI
+// discovery/negotiation and ring layout live in the transport and queue layers.
+class Keyboard {
+public:
+    Error start(const pci::DeviceInfo& device) {
+        ENSURE(state_ == State::Uninitialized, Error::Busy);
+        pci::CommandGuard command(device, pci::CMD_MEMORY_SPACE | pci::CMD_BUS_MASTER);
+        uint16_t enabled =
+            static_cast<uint16_t>(pci::config_read32(device.bus, device.slot, device.function, pci::Command));
+        pci::config_write32(device.bus, device.slot, device.function, pci::Command, enabled & ~pci::CMD_INTX_DISABLE);
+        Error error = prepare(device);
+        if (error != Error::None) {
+            if (stop() != Error::None) {
+                // DMA did not stop: retain mappings, queue and buffers together.
+                command.commit();
+            }
+            return error;
+        }
+        intr::Guard guard;
+        state_ = State::Ready;
+        transport_.ready();
+        command.commit();
+        arch_irq_enable_line(irq_);
+        notification_.notify();
+        cprintf("virtio_kbd: ready, eventq=%d, IRQ=%d\n", queue_.size(), irq_);
         return Error::None;
     }
-    return Error::Fail;
-}
 
-const pci::DriverId VIRTIO_KBD_IDS[] = {
-    {VIRTIO_VENDOR, VIRTIO_INPUT_DEV, pci::ANY_CLASS, pci::ANY_CLASS, pci::ANY_CLASS},
-};
-
-const pci::Driver VIRTIO_KBD_DRIVER = {
-    "virtio_kbd",
-    VIRTIO_KBD_IDS,
-    static_cast<int>(sys::size(VIRTIO_KBD_IDS)),
-    probe_callback,
-};
-
-}  // namespace
-
-// ============================================================================
-// Public API
-// ============================================================================
-
-namespace virtio_kbd {
-
-int init() {
-    if (initialized || registered) {
-        return 0;
-    }
-
-    if (pci::register_driver(&VIRTIO_KBD_DRIVER) != Error::None) {
-        cprintf("virtio_kbd: failed to register PCI driver\n");
-        return -1;
-    }
-
-    registered = true;
-    return 0;
-}
-
-void intr() {
-    // Read ISR to acknowledge interrupt (modern: via ISR cap region)
-    if (isr_cfg) {
-        static_cast<void>(mmio::read8(isr_cfg, 0));
-    }
-
-    // Process used ring entries
-    arch_mb();
-    while (last_used_idx != vq_used->idx) {
-        uint16_t idx = last_used_idx % vq_size;
-        uint32_t desc_id = vq_used->ring[idx].id;
-
-        VirtioInputEvent* ev = &event_bufs[desc_id];
-
-        if (ev->type == EV_KEY && ev->value == 1) {
-            uint16_t code = ev->code;
-            if (code < 128) {
-                char c = KEYMAP_NORMAL[code];
+    void intr() {
+        uint8_t status = transport_.acknowledge_irq();
+        if (state_ != State::Ready || (status & 1) == 0) {
+            return;
+        }
+        while (true) {
+            auto completed = queue_.pop_used();
+            if (!completed.ok()) {
+                if (completed.error() != Error::NotFound) {
+                    fail();
+                }
+                break;
+            }
+            const auto event = completed.value();
+            if (event.length != sizeof(InputEvent)) {
+                fail();
+                break;
+            }
+            const InputEvent input = events_[event.id];
+            if (input.type == EV_KEY && input.value == 1 && input.code < sys::size(KEYMAP_NORMAL)) {
+                char c = KEYMAP_NORMAL[input.code];
                 if (c != 0) {
                     cons::push_input(c);
                 }
             }
+            if (queue_.submit(static_cast<uint16_t>(event.id)) != Error::None) {
+                fail();
+                break;
+            }
         }
-
-        // Recycle descriptor
-        uint16_t avail_idx = vq_avail->idx % vq_size;
-        vq_avail->ring[avail_idx] = static_cast<uint16_t>(desc_id);
-        arch_wmb();
-        vq_avail->idx++;
-        arch_wmb();
-
-        last_used_idx++;
+        if (state_ == State::Ready) {
+            notification_.notify();
+        }
     }
 
-    // Notify device we recycled buffers (use cached address)
-    if (vq_notify_addr)
-        *vq_notify_addr = 0;
+    int irq() const { return irq_; }
+
+private:
+    enum class State { Uninitialized, Ready, Quarantined };
+    static constexpr uint16_t MAX_QUEUE_SIZE = 64;
+
+    Error prepare(const pci::DeviceInfo& device) {
+        TRY(transport_.initialize(device));
+        uint16_t size = TRY(transport_.queue_size(0));
+        if (size > MAX_QUEUE_SIZE) {
+            size = MAX_QUEUE_SIZE;
+        }
+        TRY(queue_.allocate(size));
+        for (uint16_t i = 0; i < size; ++i) {
+            TRY(queue_.set_buffer(i, virt_to_phys(&events_[i]), sizeof(InputEvent), true));
+            TRY(queue_.submit(i));
+        }
+        notification_ = TRY(transport_.configure_queue(0, queue_));
+        uint32_t interrupt = pci::config_read32(device.bus, device.slot, device.function, pci::Interrupt);
+        uint8_t pin = static_cast<uint8_t>(interrupt >> 8);
+        ENSURE(pin >= 1 && pin <= 4, Error::NotSupported);
+        irq_ = arch_pci_intx_to_irq(device.slot, pin);
+        if (irq_ < 0) {
+            // Platforms with firmware-assigned PCI lines use Interrupt Line.
+            uint8_t line = static_cast<uint8_t>(interrupt);
+            ENSURE(line != 0 && line != 0xFF, Error::NotSupported);
+            irq_ = line;
+        }
+        return Error::None;
+    }
+
+    Error stop() {
+        Error error = transport_.reset();
+        if (error != Error::None) {
+            state_ = State::Quarantined;
+            return error;
+        }
+        queue_.release();
+        notification_ = virtio::QueueNotification{};
+        transport_.release();
+        irq_ = -1;
+        state_ = State::Uninitialized;
+        return Error::None;
+    }
+
+    void fail() {
+        cprintf("virtio_kbd: invalid event queue, stopping device\n");
+        Error error = stop();
+        if (error != Error::None) {
+            cprintf("virtio_kbd: reset failed (%s), DMA resources retained\n", error_str(error));
+        }
+    }
+
+    virtio::PciTransport transport_{};
+    virtio::SplitQueue queue_{};
+    virtio::QueueNotification notification_{};
+    sys::array<InputEvent, MAX_QUEUE_SIZE> events_{};
+    State state_{};
+    int irq_ = -1;
+};
+
+class Manager {
+public:
+    static int init();
+    static Error probe(const pci::DeviceInfo* device, const pci::DriverId*) {
+        ENSURE(device);
+        return keyboard_.start(*device);
+    }
+    static void intr() { keyboard_.intr(); }
+    static int irq() { return keyboard_.irq(); }
+
+private:
+    inline static Keyboard keyboard_{};
+    inline static bool registered_{};
+};
+
+const pci::DriverId VIRTIO_KBD_IDS[] = {
+    {VIRTIO_VENDOR, VIRTIO_INPUT_DEV, pci::ANY_CLASS, pci::ANY_CLASS, pci::ANY_CLASS},
+};
+const pci::Driver VIRTIO_KBD_DRIVER = {
+    "virtio_kbd",
+    VIRTIO_KBD_IDS,
+    static_cast<int>(sys::size(VIRTIO_KBD_IDS)),
+    Manager::probe,
+};
+
+int Manager::init() {
+    if (registered_) {
+        return 0;
+    }
+    if (pci::register_driver(&VIRTIO_KBD_DRIVER) != Error::None) {
+        return -1;
+    }
+    registered_ = true;
+    return 0;
 }
 
+}  // namespace
+
+namespace virtio_kbd {
+int init() {
+    return Manager::init();
+}
+void intr() {
+    Manager::intr();
+}
 int irq() {
-    return irq_line;
+    return Manager::irq();
 }
-
 }  // namespace virtio_kbd

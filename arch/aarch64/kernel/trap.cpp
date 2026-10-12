@@ -99,12 +99,15 @@ uint32_t arch_page_fault_error(const TrapFrame* tf) {
 
     uint32_t iss = tf->esr & 0x1FFFFFF;
     uint32_t err = 0;
-    if (iss & (1 << 6))
-        err |= 2;  // write fault
+    bool instruction = trap_ec(tf) == TRAP_EC_PGFAULT_INST_LOWER || trap_ec(tf) == TRAP_EC_PGFAULT_INST_SAME;
+    if (instruction)
+        err |= PAGE_FAULT_EXECUTE;
+    else if ((iss & (1 << 6)) != 0)
+        err |= PAGE_FAULT_WRITE;
     if ((tf->pstate & 0xF) == 0)
-        err |= 4;  // user mode
+        err |= PAGE_FAULT_USER;
     if ((iss & 0x3F) > 0x07)
-        err |= 1;  // permission fault (not translation)
+        err |= PAGE_FAULT_PROTECTION;  // permission fault (not translation)
 
     return err;
 }

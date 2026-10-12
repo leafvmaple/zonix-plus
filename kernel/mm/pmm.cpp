@@ -5,6 +5,7 @@
 #include "lib/memory.h"
 #include "lib/stdio.h"
 #include "lib/math.h"
+#include "swap.h"
 
 #include <asm/arch.h>
 #include <asm/page.h>
@@ -126,11 +127,10 @@ static inline int level_index(uintptr_t va, int level) {
  *                        (1 << child_shift) bytes.
  *   3. Table pointer  → follow it.
  */
-static pde_t* descend_level(pde_t* entry, bool create, int child_shift) {
+static pde_t* descend_level(pde_t* entry, bool create, int parent_shift, int child_shift) {
     if (pte_present(*entry)) {
         if (pte_is_block(*entry)) {
-            uintptr_t large_pa = pte_addr(*entry);
-            uint64_t old_perm = *entry & 0xFFF & ~VM_LARGEPAGE;
+            uintptr_t large_pa = pte_addr(*entry) & ~((1UL << parent_shift) - 1);
 
             uintptr_t pa = alloc_table_page(create);
             if (pa == INVALID_TABLE_PA)
@@ -138,7 +138,7 @@ static pde_t* descend_level(pde_t* entry, bool create, int child_shift) {
 
             auto* table = phys_to_virt<pde_t>(pa);
             for (int i = 0; i < PAGE_TABLE_ENTRIES; i++) {
-                table[i] = make_pte_page(large_pa + (static_cast<uintptr_t>(i) << child_shift), old_perm);
+                table[i] = split_page_entry(*entry, large_pa + (static_cast<uintptr_t>(i) << child_shift), child_shift);
             }
 
             link_table_entry(entry, pa);
@@ -165,16 +165,22 @@ static pde_t* descend_level(pde_t* entry, bool create, int child_shift) {
 static void free_user_pt_subtree(pde_t* table, int depth) {
     for (int i = 0; i < ENTRY_NUM; i++) {
         pde_t entry = table[i];
-        if (!pte_present(entry))
+        if (!pte_present(entry)) {
+            if (depth == 0 && entry != 0) {
+                swap::release_entry(entry);
+            }
             continue;
+        }
 
         if (depth == 0) {
             /* Leaf PTE — free the mapped physical page */
             Page* page = pmm::phys_to_page(pte_addr(entry));
             if (page->ref_count > 0)
                 page->ref_count--;
-            if (page->ref_count == 0)
+            if (page->ref_count == 0) {
+                page->node().unlink();
                 pmm::free_pages(page);
+            }
             continue;
         }
 
@@ -233,7 +239,7 @@ pte_t* pmm::get_pte(pde_t* pgdir, uintptr_t va, bool create) {
 
     for (int level = 0; level < PT_WALK_LEVELS - 1; level++) {
         int idx = level_index(va, level);
-        table = descend_level(table + idx, create, LEVEL_SHIFTS[level + 1]);
+        table = descend_level(table + idx, create, LEVEL_SHIFTS[level], LEVEL_SHIFTS[level + 1]);
         if (!table)
             return nullptr;
     }
@@ -386,6 +392,7 @@ Error pmm::page_insert(pde_t* pgdir, Page* page, uintptr_t va, uint32_t perm) {
     if (!ptep) {
         return Error::NoMem;
     }
+    ENSURE(!pte_present(*ptep), Error::Exists);
     page->ref_count++;
     *ptep = make_pte_page(pmm::page_to_phys(page), perm);
 

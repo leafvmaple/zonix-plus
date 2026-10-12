@@ -11,10 +11,10 @@
 #include "vmm.h"
 #include "swap.h"
 
-static void perm2str(int perm, char (&str)[4]) {
-    str[0] = (perm & VM_USER) ? 'u' : '-';
-    str[1] = (perm & VM_PRESENT) ? 'r' : '-';
-    str[2] = (perm & VM_WRITE) ? 'w' : '-';
+static void perm2str(uintptr_t entry, char (&str)[4]) {
+    str[0] = pte_user(entry) ? 'u' : '-';
+    str[1] = pte_present(entry) ? 'r' : '-';
+    str[2] = pte_writable(entry) ? 'w' : '-';
     str[3] = '\0';
 }
 
@@ -86,7 +86,7 @@ void print_pgdir() {
     for (int i = 0; i < PAGE_TABLE_ENTRIES; i++) {
         if (pte_present(pgdir[i])) {
             char perm[4];
-            perm2str(pgdir[i] & VM_USER_RW, perm);
+            perm2str(pgdir[i], perm);
             cprintf("  root[%03d] = 0x%016lx %s\n", i, pgdir[i], perm);
         }
     }
@@ -94,27 +94,24 @@ void print_pgdir() {
 }
 
 int pg_fault(MemoryDesc* mm, uint32_t error_code, uintptr_t fault_va) {
-    if (!mm || !mm->pgdir || fault_va < PG_SIZE || fault_va >= USER_SPACE_TOP || (error_code & 1)) {
+    if (!mm || !mm->pgdir || fault_va < PG_SIZE || fault_va >= USER_SPACE_TOP ||
+        (error_code & trap::PAGE_FAULT_PROTECTION) != 0 || (error_code & trap::PAGE_FAULT_USER) == 0) {
         return -1;
     }
     fault_va = round_down(fault_va, PG_SIZE);
     pte_t* ptep = pmm::get_pte(mm->pgdir, fault_va, false);
-    if (ptep && pte_present(*ptep)) {
-        return -1;  // A mapped page fault is not a swap entry.
-    }
-    if (ptep && *ptep != 0) {
-        if ((error_code & 2) != 0 && (*ptep & swap::ENTRY_HAS_PERMISSIONS) != 0 && (*ptep & swap::ENTRY_WRITE) == 0) {
-            return -1;
-        }
-        Page* page = nullptr;
-        return swap::in(mm, fault_va, &page) == Error::None ? 0 : -1;
-    }
-    Page* page = pmm::alloc_and_map_page(mm->pgdir, fault_va, user_page_perm(true));
-    if (!page) {
+    // ELF and stacks are eagerly mapped. Until VMA-backed demand allocation
+    // exists, an empty PTE grants no right to create a new user mapping.
+    if (!ptep || *ptep == 0 || pte_present(*ptep)) {
         return -1;
     }
-    memset(pmm::page_to_kva(page), 0, PG_SIZE);
-    return 0;
+    if ((*ptep & swap::ENTRY_HAS_PERMISSIONS) == 0 ||
+        ((error_code & trap::PAGE_FAULT_WRITE) != 0 && (*ptep & swap::ENTRY_WRITE) == 0) ||
+        ((error_code & trap::PAGE_FAULT_EXECUTE) != 0 && (*ptep & swap::ENTRY_EXECUTE) == 0)) {
+        return -1;
+    }
+    Page* page = nullptr;
+    return swap::in(mm, fault_va, &page) == Error::None ? 0 : -1;
 }
 
 // Map a byte range through the architecture's page table levels.

@@ -11,6 +11,7 @@
 #include <asm/segments.h>
 #include <asm/cpu.h>
 #include <asm/fpu.h>
+#include <asm/cr.h>
 #include <base/types.h>
 
 #include "idt.h"
@@ -25,9 +26,37 @@
 
 namespace {
 
+int init_page_protection() {
+    constexpr uint32_t extended_features = 0x80000001U;
+    constexpr uint32_t nx_feature = 1U << 20;
+    uint32_t eax = 0x80000000U;
+    uint32_t ebx{}, ecx{}, edx{};
+    asm volatile("cpuid" : "+a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx));
+    if (eax < extended_features) {
+        return -1;
+    }
+    eax = extended_features;
+    asm volatile("cpuid" : "+a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx));
+    if ((edx & nx_feature) == 0) {
+        return -1;
+    }
+    asm volatile("rdmsr" : "=a"(eax), "=d"(edx) : "c"(MSR_EFER));
+    eax |= EFER_NXE;
+    asm volatile("wrmsr" : : "a"(eax), "d"(edx), "c"(MSR_EFER) : "memory");
+    uintptr_t cr0{};
+    asm volatile("mov %%cr0, %0" : "=r"(cr0));
+    cr0 |= CR0_WP;
+    asm volatile("mov %0, %%cr0" : : "r"(cr0) : "memory");
+    return 0;
+}
+
 const InitStep ARCH_STEPS[] = {
-    {"sse/sse2", fpu::init, true}, {"i8259", i8259::init, true}, {"i8253", i8253::init, true},
-    {"idt", idt::init, true},      {"tss", tss::init, true},
+    {"page_protect", init_page_protection, true},
+    {"sse/sse2", fpu::init, true},
+    {"i8259", i8259::init, true},
+    {"i8253", i8253::init, true},
+    {"idt", idt::init, true},
+    {"tss", tss::init, true},
 };
 
 const InitStep PCI_STEPS[] = {

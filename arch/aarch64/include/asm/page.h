@@ -33,19 +33,10 @@
 
 #include "memlayout.h"
 
-#define VM_PRESENT   (PTE_VALID | PTE_AF)
-#define VM_WRITE     PTE_AP_RW_ALL
-#define VM_USER      PTE_AP_RW_ALL   /* EL0 access            */
-#define VM_NOCACHE   PTE_ATTR_DEVICE /* device/uncached MMIO  */
-#define VM_LARGEPAGE PTE_BLOCK       /* 2MB block mapping     */
-#define VM_NOEXEC    (PTE_UXN | PTE_PXN)
-
-/* Convenience combo: user-accessible read/write */
-#define VM_USER_RW (VM_USER | VM_PRESENT)
-
 #ifndef __ASSEMBLY__
 
 #include <base/types.h>
+#include <kernel/vm_flags.h>
 
 using pte_t = uintptr_t;
 using pde_t = uintptr_t;
@@ -86,7 +77,25 @@ static inline uintptr_t make_pte_table(uintptr_t pa) {
 }
 
 static inline uintptr_t make_pte_page(uintptr_t pa, uint32_t perm) {
-    return pa | PTE_VALID | PTE_PAGE | PTE_AF | perm;
+    uintptr_t flags = PTE_VALID | PTE_PAGE | PTE_AF;
+    if ((perm & VM_WRITE) == 0) {
+        flags |= PTE_AP_READ_ONLY;
+    }
+    if ((perm & VM_USER) != 0) {
+        flags |= PTE_AP_USER | PTE_PXN;
+    }
+    if ((perm & VM_NOEXEC) != 0) {
+        flags |= PTE_UXN | PTE_PXN;
+    }
+    if ((perm & VM_NOCACHE) != 0) {
+        flags |= PTE_ATTR_DEVICE;
+    }
+    return pa | flags;
+}
+
+static inline uintptr_t split_page_entry(uintptr_t entry, uintptr_t pa, int child_shift) {
+    uintptr_t flags = entry & ~(PTE_ADDR_MASK | PTE_TYPE_MASK);
+    return pa | flags | PTE_VALID | (child_shift == PG_SHIFT ? PTE_PAGE : PTE_BLOCK);
 }
 
 static inline bool pte_present(uintptr_t entry) {
@@ -110,12 +119,12 @@ static inline bool pte_table_writable(uintptr_t entry) {
 static inline bool pte_user_table_accessible(uintptr_t entry, bool write) {
     return pte_table_user(entry) && (!write || pte_table_writable(entry));
 }
-static inline uint32_t user_page_perm(bool write, bool executable = false) {
-    static_cast<void>(executable);
-    return write ? PTE_AP_RW_ALL : PTE_AP_RO_ALL;
+static inline bool pte_executable(uintptr_t entry) {
+    return (entry & PTE_UXN) == 0;
 }
 static inline uint32_t merge_user_page_perm(uintptr_t entry, uint32_t perm) {
-    return user_page_perm(pte_writable(entry) || pte_writable(perm));
+    return user_page_perm(pte_writable(entry) || (perm & VM_WRITE) != 0,
+                          pte_executable(entry) || (perm & VM_NOEXEC) == 0);
 }
 
 #endif /* !__ASSEMBLY__ */

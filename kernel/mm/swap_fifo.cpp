@@ -1,6 +1,7 @@
 #include "lib/stdio.h"
 #include "vmm.h"
 #include "swap.h"
+#include "drivers/intr.h"
 
 // Pages are arranged in a queue - first in, first out
 
@@ -11,16 +12,21 @@ Error SwapManager::init() {
 
 Error SwapManager::init_mm(MemoryDesc* mm) {
     // Per-mm swap queue: do not share FIFO state across address spaces.
+    ENSURE(mm);
     return Error::None;
 }
 
 Error SwapManager::map_swappable(MemoryDesc* mm, uintptr_t va, Page* page, int from_swap_in) {
+    ENSURE(mm && page && page->node().empty());
+    intr::Guard guard;
     mm->swap_list.add_before(page->node());
 
     return Error::None;
 }
 
 Error SwapManager::swap_out_victim(MemoryDesc* mm, Page** page_ptr, int in_timer_tick) {
+    ENSURE(mm && page_ptr);
+    intr::Guard guard;
     if (mm->swap_list.empty()) {
         *page_ptr = nullptr;
         return Error::NotFound;

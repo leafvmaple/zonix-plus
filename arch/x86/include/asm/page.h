@@ -2,13 +2,16 @@
 
 #include "memlayout.h"
 
-#define PTE_P   0x001         // Present
-#define PTE_W   0x002         // Writeable
-#define PTE_U   0x004         // User
-#define PTE_PWT 0x008         // Write-Through (disable write-back cache for this page)
-#define PTE_PCD 0x010         // Cache Disable (disable caching for this page, important for MMIO)
-#define PTE_PS  0x080         // Page Size (2MB page when set in PDE)
-#define PTE_NX  (1ULL << 63)  // No-Execute (requires EFER.NXE)
+#define PTE_P         0x001         // Present
+#define PTE_W         0x002         // Writeable
+#define PTE_U         0x004         // User
+#define PTE_PWT       0x008         // Write-Through (disable write-back cache for this page)
+#define PTE_PCD       0x010         // Cache Disable (disable caching for this page, important for MMIO)
+#define PTE_PS        0x080         // Page Size (2MB page when set in PDE)
+#define PTE_NX        (1ULL << 63)  // No-Execute (requires EFER.NXE)
+#define PTE_ADDR_MASK 0x000FFFFFFFFFF000ULL
+#define PTE_PAT_PAGE  PTE_PS
+#define PTE_PAT_LARGE (1ULL << 12)
 
 #define PTE_USER (PTE_U | PTE_W | PTE_P)
 
@@ -16,19 +19,10 @@
 #define PG_SHIFT 12  // 2^12 = 4096
 #define PG_MASK  (PG_SIZE - 1)
 
-#define VM_PRESENT   PTE_P               /* page is present / valid             */
-#define VM_WRITE     PTE_W               /* page is writable                    */
-#define VM_USER      PTE_U               /* page is accessible from user mode   */
-#define VM_NOCACHE   (PTE_PCD | PTE_PWT) /* disable caching (MMIO) */
-#define VM_LARGEPAGE PTE_PS              /* 2MB / section mapping               */
-
-#define VM_NOEXEC PTE_NX /* no-execute                          */
-
-#define VM_USER_RW (VM_USER | VM_WRITE | VM_PRESENT)
-
 #ifndef __ASSEMBLY__
 
 #include <base/types.h>
+#include <kernel/vm_flags.h>
 
 using pte_t = uintptr_t;
 using pde_t = uintptr_t;
@@ -71,11 +65,23 @@ static inline bool pte_is_block(uintptr_t entry) {
 }
 
 static inline uintptr_t make_pte_table(uintptr_t pa) {
-    return pa | VM_USER_RW;
+    return pa | PTE_P | PTE_W | PTE_U;
 }
 
 static inline uintptr_t make_pte_page(uintptr_t pa, uint32_t perm) {
-    return pa | VM_PRESENT | perm;
+    return pa | PTE_P | ((perm & VM_WRITE) != 0 ? PTE_W : 0) | ((perm & VM_USER) != 0 ? PTE_U : 0) |
+           ((perm & VM_NOCACHE) != 0 ? PTE_PCD | PTE_PWT : 0) | ((perm & VM_NOEXEC) != 0 ? PTE_NX : 0);
+}
+
+static inline uintptr_t split_page_entry(uintptr_t entry, uintptr_t pa, int child_shift) {
+    uintptr_t flags = entry & ~(PTE_ADDR_MASK | PTE_PS);
+    bool pat = (entry & PTE_PAT_LARGE) != 0;
+    if (child_shift > PG_SHIFT) {
+        flags |= PTE_PS | (pat ? PTE_PAT_LARGE : 0);
+    } else if (pat) {
+        flags |= PTE_PAT_PAGE;
+    }
+    return pa | flags;
 }
 
 inline constexpr int PAGE_LEVELS = 4;
@@ -102,12 +108,12 @@ static inline bool pte_user_accessible(uintptr_t entry, bool write) {
 static inline bool pte_user_table_accessible(uintptr_t entry, bool write) {
     return pte_user_accessible(entry, write);
 }
-static inline uint32_t user_page_perm(bool write, bool executable = false) {
-    static_cast<void>(executable);
-    return VM_USER | (write ? VM_WRITE : 0);
+static inline bool pte_executable(uintptr_t entry) {
+    return (entry & PTE_NX) == 0;
 }
 static inline uint32_t merge_user_page_perm(uintptr_t entry, uint32_t perm) {
-    return user_page_perm(pte_writable(entry) || pte_writable(perm));
+    return user_page_perm(pte_writable(entry) || (perm & VM_WRITE) != 0,
+                          pte_executable(entry) || (perm & VM_NOEXEC) == 0);
 }
 
 #endif /* !__ASSEMBLY__ */

@@ -106,8 +106,8 @@ These names carry units; they are not storage/type prefixes.
 
 Swap interfaces use va/victim_va for virtual addresses, slot for a page-sized
 swap slot index, start_lba for disk positions and page_count for the loop budget.
-Use attempt_count for completed swap-out iterations; the current return value
-can include failed attempts and must not be named as a successful page count.
+Use swapped for successful swap-outs. Failed attempts retain the resident page
+and are not included in swap::out's return value.
 Keep local Python alignment values in snake_case (file_align/section_align);
 retain uppercase module constants and caller-supplied shell environment names.
 

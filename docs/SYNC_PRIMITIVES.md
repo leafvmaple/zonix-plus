@@ -64,7 +64,7 @@ waitq.sleep()                          ← 进程上下文调用
 │   }                                  ── STI + 释放锁
 │
 ├─ Step 3: 让出 CPU
-│   TaskManager::schedule()            ── 切换到其他 Runnable 进程
+│   Scheduler::schedule()              ── 切换到其他 Runnable 进程
 │   ════════ 进程在此阻塞，直到被 wakeup ════════
 │
 ├─ Step 4: 被唤醒后，清理 (持锁)
@@ -228,7 +228,7 @@ PIT 中断 (每 10ms, IRQ0)
         ├─ pit::ticks++
         │
         ├─ sched::tick()
-        │   └─ TaskManager::tick()
+        │   └─ Scheduler::tick()
         │       ├─ if (!current_) return
         │       ├─ if (current_ == idle) return
         │       ├─ current_->time_slice--
@@ -244,7 +244,7 @@ PIT 中断 (每 10ms, IRQ0)
 ### schedule() — 优先级感知 Round-Robin
 
 ```
-TaskManager::schedule()
+Scheduler::schedule()
 │
 ├─ intr::Guard guard                 ── 关中断保护调度器
 │
@@ -394,7 +394,7 @@ IdeDevice::read(block, buf, count)
    └───────────┬──────────────────────────────────┘
                │
    ┌───────────▼──────────────────────────────────┐
-   │     TaskManager::schedule() (RR + Priority)   │
+   │     Scheduler::schedule() (RR + Priority)     │
    │         ← tick() 每 10ms 递减 time_slice      │
    │         ← need_resched 触发切换               │
    └───────────┬──────────────────────────────────┘

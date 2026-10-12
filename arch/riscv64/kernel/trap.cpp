@@ -99,10 +99,13 @@ uint32_t arch_page_fault_error(const TrapFrame* tf) {
     }
     uint32_t err = 0;
     if (tf->scause == CAUSE_STORE_PAGE_FAULT) {
-        err |= 2; /* write fault */
+        err |= PAGE_FAULT_WRITE;
+    }
+    if (tf->scause == CAUSE_FETCH_PAGE_FAULT) {
+        err |= PAGE_FAULT_EXECUTE;
     }
     if ((tf->sstatus & (1 << 8)) == 0) {
-        err |= 4; /* user mode (SPP = 0) */
+        err |= PAGE_FAULT_USER; /* user mode (SPP = 0) */
     }
     return err;
 }

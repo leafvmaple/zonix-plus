@@ -39,6 +39,37 @@ on failure. After a successful fork, exec transfers the memory to the child
 while interrupts remain disabled. File handles and the input buffer also use
 local destructors for every return path.
 
+## VM mapping flags and swap
+
+`VM_*` flags in `include/kernel/vm_flags.h` describe mapping requests: mapping
+presence, access permissions and cache attributes. They are not hardware PTE
+bits. Architecture helpers encode them and inspect entries with semantic
+predicates. Writing a kernel mapping never grants user
+access. User data and stacks are non-executable by default; ELF mappings preserve
+their execution permissions. MMIO mappings reject user access and disable
+execution. Large-page splitting preserves the original hardware attributes.
+ELF segments and user stacks are eagerly mapped. Without a VMA authorizing a
+new mapping, a fault on an empty PTE is rejected; faults may only restore a valid
+swap entry with the required write/execute access. Kernel faults are not repaired
+by creating user mappings.
+
+Swap accepts only a device explicitly registered as `blk::DeviceType::Swap`.
+That device's entire logical block range belongs exclusively to swap; an ordinary
+disk is never selected, and absent dedicated storage disables swap. Registering
+a swap device is an explicit storage ownership decision, not automatic discovery.
+
+The slot bitmap reserves each slot until its PTE is replaced by a resident mapping
+or its address space is destroyed. Failed writes release the reserved slot and
+restore the FIFO candidate without changing the mapping. Successful eviction
+preserves write/execute permissions and releases exactly one mapping reference.
+Only exclusively mapped user frames in the calling task's MM are eligible;
+kernel mappings, shared frames, background eviction and timer-context disk I/O
+are excluded. The caller cannot return to user mode during its eviction I/O;
+evicting another task's MM would require freezing its pages first.
+`swap::out` returns successful evictions.
+Swap disk operations are serialized by the subsystem mutex under the current
+single-CPU, exclusively owned user-address-space model.
+
 ## Resource ownership
 
 The reusable owners use the project's GNU++20 freestanding configuration:
@@ -128,6 +159,31 @@ exit publishes zombie state and reparents children, and wait detaches the zombie
 before destroying it. Destruction checks that the task is off CPU and detached,
 then releases files, dynamic stack and owned user MM in that order. Destructors do
 not remove scheduler links or free borrowed resources.
+
+`Scheduler` owns the current task, scheduling policy and CPU scheduling counters.
+`TaskManager` owns the task registry, PID allocation and parent/child lifecycle.
+Task context and resource operations live in `task.cpp`; process creation and
+reaping live in `process.cpp`; registry operations live in `task_table.cpp`.
+Idle/init creation and the init process's shell/reaping loop live in `init_proc.cpp`.
+
+The shared console owns its input ring and wait queue. Architecture backends
+initialize hardware and emit characters. `pci::EcamConfig` owns the checked ECAM
+mapping; architecture backends supply its physical window. Port-based PCI remains
+an architecture implementation.
+
+Trap handling extracts syscall arguments and writes the ABI return register.
+`kernel/syscall` owns dispatch and file operations, including user-buffer
+validation and partial-I/O results.
+
+VirtIO separates PCI capability mappings and feature negotiation (`PciTransport`),
+DMA ring storage (`SplitQueue`) and input events (`Keyboard`). `QueueNotification`
+borrows a queue's notification binding until transport reset. Device reset must
+be observed complete before releasing DMA buffers, rings or capability mappings.
+If reset fails, the driver retains those resources together in a quarantined
+state rather than freeing memory still reachable by DMA.
+Ring publication orders prior buffer reads as well as descriptor/ring writes
+before handing ownership back to the device. Transport register sequencing
+and notifications use `arch_io_mb` to order DMA memory against device MMIO.
 
 `fd::Table::alloc(FileHandle)` consumes its argument on both success and failure.
 Success moves the file into the descriptor entry; failure closes it. Entry lookup

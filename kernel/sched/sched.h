@@ -14,6 +14,8 @@ namespace vfs {
 class File;
 }
 
+using KernelThreadEntry = int (*)(void*);
+
 enum class TaskState : uint8_t {
     Uninit = 0,    // uninitialized
     Sleeping = 1,  // sleeping (blocked, waiting for event)
@@ -132,6 +134,31 @@ public:
     friend class TaskManager;
 };
 
+// CPU scheduling owns the active task, policy cursor and telemetry.
+class Scheduler {
+public:
+    static Task* current() { return current_; }
+    static void set_current(Task* task) { current_ = task; }
+    static int time_slice(int priority) { return policy_.calc_time_slice(priority); }
+    static const char* policy_name() { return policy_.name(); }
+    static void task_removed(const Task& task) { policy_.task_removed(task); }
+    static void schedule();
+    static void tick();
+    static void print_stats();
+
+private:
+    inline static Task* current_{};
+    inline static SchedulerPolicy policy_{};
+    // Scheduler telemetry counters (monotonic since boot)
+    inline static uint64_t tick_count_{};
+    inline static uint64_t schedule_calls_{};
+    inline static uint64_t need_resched_events_{};
+    inline static uint64_t context_switches_{};
+    inline static uint64_t same_task_runs_{};
+    inline static uint64_t pick_idle_{};
+    inline static uint64_t pick_non_idle_{};
+};
+
 class TaskManager {
 public:
     static constexpr int HASH_SHIFT = 10;
@@ -146,22 +173,16 @@ public:
 
     static inline ListNode& hash_node(int pid) { return hash_list_[pid_hash(pid)]; }
 
-    static inline Task* current() { return current_; }
-    static inline void set_current(Task* proc) { current_ = proc; }
-
     static void add_process(Task* proc);
     static void remove_process(Task* proc);
 
     static Task* find_process(int pid);
 
     static void print();
-    static void print_stats();
 
-    // Scheduling and process lifecycle
-    static void schedule();
-    static void tick();  // Called from timer ISR each tick
+    // Publication, parent/child relationships and process resource lifetime.
     static Result<int> fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_frame);
-    static Result<int> kernel_thread(int (*fn)(void*), void* arg);
+    static Result<int> kernel_thread(KernelThreadEntry fn, void* arg);
     static int exit(int error_code);
     static Result<int> wait(int pid, int* code_store);
 
@@ -172,18 +193,7 @@ private:
     inline static Task* idle_proc_{};  // Idle process (PID 0)
     inline static Task* init_proc_{};  // Init process (PID 1)
     inline static int process_count_{};
-    inline static Task* current_{};
-    inline static SchedulerPolicy policy_{};
     inline static int next_pid_ = 1;
-
-    // Scheduler telemetry counters (monotonic since boot)
-    inline static uint64_t tick_count_{};
-    inline static uint64_t schedule_calls_{};
-    inline static uint64_t need_resched_events_{};
-    inline static uint64_t context_switches_{};
-    inline static uint64_t same_task_runs_{};
-    inline static uint64_t pick_idle_{};
-    inline static uint64_t pick_non_idle_{};
 
     static uint32_t pid_hash(int x);
 
@@ -193,7 +203,7 @@ private:
 };
 
 inline void Task::adopt_memory(sys::unique_ptr<MemoryDesc> memory) {
-    assert(memory && !owned_memory_ && this != TaskManager::current());
+    assert(memory && !owned_memory_ && this != Scheduler::current());
     assert(state_ == TaskState::Uninit || state_ == TaskState::Runnable);
     owned_memory_ = sys::move(memory);
     borrowed_memory_ = nullptr;
@@ -201,7 +211,7 @@ inline void Task::adopt_memory(sys::unique_ptr<MemoryDesc> memory) {
 
 inline Task::~Task() {
     // Published tasks must be off CPU and detached before resource release.
-    assert(this != TaskManager::current());
+    assert(this != Scheduler::current());
     assert(list_node.empty() && hash_node.empty() && child_node.empty() && child_list.empty());
     files_.close_all();
     kernel_stack_ = KernelBuffer{};
@@ -215,7 +225,7 @@ int init();
 void schedule();
 void tick();  // Called from timer ISR each tick
 Result<int> fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* tf);
-Result<int> kernel_thread(int (*fn)(void*), void* arg);
+Result<int> kernel_thread(KernelThreadEntry fn, void* arg);
 int exit(int error_code);
 Result<int> wait(int pid, int* code_store);
 

@@ -15,11 +15,11 @@ public:
         active_ = this;
         parent_.use_kernel_memory();
         parent_.mark_running();
-        TaskManager::set_current(&parent_);
+        Scheduler::set_current(&parent_);
     }
     ~TaskFixture() {
         assert(live_ == 0 && TaskManager::process_count() == 0 && parent_.child_list.empty());
-        TaskManager::set_current(nullptr);
+        Scheduler::set_current(nullptr);
         active_ = nullptr;
     }
     static TaskFixture& active() { return *active_; }

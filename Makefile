@@ -46,6 +46,7 @@ ifeq ($(wildcard arch/$(ARCH)/Makefile),)
   $(error Unsupported ARCH=$(ARCH). Available: $(patsubst arch/%/Makefile,%,$(wildcard arch/*/Makefile)))
 endif
 include arch/$(ARCH)/Makefile
+KSRCDIR += kernel/syscall kernel/drivers/virtio
 
 ifeq ($(TEST),1)
 	KSRCDIR += arch/$(ARCH)/test kernel/test \

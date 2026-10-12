@@ -300,7 +300,7 @@ static void test_idle_init_processes() {
     TEST_ASSERT(TaskManager::init_task()->pid == 1, "Init process has PID 1");
 
     // Verify current process
-    Task* current = TaskManager::current();
+    Task* current = Scheduler::current();
     TEST_ASSERT(current != nullptr, "Current process is set");
 
     // Verify init is child of idle (or has idle as parent based on fork)
@@ -435,7 +435,7 @@ static void test_scheduler_selection() {
 static void test_process_state_scheduling() {
     TEST_START("Process State During Scheduling");
 
-    Task* current = TaskManager::current();
+    Task* current = Scheduler::current();
     TEST_ASSERT(current != nullptr, "Current process exists");
 
     // Current process should be Running

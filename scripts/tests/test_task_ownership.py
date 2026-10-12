@@ -21,7 +21,8 @@ class TaskOwnershipTests(unittest.TestCase):
                      "-ffunction-sections", "-fdata-sections", "-I" + str(ROOT / "kernel"),
                      "-I" + str(ROOT / "include"), "-I" + str(ROOT / "arch/x86/include"),
                      "-I" + str(ROOT / "arch/x86/kernel")]
-        sources = ["kernel/sched/sched.cpp", "kernel/sched/sched_priority_rr.cpp", "kernel/fs/fd.cpp",
+        sources = ["kernel/sched/sched.cpp", "kernel/sched/task.cpp", "kernel/sched/process.cpp",
+                   "kernel/sched/task_table.cpp", "kernel/sched/sched_priority_rr.cpp", "kernel/fs/fd.cpp",
                    "kernel/test/host/task_contract_test.cpp"]
         result = subprocess.run([CLANG, *cls.flags, *(str(ROOT / source) for source in sources),
                                  "-Wl,--gc-sections", "-o", str(cls.binary)],

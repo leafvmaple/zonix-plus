@@ -1,16 +1,19 @@
-#include "lib/stdio.h"
-
 #include "swap.h"
-#include "pmm.h"
-
-#include <asm/page.h>
-#include <asm/mmu.h>
 #include "block/blk.h"
+#include "drivers/intr.h"
+#include "lib/kernel_buffer.h"
+#include "lib/mutex.h"
+#include "lib/stdio.h"
+#include "sched/sched.h"
+#include <asm/mmu.h>
+#include <sys/algorithm.hpp>
+#include <sys/mutex.hpp>
 
 namespace {
 
-constexpr uint32_t SWAP_START_LBA = 1000;          // First logical block of swap space
-constexpr size_t BLOCKS_PER_PAGE = PG_SIZE / 512;  // Logical blocks needed for one page
+constexpr size_t BLOCKS_PER_PAGE = PG_SIZE / BlockDevice::BLOCK_SIZE_BYTES;
+constexpr uintptr_t ENTRY_SLOT_MASK = (swap::MAX_OFFSET_LIMIT - 1) << 8;
+constexpr uintptr_t ENTRY_FLAGS = swap::ENTRY_HAS_PERMISSIONS | swap::ENTRY_WRITE | swap::ENTRY_EXECUTE;
 
 class State {
     friend int swap::init();
@@ -20,52 +23,117 @@ class State {
     friend int swap::swapfs_init();
     friend Error swap::swapfs_read(uintptr_t entry, Page* page);
     friend Error swap::swapfs_write(uintptr_t entry, Page* page);
+    friend void swap::release_entry(uintptr_t entry);
+
+    static bool occupied(uint32_t slot) { return (slots_.data()[slot / 8] & (1U << (slot % 8))) != 0; }
+    static void set_occupied(uint32_t slot, bool value) {
+        uint8_t mask = static_cast<uint8_t>(1U << (slot % 8));
+        if (value) {
+            slots_.data()[slot / 8] |= mask;
+        } else {
+            slots_.data()[slot / 8] &= static_cast<uint8_t>(~mask);
+        }
+    }
+    static uint32_t allocated_slot(uintptr_t entry) {
+        intr::Guard guard;
+        if (!device_ || device_->type != blk::DeviceType::Swap || slots_.empty() ||
+            (entry & ~(ENTRY_SLOT_MASK | ENTRY_FLAGS)) != 0 || (entry & swap::ENTRY_HAS_PERMISSIONS) == 0) {
+            return 0;
+        }
+        uint32_t slot = static_cast<uint32_t>(entry >> 8);
+        return slot > 0 && slot < slot_limit_ && occupied(slot) ? slot : 0;
+    }
+    static Result<uint32_t> reserve_slot() {
+        intr::Guard guard;
+        ENSURE(device_ && device_->type == blk::DeviceType::Swap && !slots_.empty(), Error::NoDevice);
+        for (uint32_t checked = 1; checked < slot_limit_; ++checked) {
+            uint32_t slot = next_slot_;
+            if (++next_slot_ == slot_limit_) {
+                next_slot_ = 1;
+            }
+            if (!occupied(slot)) {
+                set_occupied(slot, true);
+                return slot;
+            }
+        }
+        return Error::Full;
+    }
 
     inline static SwapManager manager_{};
-    inline static unsigned int slot_limit_{};
+    inline static Mutex io_lock_{};
+    inline static KernelBuffer slots_{};
+    inline static uint32_t slot_limit_{};
     inline static BlockDevice* device_{};
     inline static uint32_t next_slot_ = 1;
 };
+
+constexpr int LEVEL_SHIFTS[PAGE_LEVELS] = {PML4X_SHIFT, PDPTX_SHIFT, PDX_SHIFT, PTX_SHIFT};
+
+uintptr_t scan_pt_for_pa(const pde_t* table, int depth, uintptr_t base_va, uintptr_t target_pa) {
+    int shift = LEVEL_SHIFTS[depth];
+    bool is_leaf = depth == PT_WALK_LEVELS - 1;
+    int entries = depth == 0 ? USER_TOP_ENTRIES : PAGE_TABLE_ENTRIES;
+    for (int i = 0; i < entries; ++i) {
+        pde_t entry = table[i];
+        if (!pte_present(entry)) {
+            continue;
+        }
+        uintptr_t va = base_va | (static_cast<uintptr_t>(i) << shift);
+        if (is_leaf) {
+            if (pte_addr(entry) == target_pa) {
+                return va;
+            }
+        } else if (!pte_is_block(entry)) {
+            uintptr_t result = scan_pt_for_pa(phys_to_virt<pde_t>(pte_addr(entry)), depth + 1, va, target_pa);
+            if (result != 0) {
+                return result;
+            }
+        }
+    }
+    return 0;
+}
 
 }  // namespace
 
 namespace swap {
 
 int init() {
-    Error rc = State::manager_.init();
-    if (rc != Error::None) {
-        cprintf("swap: swap manager '%s' init failed (%s)\n", State::manager_.name, error_str(rc));
+    if (State::manager_.init() != Error::None) {
         return -1;
     }
-
     if (swapfs_init() != 0) {
-        cprintf("swap: no swap device available (non-fatal)\n");
+        cprintf("swap: disabled (no usable dedicated swap device)\n");
     }
+    return 0;
+}
 
-    if (!State::device_) {
-        State::slot_limit_ = 0;
-        cprintf("swap: disabled (no swap device)\n");
+int swapfs_init() {
+    sys::lock_guard<Mutex> guard(State::io_lock_);
+    if (State::device_) {
         return 0;
     }
-
-    if (State::device_->block_count <= SWAP_START_LBA) {
-        cprintf("swap: device '%s' too small (%d sectors, need > %d)\n", State::device_->name,
-                State::device_->block_count, SWAP_START_LBA);
-        State::slot_limit_ = 0;
-        return 0;
+    // Only an explicitly dedicated device may be overwritten. Ordinary disks
+    // and their filesystem partitions are never selected as a fallback.
+    auto* device = BlockManager::find_device(blk::DeviceType::Swap);
+    if (!device) {
+        return -1;
     }
-
-    uint32_t available_blocks = State::device_->block_count - SWAP_START_LBA;
-    State::slot_limit_ = available_blocks / BLOCKS_PER_PAGE;
-
-    if (State::slot_limit_ == 0) {
-        cprintf("swap: device '%s' has no usable swap space\n", State::device_->name);
-        return 0;
+    uint32_t slot_limit = static_cast<uint32_t>(
+        sys::min(static_cast<size_t>(device->block_count / BLOCKS_PER_PAGE) + 1, MAX_OFFSET_LIMIT));
+    if (slot_limit <= 1) {
+        return -1;
     }
-
-    cprintf("swap: manager=%s, device='%s', %d pages (%d MiB)\n", State::manager_.name, State::device_->name,
-            State::slot_limit_, (State::slot_limit_ * PG_SIZE) / (1024 * 1024));
-
+    auto allocation = KernelBuffer::alloc((slot_limit + 7) / 8);
+    if (!allocation.ok()) {
+        return -1;
+    }
+    auto slots = allocation.release_value();
+    memset(slots.data(), 0, slots.size());
+    State::slots_ = sys::move(slots);
+    State::slot_limit_ = slot_limit;
+    State::next_slot_ = 1;
+    State::device_ = device;
+    cprintf("swap: dedicated device '%s', %u page slots\n", device->name, slot_limit - 1);
     return 0;
 }
 
@@ -74,192 +142,120 @@ Error init_mm(MemoryDesc* mm) {
 }
 
 Error in(MemoryDesc* mm, uintptr_t va, Page** page_ptr) {
-    ENSURE(mm && mm->pgdir && page_ptr);
+    ENSURE(mm && mm->pgdir && mm->pgdir != vmm::Manager::kernel_pgdir() && page_ptr && va >= PG_SIZE &&
+           va < USER_SPACE_TOP);
     *page_ptr = nullptr;
-    Page* page = pmm::alloc_pages(1);
-    if (page == nullptr) {
-        cprintf("swap::in: failed to allocate page\n");
-        return Error::NoMem;
-    }
-
-    pte_t* ptep = pmm::get_pte(mm->pgdir, va, 0);
-    if (ptep == nullptr) {
-        cprintf("swap::in: no page table entry\n");
-        pmm::free_pages(page, 1);
-        return Error::NotFound;
-    }
-
-    uintptr_t swap_entry = *ptep;
-    if (swap_entry == 0 || pte_present(swap_entry)) {
+    sys::lock_guard<Mutex> guard(State::io_lock_);
+    ENSURE(State::device_, Error::NoDevice);
+    pte_t* ptep = pmm::get_pte(mm->pgdir, va, false);
+    ENSURE(ptep, Error::NotFound);
+    uintptr_t entry = *ptep;
+    ENSURE(!pte_present(entry) && State::allocated_slot(entry) != 0);
+    Page* page = pmm::alloc_pages();
+    ENSURE(page, Error::NoMem);
+    Error error = swapfs_read(entry, page);
+    if (error != Error::None) {
         pmm::free_pages(page);
-        return Error::Invalid;
+        return error;
     }
-    if (swapfs_read(swap_entry, page) != Error::None) {
-        cprintf("swap::in: failed to read from swap\n");
-        pmm::free_pages(page, 1);
-        return Error::Io;
-    }
-
-    cprintf("swap::in: loaded va 0x%lx from swap entry 0x%lx to page %p\n", static_cast<unsigned long>(va),
-            static_cast<unsigned long>(swap_entry), page);
-
-    // Bit 7 marks entries that preserve the original write permission.
-    uint32_t perm = user_page_perm((swap_entry & ENTRY_HAS_PERMISSIONS) == 0 || (swap_entry & ENTRY_WRITE) != 0);
-    if (pmm::page_insert(mm->pgdir, page, va, perm) != Error::None) {
+    intr::Guard irq_guard;
+    if (*ptep != entry) {
         pmm::free_pages(page);
-        return Error::NoMem;
+        return Error::Busy;
     }
-
-    TRY(State::manager_.map_swappable(mm, va, page, 1));
-
+    uint32_t perm = user_page_perm((entry & ENTRY_WRITE) != 0, (entry & ENTRY_EXECUTE) != 0);
+    error = State::manager_.map_swappable(mm, va, page, 1);
+    if (error == Error::None) {
+        error = pmm::page_insert(mm->pgdir, page, va, perm);
+    }
+    if (error != Error::None) {
+        page->node().unlink();
+        pmm::free_pages(page);
+        return error;
+    }
+    release_entry(entry);
     *page_ptr = page;
     return Error::None;
 }
 
-}  // namespace swap
-
-namespace {
-
-constexpr int LEVEL_SHIFTS[PAGE_LEVELS] = {PML4X_SHIFT, PDPTX_SHIFT, PDX_SHIFT, PTX_SHIFT};
-
-// Recursively walk the page table tree looking for a mapping to target_pa.
-// depth indexes LEVEL_SHIFTS; PAGE_LEVELS - 1 is the leaf level.
-uintptr_t scan_pt_for_pa(const pde_t* table, int depth, uintptr_t base_va, uintptr_t target_pa) {
-    int shift = LEVEL_SHIFTS[depth];
-    bool is_leaf = (depth == PAGE_LEVELS - 1);
-
-    for (int i = 0; i < PAGE_TABLE_ENTRIES; i++) {
-        pde_t entry = table[i];
-        if (!pte_present(entry))
-            continue;
-
-        uintptr_t va = base_va | (static_cast<uintptr_t>(i) << shift);
-
-        if (is_leaf) {
-            if (pte_addr(entry) == target_pa)
-                return va;
-            continue;
-        }
-
-        if (pte_is_block(entry)) {
-            uintptr_t block_pa = pte_addr(entry);
-            uintptr_t block_size = 1UL << shift;
-            if (target_pa >= block_pa && target_pa < block_pa + block_size)
-                return va | (target_pa - block_pa);
-            continue;
-        }
-
-        uintptr_t result = scan_pt_for_pa(phys_to_virt<pde_t>(pte_addr(entry)), depth + 1, va, target_pa);
-        if (result != 0)
-            return result;
+uintptr_t find_va_for_page(MemoryDesc* mm, Page* page) {
+    if (!mm || !mm->pgdir || !page) {
+        return 0;
     }
-
-    return 0;
-}
-
-}  // namespace
-
-uintptr_t swap::find_va_for_page(MemoryDesc* mm, Page* page) {
     return scan_pt_for_pa(mm->pgdir, 0, 0, pmm::page_to_phys(page));
 }
 
-namespace swap {
-
 int out(MemoryDesc* mm, int page_count, int in_timer_tick) {
-    int attempt_count{};
-
-    for (attempt_count = 0; attempt_count < page_count; attempt_count++) {
-        Page* victim = nullptr;
-        if (State::manager_.swap_out_victim(mm, &victim, in_timer_tick) != Error::None) {
-            cprintf("swap::out: no victim page found\n");
-            break;
-        }
-
-        if (victim == nullptr) {
-            cprintf("swap::out: victim is nullptr\n");
-            break;
-        }
-
-        uintptr_t victim_va = find_va_for_page(mm, victim);
-        if (victim_va == 0) {
-            cprintf("swap::out: cannot find virtual address for page %p\n", victim);
-            continue;
-        }
-
-        cprintf("swap::out: swapping out page %p at va 0x%lx\n", victim, static_cast<unsigned long>(victim_va));
-
-        pte_t* ptep = pmm::get_pte(mm->pgdir, victim_va, 0);
-        if (ptep == nullptr) {
-            cprintf("swap::out: cannot get PTE for va 0x%lx\n", static_cast<unsigned long>(victim_va));
-            continue;
-        }
-
-        uintptr_t swap_entry =
-            (State::next_slot_ << 8) | ENTRY_HAS_PERMISSIONS | (pte_writable(*ptep) ? ENTRY_WRITE : 0);
-        if (swapfs_write(swap_entry, victim) != Error::None) {
-            cprintf("swap::out: failed to write to swap\n");
-            continue;
-        }
-
-        *ptep = swap_entry;
-
-        pmm::invalidate_tlb_page(mm->pgdir, victim_va);
-        pmm::free_pages(victim, 1);
-
-        State::next_slot_++;
-        if (State::next_slot_ >= State::slot_limit_) {
-            State::next_slot_ = 1;  // Wrap around (simple allocation)
-        }
-
-        cprintf("swap::out: successfully swapped out page to entry 0x%lx\n", static_cast<unsigned long>(swap_entry));
+    // Disk I/O is not allowed from a timer interrupt. Shared frames and kernel
+    // address spaces need a different eviction protocol and are excluded here.
+    // Only reclaim the caller's MM: its user code cannot modify the frame while
+    // this task waits for I/O. Background eviction needs page freezing first.
+    Task* current = sched::current();
+    if (!mm || !mm->pgdir || mm->pgdir == vmm::Manager::kernel_pgdir() || !current || current->memory() != mm ||
+        page_count <= 0 || in_timer_tick != 0) {
+        return 0;
     }
+    sys::lock_guard<Mutex> guard(State::io_lock_);
+    if (!State::device_ || State::slots_.empty()) {
+        return 0;
+    }
+    int swapped = 0;
+    for (; swapped < page_count; ++swapped) {
+        Page* victim = nullptr;
+        if (State::manager_.swap_out_victim(mm, &victim, 0) != Error::None) {
+            break;
+        }
+        uintptr_t va = find_va_for_page(mm, victim);
+        pte_t* ptep = va != 0 ? pmm::get_pte(mm->pgdir, va, false) : nullptr;
+        auto reserved = State::reserve_slot();
+        if (!ptep || !pte_present(*ptep) || !pte_user(*ptep) || victim->ref_count != 1 || !reserved.ok()) {
+            if (reserved.ok()) {
+                release_entry((static_cast<uintptr_t>(reserved.value()) << 8) | ENTRY_HAS_PERMISSIONS);
+            }
+            intr::Guard irq_guard;
+            mm->swap_list.add(victim->node());
+            break;
+        }
+        uintptr_t resident = *ptep;
+        uintptr_t entry = (static_cast<uintptr_t>(reserved.value()) << 8) | ENTRY_HAS_PERMISSIONS |
+                          (pte_writable(resident) ? ENTRY_WRITE : 0) | (pte_executable(resident) ? ENTRY_EXECUTE : 0);
+        Error error = swapfs_write(entry, victim);
+        intr::Guard irq_guard;
+        if (error != Error::None || *ptep != resident || victim->ref_count != 1) {
+            release_entry(entry);
+            mm->swap_list.add(victim->node());
+            break;
+        }
+        *ptep = entry;
+        pmm::invalidate_tlb_page(mm->pgdir, va);
+        --victim->ref_count;
+        pmm::free_pages(victim);
+    }
+    return swapped;
+}
 
-    return attempt_count;  // Completed loop iterations; mapping or write failures can also be counted.
+void release_entry(uintptr_t entry) {
+    intr::Guard guard;
+    uint32_t slot = State::allocated_slot(entry);
+    if (slot != 0) {
+        State::set_occupied(slot, false);
+    }
+}
+
+Error swapfs_read(uintptr_t entry, Page* page) {
+    ENSURE(State::device_, Error::NoDevice);
+    uint32_t slot = State::allocated_slot(entry);
+    ENSURE(page && slot != 0);
+    uint32_t start_lba = static_cast<uint32_t>((slot - 1) * BLOCKS_PER_PAGE);
+    return State::device_->read(start_lba, pmm::page_to_kva(page), BLOCKS_PER_PAGE);
+}
+
+Error swapfs_write(uintptr_t entry, Page* page) {
+    ENSURE(State::device_, Error::NoDevice);
+    uint32_t slot = State::allocated_slot(entry);
+    ENSURE(page && slot != 0);
+    uint32_t start_lba = static_cast<uint32_t>((slot - 1) * BLOCKS_PER_PAGE);
+    return State::device_->write(start_lba, pmm::page_to_kva(page), BLOCKS_PER_PAGE);
 }
 
 }  // namespace swap
-
-int swap::swapfs_init() {
-    State::device_ = BlockManager::find_device(blk::DeviceType::Disk);
-    if (State::device_ == nullptr) {
-        cprintf("swapfs_init: no disk device found for swap\n");
-        return -1;
-    }
-
-    cprintf("swapfs_init: using device '%s' for swap\n", State::device_->name);
-    cprintf("swapfs_init: swap starts at LBA %d\n", SWAP_START_LBA);
-
-    return 0;
-}
-
-
-Error swap::swapfs_read(uintptr_t entry, Page* page) {
-    // Decode the swap slot, then calculate its first LBA.
-    // +--------------------------------+--------+---+
-    // |    Swap Slot (24 bits)         | Perms   | P |
-    // +--------------------------------+--------+---+
-    // Bits 31-8: slot; bit 7: permissions saved; bit 1: writable; bit 0: present.
-    uint32_t slot = (entry >> 8) & 0xFFFFFF;  // Extract the page-sized swap slot index
-    ENSURE(State::device_ && page && !pte_present(entry) && slot > 0 && slot < State::slot_limit_);
-    uint32_t start_lba = SWAP_START_LBA + (slot * BLOCKS_PER_PAGE);
-
-    void* kva = pmm::page_to_kva(page);
-    TRY_LOG(State::device_->read(start_lba, kva, BLOCKS_PER_PAGE), "swapfs_read: disk read failed (start_lba=%d)",
-            start_lba);
-
-    cprintf("swapfs_read: read page from swap entry 0x%lx (LBA %d)\n", static_cast<unsigned long>(entry), start_lba);
-    return Error::None;
-}
-
-Error swap::swapfs_write(uintptr_t entry, Page* page) {
-    uint32_t slot = (entry >> 8) & 0xFFFFFF;  // Extract the page-sized swap slot index
-    ENSURE(State::device_ && page && !pte_present(entry) && slot > 0 && slot < State::slot_limit_);
-    uint32_t start_lba = SWAP_START_LBA + (slot * BLOCKS_PER_PAGE);
-
-    void* kva = pmm::page_to_kva(page);
-    TRY_LOG(State::device_->write(start_lba, kva, BLOCKS_PER_PAGE), "swapfs_write: disk write failed (start_lba=%d)",
-            start_lba);
-
-    cprintf("swapfs_write: wrote page to swap entry 0x%lx (LBA %d)\n", static_cast<unsigned long>(entry), start_lba);
-    return Error::None;
-}

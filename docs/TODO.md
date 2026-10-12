@@ -116,7 +116,7 @@ Zonix 是一个教学型操作系统，当前主线已实现：
 
 #### 进程调度
 - [x] **实现 Round-Robin 调度器** ✅ (v0.8.0)
-  - 完成：`kernel/sched/sched.cpp` — `TaskManager::schedule()`
+  - 完成：`kernel/sched/sched.cpp` — `Scheduler::schedule()`
   - 完成：PIT 时间片驱动、就绪队列遍历
 
 - [x] **实现优先级调度** ✅ (v0.9.3)
@@ -126,7 +126,7 @@ Zonix 是一个教学型操作系统，当前主线已实现：
   - 完成：fork 继承父进程优先级
 
 - [x] **实现抢占式调度** ✅ (v0.9.3)
-  - 完成：`TaskManager::tick()` 每 tick 递减 time_slice
+  - 完成：`Scheduler::tick()` 每 tick 递减 time_slice
   - 完成：time_slice 耗尽设 `need_resched`，EOI 后检查并调度
   - 修复：Timer ISR 内 context switch 导致 EOI 丢失的 bug
 
