@@ -9,10 +9,17 @@ struct Completion {
     uint32_t length;
 };
 
-// Owns split-ring storage. The device must be reset before release/destruction.
-// Buffer ownership and interpretation belong to the device driver.
+// Owns split-ring storage. Each of the three areas must be physically
+// contiguous and its DMA base must meet the alignment below. The areas do not
+// need page alignment or to be adjacent.
+// The device must be reset before release/destruction. Buffer ownership and
+// interpretation belong to the device driver.
 class SplitQueue {
 public:
+    static constexpr size_t DESCRIPTOR_ALIGNMENT = 16;
+    static constexpr size_t AVAILABLE_ALIGNMENT = 2;
+    static constexpr size_t USED_ALIGNMENT = 4;
+
     SplitQueue() = default;
     SplitQueue(const SplitQueue&) = delete;
     SplitQueue& operator=(const SplitQueue&) = delete;

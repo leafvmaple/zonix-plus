@@ -103,10 +103,18 @@ Result<QueueNotification> PciTransport::configure_queue(uint16_t index, const Sp
     ENSURE(queue.size() != 0 && queue.size() <= available_size && mmio::read16(common_->address(), QUEUE_ENABLE) == 0);
     size_t offset = static_cast<size_t>(mmio::read16(common_->address(), QUEUE_NOTIFY_OFFSET)) * notify_multiplier_;
     ENSURE(offset <= notify_->size() - sizeof(uint16_t));
+
+    const uintptr_t descriptor_pa = queue.descriptor_pa();
+    const uintptr_t available_pa = queue.available_pa();
+    const uintptr_t used_pa = queue.used_pa();
+    ENSURE(descriptor_pa % SplitQueue::DESCRIPTOR_ALIGNMENT == 0 &&
+               available_pa % SplitQueue::AVAILABLE_ALIGNMENT == 0 && used_pa % SplitQueue::USED_ALIGNMENT == 0,
+           Error::Invalid);
+
     mmio::write16(common_->address(), QUEUE_SIZE, queue.size());
-    write_address(0x20, queue.descriptor_pa());
-    write_address(0x28, queue.available_pa());
-    write_address(0x30, queue.used_pa());
+    write_address(0x20, descriptor_pa);
+    write_address(0x28, available_pa);
+    write_address(0x30, used_pa);
     arch_io_mb();
     mmio::write16(common_->address(), QUEUE_ENABLE, 1);
     return QueueNotification(notify_->address() + offset, index);
