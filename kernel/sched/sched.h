@@ -65,9 +65,9 @@ public:
     TrapFrame* trap_frame{};  // Trap frame for current interrupt
     uint32_t flags{};         // Process flags
 
-    sys::list_hook<Task> list_node{*this};   // Link in process list
-    sys::list_hook<Task> hash_node{*this};   // Link in hash list
-    sys::list_hook<Task> child_node{*this};  // Link in parent's child list
+    sys::list_node<Task> list_node{*this};   // Link in process list
+    sys::list_node<Task> hash_node{*this};   // Link in hash list
+    sys::list_node<Task> child_node{*this};  // Link in parent's child list
     int exit_code{};                         // Exit code (for zombie processes)
     uint32_t wait_state{};                   // Waiting state
 

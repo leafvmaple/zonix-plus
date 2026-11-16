@@ -5,7 +5,7 @@
 static int tests_passed = 0;
 static int tests_failed = 0;
 struct ListItem {
-    sys::list_hook<ListItem> link{*this};
+    sys::list_node<ListItem> link{*this};
 };
 using ItemList = sys::intrusive_list<ListItem, &ListItem::link>;
 

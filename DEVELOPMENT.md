@@ -237,8 +237,9 @@ Makefile                         # 顶层: 变量、宏、kernel、磁盘镜像�
 
 ### 侵入式链表
 
-zstl 的 `intrusive_list<T, MEMBER>` 绑定对象和成员 hook；容器不分配、不拥有对象。
-节点保存借用的 owner 指针，避免成员偏移反查；64 位平台每个 hook 从两个指针变为三个。
+zstl 的 `intrusive_list<T, MEMBER>` 绑定对象和嵌入节点；容器不分配、不拥有对象。
+普通节点用借用的 owner 指针找回对象，占三个指针。
+`Page` 的 `first_member_list_node` 必须放在首成员，只占两个指针。
 遍历得到对象引用，`erase` 返回后继；摘链和销毁仍遵循子系统的锁及中断协议。
 
 ### 内存分配分层

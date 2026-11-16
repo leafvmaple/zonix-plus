@@ -18,7 +18,7 @@ public:
 private:
     struct Entry {
         Task* task{};
-        sys::list_hook<Entry> node{*this};
+        sys::list_node<Entry> node{*this};
     };
     sys::intrusive_list<Entry, &Entry::node> head_{};
     Spinlock lock_{};

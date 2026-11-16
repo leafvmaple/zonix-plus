@@ -21,7 +21,7 @@ struct FreeSlot {
 // Each slab belongs to one size class. Its bitmap detects invalid/double frees;
 // its free list provides constant-time slot allocation without another owner.
 struct SlabPage {
-    sys::list_hook<SlabPage> partial_node{*this};
+    sys::list_node<SlabPage> partial_node{*this};
     FreeSlot* free_slot{};
     sys::array<uint64_t, BITMAP_WORD_COUNT> allocated{};
     uint16_t object_size{};

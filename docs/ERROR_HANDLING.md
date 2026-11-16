@@ -392,7 +392,7 @@ The migration boundary is:
 | Generic scoped locking | `sys::lock_guard`; kernel lockables expose `lock()` / `unlock()` |
 | Pointer traits, min/max, array size, C string and variadic primitives | zstl `type_traits`, `algorithm`, `iterator`, `cstring`, `cstdarg` |
 | Spinlock, Mutex, Semaphore and WaitQueue | Kernel backends own interrupt restoration, task ownership and scheduler sleep/wakeup |
-| Embedded hooks / circular traversal | `sys::intrusive_list<T, MEMBER>` borrows stable objects; explicit unlink/erase, no allocation or object destruction |
+| Embedded nodes / circular traversal | `sys::intrusive_list<T, MEMBER>` borrows stable objects; explicit unlink/erase, no allocation or object destruction |
 | Result/Error, KernelBuffer, file/MM owners | Domain interfaces use zstl ownership internally; cleanup and failure contracts are kernel-specific |
 | SectorArray, register/DMA/firmware layouts, boot/runtime ABI | Exact layout, alignment, addresses and C/linker contracts are not generic containers |
 
@@ -578,17 +578,17 @@ that interrupt masking defers it and framebuffer boundary canaries stay intact.
 
 ### Intrusive list lifetime
 
-Use zstl `list_hook<T>` initialized with `*this` and bind each list to one member
-hook. Hooks and containers cannot be copied or moved. `erase(iterator)` returns
+Use zstl `list_node<T>` initialized with `*this` and bind each list to one member
+node. Nodes and containers cannot be copied or moved. `erase(iterator)` returns
 the following iterator; ordinary and circular traversal yield objects, not raw
-nodes. The owner pointer is borrowed, costs one pointer per hook, and avoids
+nodes. The owner pointer is borrowed, costs one pointer per node, and avoids
 member-offset conversion even for non-standard-layout `Task`. `Page` instead
-uses the two-pointer `first_member_hook` as its first field. It must remain
-standard-layout, with the hook at offset zero. The hook does not constrain
-the total size of `Page`. Both hooks use the same list operations.
+uses the two-pointer `first_member_list_node` as its first field. It must remain
+standard-layout, with the node at offset zero. The node does not constrain
+the total size of `Page`. Both node types use the same list operations.
 
-Insert only detached hooks. `unlink()` remains idempotent. Destruction checks
-that hooks are detached and containers empty; it never automatically mutates a
+Insert only detached nodes. `unlink()` remains idempotent. Destruction checks
+that nodes are detached and containers empty; it never automatically mutates a
 list outside the subsystem's locking/interrupt protocol. Circular traversal
 requires stable links. Scheduling invalidates its saved object cursor before
 removal/destruction; a typed iterator alone cannot prevent use after free.

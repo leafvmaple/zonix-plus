@@ -19,10 +19,10 @@ enum class PageFlag : uint8_t {
 
 // Page descriptor structures
 struct Page {
-    sys::first_member_hook list_node{};  // Must be the first member.
-    int ref_count{};                     // Page frame reference count
-    uint32_t flags{};                    // Bitmask of PageFlag
-    unsigned int block_page_count{};     // Page span of a free run or kmalloc allocation
+    sys::first_member_list_node list_node{};  // Must be the first member.
+    int ref_count{};                          // Page frame reference count
+    uint32_t flags{};                         // Bitmask of PageFlag
+    unsigned int block_page_count{};          // Page span of a free run or kmalloc allocation
 
     void set_reserved() { flags |= (1 << static_cast<uint32_t>(PageFlag::Reserved)); }
     void set_page_table() { flags |= (1 << static_cast<uint32_t>(PageFlag::PageTable)); }

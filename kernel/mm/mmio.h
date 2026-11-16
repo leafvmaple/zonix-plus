@@ -25,7 +25,7 @@ private:
     size_t span_{};
     size_t offset_{};
     size_t size_{};
-    sys::list_hook<MmioMapping> node_{*this};
+    sys::list_node<MmioMapping> node_{*this};
 };
 
 struct MmioUnmap {

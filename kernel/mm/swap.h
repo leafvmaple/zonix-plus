@@ -19,7 +19,7 @@ public:
 struct PageAddressMap {
     Page* page;
     uintptr_t va;
-    sys::list_hook<PageAddressMap> link{*this};
+    sys::list_node<PageAddressMap> link{*this};
 };
 
 
