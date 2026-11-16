@@ -41,6 +41,7 @@ public:
     void init();
     // Consume the owner; failure closes it, success transfers it to the table.
     Result<int> alloc(vfs::FileHandle file);
+    bool has_space() const;
     Entry* get(int fd);
     Error close(int fd);
     void close_all();

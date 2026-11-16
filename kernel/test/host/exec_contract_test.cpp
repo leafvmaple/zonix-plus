@@ -246,7 +246,7 @@ void arch_setup_user_tf(TrapFrame*, uintptr_t entry, uintptr_t stack) {
 
 namespace vfs {
 File::~File() = default;
-Result<FileHandle> open(const char* path) {
+Result<FileHandle> open(const char* path, int) {
     // The file object lives in main; closing records ownership without deleting the fixture.
     if (strcmp(path, "file") != 0) {
         return Error::NotFound;

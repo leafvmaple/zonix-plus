@@ -221,8 +221,8 @@ static void test_file_io(MemoryDesc& mm, uintptr_t base) {
         file->reset(TransferFile::Reply::Full);
         TEST_ASSERT(syscall(nr, fd, base + 2 * PG_SIZE - 1, 2) == -1 && file->calls() == 0,
                     "Entire user buffer is validated before the first VFS call");
-        TEST_ASSERT(syscall(nr, fd::MAX_FD, 0, 0) == 0 && file->calls() == 0,
-                    "Zero-length syscall preserves its existing no-I/O behavior");
+        TEST_ASSERT(syscall(nr, fd::MAX_FD, 0, 0) == -1 && file->calls() == 0,
+                    "Zero-length syscall rejects invalid descriptors without file I/O");
     }
     TEST_ASSERT(syscall(NR_CLOSE, fd, 0, 0) == 0, "Closed syscall transfer fixture");
     TEST_END();

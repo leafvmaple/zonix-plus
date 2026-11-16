@@ -136,7 +136,7 @@ void operator delete(void* ptr, size_t) noexcept {
 
 namespace vfs {
 File::~File() = default;
-Result<FileHandle> open(const char* path) {
+Result<FileHandle> open(const char* path, int) {
     assert(strcmp(path, "/dev/console") == 0);
     if (TaskFixture::active().open_fails())
         return Error::Io;

@@ -10,9 +10,9 @@ public:
     virtual ~FileSystem() = default;
 
     virtual Error mount(BlockDevice* dev) = 0;
-    virtual void unmount() = 0;
+    virtual Error unmount() = 0;
     // Success transfers a new, nonempty file owner; failure releases partial resources locally.
-    virtual Result<FileHandle> open(const char* relpath) = 0;
+    virtual Result<FileHandle> open(const char* relpath, int flags) = 0;
     virtual Error stat(const char* relpath, Stat* st) = 0;
     virtual Result<int> readdir(const char* relpath, DirVisitor& visitor) = 0;
     virtual Error mkdir(const char* relpath) {

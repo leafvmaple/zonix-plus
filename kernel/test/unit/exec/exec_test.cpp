@@ -57,8 +57,11 @@ public:
         mounted_ = this;
         return Error::None;
     }
-    void unmount() override { mounted_ = nullptr; }
-    Result<vfs::FileHandle> open(const char* path) override {
+    Error unmount() override {
+        mounted_ = nullptr;
+        return Error::None;
+    }
+    Result<vfs::FileHandle> open(const char* path, int) override {
         if (strcmp(path, "open") == 0) {
             return Error::NoDevice;
         }

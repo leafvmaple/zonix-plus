@@ -22,6 +22,15 @@ Result<int> Table::alloc(vfs::FileHandle file) {
     return Error::Full;
 }
 
+bool Table::has_space() const {
+    for (const auto& entry : entries_) {
+        if (!entry.used) {
+            return true;
+        }
+    }
+    return false;
+}
+
 Entry* Table::get(int fd) {
     if (fd < 0 || fd >= MAX_FD) {
         return nullptr;

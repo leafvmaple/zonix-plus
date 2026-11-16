@@ -46,6 +46,10 @@ namespace fat_validation_test {
 void test();
 }
 
+namespace file_io_test {
+void test();
+}
+
 namespace fs_test {
 void test();
 }
@@ -88,6 +92,7 @@ static const TestSuite SUITES[] = {
     {"Block Manager", blk_test::test},
     {"ELF Loader", elf_test::test},
     {"FAT validation", fat_validation_test::test},
+    {"P0-1 file I/O", file_io_test::test},
     {"File System", fs_test::test},
     {"Shell", shell_test::test},
     {"Exec (E2E)", exec_test::test},

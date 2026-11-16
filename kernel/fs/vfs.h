@@ -1,6 +1,7 @@
 #pragma once
 
 #include <base/types.h>
+#include <abi/fcntl.h>
 #include "lib/result.h"
 #include "lib/string.h"
 #include <sys/memory.hpp>
@@ -56,10 +57,23 @@ public:
 
     virtual Result<int> read(void* buf, size_t size, size_t offset) = 0;
     virtual Result<int> write(const void* buf, size_t size, size_t offset) = 0;
+    // Select EOF and write atomically; success also reports the resulting position.
+    virtual Result<int> append(const void* buf, size_t size, size_t* end_offset) {
+        static_cast<void>(buf);
+        static_cast<void>(size);
+        static_cast<void>(end_offset);
+        return Error::NotSupported;
+    }
     virtual Error stat(Stat* st) = 0;
 
+    bool can_read() const { return (open_flags_ & O_ACCMODE) != O_WRONLY; }
+    bool can_write() const { return (open_flags_ & O_ACCMODE) != O_RDONLY; }
+    bool is_append() const { return (open_flags_ & O_APPEND) != 0; }
+
 private:
-    friend Result<FileHandle> open(const char* path);
+    friend Result<FileHandle> open(const char* path, int flags);
+    // Factories produce unrestricted handles; open() installs the requested access mode.
+    int open_flags_{O_RDWR};
     size_t* mount_users_{};
 };
 
@@ -74,9 +88,9 @@ Error mount(const char* mount_point, BlockDevice* dev, const char* fs_type);
 Error umount(const char* mount_point);
 
 // Own the returned handle. get()/operator-> borrow; release() hands ownership off.
-Result<FileHandle> open(const char* path);
+Result<FileHandle> open(const char* path, int flags = O_RDONLY);
 Result<int> read(File* file, void* buf, size_t size, size_t offset);
-Result<int> write(File* file, const void* buf, size_t size, size_t offset);
+Result<int> write(File* file, const void* buf, size_t size, size_t offset, size_t* end_offset = nullptr);
 void close(File* file);
 
 inline void FileCloser::operator()(File* file) const noexcept {
@@ -84,10 +98,10 @@ inline void FileCloser::operator()(File* file) const noexcept {
 }
 
 // Compatibility boundary: the caller owns *out_file on success, null on failure.
-inline Error open(const char* path, File** out_file) {
+inline Error open(const char* path, File** out_file, int flags = O_RDONLY) {
     ENSURE(out_file, Error::Invalid);
     *out_file = nullptr;
-    auto file = TRY(open(path));
+    auto file = TRY(open(path, flags));
     *out_file = file.release();
     return Error::None;
 }

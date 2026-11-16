@@ -32,13 +32,15 @@ class DevFileSystem : public vfs::FileSystem {
 public:
     Error mount(BlockDevice*) override { return Error::None; }
 
-    void unmount() override {}
+    Error unmount() override { return Error::None; }
 
-    Result<vfs::FileHandle> open(const char* relpath) override {
+    Result<vfs::FileHandle> open(const char* relpath, int flags) override {
         ENSURE(relpath && relpath[0] != '\0', Error::Invalid);
 
         for (const auto& entry : State::devices()) {
             if (strcmp(entry.name, relpath) == 0) {
+                ENSURE((flags & (O_CREAT | O_EXCL)) != (O_CREAT | O_EXCL), Error::Exists);
+                ENSURE((flags & (O_TRUNC | O_APPEND)) == 0, Error::NotSupported);
                 auto file = TRY(entry.create());
                 ENSURE(file, Error::Io);
                 return file;

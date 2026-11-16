@@ -39,19 +39,27 @@ int copy_user_cstr(Task* cur, const char* user, char* out, size_t out_size) {
 }
 
 long sys_file_io(Task* cur, int fd, uintptr_t user_buf, size_t count, FileIo operation) {
-    if (count == 0) {
-        return 0;
-    }
     const bool to_user = operation == FileIo::Read;
-    if (!cur || !vmm::user_range_valid(cur->memory(), user_buf, count, to_user)) {
+    if (!cur) {
         return -1;
     }
     fd::Entry* entry = cur->files().get(fd);
-    if (!entry) {
+    if (!entry || (to_user ? !entry->file->can_read() : !entry->file->can_write())) {
+        return -1;
+    }
+    if (count == 0) {
+        return 0;
+    }
+    if (!vmm::user_range_valid(cur->memory(), user_buf, count, to_user)) {
         return -1;
     }
 
-    auto allocation = KernelBuffer::alloc(PG_SIZE);
+    const bool append = !to_user && entry->file->is_append();
+    if (append && count > 0x7FFFFFFFU) {
+        return -1;
+    }
+    // One append syscall must reach the backend as one serialized EOF selection/write.
+    auto allocation = KernelBuffer::alloc(append ? count : PG_SIZE);
     if (!allocation.ok()) {
         return -1;
     }
@@ -68,8 +76,9 @@ long sys_file_io(Task* cur, int fd, uintptr_t user_buf, size_t count, FileIo ope
             failed = true;
             break;
         }
+        size_t next_offset = entry->offset;
         auto bytes_r = to_user ? vfs::read(entry->file.get(), buf, chunk, entry->offset)
-                               : vfs::write(entry->file.get(), buf, chunk, entry->offset);
+                               : vfs::write(entry->file.get(), buf, chunk, entry->offset, &next_offset);
         if (!bytes_r.ok() || bytes_r.value() < 0 || static_cast<size_t>(bytes_r.value()) > chunk) {
             failed = true;
             break;
@@ -79,7 +88,7 @@ long sys_file_io(Task* cur, int fd, uintptr_t user_buf, size_t count, FileIo ope
             failed = true;
             break;
         }
-        entry->offset += bytes;
+        entry->offset = to_user ? entry->offset + bytes : next_offset;
         done += bytes;
         if (bytes < chunk) {
             break;
@@ -91,10 +100,7 @@ long sys_file_io(Task* cur, int fd, uintptr_t user_buf, size_t count, FileIo ope
 }  // namespace
 
 long syscall::open(Task* cur, const char* user_path, int flags, int mode) {
-    static_cast<void>(flags);
-    static_cast<void>(mode);
-
-    if (!cur) {
+    if (!cur || mode != 0 || !cur->files().has_space()) {
         return -1;
     }
 
@@ -103,7 +109,7 @@ long syscall::open(Task* cur, const char* user_path, int flags, int mode) {
         return -1;
     }
 
-    auto file = vfs::open(path);
+    auto file = vfs::open(path, flags);
     if (!file.ok()) {
         return -1;
     }

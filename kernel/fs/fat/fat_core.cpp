@@ -3,6 +3,7 @@
 
 #include "lib/memory.h"
 #include "lib/stdio.h"
+#include "lib/kernel_buffer.h"
 
 #include <base/bpb.h>
 #include <base/gpt.h>
@@ -11,6 +12,7 @@
 namespace {
 
 constexpr uint32_t FAT_INVALID_SECTOR = static_cast<uint32_t>(-1);
+constexpr uint8_t ZERO_SECTOR[BlockDevice::BLOCK_SIZE_BYTES]{};
 
 Result<uint32_t> find_partition_start(BlockDevice* dev) {
     MbrHeader mbr{};
@@ -112,22 +114,12 @@ Error FatInfo::mount(BlockDevice* dev) {
     return Error::None;
 }
 
-void FatInfo::unmount() {
-    if (buffer_dirty_ && buffer_sector_ != FAT_INVALID_SECTOR) {
-        for (uint32_t i = 0; i < fat_count_; i++) {
-            uint32_t fat_sector = fat_start_sector_ + (i * fat_sector_count_) + (buffer_sector_ - fat_start_sector_);
-            Error error = dev_->write(partition_start_lba_ + fat_sector, buffer_, 1);
-            if (error != Error::None) {
-                klog::error("fat: unmount failed to flush LBA %d: %s (%d)\n", partition_start_lba_ + fat_sector,
-                            error_str(error), static_cast<int>(error));
-            }
-        }
-        buffer_dirty_ = false;
-    }
-
+Error FatInfo::unmount() {
+    TRY(free_detached_chain());
+    TRY(flush_fat_buffer());
     dev_ = nullptr;
     buffer_sector_ = FAT_INVALID_SECTOR;
-    buffer_dirty_ = false;
+    return Error::None;
 }
 
 void FatInfo::print() const {
@@ -145,17 +137,35 @@ void FatInfo::print() const {
     cprintf("  Cluster Count: %d\n", cluster_count_);
 }
 
+Error FatInfo::flush_fat_buffer() {
+    if (buffer_dirty_) {
+        for (uint32_t i = 0; i < fat_count_; i++) {
+            TRY(dev_->write(partition_start_lba_ + buffer_sector_ + i * fat_sector_count_, buffer_, 1));
+        }
+        buffer_dirty_ = false;
+    }
+    return Error::None;
+}
+
+Error FatInfo::load_fat_sector(uint32_t sector) {
+    // Failed mirrored writes stay dirty, even when the next operation is a read.
+    TRY(flush_fat_buffer());
+    if (sector != buffer_sector_) {
+        auto buffer = TRY(KernelBuffer::alloc(BlockDevice::BLOCK_SIZE_BYTES));
+        TRY(dev_->read(partition_start_lba_ + sector, buffer.data(), 1));
+        memcpy(buffer_, buffer.data(), sizeof(buffer_));
+        buffer_sector_ = sector;
+    }
+    return Error::None;
+}
+
 Result<uint32_t> FatInfo::read_entry(uint32_t cluster) {
     ENSURE(dev_ && valid_cluster(cluster), Error::BadFs);
 
     uint32_t fat_offset = cluster << 2;
     uint32_t fat_sector = fat_start_sector_ + (fat_offset / bytes_per_sector_);
     uint32_t ent_offset = fat_offset % bytes_per_sector_;
-
-    if (fat_sector != buffer_sector_) {
-        TRY(dev_->read(partition_start_lba_ + fat_sector, buffer_, 1));
-        buffer_sector_ = fat_sector;
-    }
+    TRY(load_fat_sector(fat_sector));
 
     uint32_t value = *reinterpret_cast<uint32_t*>(&buffer_[ent_offset]);
     return value & fat::FAT32_CLUSTER_MASK;
@@ -168,18 +178,7 @@ Error FatInfo::write_entry(uint32_t cluster, uint32_t value) {
     uint32_t fat_sector = fat_start_sector_ + (fat_offset / bytes_per_sector_);
     uint32_t ent_offset = fat_offset % bytes_per_sector_;
 
-    if (fat_sector != buffer_sector_) {
-        if (buffer_dirty_ && buffer_sector_ != FAT_INVALID_SECTOR) {
-            for (uint32_t i = 0; i < fat_count_; i++) {
-                uint32_t abs_sector = partition_start_lba_ + buffer_sector_ + (i * fat_sector_count_);
-                TRY(dev_->write(abs_sector, buffer_, 1));
-            }
-            buffer_dirty_ = false;
-        }
-
-        TRY(dev_->read(partition_start_lba_ + fat_sector, buffer_, 1));
-        buffer_sector_ = fat_sector;
-    }
+    TRY(load_fat_sector(fat_sector));
 
     // Preserve top 4 reserved bits.
     uint32_t old = *reinterpret_cast<uint32_t*>(&buffer_[ent_offset]);
@@ -187,13 +186,7 @@ Error FatInfo::write_entry(uint32_t cluster, uint32_t value) {
     buffer_dirty_ = true;
 
     // Write through to all FAT copies immediately.
-    for (uint32_t i = 0; i < fat_count_; i++) {
-        uint32_t abs_sector = partition_start_lba_ + fat_sector + (i * fat_sector_count_);
-        TRY(dev_->write(abs_sector, buffer_, 1));
-    }
-    buffer_dirty_ = false;
-
-    return Error::None;
+    return flush_fat_buffer();
 }
 
 Result<uint32_t> FatInfo::alloc_cluster() {
@@ -205,10 +198,9 @@ Result<uint32_t> FatInfo::alloc_cluster() {
                 return error;
             }
 
-            uint8_t zero[512]{};
             uint32_t sector = cluster_to_sector(c);
             for (uint32_t s = 0; s < sectors_per_cluster_; s++) {
-                error = dev_->write(partition_start_lba_ + sector + s, zero, 1);
+                error = dev_->write(partition_start_lba_ + sector + s, ZERO_SECTOR, 1);
                 if (error != Error::None) {
                     rollback_new_chain(c);
                     return error;
@@ -229,6 +221,19 @@ Error FatInfo::free_chain(uint32_t start_cluster) {
         uint32_t next = TRY(read_entry(cluster));
         TRY(write_entry(cluster, fat::FAT32_FREE));
         cluster = next;
+    }
+    return Error::None;
+}
+
+Error FatInfo::free_detached_chain() {
+    while (pending_free_cluster_ != 0) {
+        if (pending_free_next_ == 0) {
+            pending_free_next_ = TRY(read_entry(pending_free_cluster_));
+        }
+        // Preserve the next link across a failed write, even if the cache now says FREE.
+        TRY(write_entry(pending_free_cluster_, fat::FAT32_FREE));
+        pending_free_cluster_ = pending_free_next_ >= fat::FAT32_EOC_MIN ? 0 : pending_free_next_;
+        pending_free_next_ = 0;
     }
     return Error::None;
 }

@@ -191,38 +191,73 @@ Error umount(const char* mount_point) {
         slot->transitioning = true;
         owner.reset(slot->fs);
         slot->fs = nullptr;
+    }
+    MountTransition transition(slot);
+    Error error = owner->unmount();
+    if (error != Error::None) {
+        // The backend retains dirty state and detached storage for a later retry.
+        intr::Guard guard;
+        slot->fs = owner.release();
+        return error;
+    }
+    {
+        intr::Guard guard;
         slot->fs_type = nullptr;
         slot->device = nullptr;
         slot->device_name = nullptr;
     }
-    MountTransition transition(slot);
-    owner->unmount();
     // Destroy the filesystem before making its slot available to another mount.
     owner.reset();
 
     return Error::None;
 }
 
-Result<FileHandle> open(const char* path) {
+Result<FileHandle> open(const char* path, int flags) {
+    constexpr int supported = O_ACCMODE | O_CREAT | O_EXCL | O_TRUNC | O_APPEND;
+    ENSURE((flags & ~supported) == 0 && (flags & O_ACCMODE) != O_ACCMODE, Error::Invalid);
+    ENSURE((flags & O_EXCL) == 0 || (flags & O_CREAT) != 0, Error::Invalid);
+    ENSURE((flags & (O_TRUNC | O_APPEND)) == 0 || (flags & O_ACCMODE) != O_RDONLY, Error::Invalid);
     auto resolved = TRY(resolve_path(path));
     ENSURE(resolved.relpath[0] != '\0', Error::Invalid);
-    auto file = TRY(resolved.mount->fs->open(resolved.relpath));
+    auto file = TRY(resolved.mount->fs->open(resolved.relpath, flags));
     ENSURE(file, Error::Io);
     assert(!file->mount_users_);
+    file->open_flags_ = flags;
     file->mount_users_ = &resolved.mount.release()->users;
     return file;
 }
 
 Result<int> read(File* file, void* buf, size_t size, size_t offset) {
-    ENSURE(file && buf, Error::Invalid);
+    ENSURE(file && (buf || size == 0) && size <= 0x7FFFFFFFU, Error::Invalid);
+    ENSURE(file->can_read(), Error::Access);
+    if (size == 0) {
+        return 0;
+    }
 
     return file->read(buf, size, offset);
 }
 
-Result<int> write(File* file, const void* buf, size_t size, size_t offset) {
-    ENSURE(file && buf, Error::Invalid);
+Result<int> write(File* file, const void* buf, size_t size, size_t offset, size_t* end_offset) {
+    ENSURE(file && (buf || size == 0) && size <= 0x7FFFFFFFU, Error::Invalid);
+    ENSURE(file->can_write(), Error::Access);
+    size_t next_offset = offset;
+    int bytes{};
+    if (size != 0) {
+        if (file->is_append()) {
+            bytes = TRY(file->append(buf, size, &next_offset));
+        } else {
+            ENSURE(size <= static_cast<size_t>(-1) - offset, Error::Invalid);
+            bytes = TRY(file->write(buf, size, offset));
+            ENSURE(bytes >= 0 && static_cast<size_t>(bytes) <= size, Error::Io);
+            next_offset += static_cast<size_t>(bytes);
+        }
+        ENSURE(bytes >= 0 && static_cast<size_t>(bytes) <= size, Error::Io);
+    }
+    if (end_offset) {
+        *end_offset = next_offset;
+    }
 
-    return file->write(buf, size, offset);
+    return bytes;
 }
 
 void close(File* file) {

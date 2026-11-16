@@ -9,6 +9,29 @@
 - Prepare edits and verification locally, then leave the changes uncommitted
   for the owner's review until explicitly instructed to commit or push.
 
+# Product architecture: complete CLI base and optional Desktop
+
+- Zonix must be a complete command-line operating system without Desktop
+  installed. The base system must boot into a usable user-space init and shell,
+  run programs, manage processes and files, and provide diagnostics and orderly
+  shutdown without GUI binaries, libraries, assets or services.
+- Desktop is optional user-space software. Display composition, window policy,
+  widgets, themes and graphical applications belong in user space. The kernel
+  provides generic display, input, IPC and resource-management interfaces;
+  neither the kernel nor CLI tools may depend on Desktop or a GUI engine.
+  A framebuffer-backed text console is compatible with this separation.
+- Base and Desktop images must use the same kernel; their difference is the
+  installed user-space software and startup configuration. Do not introduce a
+  Desktop-specific kernel implementation or require a graphical service to boot
+  or operate the CLI system.
+- Desktop must be startable from the CLI. Normal exit or failure must release
+  its resources and restore usable console display and input. A graphical
+  application failure must not take down the kernel or unrelated applications.
+- Changes to graphical support must preserve the three operating modes:
+  Desktop absent, Desktop running, and CLI use after Desktop exits. Roadmap
+  acceptance criteria do not authorize running regression tests; the explicit
+  owner-authorization rule below still applies.
+
 # Mandatory kernel rules
 
 These rules apply to every change, including bug fixes and test code. Follow the
@@ -28,7 +51,7 @@ existing subsystem design rather than adding a second implementation style.
   CRT; `kernel/cxxrt.cpp` supplies allocating new/delete and byte operations.
   Placement definitions and allocation tag types come from zstl. Do not define
   `ZSTL_RUNTIME_DECLARATIONS_PROVIDED` unless a platform header has actually
-  supplied all required declarations. Future mini-cocos kernel builds must use
+  supplied all required declarations. Future freestanding mini-cocos builds must use
   `ZOCOS_FREESTANDING=ON`, `ZOCOS_USE_CRT=OFF` and this same zstl dependency.
 - Follow `docs/ERROR_HANDLING.md` for owning, borrowing and transferring resources.
   Use move-only owners for exclusive resources; retain explicit checked operations

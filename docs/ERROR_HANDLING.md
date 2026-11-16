@@ -108,7 +108,7 @@ semantics, including access during a temporary's full expression; do not retain 
 pointers after the expression. `KernelBuffer::data()` rejects temporary borrowing.
 `release()` is `[[nodiscard]]`: immediately attach its returned pointer
 to the receiving owner. Prefer moving the owner when the receiving API supports
-it. `vfs::open(path)`, `FileSystem::open(relpath)` and `CharDevFactory` return
+it. `vfs::open(path, flags)`, `FileSystem::open(relpath, flags)` and `CharDevFactory` return
 `Result<FileHandle>`: success transfers a new, nonempty file owner, while error
 results carry no file. Backend/device factories retain local owners for partial
 resources, so errors and `TRY` clean them before returning. The legacy
@@ -123,6 +123,11 @@ completion. A successful open transfers it to the returned file; the base file
 destructor releases it after the derived destructor finishes. Unmount returns
 `Busy` while any operation or file holds a reference. These counts follow the
 kernel's current single-CPU interrupt-guard synchronization model.
+
+`FileSystem::unmount()` returns `Error`. VFS reserves and temporarily detaches the
+mount during this operation. A failure republishes the same filesystem and mount
+metadata without destroying its dirty cache or pending cleanup state; the caller
+can retry. Success destroys the filesystem before releasing the reservation.
 
 The operation's mount reference remains alive throughout backend execution,
 including destruction of partial file owners on failure. VFS preserves the
@@ -200,6 +205,54 @@ Success moves the file into the descriptor entry; failure closes it. Entry looku
 borrows from the table. Closing, resetting or destroying the table invalidates
 those borrows. Tables cannot be copied or moved; `ForkPolicy::Share` remains
 `NotSupported` until shared open-file ownership is actually implemented.
+
+### File open and FAT I/O
+
+`include/abi/fcntl.h` defines the common open flags. The default VFS open is
+`O_RDONLY`; `O_WRONLY` and `O_RDWR` select the other access modes. VFS rejects
+unknown bits, the invalid access mode, `O_EXCL` without `O_CREAT`, and read-only
+opens with `O_TRUNC` or `O_APPEND`. The syscall's `mode` is reserved and must be
+zero: this single-user FAT implementation does not implement POSIX mode bits.
+The existing syscall ABI still returns `-1` on error; internal callers retain
+specific `Error` values, including `Access` for denied reads/writes.
+
+`O_CREAT` creates a missing file or opens an existing one; `O_CREAT | O_EXCL`
+requires absence. `O_TRUNC` truncates to zero, releasing the old chain after
+detaching it from the directory entry. `O_APPEND` selects EOF and writes under
+the same filesystem mutex. One append syscall stages its entire input before
+calling the backend, so its page-sized transfer loop cannot interleave appends.
+This staging can return `NoMem`; single append requests are limited to INT_MAX
+bytes by the file I/O result type. Character devices support access modes and
+opening existing names, but reject truncate and append as `NotSupported`.
+
+Each FD entry owns a file handle and its current offset; separately opened FDs
+have separate offsets. Append updates that offset to the actual end of the
+confirmed write. A FAT file handle stores a stable directory-sector/slot identity,
+not a private metadata snapshot. The filesystem owns serialization, its FAT
+cache and a non-owning registry of live handles. Reads, writes and stat reload
+the directory entry under that lock. Unlink of an open file returns `Busy`;
+delayed deletion and shared open-file descriptions are not implemented.
+
+FAT creates only validated 8.3 names and rejects file mutation paths ending in
+`/`, `.` or `..`. Writes can grow across clusters and zero-fill gaps beyond EOF;
+reads at or beyond EOF return zero. Partial writes return the confirmed byte
+count when later allocation, data or metadata I/O fails, otherwise the original
+error. Zero-length I/O still checks FD validity and access rights.
+
+New clusters are initialized before linking. Failed link updates restore the old
+tail before freeing a possible target; an uncertain published target is retained.
+Truncate/unlink detach before freeing; failed detached-chain cleanup retains its
+cursor and next link in `FatInfo` and is retried before subsequent mutations or
+unmount. Failed mirrored FAT writes stay dirty across cache switches, including
+reads. An I/O failure can leave partial changes and uncertain allocations; it
+does not promise rollback or power-loss consistency. Device cache flushing and
+system-wide orderly shutdown remain separate work in TODO P0-2.
+
+Directory update and write-transfer scratch sectors use `KernelBuffer`, as does
+staging a FAT cache miss before replacing the live cache. Cluster initialization
+reuses an immutable zero sector. These buffers must not accumulate on nested
+call frames: normal file syscalls and error rollback must fit the 4KB kernel
+stack on every architecture. Scratch allocation failure propagates `NoMem`.
 
 Use fallible factories plus `TRY` so a successful result contains a ready resource,
 and early returns clean up existing owners. Keep special resource protocols in

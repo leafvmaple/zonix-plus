@@ -22,6 +22,13 @@ inline constexpr uint32_t FAT32_CLUSTER_MASK = 0x0FFFFFFF;  // Mask for FAT32 en
 
 class FatInfo {
 public:
+    // Stable directory slot identity; open files borrow it while unlink is blocked.
+    struct EntryLocation {
+        uint32_t sector{};
+        uint32_t index{};
+        bool operator==(const EntryLocation&) const = default;
+    };
+
     class DirVisitor {
     public:
         virtual ~DirVisitor() = default;
@@ -29,16 +36,19 @@ public:
     };
 
     Error mount(BlockDevice* dev);
-    void unmount();
+    Error unmount();
 
     void print() const;
 
     Result<int> read_dir(const char* relpath, DirVisitor& visitor);
 
     Result<int> read_file(FatDirEntry* entry, uint8_t* buf, uint32_t offset, uint32_t size);
-    Result<int> write_file(FatDirEntry* entry, const uint8_t* buf, uint32_t offset, uint32_t size);
+    Result<int> write_file(const EntryLocation& location, const uint8_t* buf, uint32_t offset, uint32_t size,
+                           bool append = false, size_t* end_offset = nullptr);
+    Error truncate_file(const EntryLocation& location);
+    Error read_file_entry(const EntryLocation& location, FatDirEntry* entry);
 
-    Error find_file(const char* filename, FatDirEntry* result);
+    Error find_file(const char* filename, FatDirEntry* result, EntryLocation* location = nullptr);
 
     Error mkdir(const char* relpath);
     Error create_file(const char* relpath);
@@ -67,20 +77,25 @@ private:
 
     Result<uint32_t> read_entry(uint32_t cluster);
     Error write_entry(uint32_t cluster, uint32_t value);
+    Error load_fat_sector(uint32_t sector);
+    Error flush_fat_buffer();
 
     Result<uint32_t> alloc_cluster();
     Error free_chain(uint32_t start_cluster);
+    Error free_detached_chain();
     void rollback_new_chain(uint32_t start_cluster);
 
-    Error find_entry(uint32_t start_cluster, const char* name, FatDirEntry* out);
+    Error find_entry(uint32_t start_cluster, const char* name, FatDirEntry* out, EntryLocation* location = nullptr);
+    Error write_file_entry(const EntryLocation& location, const FatDirEntry& entry);
+    Error validate_file_chain(const FatDirEntry& entry);
+    Result<uint32_t> extend_file_chain(uint32_t tail);
     Error resolve_parent(const char* relpath, uint32_t* parent_cluster, char* child_name, size_t name_size);
     // On failure, report whether a partial write may have published the entry.
     Error add_dir_entry(uint32_t dir_cluster, const FatDirEntry* entry, bool* entry_may_exist = nullptr);
     Error remove_dir_entry(uint32_t dir_cluster, const char* name);
-    void make_83_name(const char* name, char out_name[8], char out_ext[3]);
+    Error make_83_name(const char* name, char out_name[8], char out_ext[3]);
 
     void do_init_state(BlockDevice* dev, uint32_t partition_start, const Fat32BootSector& bs);
-    Result<int> do_file_io(FatDirEntry* entry, uint8_t* io_buf, uint32_t offset, uint32_t size, bool writeback);
 
     [[nodiscard]] uint32_t cluster_to_sector(uint32_t cluster) const;
 
@@ -105,4 +120,7 @@ private:
     uint8_t buffer_[512]{};     // Sector buffer
     uint32_t buffer_sector_{};  // Buffered sector number
     bool buffer_dirty_{};       // Buffer modified flag
+    // Detached file storage remains owned here until checked cleanup succeeds.
+    uint32_t pending_free_cluster_{};
+    uint32_t pending_free_next_{};
 };

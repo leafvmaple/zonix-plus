@@ -118,8 +118,11 @@ public:
         VfsFixture::active().check_transition(mount_point_);
         return VfsFixture::active().mount_fails ? Error::Io : Error::None;
     }
-    void unmount() override { VfsFixture::active().check_transition(mount_point_); }
-    Result<vfs::FileHandle> open(const char* path) override {
+    Error unmount() override {
+        VfsFixture::active().check_transition(mount_point_);
+        return Error::None;
+    }
+    Result<vfs::FileHandle> open(const char* path, int) override {
         VfsFixture::active().check_path(mount_point_, path);
         if (strcmp(path, "empty") == 0)
             return vfs::FileHandle{};

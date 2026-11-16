@@ -2,113 +2,14 @@
 #include "fs/fat.h"
 #include "lib/memory.h"
 #include "drivers/intr.h"
+#include "test/unit/fs/fat_image.h"
 
 static int tests_passed = 0;
 static int tests_failed = 0;
 
 namespace {
 
-class FatImage : public BlockDevice {
-public:
-    explicit FatImage(uint8_t cluster_sectors = 16) : cluster_sectors_(cluster_sectors) {
-        block_count = 2 + 4 * cluster_sectors;
-        data_ = static_cast<uint8_t*>(kmalloc(block_count * BLOCK_SIZE_BYTES));
-        if (!data_) {
-            return;
-        }
-        memset(data_, 0, block_count * BLOCK_SIZE_BYTES);
-        auto& bs = boot_sector();
-        bs.boot_signature_word = BOOT_SIGNATURE;
-        bs.boot_signature = BPB_BOOT_SIGNATURE;
-        bs.bytes_per_sector = BLOCK_SIZE_BYTES;
-        bs.sectors_per_cluster = cluster_sectors;
-        bs.reserved_sectors = 1;
-        bs.num_fats = 1;
-        bs.total_sectors_32 = block_count;
-        bs.fat_size_32 = 1;
-        bs.root_cluster = 2;
-        set_link(2, fat::FAT32_EOC_MAX);
-        set_link(3, fat::FAT32_EOC_MAX);
-        set_link(4, fat::FAT32_EOC_MAX);
-        set_link(5, fat::FAT32_EOC_MAX);
-        auto* file = reinterpret_cast<FatDirEntry*>(cluster_data(2));
-        memcpy(file->name, "FILE    ", 8);
-        memcpy(file->ext, "TXT", 3);
-        file->attr = FAT_ATTR_ARCHIVE;
-        file->first_cluster_low = 3;
-        file->file_size = cluster_bytes();
-        for (size_t i = 0; i < cluster_bytes(); ++i) {
-            cluster_data(3)[i] = static_cast<uint8_t>(i);
-        }
-    }
-    ~FatImage() { kfree(data_); }
-    FatImage(const FatImage&) = delete;
-    FatImage& operator=(const FatImage&) = delete;
-    bool ready() const { return data_ != nullptr; }
-    size_t cluster_bytes() const { return cluster_sectors_ * BLOCK_SIZE_BYTES; }
-    Fat32BootSector& boot_sector() { return *reinterpret_cast<Fat32BootSector*>(data_); }
-    uint8_t* cluster_data(uint32_t cluster) {
-        return data_ + (2 + (cluster - 2) * cluster_sectors_) * BLOCK_SIZE_BYTES;
-    }
-    void set_link(uint32_t cluster, uint32_t value) {
-        reinterpret_cast<uint32_t*>(data_ + BLOCK_SIZE_BYTES)[cluster] = value;
-    }
-    uint32_t link(uint32_t cluster) const { return reinterpret_cast<uint32_t*>(data_ + BLOCK_SIZE_BYTES)[cluster]; }
-    void fail_fat_reads(bool fail) { fail_fat_reads_ = fail; }
-    void fail_read_at(uint32_t block, Error error) {
-        read_block_ = block;
-        read_error_ = error;
-    }
-    void fail_write_at(uint32_t block, size_t matching_write, Error error, size_t slot = 0, bool partial = false) {
-        assert(slot < 2 && matching_write > 0);
-        write_failures_[slot] = {block, matching_write, error, partial};
-    }
-    Error read(uint32_t block, void* buffer, size_t count) override {
-        if (block > block_count || count > block_count - block) {
-            return Error::Io;
-        }
-        if (fail_fat_reads_ && block == 1) {
-            return Error::Io;
-        }
-        if (read_error_ != Error::None && block == read_block_) {
-            return read_error_;
-        }
-        memcpy(buffer, data_ + block * BLOCK_SIZE_BYTES, count * BLOCK_SIZE_BYTES);
-        return Error::None;
-    }
-    Error write(uint32_t block, const void* buffer, size_t count) override {
-        if (block > block_count || count > block_count - block) {
-            return Error::Io;
-        }
-        for (auto& failure : write_failures_) {
-            if (failure.error != Error::None && failure.block == block && --failure.remaining == 0) {
-                Error error = failure.error;
-                failure.error = Error::None;
-                if (failure.partial) {
-                    // Model a write which takes effect before reporting failure.
-                    memcpy(data_ + block * BLOCK_SIZE_BYTES, buffer, count * BLOCK_SIZE_BYTES);
-                }
-                return error;
-            }
-        }
-        memcpy(data_ + block * BLOCK_SIZE_BYTES, buffer, count * BLOCK_SIZE_BYTES);
-        return Error::None;
-    }
-
-private:
-    struct WriteFailure {
-        uint32_t block{};
-        size_t remaining{};
-        Error error{Error::None};
-        bool partial{};
-    };
-    WriteFailure write_failures_[2]{};
-    uint32_t read_block_{};
-    Error read_error_{Error::None};
-    uint8_t* data_{};
-    uint8_t cluster_sectors_{};
-    bool fail_fat_reads_{};
-};
+using fat_test::FatImage;
 
 class IgnoreEntries : public FatInfo::DirVisitor {
 public:
@@ -146,7 +47,7 @@ void test_geometry() {
     TEST_ASSERT(fs.mount(&image) == Error::BadFs, "Out-of-range root cluster rejected");
     bs.root_cluster = 2;
     TEST_ASSERT(fs.mount(&image) == Error::None, "Valid 8KB-cluster volume still mounts");
-    fs.unmount();
+    assert(fs.unmount() == Error::None);
     TEST_END();
 }
 
@@ -161,7 +62,8 @@ void test_large_cluster_io() {
     }
     TEST_ASSERT(fs.mount(&image) == Error::None, "Mounted large-cluster fixture");
     FatDirEntry file{};
-    TEST_ASSERT(fs.find_file("FILE.TXT", &file) == Error::None, "Found file");
+    FatInfo::EntryLocation location{};
+    TEST_ASSERT(fs.find_file("FILE.TXT", &file, &location) == Error::None, "Found file");
     auto* bytes = static_cast<uint8_t*>(kmalloc(image.cluster_bytes()));
     if (bytes) {
         auto result = fs.read_file(&file, bytes, 0, file.file_size);
@@ -171,7 +73,7 @@ void test_large_cluster_io() {
         }
         TEST_ASSERT(intact, "Full cluster read preserves every byte");
         memset(bytes, 0xA5, image.cluster_bytes());
-        auto written = fs.write_file(&file, bytes, 0, file.file_size);
+        auto written = fs.write_file(location, bytes, 0, file.file_size);
         TEST_ASSERT(written.ok() && written.value() == static_cast<int>(image.cluster_bytes()) &&
                         image.cluster_data(3)[image.cluster_bytes() - 1] == 0xA5,
                     "Full cluster write reaches its last byte");
@@ -181,7 +83,7 @@ void test_large_cluster_io() {
     } else {
         TEST_ASSERT(false, "Allocated I/O buffer");
     }
-    fs.unmount();
+    assert(fs.unmount() == Error::None);
     TEST_END();
 }
 
@@ -210,18 +112,18 @@ void test_directory_chains() {
     TEST_ASSERT(fs.rmdir("MISSING") == Error::BadFs, "rmdir detects cycle");
     const uint32_t invalid_links[] = {0, 1, 6, fat::FAT32_RESERVED_MIN, fat::FAT32_BAD_CLUSTER};
     for (uint32_t invalid : invalid_links) {
-        fs.unmount();
+        assert(fs.unmount() == Error::None);
         image.set_link(2, invalid);
         TEST_ASSERT(fs.mount(&image) == Error::None, "Remounted invalid-link fixture");
         listing = fs.read_dir("", visitor);
         TEST_ASSERT(!listing.ok() && listing.error() == Error::BadFs, "Free/reserved/bad/out-of-volume link rejected");
     }
-    fs.unmount();
+    assert(fs.unmount() == Error::None);
     image.fail_fat_reads(true);
     TEST_ASSERT(fs.mount(&image) == Error::None, "Mounted FAT I/O-error fixture");
     listing = fs.read_dir("", visitor);
     TEST_ASSERT(!listing.ok() && listing.error() == Error::Io, "FAT read failure remains an I/O error");
-    fs.unmount();
+    assert(fs.unmount() == Error::None);
     TEST_END();
 }
 
@@ -248,7 +150,7 @@ void test_cyclic_file_removal() {
         TEST_ASSERT(!result.ok() && result.error() == Error::BadFs, "File read detects repeated clusters");
         kfree(bytes);
     }
-    fs.unmount();
+    assert(fs.unmount() == Error::None);
     TEST_END();
 }
 
@@ -283,11 +185,11 @@ void test_device_errors() {
     TEST_ASSERT(!read.ok() && read.error() == Error::Timeout, "File read preserves timeout");
     image.fail_read_at(0, Error::None);
     image.fail_write_at(3, 1, Error::Busy);
-    auto written = fs.write_file(&file, &byte, 0, 1);
+    auto written = fs.write_file({2, 0}, &byte, 0, 1);
     TEST_ASSERT(!written.ok() && written.error() == Error::Busy, "File write preserves busy");
     memcpy(image.cluster_data(5), &file, sizeof(file));
     TEST_ASSERT(fs.rmdir("SUB") == Error::NotEmpty, "Nonempty directory is an ordinary refusal");
-    fs.unmount();
+    assert(fs.unmount() == Error::None);
     TEST_END();
 }
 
@@ -329,7 +231,7 @@ void test_mkdir_rollback() {
             TEST_ASSERT(fs.find_file("NEW", &entry) == Error::None && entry.cluster() == 4,
                         "Partially published directory still references an allocated cluster");
         }
-        fs.unmount();
+        assert(fs.unmount() == Error::None);
     }
     TEST_END();
 }
@@ -374,7 +276,7 @@ void test_directory_extension_rollback() {
             TEST_ASSERT(image.link(4) == fat::FAT32_EOC_MAX && image.link(5) == fat::FAT32_EOC_MAX,
                         "Failed tail restoration retains both extension and referenced child");
         }
-        fs.unmount();
+        assert(fs.unmount() == Error::None);
     }
     TEST_END();
 }

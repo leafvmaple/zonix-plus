@@ -10,7 +10,7 @@ Error setup_stdio(fd::Table& files) {
     const char* console_path = "/dev/console";
 
     for (int expected_fd = 0; expected_fd < 3; expected_fd++) {
-        auto file = TRY(vfs::open(console_path));
+        auto file = TRY(vfs::open(console_path, expected_fd == 0 ? O_RDONLY : O_WRONLY));
         const int fd = TRY(files.alloc(sys::move(file)));
         ENSURE(fd == expected_fd, Error::Invalid);
     }

@@ -32,8 +32,8 @@ public:
 class LifetimeFs : public vfs::FileSystem {
 public:
     Error mount(BlockDevice*) override { return Error::None; }
-    void unmount() override {}
-    Result<vfs::FileHandle> open(const char* path) override {
+    Error unmount() override { return Error::None; }
+    Result<vfs::FileHandle> open(const char* path, int) override {
         if (strcmp(path, "empty") == 0) {
             return vfs::FileHandle{};
         }
@@ -136,7 +136,7 @@ Error open_first_existing_file(vfs::File** out, const char** chosen_path) {
 
     for (const char* path : candidates) {
         vfs::File* file = nullptr;
-        if (vfs::open(path, &file) == Error::None && file) {
+        if (vfs::open(path, &file, O_RDWR) == Error::None && file) {
             *out = file;
             *chosen_path = path;
             return Error::None;
