@@ -60,13 +60,13 @@ Error verify_data() {
 namespace storage_sync_test {
 
 // Only TEST=1 kernels inspect this marker, installed on temporary images by the runner.
-void run_power_e2e() {
+bool run_power_e2e() {
     auto opened = vfs::open("/P02.RUN", O_RDONLY);
     if (!opened.ok() && opened.error() == Error::NotFound)
-        return;
+        return false;
     if (!opened.ok()) {
         cprintf("[FAIL] P0-2 E2E mode open: %s\n", error_str(opened.error()));
-        return;
+        return true;
     }
     auto file = opened.release_value();
     char mode[24]{};
@@ -74,7 +74,7 @@ void run_power_e2e() {
     file.reset();
     if (!count.ok()) {
         cprintf("[FAIL] P0-2 E2E mode read: %s\n", error_str(count.error()));
-        return;
+        return true;
     }
     const bool unsupported = strcmp(mode, "unsupported") == 0;
     Error error = strcmp(mode, "write") == 0 || unsupported ? prepare_data()
@@ -82,7 +82,7 @@ void run_power_e2e() {
                                                             : Error::Invalid;
     if (error != Error::None) {
         cprintf("[FAIL] P0-2 E2E data: %s\n", error_str(error));
-        return;
+        return true;
     }
     cprintf("P0_2_POWER_OFF_REQUEST\n");
     error = power::shutdown();
@@ -93,11 +93,12 @@ void run_power_e2e() {
             auto written = vfs::write(owner.get(), "recovered", 9, 0);
             if (written.ok() && written.value() == 9 && vfs::sync() == Error::None) {
                 cprintf("P0_2_SHUTDOWN_RECOVERED\n");
-                return;
+                return true;
             }
         }
     }
     cprintf("[FAIL] P0-2 E2E shutdown unexpectedly returned: %s\n", error_str(error));
+    return true;
 }
 
 }  // namespace storage_sync_test

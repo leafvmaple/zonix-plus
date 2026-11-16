@@ -167,7 +167,7 @@ fi
 if [ "$fail_count" -gt 0 ]; then
     echo ""
     echo "FAILURE: $fail_count test assertion(s) failed."
-    grep '\[FAIL\]' "$serial_log" 2>/dev/null | head -20
+    grep -B3 -A2 '\[FAIL\]' "$serial_log" 2>/dev/null | head -80
     exit 1
 fi
 

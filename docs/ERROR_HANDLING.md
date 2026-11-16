@@ -293,8 +293,10 @@ successful platform call does not return; unsupported power control returns to
 the shell. A failed device may still require explicit reset; reopening admission
 does not bypass its offline/quarantined state or discard pending FAT metadata.
 
-Directory update and write-transfer scratch sectors use `KernelBuffer`, as does
-staging a FAT cache miss before replacing the live cache. Cluster initialization
+Directory update scratch sectors use `KernelBuffer`, as does staging a FAT cache
+miss before replacing the live cache. Each write owns a heap-allocated `WriteState`
+containing its cursor, progress and sector scratch, so nested allocation, rollback
+and device polling leave room for interrupt entry on the 4KB kernel stack. Cluster initialization
 reuses an immutable zero sector. These buffers must not accumulate on nested
 call frames: normal file syscalls and error rollback must fit the 4KB kernel
 stack on every architecture. Scratch allocation failure propagates `NoMem`.

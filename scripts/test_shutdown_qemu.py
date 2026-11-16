@@ -82,6 +82,8 @@ def boot(command, directory, log, expected, recovery=False):
             if process.poll() is not None:
                 break
         else:
+            if log.exists():
+                print("\n".join(log.read_text(errors="replace").splitlines()[-80:]), flush=True)
             raise RuntimeError(f"Guest timed out; see {log}")
         process.wait(timeout=10)
         output = log.read_text(errors="replace")
@@ -98,7 +100,7 @@ def boot(command, directory, log, expected, recovery=False):
         elif not shutdown:
             raise RuntimeError("QMP did not observe a guest shutdown event")
         log.with_suffix(".qmp.json").write_text(json.dumps(events, indent=2) + "\n")
-        print(f"PASS {log.name}: {output.count('[OK]')} assertions, "
+        print(f"PASS {log.name}: "
               f"{'shell storage recovered' if recovery else 'guest shutdown confirmed'}", flush=True)
     finally:
         client.close()

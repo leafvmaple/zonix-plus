@@ -273,83 +273,84 @@ Result<int> FatInfo::write_file(const EntryLocation& location, const uint8_t* bu
     }
     TRY(validate_file_chain(entry));
 
-    uint32_t done{};
+    sys::unique_ptr<WriteState> state(new (sys::nothrow) WriteState());
+    ENSURE(state, Error::NoMem);
+    state->location = location;
+    state->entry = entry;
+    state->bytes = buf;
+    state->offset = offset;
+    state->end = offset + size;
     // Keep confirmed progress when a later sector, allocation or metadata write fails.
-    Error error = transfer_file(location, entry, buf, offset, size, done);
-    if (error != Error::None && done == 0) {
+    Error error = transfer_file(*state);
+    if (error != Error::None && state->done == 0) {
         return error;
     }
     if (end_offset) {
-        *end_offset = static_cast<size_t>(offset) + done;
+        *end_offset = static_cast<size_t>(offset) + state->done;
     }
-    return static_cast<int>(done);
+    return static_cast<int>(state->done);
 }
 
-Error FatInfo::transfer_file(const EntryLocation& location, FatDirEntry& entry, const uint8_t* buf, uint32_t offset,
-                             uint32_t size, uint32_t& done) {
-    uint32_t position = sys::min(offset, entry.file_size);
-    const uint32_t end = offset + size;
-    uint32_t cluster = entry.cluster();
-    uint32_t tail{};
-    uint32_t skip = position / bytes_per_cluster_;
+Error FatInfo::transfer_file(WriteState& state) {
+    state.position = sys::min(state.offset, state.entry.file_size);
+    state.cluster = state.entry.cluster();
+    uint32_t skip = state.position / bytes_per_cluster_;
     while (skip != 0) {
-        ENSURE(valid_cluster(cluster), Error::BadFs);
-        tail = cluster;
-        cluster = TRY(read_entry(cluster));
+        ENSURE(valid_cluster(state.cluster), Error::BadFs);
+        state.tail = state.cluster;
+        state.cluster = TRY(read_entry(state.cluster));
         --skip;
     }
-    uint32_t cluster_offset = position % bytes_per_cluster_;
-    auto storage = TRY(KernelBuffer::alloc(BlockDevice::BLOCK_SIZE_BYTES));
-    uint8_t* sector = storage.data();
-
-    while (position < end) {
-        if (!valid_cluster(cluster)) {
+    state.cluster_offset = state.position % bytes_per_cluster_;
+    while (state.position < state.end) {
+        if (!valid_cluster(state.cluster)) {
             uint32_t old_link = fat::FAT32_EOC_MAX;
-            if (tail != 0) {
-                old_link = TRY(read_entry(tail));
+            if (state.tail != 0) {
+                old_link = TRY(read_entry(state.tail));
                 ENSURE(old_link >= fat::FAT32_EOC_MIN, Error::BadFs);
             }
-            cluster = TRY(alloc_cluster());
-            TRY(link_file_cluster(tail, old_link, cluster));
-            if (tail == 0) {
-                entry.first_cluster_high = static_cast<uint16_t>(cluster >> 16);
-                entry.first_cluster_low = static_cast<uint16_t>(cluster);
+            state.cluster = TRY(alloc_cluster());
+            TRY(link_file_cluster(state.tail, old_link, state.cluster));
+            if (state.tail == 0) {
+                state.entry.first_cluster_high = static_cast<uint16_t>(state.cluster >> 16);
+                state.entry.first_cluster_low = static_cast<uint16_t>(state.cluster);
                 // A failed directory write may already have published this cluster.
-                TRY(write_file_entry(location, entry));
+                TRY(write_file_entry(state.location, state.entry));
             }
         }
-        uint32_t sector_offset = cluster_offset % bytes_per_sector_;
-        uint32_t count = sys::min(bytes_per_sector_ - sector_offset, end - position);
-        const bool gap = position < offset;
+        uint32_t sector_offset = state.cluster_offset % bytes_per_sector_;
+        uint32_t count = sys::min(bytes_per_sector_ - sector_offset, state.end - state.position);
+        const bool gap = state.position < state.offset;
         if (gap) {
-            count = sys::min(count, offset - position);
+            count = sys::min(count, state.offset - state.position);
         }
-        uint32_t lba = partition_start_lba_ + cluster_to_sector(cluster) + cluster_offset / bytes_per_sector_;
+        uint32_t lba =
+            partition_start_lba_ + cluster_to_sector(state.cluster) + state.cluster_offset / bytes_per_sector_;
         if (sector_offset != 0 || count != bytes_per_sector_) {
-            TRY(dev_->read(lba, sector, 1));
+            TRY(dev_->read(lba, state.sector.data(), 1));
         }
         if (gap) {
-            memset(sector + sector_offset, 0, count);
+            memset(state.sector.data() + sector_offset, 0, count);
         } else {
-            memcpy(sector + sector_offset, buf + done, count);
+            memcpy(state.sector.data() + sector_offset, state.bytes + state.done, count);
         }
-        TRY(write_sectors(lba, sector, 1));
-        FatDirEntry updated = entry;
-        updated.file_size = sys::max(entry.file_size, position + count);
+        TRY(write_sectors(lba, state.sector.data(), 1));
+        FatDirEntry updated = state.entry;
+        updated.file_size = sys::max(state.entry.file_size, state.position + count);
         updated.attr |= FAT_ATTR_ARCHIVE;
-        if (updated.file_size != entry.file_size || updated.attr != entry.attr) {
-            TRY(write_file_entry(location, updated));
-            entry = updated;
+        if (updated.file_size != state.entry.file_size || updated.attr != state.entry.attr) {
+            TRY(write_file_entry(state.location, updated));
+            state.entry = updated;
         }
-        position += count;
-        cluster_offset += count;
+        state.position += count;
+        state.cluster_offset += count;
         if (!gap) {
-            done += count;
+            state.done += count;
         }
-        if (position < end && cluster_offset == bytes_per_cluster_) {
-            tail = cluster;
-            cluster = TRY(read_entry(cluster));
-            cluster_offset = 0;
+        if (state.position < state.end && state.cluster_offset == bytes_per_cluster_) {
+            state.tail = state.cluster;
+            state.cluster = TRY(read_entry(state.cluster));
+            state.cluster_offset = 0;
         }
     }
     return Error::None;

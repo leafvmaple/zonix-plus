@@ -1,5 +1,7 @@
 #pragma once
 
+#include <sys/array.hpp>
+
 #include <base/types.h>
 #include <base/bpb.h>
 #include "block/blk.h"
@@ -90,8 +92,21 @@ private:
 
     Error find_entry(uint32_t start_cluster, const char* name, FatDirEntry* out, EntryLocation* location = nullptr);
     Error write_file_entry(const EntryLocation& location, const FatDirEntry& entry);
-    Error transfer_file(const EntryLocation& location, FatDirEntry& entry, const uint8_t* buf, uint32_t offset,
-                        uint32_t size, uint32_t& done);
+    // One write owns its cursor and sector scratch off the 4KB kernel stack.
+    struct WriteState {
+        EntryLocation location{};
+        FatDirEntry entry{};
+        const uint8_t* bytes{};
+        uint32_t offset{};
+        uint32_t end{};
+        uint32_t position{};
+        uint32_t cluster{};
+        uint32_t tail{};
+        uint32_t cluster_offset{};
+        uint32_t done{};
+        sys::array<uint8_t, BlockDevice::BLOCK_SIZE_BYTES> sector{};
+    };
+    Error transfer_file(WriteState& state);
     Error validate_file_chain(const FatDirEntry& entry);
     Error link_file_cluster(uint32_t tail, uint32_t old_link, uint32_t cluster);
     Error resolve_parent(const char* relpath, uint32_t* parent_cluster, char* child_name, size_t name_size);

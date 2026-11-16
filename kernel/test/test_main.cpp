@@ -52,7 +52,7 @@ void test();
 
 namespace storage_sync_test {
 void test();
-void run_power_e2e();
+bool run_power_e2e();
 }  // namespace storage_sync_test
 
 namespace fs_test {
@@ -112,12 +112,13 @@ int test_run_all(void*) {
 
     int suite_count = sizeof(SUITES) / sizeof(SUITES[0]);
 
-    for (int i = 0; i < suite_count; i++) {
-        cprintf("\n>>> [%d/%d] Running: %s\n", i + 1, suite_count, SUITES[i].name);
-        SUITES[i].run();
+    // Dedicated reboot fixtures do not repeat the independent unit suites.
+    if (!storage_sync_test::run_power_e2e()) {
+        for (int i = 0; i < suite_count; i++) {
+            cprintf("\n>>> [%d/%d] Running: %s\n", i + 1, suite_count, SUITES[i].name);
+            SUITES[i].run();
+        }
     }
-
-    storage_sync_test::run_power_e2e();
 
     cprintf("\n########################################\n");
     cprintf("#     CI_TEST_COMPLETE                 #\n");
