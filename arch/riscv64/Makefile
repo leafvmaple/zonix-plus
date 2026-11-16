@@ -15,9 +15,9 @@
 BOARD ?= qemu_virt
 BOARD_DEFINE := -DBOARD_$(shell echo $(BOARD) | tr a-z A-Z)
 
-CC      := clang --target=riscv64-none-elf
-CXX     := clang++ --target=riscv64-none-elf
-LD      := ld.lld
+CC      := $(LLVM_BIN)clang --target=riscv64-none-elf
+CXX     := $(LLVM_BIN)clang++ --target=riscv64-none-elf
+LD      := $(LLD_BIN)ld.lld
 CFLAGS  := -g -Wall -O0 -nostdinc -fno-builtin -fno-stack-protector \
            -fno-pic -ffreestanding -gdwarf-2 -march=rv64gc -mabi=lp64d \
            -mcmodel=medany $(BOARD_DEFINE)
@@ -85,7 +85,7 @@ KERNEL_LD_SCRIPT  := $(SCRIPTDIR)/kernel-riscv64.ld
 ALL_PREREQS := $(BINDIR)/kernel $(BINDIR)/BOOTRISCV64.EFI $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img
 
 # ---------- UEFI disk image ----------
-$(BINDIR)/zonix-uefi.img: $(BINDIR)/BOOTRISCV64.EFI $(BINDIR)/kernel | $$(dir $$@)
+$(BINDIR)/zonix-uefi.img: $(BINDIR)/BOOTRISCV64.EFI $(BINDIR)/kernel $(SCRIPTDIR)/create_uefi_image.sh | $$(dir $$@)
 	@echo "  IMG     $@"
 	$(Q)BINDIR=$(BINDIR) ARCH=riscv64 bash $(SCRIPTDIR)/create_uefi_image.sh
 
@@ -95,28 +95,28 @@ $(BINDIR)/sdcard.img: $(BINDIR)/zonix-uefi.img
 	$(Q)cp $< $@
 
 # ---------- QEMU run / debug targets ----------
-AAVMF ?= /usr/share/qemu-efi-riscv64/RISCV_VIRT_CODE.fd
-
 .PHONY: qemu debug
 
 # Boot via EDK2 UEFI firmware (qemu-efi-riscv64 package).
 # Flow: RISCV_VIRT_CODE.fd → BOOTRISCV64.EFI → kernel ELF
-AAVMF ?= /usr/share/qemu-efi-riscv64/RISCV_VIRT_CODE.fd
-AAVMF_VARS ?= /usr/share/qemu-efi-riscv64/RISCV_VIRT_VARS.fd
+AAVMF ?= $(shell bash $(SCRIPTDIR)/qemu_firmware.sh riscv64)
+AAVMF_VARS ?= $(shell bash $(SCRIPTDIR)/qemu_firmware.sh riscv64-vars)
 
-qemu: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img
-	@cp -n $(AAVMF_VARS) $(BINDIR)/riscv_vars.fd 2>/dev/null || true
+$(BINDIR)/riscv_vars.fd: | $$(dir $$@)
+	cp $(AAVMF_VARS) $@
+
+qemu: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img $(BINDIR)/riscv_vars.fd
 	$(QEMU) -cpu rv64 \
 		-drive if=pflash,format=raw,unit=0,file=$(AAVMF),readonly=on \
 		-drive if=pflash,format=raw,unit=1,file=$(BINDIR)/riscv_vars.fd \
 		-readconfig qemu-uefi-riscv64.cfg \
-		-serial stdio -no-reboot
+		-serial stdio $(QEMU_FLAGS) -no-reboot
 
-debug: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img
+debug: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img $(BINDIR)/riscv_vars.fd
 	$(QEMU) -cpu rv64 \
 		-drive if=pflash,format=raw,unit=0,file=$(AAVMF),readonly=on \
 		-drive if=pflash,format=raw,unit=1,file=$(BINDIR)/riscv_vars.fd \
 		-readconfig qemu-uefi-riscv64.cfg \
-		-serial stdio -S -s -no-reboot &
+		-serial stdio $(QEMU_FLAGS) -S -s -no-reboot &
 	sleep 2
 	gdb -q -x $(SCRIPTDIR)/gdbinit

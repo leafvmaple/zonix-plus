@@ -19,13 +19,22 @@ set -euo pipefail
 
 mode="${1:-bios}"
 BINDIR="${BINDIR:-bin/x86}"
-OVMF="${OVMF:-/usr/share/ovmf/OVMF.fd}"
+OVMF="${OVMF:-$(bash "$(dirname "$0")/qemu_firmware.sh" x86)}"
 TIMEOUT="${TIMEOUT:-120}"
-serial_log="$(mktemp /tmp/zonix-ci-XXXXXX.log)"
 qemu="qemu-system-x86_64"
+timeout_cmd=$(command -v timeout || command -v gtimeout || true)
+if [ -z "$timeout_cmd" ]; then
+    echo "ERROR: timeout not found; install coreutils (brew install coreutils on macOS)" >&2
+    exit 1
+fi
+serial_log="$(mktemp /tmp/zonix-ci-XXXXXX)"
+firmware_copy=""
 
 cleanup() {
     rm -f "$serial_log"
+    if [ -n "$firmware_copy" ]; then
+        rm -f "$firmware_copy"
+    fi
 }
 trap cleanup EXIT
 
@@ -55,9 +64,12 @@ if [ "$mode" = "uefi" ]; then
         exit 1
     fi
 
+    firmware_copy=$(mktemp /tmp/zonix-x86-firmware-XXXXXX)
+    bash "$(dirname "$0")/qemu_firmware.sh" x86-bios "$OVMF" "$firmware_copy"
+
     QEMU_CMD=(
         "$qemu"
-        -bios "$OVMF"
+        -bios "$firmware_copy"
         -m 256M
         -device ahci,id=ahci0
         -drive "file=${BINDIR}/zonix-uefi.img,format=raw,if=none,id=sys"
@@ -104,7 +116,7 @@ echo "  ${QEMU_CMD[*]}"
 echo ""
 
 set +e
-timeout "$TIMEOUT" "${QEMU_CMD[@]}"
+"$timeout_cmd" "$TIMEOUT" "${QEMU_CMD[@]}"
 qemu_exit_code=$?
 set -e
 

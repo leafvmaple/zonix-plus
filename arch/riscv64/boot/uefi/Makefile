@@ -12,7 +12,7 @@ BOOT_UEFI_DIR := arch/$(ARCH)/boot/uefi
 BOOT_INC      := -I include -I arch/$(ARCH)/include
 
 # Use the bare-metal ELF toolchain (same as the kernel).
-UEFI_CXX      := clang++ --target=riscv64-none-elf
+UEFI_CXX      := $(LLVM_BIN)clang++ --target=riscv64-none-elf
 UEFI_CXXFLAGS := $(BOOT_INC) -ffreestanding -fshort-wchar -nostdinc \
                   -fno-stack-protector -fno-exceptions -fno-rtti \
                   -fno-use-cxa-atexit -fno-threadsafe-statics \
@@ -20,7 +20,7 @@ UEFI_CXXFLAGS := $(BOOT_INC) -ffreestanding -fshort-wchar -nostdinc \
                   -mcmodel=medany -fpic -fno-plt $(BOARD_DEFINE)
 
 # Link as a relocatable shared object at VA 0.
-UEFI_LD       := ld.lld
+UEFI_LD       := $(LLD_BIN)ld.lld
 UEFI_LD_SCRIPT := scripts/uefi-riscv64.ld
 UEFI_LDFLAGS  := -m elf64lriscv -nostdlib -shared -Bsymbolic \
                   -T $(UEFI_LD_SCRIPT)

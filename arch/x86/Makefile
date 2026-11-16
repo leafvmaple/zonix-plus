@@ -4,9 +4,9 @@
 # Included from the top-level Makefile.
 # ==========================================================================
 
-CC      := clang
-CXX     := clang++
-LD      := ld.lld
+CC      := $(LLVM_BIN)clang --target=x86_64-none-elf
+CXX     := $(LLVM_BIN)clang++ --target=x86_64-none-elf
+LD      := $(LLD_BIN)ld.lld
 CFLAGS  := -g -fno-builtin -Wall -ggdb -O0 -m64 -mno-red-zone -mcmodel=kernel \
            -mno-sse -mno-sse2 -mno-mmx -msoft-float -nostdinc \
            -fno-stack-protector -fno-pic -gdwarf-2
@@ -73,7 +73,11 @@ ALL_PREREQS := $(BINDIR)/mbr $(BINDIR)/vbr $(BINDIR)/bootloader $(BINDIR)/BOOTX6
 
 # ---------- QEMU run / debug targets ----------
 DISK ?= ahci
-OVMF ?= /usr/share/ovmf/OVMF.fd
+OVMF ?= $(shell bash $(SCRIPTDIR)/qemu_firmware.sh x86)
+QEMU_BIOS := $(BINDIR)/qemu-uefi.fd
+
+$(QEMU_BIOS): FORCE $(OVMF) $(SCRIPTDIR)/qemu_firmware.sh | $$(dir $$@)
+	bash $(SCRIPTDIR)/qemu_firmware.sh x86-bios "$(OVMF)" "$@"
 
 ifeq ($(DISK),ahci)
   QEMU_DATA := -drive file=$(BINDIR)/userdata.img,format=raw,if=none,id=data0 \
@@ -86,19 +90,19 @@ endif
 
 .PHONY: qemu qemu-bios debug debug-bios disasm
 
-qemu: $(BINDIR)/zonix-uefi.img $(BINDIR)/userdata.img
-	$(QEMU) -bios $(OVMF) -readconfig qemu-uefi.cfg $(QEMU_DATA) -no-reboot
+qemu: $(BINDIR)/zonix-uefi.img $(BINDIR)/userdata.img $(QEMU_BIOS)
+	$(QEMU) -bios $(QEMU_BIOS) -readconfig qemu-uefi.cfg $(QEMU_DATA) $(QEMU_FLAGS) -no-reboot
 
 qemu-bios: $(BINDIR)/zonix.img $(BINDIR)/userdata.img
-	$(QEMU) -readconfig qemu-bios.cfg $(QEMU_DATA) -no-reboot
+	$(QEMU) -readconfig qemu-bios.cfg $(QEMU_DATA) $(QEMU_FLAGS) -no-reboot
 
-debug: $(BINDIR)/zonix-uefi.img $(BINDIR)/userdata.img
-	$(QEMU) -bios $(OVMF) -readconfig qemu-uefi.cfg $(QEMU_DATA) -S -s -no-reboot &
+debug: $(BINDIR)/zonix-uefi.img $(BINDIR)/userdata.img $(QEMU_BIOS)
+	$(QEMU) -bios $(QEMU_BIOS) -readconfig qemu-uefi.cfg $(QEMU_DATA) $(QEMU_FLAGS) -S -s -no-reboot &
 	sleep 2
 	gdb -q -x $(SCRIPTDIR)/gdbinit
 
 debug-bios: $(BINDIR)/zonix.img $(BINDIR)/userdata.img
-	$(QEMU) -readconfig qemu-bios.cfg $(QEMU_DATA) -S -s -no-reboot &
+	$(QEMU) -readconfig qemu-bios.cfg $(QEMU_DATA) $(QEMU_FLAGS) -S -s -no-reboot &
 	sleep 2
 	gdb -q -x $(SCRIPTDIR)/gdbinit
 

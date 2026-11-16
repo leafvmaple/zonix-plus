@@ -44,16 +44,15 @@ kernel_path="${BINDIR}/kernel"
 [ -f "$kernel_path" ] || { echo "Error: $kernel_path not found"; exit 1; }
 
 echo "[1] Creating ${image_size_mib} MiB image..."
-dd if=/dev/zero of="$image_path" bs=1M count=$image_size_mib 2>/dev/null
+dd if=/dev/zero of="$image_path" bs=1048576 count=$image_size_mib 2>/dev/null
 
 echo "[2] Creating GPT partition table..."
-parted -s "$image_path" mklabel gpt
-parted -s "$image_path" mkpart "ESP" fat32 1MiB 100%
-parted -s "$image_path" set 1 esp on
-parted -s "$image_path" set 1 boot on
+sgdisk --clear --new=1:2048:0 --typecode=1:ef00 --change-name=1:ESP "$image_path"
 
 echo "[3] Formatting ESP partition as FAT32..."
-mkfs.fat -F 32 -n "ESP" --offset 2048 "$image_path" 2>/dev/null
+# Leave the backup GPT (33 sectors at the end) outside the filesystem.
+esp_blocks=$(( (image_size_mib * 2048 - 2048 - 33) / 2 ))
+mkfs.fat -F 32 -n "ESP" -h 2048 --offset 2048 "$image_path" "$esp_blocks" 2>/dev/null
 
 echo "[4] Getting absolute path..."
 image_absolute_path="$(cd "$(dirname "$image_path")" && pwd)/$(basename "$image_path")"
@@ -86,4 +85,4 @@ mdir -i "$mtools_image" ::/EFI/ZONIX
 
 echo "[9] Done! GPT+ESP image created."
 ls -lh "$image_path"
-fdisk -l "$image_path" 2>/dev/null | head -15 || true
+sgdisk --print "$image_path"

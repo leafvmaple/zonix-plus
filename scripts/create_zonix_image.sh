@@ -9,13 +9,24 @@ image_path="${BINDIR}/zonix.img"
 echo "Creating FAT32 disk image..."
 
 # Create a 64 MiB disk image for FAT32
-dd if=/dev/zero of="$image_path" bs=1M count=64 2>/dev/null
+dd if=/dev/zero of="$image_path" bs=1048576 count=64 2>/dev/null
 
 # Write MBR
 dd if=${BINDIR}/mbr.bin of="$image_path" bs=446 count=1 conv=notrunc 2>/dev/null
 
 # Create partition table (partition starts at sector 1)
-echo -e "label: dos\nstart=1, size=131071, type=0c, bootable" | sfdisk "$image_path" 2>/dev/null
+python3 - "$image_path" <<'PY_MBR'
+import struct
+import sys
+
+# One active FAT32 LBA partition, sector 1 through the end of the image.
+with open(sys.argv[1], "r+b") as image:
+    image.seek(446)
+    image.write(struct.pack("<B3sB3sII", 0x80, b"\x00\x02\x00", 0x0c,
+                            b"\xfe\xff\xff", 1, 131071))
+    image.write(bytes(48))
+    image.write(b"\x55\xaa")
+PY_MBR
 
 # Format partition as FAT32
 mkfs.fat -F 32 -n "ZONIX" -S 512 -s 8 -R 32 -f 2 --offset 1 "$image_path" 2>/dev/null

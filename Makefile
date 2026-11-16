@@ -14,6 +14,22 @@ BOOT_VERBOSE ?= 0
 # Shared by the kernel, boot firmware, host harness and analysis tools.
 CXX_STANDARD := gnu++20
 
+# Homebrew's LLVM and filesystem tools are not all linked into bin/.
+# Absolute LLVM paths also work with macOS make 3.81's inherited-PATH lookup.
+ifeq ($(shell uname -s),Darwin)
+  # Allow the Cocoa window to be resized in both directions.
+  QEMU_FLAGS ?= -display cocoa,zoom-to-fit=on
+  BREW_PREFIX := $(shell brew --prefix 2>/dev/null)
+  ifneq ($(BREW_PREFIX),)
+    LLVM_BIN := $(BREW_PREFIX)/opt/llvm/bin/
+    LLD_BIN := $(BREW_PREFIX)/opt/lld/bin/
+    export PATH := $(BREW_PREFIX)/opt/llvm/bin:$(BREW_PREFIX)/opt/lld/bin:$(BREW_PREFIX)/opt/bison/bin:$(BREW_PREFIX)/opt/flex/bin:$(BREW_PREFIX)/sbin:$(PATH)
+  endif
+endif
+
+# Extra QEMU arguments, e.g. QEMU_FLAGS="-display none" for terminal use.
+QEMU_FLAGS ?=
+
 # Quiet / verbose output
 ifeq ($(V),0)
   Q := @
@@ -26,8 +42,8 @@ endif
 # .d files are placed next to .o files automatically
 DEPFLAGS := -MMD -MP
 
-OBJDUMP := llvm-objdump
-OBJCOPY := llvm-objcopy
+OBJDUMP := $(LLVM_BIN)llvm-objdump
+OBJCOPY := $(LLVM_BIN)llvm-objcopy
 MKDIR   := mkdir -p
 
 SLASH   := /
@@ -177,16 +193,16 @@ $(call make_dir)
 # ==========================================================================
 # Disk images
 # ==========================================================================
-$(BINDIR)/userdata.img: $(USER_ELFS)
+$(BINDIR)/userdata.img: $(USER_ELFS) $(SCRIPTDIR)/create_userdata_image.sh
 	@echo "  IMG     $@"
 	$(Q)BINDIR=$(BINDIR) bash $(SCRIPTDIR)/create_userdata_image.sh
 
-$(BINDIR)/zonix.img: $(BINDIR)/mbr $(BINDIR)/vbr $(BINDIR)/bootloader $(BINDIR)/kernel | $$(dir $$@)
+$(BINDIR)/zonix.img: $(BINDIR)/mbr $(BINDIR)/vbr $(BINDIR)/bootloader $(BINDIR)/kernel $(SCRIPTDIR)/create_zonix_image.sh | $$(dir $$@)
 	@echo "  IMG     $@"
 	$(Q)BINDIR=$(BINDIR) bash $(SCRIPTDIR)/create_zonix_image.sh
 
 ifeq ($(ARCH),x86)
-$(BINDIR)/zonix-uefi.img: $(BINDIR)/BOOTX64.EFI $(BINDIR)/kernel | $$(dir $$@)
+$(BINDIR)/zonix-uefi.img: $(BINDIR)/BOOTX64.EFI $(BINDIR)/kernel $(SCRIPTDIR)/create_uefi_image.sh | $$(dir $$@)
 	@echo "  IMG     $@"
 	$(Q)BINDIR=$(BINDIR) bash $(SCRIPTDIR)/create_uefi_image.sh
 endif
@@ -287,6 +303,7 @@ help:
 	@echo "  TEST=0|1             Include kernel test suites (default: 0)"
 	@echo "  BOOT_VERBOSE=0|1     Detailed startup logs (default: 0)"
 	@echo "  V=1                  Verbose build output"
+	@echo '  QEMU_FLAGS="..."      Extra QEMU arguments (e.g. -display none)'
 	@echo ""
 
 # ==========================================================================

@@ -71,7 +71,7 @@ A teaching operating system kernel targeting **x86_64**, **aarch64**, and **risc
 
 ```bash
 # Core build tools
-sudo apt install make clang lld llvm nasm dosfstools mtools
+sudo apt install make clang lld llvm nasm dosfstools mtools gdisk python3 flex bison
 
 # UEFI linker (Ubuntu 24.04 package name)
 sudo apt install lld-18
@@ -79,6 +79,50 @@ sudo apt install lld-18
 # Emulators
 sudo apt install qemu-system-x86 qemu-system-arm qemu-system-misc \
                  ovmf qemu-efi-aarch64 qemu-efi-riscv64 bochs-x
+```
+
+### macOS (Intel / Apple Silicon)
+
+Install the native emulator and cross-compilation tools with Homebrew:
+
+```bash
+brew install llvm lld qemu nasm dosfstools mtools gptfdisk flex bison coreutils
+
+git submodule update --init --recursive
+make install-hooks
+make ARCH=x86 TEST=0 -j8
+make qemu ARCH=x86
+```
+
+The Makefile finds Homebrew's LLVM, LLD, Bison, Flex and filesystem tools without
+changing your shell configuration. All kernels use ELF cross-compilation;
+QEMU uses software emulation, including x86 on Apple Silicon. Firmware is found
+in the Linux package locations or QEMU's bundled `share/qemu` directory. Override
+`OVMF` (x86), `AAVMF` (aarch64/riscv64) and `AAVMF_VARS` (riscv64) if needed.
+Disk images are created without root privileges or loop mounts.
+
+On macOS the default Cocoa window enables `zoom-to-fit`, so its edges can be
+dragged to resize it. Fullscreen and quitting are handled by QEMU:
+release captured input with Control+Option+G, toggle fullscreen through the View
+menu (Command+F), and select **Quit** in QEMU's exit confirmation dialog (the
+default button is **Cancel**).
+
+```bash
+# Native QEMU window; serial console remains in this terminal
+make qemu ARCH=aarch64
+make qemu ARCH=riscv64
+
+# Serial output only; use the QEMU window for keyboard input
+make qemu ARCH=x86 QEMU_FLAGS="-display none"
+
+# Existing in-kernel tests, with bounded headless QEMU execution
+make ARCH=x86 TEST=1 -j8
+bash scripts/ci_qemu_test.sh bios
+bash scripts/ci_qemu_test.sh uefi
+make ARCH=aarch64 TEST=1 bin/aarch64/sdcard.img -j8
+bash scripts/ci_qemu_test_aarch64.sh
+make ARCH=riscv64 TEST=1 bin/riscv64/sdcard.img -j8
+bash scripts/ci_qemu_test_riscv64.sh
 ```
 
 ## Build
@@ -132,6 +176,12 @@ make debug ARCH=x86
 | `uname [-a]` | System information |
 | `ps` | List all processes (PID, state, parent, stack, MM) |
 | `clear` | Clear the screen |
+| `shutdown` | Power off the system (no arguments) |
+
+`shutdown` requests immediate platform power-off and exits QEMU. The current
+implementations support the configured x86 `pc` machine (PIIX4 PM), aarch64
+`virt` (PSCI over HVC), and riscv64 firmware providing the SBI System Reset
+extension. Unsupported power control reports an error and returns to the shell.
 
 ### Disk & Storage
 | Command | Description |

@@ -18,12 +18,13 @@
 set -euo pipefail
 
 BINDIR="${BINDIR:-bin/riscv64}"
-RISCV_FW="${RISCV_FW:-/usr/share/qemu-efi-riscv64/RISCV_VIRT_CODE.fd}"
-RISCV_VARS="${RISCV_VARS:-/usr/share/qemu-efi-riscv64/RISCV_VIRT_VARS.fd}"
+RISCV_FW="${RISCV_FW:-$(bash "$(dirname "$0")/qemu_firmware.sh" riscv64)}"
+RISCV_VARS="${RISCV_VARS:-$(bash "$(dirname "$0")/qemu_firmware.sh" riscv64-vars)}"
 TIMEOUT="${TIMEOUT:-180}"
-serial_log="$(mktemp /tmp/zonix-riscv64-ci-XXXXXX.log)"
+serial_log="$(mktemp /tmp/zonix-riscv64-ci-XXXXXX)"
 qemu="qemu-system-riscv64"
 qemu_pid=""
+vars_copy=""
 
 cleanup() {
     if [ -n "$qemu_pid" ] && kill -0 "$qemu_pid" 2>/dev/null; then
@@ -31,6 +32,9 @@ cleanup() {
         wait "$qemu_pid" 2>/dev/null || true
     fi
     rm -f "$serial_log"
+    if [ -n "$vars_copy" ]; then
+        rm -f "$vars_copy"
+    fi
 }
 trap cleanup EXIT
 
@@ -64,7 +68,7 @@ if [ ! -f "${BINDIR}/sdcard.img" ]; then
 fi
 
 # Create a writable copy of the UEFI variable store
-vars_copy="$(mktemp /tmp/zonix-riscv64-vars-XXXXXX.fd)"
+vars_copy="$(mktemp /tmp/zonix-riscv64-vars-XXXXXX)"
 cp "$RISCV_VARS" "$vars_copy"
 
 QEMU_CMD=(
@@ -118,9 +122,6 @@ elif [ "$timed_out" -eq 1 ]; then
     kill "$qemu_pid" 2>/dev/null || true
     wait "$qemu_pid" 2>/dev/null || true
 fi
-
-# Clean up the temporary vars file
-rm -f "$vars_copy"
 
 echo ""
 echo "=== Serial Output (last 120 lines) ==="

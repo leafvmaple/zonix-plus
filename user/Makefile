@@ -115,7 +115,7 @@ endif
 ZCC_SYSROOT  := $(ZCC_DIR)/lib/$(ZCC_LIBARCH)
 
 # Build the zcc compiler (host tool)
-$(ZCC_COMPILER):
+$(ZCC_COMPILER): FORCE
 	@echo "  ZCC     building compiler..."
 	$(Q)$(MAKE) -C $(ZCC_DIR) all
 

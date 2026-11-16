@@ -8,7 +8,7 @@
 BOOT_UEFI_DIR := arch/$(ARCH)/boot/uefi
 BOOT_INC      := -I include -I arch/$(ARCH)/include
 
-UEFI_CXX      := clang++ --target=aarch64-pc-windows-msvc
+UEFI_CXX      := $(LLVM_BIN)clang++ --target=aarch64-pc-windows-msvc
 UEFI_CXXFLAGS := $(BOOT_INC) -ffreestanding -fshort-wchar -nostdinc \
 				 -fno-stack-protector -fno-exceptions -fno-rtti \
 				 -fno-use-cxa-atexit -fno-threadsafe-statics -std=$(CXX_STANDARD) -O2

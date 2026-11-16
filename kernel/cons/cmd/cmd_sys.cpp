@@ -11,6 +11,7 @@
 
 #include <kernel/sysinfo.h>
 #include <kernel/log.h>
+#include <kernel/power.h>
 #include "lib/cons_defs.h"
 
 namespace cmd {
@@ -61,6 +62,17 @@ static void cmd_clear(int argc, char** argv) {
     for (int i = 0; i < SCREEN_ROWS; i++) {
         cprintf("\n");
     }
+}
+
+static void cmd_shutdown(int argc, char** argv) {
+    static_cast<void>(argv);
+    if (argc != 1) {
+        cprintf("Usage: shutdown\n");
+        return;
+    }
+    cprintf("Shutting down...\n");
+    Error error = power::shutdown();
+    cprintf("shutdown: %s (%d)\n", error_str(error), static_cast<int>(error));
 }
 
 static void cmd_uname(int argc, char** argv) {
@@ -148,6 +160,7 @@ void register_sys_commands() {
     shell::register_command("loglevel", "Set console logs: debug/info/warn/error", cmd_loglevel);
     shell::register_command("pgdir", "Print page directory", cmd_pgdir);
     shell::register_command("clear", "Clear the screen", cmd_clear);
+    shell::register_command("shutdown", "Power off the system", cmd_shutdown);
     shell::register_command("uname", "Print system information (-a for all)", cmd_uname);
     shell::register_command("ps", "List all processes", cmd_ps);
     shell::register_command("schedstat", "Show scheduler statistics", cmd_schedstat);

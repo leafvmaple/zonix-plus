@@ -18,9 +18,9 @@
 set -euo pipefail
 
 BINDIR="${BINDIR:-bin/aarch64}"
-AAVMF="${AAVMF:-/usr/share/qemu-efi-aarch64/QEMU_EFI.fd}"
+AAVMF="${AAVMF:-$(bash "$(dirname "$0")/qemu_firmware.sh" aarch64)}"
 TIMEOUT="${TIMEOUT:-180}"
-serial_log="$(mktemp /tmp/zonix-aarch64-ci-XXXXXX.log)"
+serial_log="$(mktemp /tmp/zonix-aarch64-ci-XXXXXX)"
 qemu="qemu-system-aarch64"
 qemu_pid=""
 

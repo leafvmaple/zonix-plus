@@ -19,7 +19,7 @@ $(MOBJ): $(BOOT_BIOS_DIR)/mbr.S | $$(dir $$@)
 $(mbr): $(MOBJ) $(SCRIPTDIR)/mbr.ld | $$(dir $$@)
 	$(Q)$(LD) $(BOOT_LDFLAGS) -T $(SCRIPTDIR)/mbr.ld -o $@ $<
 	$(Q)$(OBJCOPY) -S -O binary $@ $(call tobin,mbr)
-	@if [ `stat -c%s $(call tobin,mbr)` -ne 512 ]; then \
+	@if [ `wc -c < $(call tobin,mbr)` -ne 512 ]; then \
 		echo "Error: MBR size is not 512 bytes"; exit 1; fi
 	@echo "  MBR     $@"
 
@@ -36,8 +36,8 @@ VOBJS = $(call toobj,$(bootfiles))
 $(vbr): $(VOBJS) $(SCRIPTDIR)/boot.ld | $$(dir $$@)
 	$(Q)$(LD) $(BOOT_LDFLAGS) -T $(SCRIPTDIR)/boot.ld -o $@ $(VOBJS)
 	$(Q)$(OBJCOPY) -S -O binary $@ $(call tobin,vbr)
-	@if [ `stat -c%s $(call tobin,vbr)` -ne 512 ]; then \
-		echo "Error: VBR size is `stat -c%s $(call tobin,vbr)` bytes, must be 512"; exit 1; fi
+	@if [ `wc -c < $(call tobin,vbr)` -ne 512 ]; then \
+		echo "Error: VBR size is `wc -c < $(call tobin,vbr)` bytes, must be 512"; exit 1; fi
 	@echo "  VBR     $@"
 
 # --------------------------------------------------------------------------
@@ -59,6 +59,6 @@ ALLOBJS += $(BOOTLOAD_CXX_OBJ) $(BOOTLOAD_S_OBJ)
 $(bootloader): $(BOOTLOAD_CXX_OBJ) $(BOOTLOAD_S_OBJ) $(SCRIPTDIR)/bootload.ld | $$(dir $$@)
 	$(Q)$(LD) $(BOOT_LDFLAGS) -T $(SCRIPTDIR)/bootload.ld -o $@ $(BOOTLOAD_CXX_OBJ) $(BOOTLOAD_S_OBJ)
 	$(Q)$(OBJCOPY) -S -O binary $@ $(call tobin,bootloader)
-	@if [ `stat -c%s $(call tobin,bootloader)` -gt 3584 ]; then \
-		echo "Error: Bootloader size is `stat -c%s $(call tobin,bootloader)` bytes, must be <= 3584"; exit 1; fi
+	@if [ `wc -c < $(call tobin,bootloader)` -gt 3584 ]; then \
+		echo "Error: Bootloader size is `wc -c < $(call tobin,bootloader)` bytes, must be <= 3584"; exit 1; fi
 	@echo "  BOOT    $@"

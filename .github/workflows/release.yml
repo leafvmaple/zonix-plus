@@ -32,7 +32,7 @@ jobs:
           sudo apt-get install -y \
             clang lld llvm llvm-dev flex bison nasm make \
             mtools dosfstools \
-            fdisk
+            gdisk
 
       # ── Bump version in version.h ──
       - name: Bump version

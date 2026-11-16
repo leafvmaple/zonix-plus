@@ -22,7 +22,7 @@ mkdir -p "$BINDIR"
 
 # 1. Create raw image
 echo "Creating ${image_size_mib} MiB disk image..."
-dd if=/dev/zero of="$image_path" bs=1M count=$image_size_mib status=none
+dd if=/dev/zero of="$image_path" bs=1048576 count=$image_size_mib 2>/dev/null
 
 # 2. Format as FAT32
 echo "Formatting as FAT32..."
@@ -46,7 +46,7 @@ if [ -d "$user_bin_dir" ]; then
         [ -f "$elf" ] || continue
         name=$(basename "$elf")
         mcopy -i "$image_path" "$elf" "::/$name"
-        echo "  + $name ($(stat -c%s "$elf") bytes)"
+        echo "  + $name ($(wc -c < "$elf" | tr -d '[:space:]') bytes)"
         elf_count=$((elf_count + 1))
     done
 fi

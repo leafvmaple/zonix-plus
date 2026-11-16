@@ -4,9 +4,9 @@
 # Included from the top-level Makefile.
 # ==========================================================================
 
-CC      := clang --target=aarch64-none-elf
-CXX     := clang++ --target=aarch64-none-elf
-LD      := ld.lld
+CC      := $(LLVM_BIN)clang --target=aarch64-none-elf
+CXX     := $(LLVM_BIN)clang++ --target=aarch64-none-elf
+LD      := $(LLD_BIN)ld.lld
 CFLAGS  := -g -Wall -O0 -nostdinc -fno-builtin -fno-stack-protector \
            -fno-pic -ffreestanding -gdwarf-2
 CXXFLAGS := -g -Wall -O0 -nostdinc -nostdinc++ \
@@ -55,10 +55,10 @@ KERNEL_POST_LINK   = $(Q)$(OBJCOPY) --set-start=0x40080000 $@
 ALL_PREREQS := $(BINDIR)/kernel $(BINDIR)/BOOTAA64.EFI
 
 # ---------- UEFI firmware ----------
-AAVMF ?= /usr/share/qemu-efi-aarch64/QEMU_EFI.fd
+AAVMF ?= $(shell bash $(SCRIPTDIR)/qemu_firmware.sh aarch64)
 
 # ---------- UEFI disk image ----------
-$(BINDIR)/zonix-uefi.img: $(BINDIR)/BOOTAA64.EFI $(BINDIR)/kernel | $$(dir $$@)
+$(BINDIR)/zonix-uefi.img: $(BINDIR)/BOOTAA64.EFI $(BINDIR)/kernel $(SCRIPTDIR)/create_uefi_image.sh | $$(dir $$@)
 	@echo "  IMG     $@"
 	$(Q)BINDIR=$(BINDIR) ARCH=aarch64 bash $(SCRIPTDIR)/create_uefi_image.sh
 
@@ -74,12 +74,12 @@ qemu: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img
 	$(QEMU) -cpu cortex-a72 \
 		-bios $(AAVMF) \
 		-readconfig qemu-uefi-aarch64.cfg \
-		-serial stdio -no-reboot
+		-serial stdio $(QEMU_FLAGS) -no-reboot
 
-debug: $(BINDIR)/zonix-uefi.img
+debug: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img
 	$(QEMU) -cpu cortex-a72 \
 		-bios $(AAVMF) \
 		-readconfig qemu-uefi-aarch64.cfg \
-		-serial stdio -S -s -no-reboot &
+		-serial stdio $(QEMU_FLAGS) -S -s -no-reboot &
 	sleep 2
 	gdb -q -x $(SCRIPTDIR)/gdbinit
