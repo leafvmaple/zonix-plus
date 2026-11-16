@@ -40,6 +40,7 @@ public:
         int dma_address_writes{};
         int transfers{};
         int flush_commands{};
+        int flush_busy_polls{};
         uint32_t sd_status{0x900};
         int sd_busy_polls{};
         int sd_status_polls{};
@@ -445,6 +446,12 @@ uint8_t arch_port_read8(uint16_t port) {
     }
     if (Fixture::state().ata_aborted && Fixture::state().ide_commands[channel] == ide::CMD_IDENTIFY) {
         return ide::STATUS_DRDY | ide::STATUS_ERR;
+    }
+    if ((Fixture::state().ide_commands[channel] == ata::CMD_FLUSH_CACHE ||
+         Fixture::state().ide_commands[channel] == ata::CMD_FLUSH_CACHE_EXT) &&
+        Fixture::state().flush_busy_polls > 0) {
+        --Fixture::state().flush_busy_polls;
+        return ide::STATUS_BSY;
     }
     if (Fixture::state().ide_commands[channel] != 0 &&
         (Fixture::state().fault == Fixture::Fault::Io || StorageConcurrency::command_error() == Error::Io)) {
@@ -937,7 +944,9 @@ static void test_ide(const char* test) {
     auto* device = IdeManager::find_device(0);
     assert(device && device->state() == blk::DeviceState::Ready);
     if (sys::strncmp(test, "flush_ide", 9) == 0) {
+        Fixture::state().flush_busy_polls = 150000;
         assert(device->flush() == Error::None && Fixture::state().flush_commands == 1);
+        assert(Fixture::state().flush_busy_polls == 0);
         Fixture::state().fault = Fixture::Fault::Io;
         assert(device->flush() == Error::Io && Fixture::state().control[0] == 0);
         Fixture::state().fault = Fixture::Fault::Timeout;

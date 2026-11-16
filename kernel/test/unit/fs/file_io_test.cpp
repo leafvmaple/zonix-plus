@@ -838,6 +838,9 @@ void test_real_disk() {
     append.reset();
     const Error unmounted = vfs::umount("/");
     const Error mounted = unmounted == Error::None ? vfs::mount("/", device, "fat") : unmounted;
+    if (unmounted != Error::None || mounted != Error::None) {
+        cprintf("Real-disk remount: unmount=%s, mount=%s\n", error_str(unmounted), error_str(mounted));
+    }
     TEST_ASSERT(unmounted == Error::None && mounted == Error::None, "Remounted real disk after closing all handles");
     if (mounted == Error::None) {
         reader = open_file("/P0IO.TMP", O_RDONLY);

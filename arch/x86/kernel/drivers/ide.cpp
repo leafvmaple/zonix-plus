@@ -23,9 +23,11 @@ IdeConfig IdeManager::configs_[ide::MAX_DEVICES] = {
 namespace {
 
 constexpr int COMMAND_POLL_LIMIT = 100000;
+// Cache flush includes asynchronous backing-store synchronization, beyond a PIO data phase.
+constexpr int CACHE_FLUSH_POLL_LIMIT = 10000000;
 
-Error wait_status(uint16_t base, uint8_t required) {
-    for (int polls = COMMAND_POLL_LIMIT; polls > 0; --polls) {
+Error wait_status(uint16_t base, uint8_t required, int poll_limit = COMMAND_POLL_LIMIT) {
+    for (int polls = poll_limit; polls > 0; --polls) {
         uint8_t status = arch_port_read8(base + ide::REG_STATUS);
         if (status == 0 || status == 0xFF) {
             return Error::NoDevice;
@@ -258,7 +260,7 @@ Error IdeDevice::flush_cache() {
     TRY(wait_status(config->base, ide::STATUS_DRDY));
     arch_port_write8(config->base + ide::REG_COMMAND, command);
     arch_io_wait();
-    return wait_status(config->base, ide::STATUS_DRDY);
+    return wait_status(config->base, ide::STATUS_DRDY, CACHE_FLUSH_POLL_LIMIT);
 }
 
 Error IdeDevice::transfer_blocks(uint32_t start_lba, void* buf, size_t block_count, bool write) {
