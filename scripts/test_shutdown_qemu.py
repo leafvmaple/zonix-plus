@@ -6,6 +6,7 @@ copies are modified. Serial logs remain under obj/<arch>/shutdown-<boot>/.
 """
 import argparse
 import json
+import os
 from pathlib import Path
 import shutil
 import socket
@@ -71,6 +72,8 @@ def boot(command, directory, log, expected, recovery=False):
                 pass
             output = log.read_text(errors="replace") if log.exists() else ""
             if "[FAIL]" in output or "kernel panic" in output.lower():
+                print("\n".join(line for line in output.splitlines() if "[FAIL]" in line), flush=True)
+                print("\n".join(output.splitlines()[-80:]), flush=True)
                 raise RuntimeError(f"Guest regression failed; see {log}")
             if recovery and "P0_2_SHUTDOWN_RECOVERED" in output and "CI_TEST_COMPLETE" in output:
                 recovered = True
@@ -113,7 +116,7 @@ def boot(command, directory, log, expected, recovery=False):
 
 
 def run(arch, mode, unsupported):
-    build = ROOT / "bin" / arch
+    build = Path(os.environ.get("BINDIR", ROOT / "bin" / arch))
     logs = ROOT / "obj" / arch / f"shutdown-{mode}"
     logs.mkdir(parents=True, exist_ok=True)
     offset = 512 if mode == "bios" else 1024 * 1024
