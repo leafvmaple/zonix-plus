@@ -32,10 +32,20 @@ struct MountSlot {
 MountSlot* find_slot(const char* mount_point);
 
 class State {
+public:
+    static Error begin_io(ActivityGuard& guard) { return guard.acquire(io_gate_); }
+    static Error freeze() { return io_gate_.close(); }
+    static void thaw() { io_gate_.open(); }
+    static bool is_frozen() { return io_gate_.is_closed(); }
+    static bool owns_freeze() { return io_gate_.is_owner(); }
+
+private:
     friend MountSlot* find_slot(const char* mount_point);
     friend Error vfs::mount(const char* mount_point, BlockDevice* dev, const char* fs_type);
     friend Error vfs::register_fs(const char* name, FsFactory factory);
+    friend Error vfs::sync();
 
+    inline static ActivityGate io_gate_{};
     inline static sys::inplace_vector<FsEntry, MAX_FS_TYPES> fs_registry_{};
     inline static MountSlot mounts_[] = {
         {"/dev", nullptr, nullptr, nullptr, nullptr},
@@ -65,6 +75,10 @@ struct ResolvedPath {
     MountRef mount;
     const char* relpath{};
 };
+
+Error begin_storage_io(const ResolvedPath& path, ActivityGuard& guard) {
+    return path.mount->device ? State::begin_io(guard) : Error::None;
+}
 
 MountSlot* find_slot(const char* mount_point) {
     if (!mount_point) {
@@ -118,6 +132,48 @@ Result<ResolvedPath> resolve_path(const char* path) {
 
 }  // namespace
 
+Error File::begin_io(ActivityGuard& guard) const {
+    return storage_backed_ ? State::begin_io(guard) : Error::None;
+}
+
+Error freeze() {
+    return State::freeze();
+}
+void thaw() {
+    State::thaw();
+}
+bool is_frozen() {
+    return State::is_frozen();
+}
+
+Error sync() {
+    ActivityGuard activity;
+    if (!State::owns_freeze()) {
+        TRY(State::begin_io(activity));
+    }
+    constexpr size_t count = sizeof(State::mounts_) / sizeof(MountSlot);
+    sys::inplace_vector<MountRef, count> mounts;
+    Error first = Error::None;
+    {
+        intr::Guard guard;
+        for (auto& slot : State::mounts_) {
+            if (slot.transitioning) {
+                first = Error::Busy;
+            } else if (slot.fs) {
+                ++slot.users;
+                assert(mounts.try_push_back(MountRef(&slot)));
+            }
+        }
+    }
+    for (auto& mount : mounts) {
+        Error error = mount->fs->sync();
+        if (first == Error::None) {
+            first = error;
+        }
+    }
+    return first;
+}
+
 File::~File() {
     intr::Guard guard;
     if (mount_users_) {
@@ -141,6 +197,8 @@ int init() {
 // dev may be nullptr for virtual filesystems (e.g. devfs).
 Error mount(const char* mount_point, BlockDevice* dev, const char* fs_type) {
     ENSURE(mount_point && fs_type, Error::Invalid);
+    ActivityGuard activity;
+    TRY(State::begin_io(activity));
 
     MountSlot* slot;
     FsFactory factory{};
@@ -179,6 +237,8 @@ Error mount(const char* mount_point, BlockDevice* dev, const char* fs_type) {
 
 Error umount(const char* mount_point) {
     ENSURE(mount_point, Error::Invalid);
+    ActivityGuard activity;
+    TRY(State::begin_io(activity));
     MountSlot* slot;
     sys::unique_ptr<FileSystem> owner;
     {
@@ -218,11 +278,14 @@ Result<FileHandle> open(const char* path, int flags) {
     ENSURE((flags & O_EXCL) == 0 || (flags & O_CREAT) != 0, Error::Invalid);
     ENSURE((flags & (O_TRUNC | O_APPEND)) == 0 || (flags & O_ACCMODE) != O_RDONLY, Error::Invalid);
     auto resolved = TRY(resolve_path(path));
+    ActivityGuard activity;
+    TRY(begin_storage_io(resolved, activity));
     ENSURE(resolved.relpath[0] != '\0', Error::Invalid);
     auto file = TRY(resolved.mount->fs->open(resolved.relpath, flags));
     ENSURE(file, Error::Io);
     assert(!file->mount_users_);
     file->open_flags_ = flags;
+    file->storage_backed_ = resolved.mount->device != nullptr;
     file->mount_users_ = &resolved.mount.release()->users;
     return file;
 }
@@ -233,6 +296,8 @@ Result<int> read(File* file, void* buf, size_t size, size_t offset) {
     if (size == 0) {
         return 0;
     }
+    ActivityGuard activity;
+    TRY(file->begin_io(activity));
 
     return file->read(buf, size, offset);
 }
@@ -242,7 +307,9 @@ Result<int> write(File* file, const void* buf, size_t size, size_t offset, size_
     ENSURE(file->can_write(), Error::Access);
     size_t next_offset = offset;
     int bytes{};
+    ActivityGuard activity;
     if (size != 0) {
+        TRY(file->begin_io(activity));
         if (file->is_append()) {
             bytes = TRY(file->append(buf, size, &next_offset));
         } else {
@@ -268,31 +335,43 @@ Error stat(const char* path, Stat* st) {
     ENSURE(st, Error::Invalid);
 
     auto resolved = TRY(resolve_path(path));
+    ActivityGuard activity;
+    TRY(begin_storage_io(resolved, activity));
     return resolved.mount->fs->stat(resolved.relpath, st);
 }
 
 Result<int> readdir(const char* path, DirVisitor& visitor) {
     auto resolved = TRY(resolve_path(path));
+    ActivityGuard activity;
+    TRY(begin_storage_io(resolved, activity));
     return resolved.mount->fs->readdir(resolved.relpath, visitor);
 }
 
 Error mkdir(const char* path) {
     auto resolved = TRY(resolve_path(path));
+    ActivityGuard activity;
+    TRY(begin_storage_io(resolved, activity));
     return resolved.mount->fs->mkdir(resolved.relpath);
 }
 
 Error create(const char* path) {
     auto resolved = TRY(resolve_path(path));
+    ActivityGuard activity;
+    TRY(begin_storage_io(resolved, activity));
     return resolved.mount->fs->create(resolved.relpath);
 }
 
 Error unlink(const char* path) {
     auto resolved = TRY(resolve_path(path));
+    ActivityGuard activity;
+    TRY(begin_storage_io(resolved, activity));
     return resolved.mount->fs->unlink(resolved.relpath);
 }
 
 Error rmdir(const char* path) {
     auto resolved = TRY(resolve_path(path));
+    ActivityGuard activity;
+    TRY(begin_storage_io(resolved, activity));
     return resolved.mount->fs->rmdir(resolved.relpath);
 }
 

@@ -1,4 +1,4 @@
-#include <kernel/power.h>
+#include <asm/power.h>
 #include <asm/arch.h>
 
 #include "drivers/intr.h"
@@ -18,7 +18,7 @@ constexpr uint16_t PM1_SLEEP_ENABLE = 1U << 13;
 
 }  // namespace
 
-Error power::shutdown() {
+Error arch_power_off() {
     intr::Guard guard;
     for (int slot = 0; slot < 32; ++slot) {
         for (int function = 0; function < 8; ++function) {

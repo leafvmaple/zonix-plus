@@ -29,7 +29,22 @@ with open(sys.argv[1], "r+b") as image:
 PY_MBR
 
 # Format partition as FAT32
-mkfs.fat -F 32 -n "ZONIX" -S 512 -s 8 -R 32 -f 2 --offset 1 "$image_path" 2>/dev/null
+mkfs.fat -F 32 -n "ZONIX" -S 512 -s 8 -R 32 -b 0 -f 2 --offset 1 "$image_path" 2>/dev/null
+
+# The second-stage loader occupies partition sectors 1 through 7. Keep
+# writable FAT32 FSInfo in sector 31, outside that boot code; no backup VBR.
+python3 - "$image_path" <<'PY_FSINFO'
+import struct
+import sys
+
+with open(sys.argv[1], "r+b") as image:
+    image.seek(2 * 512)
+    fsinfo = image.read(512)
+    image.seek(32 * 512)
+    image.write(fsinfo)
+    image.seek(512 + 48)
+    image.write(struct.pack("<H", 31))
+PY_FSINFO
 
 # Copy kernel using mtools (no sudo required)
 # Configure mtools to access the partition at offset 512 (sector 1)
@@ -47,7 +62,7 @@ dd if=temp_vbr.bin of="$image_path" bs=1 seek=512 count=512 conv=notrunc 2>/dev/
 rm -f temp_bpb.bin temp_bootcode.bin temp_signature.bin temp_vbr.bin
 
 # Install bootloader in the reserved area before the FAT
-# Place at sector 2 for safety (offset = 1024)
+# Partition sector 1 (disk sector 2); FSInfo is stored separately at sector 31.
 dd if=${BINDIR}/bootloader.bin of="$image_path" bs=1 seek=1024 conv=notrunc 2>/dev/null
 
 echo "FAT32 image created: $image_path"

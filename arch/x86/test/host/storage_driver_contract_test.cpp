@@ -39,6 +39,10 @@ public:
         int allocations{};
         int dma_address_writes{};
         int transfers{};
+        int flush_commands{};
+        uint32_t sd_status{0x900};
+        int sd_busy_polls{};
+        int sd_status_polls{};
         int sd_command[2]{};
         uint16_t command{1};
         uint32_t bar{0x100008};
@@ -183,6 +187,23 @@ pte_t* pmm::get_pte(pde_t*, uintptr_t va, bool create) {
 void pmm::unmap_mmio_page(pde_t* root, uintptr_t va) {
     *get_pte(root, va, false) = 0;
 }
+namespace sched {
+Task* current() {
+    return nullptr;
+}
+}  // namespace sched
+void Spinlock::lock() {
+    while (__atomic_exchange_n(&locked_, true, __ATOMIC_ACQUIRE)) {
+        sched_yield();
+    }
+}
+void Spinlock::unlock() {
+    __atomic_store_n(&locked_, false, __ATOMIC_RELEASE);
+}
+void WaitQueue::sleep() {
+    assert(false);
+}
+void WaitQueue::wakeup_all() {}
 void WaitQueue::wakeup_one() {}
 namespace i8259 {
 void enable(unsigned int) {}
@@ -225,6 +246,11 @@ uint32_t read32(uintptr_t address) {
                 case 8: return 0x1AA;
                 case 41: return 0xC0000000;
                 case 3: return 0x00010000;
+                case 13:
+                    ++Fixture::state().sd_status_polls;
+                    if (Fixture::state().sd_busy_polls-- > 0)
+                        return 7U << 9;
+                    return Fixture::state().sd_status;
                 default: return 0;
             }
         }
@@ -307,6 +333,17 @@ void write32(uintptr_t address, uint32_t value) {
             return;
         }
         if (field == ahci::PORT_CI && value != 0) {
+            uintptr_t clb = Fixture::state().registers[(port + ahci::PORT_CLB) / 4] |
+                            (static_cast<uintptr_t>(Fixture::state().registers[(port + ahci::PORT_CLBU) / 4]) << 32);
+            auto* header = phys_to_virt<AhciCmdHeader>(clb);
+            auto* table = phys_to_virt<AhciCmdTable>(header->ctba | (static_cast<uintptr_t>(header->ctbau) << 32));
+            auto* fis = reinterpret_cast<RegisterHostToDeviceFis*>(table->cfis);
+            const bool flush = fis->command == ata::CMD_FLUSH_CACHE || fis->command == ata::CMD_FLUSH_CACHE_EXT;
+            if (flush) {
+                assert(header->prdtl == 0 && !header->write && fis->countl == 0 && fis->counth == 0);
+                ++Fixture::state().flush_commands;
+            }
+
             if (Fixture::state().fail_stop_after_command) {
                 Fixture::state().fault = Fixture::Fault::Cr;
                 Fixture::state().registers[(port + ahci::PORT_IS) / 4] |= ahci::IS_TFES;
@@ -320,7 +357,9 @@ void write32(uintptr_t address, uint32_t value) {
                 auto* table = phys_to_virt<AhciCmdTable>(header->ctba | (static_cast<uintptr_t>(header->ctbau) << 32));
                 auto* data =
                     phys_to_virt<uint16_t>(table->prdt[0].dba | (static_cast<uintptr_t>(table->prdt[0].dbau) << 32));
-                if (StorageConcurrency::active()) {
+                if (flush) {
+                    assert(table->prdt[0].dba == 0 && table->prdt[0].dbau == 0);
+                } else if (StorageConcurrency::active()) {
                     auto* fis = reinterpret_cast<RegisterHostToDeviceFis*>(table->cfis);
                     uint32_t lba = fis->lba0 | (static_cast<uint32_t>(fis->lba1) << 8) |
                                    (static_cast<uint32_t>(fis->lba2) << 16) | (static_cast<uint32_t>(fis->lba3) << 24);
@@ -347,6 +386,7 @@ void write32(uintptr_t address, uint32_t value) {
                 } else {
                     memset(data, 0, 512);
                     data[60] = 128;
+                    data[83] = ata::IDENTIFY_VALID | ata::SUPPORTS_FLUSH | ata::SUPPORTS_FLUSH_EXT;
                 }
                 value = 0;
                 __atomic_add_fetch(&Fixture::state().transfers, 1, __ATOMIC_RELAXED);
@@ -431,6 +471,9 @@ void arch_port_write8(uint16_t port, uint8_t value) {
     }
     if (field == ide::REG_COMMAND) {
         HardwareFixture::state().ide_commands[channel] = value;
+        if (value == ata::CMD_FLUSH_CACHE || value == ata::CMD_FLUSH_CACHE_EXT) {
+            ++HardwareFixture::state().flush_commands;
+        }
         if (value == ide::CMD_IDENTIFY && channel == 1 && HardwareFixture::state().secondary_atapi &&
             HardwareFixture::state().ide_drives[channel] == 0) {
             HardwareFixture::state().ide_lba[channel] = (static_cast<uint32_t>(ide::ATAPI_SIGNATURE_MID) << 8) |
@@ -455,6 +498,7 @@ void arch_port_read16_buffer(uint16_t port, void* buffer, size_t count) {
     memset(buffer, 0, count * 2);
     auto* words = static_cast<uint16_t*>(buffer);
     words[60] = 128;
+    words[83] = ata::IDENTIFY_VALID | ata::SUPPORTS_FLUSH | ata::SUPPORTS_FLUSH_EXT;
     ++HardwareFixture::state().transfers;
 }
 void arch_port_write16_buffer(uint16_t port, void* buffer, size_t count) {
@@ -474,8 +518,8 @@ void arch_port_write16_buffer(uint16_t port, void* buffer, size_t count) {
 
 class DummyDevice : public BlockDevice {
 public:
-    Error read(uint32_t, void*, size_t) override { return Error::None; }
-    Error write(uint32_t, const void*, size_t) override { return Error::None; }
+    Error read_blocks(uint32_t, void*, size_t) override { return Error::None; }
+    Error write_blocks(uint32_t, const void*, size_t) override { return Error::None; }
 };
 
 static void fill_registry() {
@@ -675,6 +719,20 @@ static void test_ahci(const char* test) {
     assert(AhciManager::probe_callback(&pci_device, nullptr) == Error::Busy);
     auto* device = AhciManager::find_device(0);
     assert(device && device->state() == blk::DeviceState::Ready);
+    if (sys::strncmp(test, "flush_ahci", 10) == 0) {
+        if (strcmp(test, "flush_ahci_io") == 0)
+            Fixture::state().fault = Fixture::Fault::Io;
+        if (strcmp(test, "flush_ahci_timeout") == 0)
+            Fixture::state().fault = Fixture::Fault::Timeout;
+        Error expected = Fixture::state().fault == Fixture::Fault::Io        ? Error::Io
+                         : Fixture::state().fault == Fixture::Fault::Timeout ? Error::Timeout
+                                                                             : Error::None;
+        assert(device->flush() == expected && Fixture::state().flush_commands == 1);
+        assert(device->state() == (expected == Error::None ? blk::DeviceState::Ready : blk::DeviceState::Offline));
+        if (expected != Error::None)
+            assert(device->flush() == Error::NoDevice);
+        return;
+    }
     if (strcmp(test, "ahci_concurrent") == 0 || strcmp(test, "ahci_independent") == 0) {
         bool independent = strcmp(test, "ahci_independent") == 0;
         test_concurrent_requests(device, independent ? AhciManager::find_device(1) : device, 0, independent ? 1 : 0, 9,
@@ -762,6 +820,18 @@ static void test_sd(const char* test) {
     assert(sdhci::device_count() == 1 && BlockManager::device_count() == 1);
     auto* device = sdhci::find_device();
     assert(device && device->state() == blk::DeviceState::Ready);
+    if (sys::strncmp(test, "flush_sd", 8) == 0) {
+        Fixture::state().sd_busy_polls = 3;
+        assert(device->flush() == Error::None && Fixture::state().sd_status_polls == 4);
+        Fixture::state().sd_status = 1U << 31;
+        assert(device->flush() == Error::Io && device->state() == blk::DeviceState::Ready);
+        Fixture::state().sd_status = 0x900;
+        Fixture::state().fault = Fixture::Fault::Timeout;
+        assert(device->flush() == Error::Timeout);
+        Fixture::state().fault = Fixture::Fault::None;
+        assert(device->flush() == Error::None);
+        return;
+    }
     size_t allocations = Fixture::state().allocations;
     size_t accesses = Fixture::state().accesses;
     assert(sdhci::Manager::probe_callback(&pci_device, nullptr) == Error::Busy);
@@ -866,6 +936,18 @@ static void test_ide(const char* test) {
     assert(IdeManager::init() == Error::None && BlockManager::device_count() == 1);
     auto* device = IdeManager::find_device(0);
     assert(device && device->state() == blk::DeviceState::Ready);
+    if (sys::strncmp(test, "flush_ide", 9) == 0) {
+        assert(device->flush() == Error::None && Fixture::state().flush_commands == 1);
+        Fixture::state().fault = Fixture::Fault::Io;
+        assert(device->flush() == Error::Io && Fixture::state().control[0] == 0);
+        Fixture::state().fault = Fixture::Fault::Timeout;
+        assert(device->flush() == Error::Timeout && Fixture::state().control[0] == 0);
+        Fixture::state().fault = Fixture::Fault::None;
+        // Reset the prior command status as a successful recovered hardware completion.
+        Fixture::state().ide_commands[0] = 0;
+        assert(device->flush() == Error::None && device->state() == blk::DeviceState::Ready);
+        return;
+    }
     uint8_t buffer[512]{};
     assert(device->read(0, nullptr, 1) == Error::Invalid);
     assert(device->write(1, buffer, static_cast<size_t>(-1)) == Error::Invalid);
@@ -1004,7 +1086,31 @@ extern "C" int main(int argc, char** argv) {
     // not borrow assembly boot tables or the running kernel address space.
     vmm::Manager::kernel_mm().pgdir = HardwareFixture::state().root;
     const char* test = argv[1];
-    if (sys::strncmp(test, "queued_", 7) == 0) {
+    if (sys::strncmp(test, "flush_ahci", 10) == 0) {
+        test_ahci(test);
+    } else if (strcmp(test, "flush_sd") == 0) {
+        test_sd(test);
+    } else if (strcmp(test, "flush_ide") == 0) {
+        test_ide(test);
+    } else if (strcmp(test, "flush_capability") == 0) {
+        uint16_t words[256]{};
+        ata::CacheFlush flush;
+        assert(!flush.command().ok());
+        flush.identify(words);
+        assert(!flush.command().ok());
+        words[83] = ata::IDENTIFY_VALID;
+        flush.identify(words);
+        assert(flush.command().ok() && flush.command().release_value() == 0);
+        words[82] = ata::SUPPORTS_WRITE_CACHE;
+        flush.identify(words);
+        assert(!flush.command().ok());
+        words[83] |= ata::SUPPORTS_FLUSH;
+        flush.identify(words);
+        assert(flush.command().release_value() == ata::CMD_FLUSH_CACHE);
+        words[83] |= ata::SUPPORTS_FLUSH_EXT;
+        flush.identify(words);
+        assert(flush.command().release_value() == ata::CMD_FLUSH_CACHE_EXT);
+    } else if (sys::strncmp(test, "queued_", 7) == 0) {
         test_queued_failure(test);
     } else if (strcmp(test, "default_offline") == 0) {
         test_default_offline();

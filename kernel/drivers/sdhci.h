@@ -17,11 +17,12 @@ public:
     Error init(volatile uint8_t* base, int index);
     void shutdown();
     [[nodiscard]] blk::DeviceState state() const { return state_; }
-    Error read(uint32_t start_lba, void* buf, size_t block_count) override;
-    Error write(uint32_t start_lba, const void* buf, size_t block_count) override;
     void print_info() override;
 
 private:
+    Error read_blocks(uint32_t start_lba, void* buf, size_t block_count) override;
+    Error write_blocks(uint32_t start_lba, const void* buf, size_t block_count) override;
+    Error flush_cache() override;
     Mutex io_mutex_{};
     blk::DeviceState state_{blk::DeviceState::Offline};
     volatile uint8_t* base_{};

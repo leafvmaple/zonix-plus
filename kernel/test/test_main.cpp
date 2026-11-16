@@ -50,6 +50,11 @@ namespace file_io_test {
 void test();
 }
 
+namespace storage_sync_test {
+void test();
+void run_power_e2e();
+}  // namespace storage_sync_test
+
 namespace fs_test {
 void test();
 }
@@ -93,6 +98,7 @@ static const TestSuite SUITES[] = {
     {"ELF Loader", elf_test::test},
     {"FAT validation", fat_validation_test::test},
     {"P0-1 file I/O", file_io_test::test},
+    {"P0-2 storage sync", storage_sync_test::test},
     {"File System", fs_test::test},
     {"Shell", shell_test::test},
     {"Exec (E2E)", exec_test::test},
@@ -110,6 +116,8 @@ int test_run_all(void*) {
         cprintf("\n>>> [%d/%d] Running: %s\n", i + 1, suite_count, SUITES[i].name);
         SUITES[i].run();
     }
+
+    storage_sync_test::run_power_e2e();
 
     cprintf("\n########################################\n");
     cprintf("#     CI_TEST_COMPLETE                 #\n");

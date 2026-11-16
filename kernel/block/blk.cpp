@@ -15,6 +15,8 @@ Error BlockManager::register_device(BlockDevice* device) {
 
 Error BlockManager::register_devices(BlockDevice* const* devices, size_t count) {
     ENSURE(devices || count == 0, Error::Invalid);
+    ActivityGuard activity;
+    TRY(activity.acquire(io_gate_));
     intr::Guard guard;
     ENSURE(count <= MAX_DEVICES - devices_.size(), Error::Full);
     for (size_t i = 0; i < count; ++i) {
@@ -30,6 +32,37 @@ Error BlockManager::register_devices(BlockDevice* const* devices, size_t count) 
         assert(devices_.try_push_back(devices[i]));
     }
     return Error::None;
+}
+
+Error BlockManager::quiesce() {
+    TRY(io_gate_.close());
+    flush_access_ = true;
+    return Error::None;
+}
+
+bool BlockManager::is_frozen() {
+    return io_gate_.is_closed();
+}
+
+void BlockManager::finish_sync() {
+    assert(io_gate_.is_owner());
+    flush_access_ = false;
+}
+
+void BlockManager::resume() {
+    finish_sync();
+    io_gate_.open();
+}
+
+Error BlockManager::flush_all() {
+    Error first = Error::None;
+    for (auto* device : devices_) {
+        Error error = device->flush();
+        if (first == Error::None) {
+            first = error;
+        }
+    }
+    return first;
 }
 
 BlockDevice* BlockManager::find_device(const char* device_name) {

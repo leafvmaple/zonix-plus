@@ -110,6 +110,7 @@ Result<bool> IdeDevice::identify_locked() {
 
     uint16_t identify_data[256]{};
     arch_port_read16_buffer(cfg.base + ide::REG_DATA, identify_data, 256);
+    cache_flush_.identify(identify_data);
 
     info.cylinders = identify_data[1];
     info.heads = identify_data[3];
@@ -235,12 +236,29 @@ void IdeDevice::print_info() {
     cprintf("\n");
 }
 
-Error IdeDevice::read(uint32_t start_lba, void* buf, size_t block_count) {
+Error IdeDevice::read_blocks(uint32_t start_lba, void* buf, size_t block_count) {
     return transfer_blocks(start_lba, buf, block_count, false);
 }
 
-Error IdeDevice::write(uint32_t start_lba, const void* buf, size_t block_count) {
+Error IdeDevice::write_blocks(uint32_t start_lba, const void* buf, size_t block_count) {
     return transfer_blocks(start_lba, const_cast<void*>(buf), block_count, true);
+}
+
+Error IdeDevice::flush_cache() {
+    ENSURE(config && config->channel < ide::CHANNEL_COUNT, Error::NoDevice);
+    sys::lock_guard<Mutex> guard(IdeManager::channel_mutexes_[config->channel]);
+    ENSURE(state_ == blk::DeviceState::Ready, Error::NoDevice);
+    const uint8_t command = TRY(cache_flush_.command());
+    if (command == 0) {
+        return Error::None;
+    }
+    PioInterruptMask interrupt_mask(config->ctrl);
+    arch_port_write8(config->base + ide::REG_DEVICE, config->drive ? ide::DEV_SLAVE : ide::DEV_MASTER);
+    arch_io_wait();
+    TRY(wait_status(config->base, ide::STATUS_DRDY));
+    arch_port_write8(config->base + ide::REG_COMMAND, command);
+    arch_io_wait();
+    return wait_status(config->base, ide::STATUS_DRDY);
 }
 
 Error IdeDevice::transfer_blocks(uint32_t start_lba, void* buf, size_t block_count, bool write) {

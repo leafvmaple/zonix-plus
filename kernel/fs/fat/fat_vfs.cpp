@@ -48,6 +48,10 @@ class FatFileSystem : public vfs::FileSystem {
 public:
     Error mount(BlockDevice* dev) override { return fat_.mount(dev); }
     Error unmount() override { return fat_.unmount(); }
+    Error sync() override {
+        sys::lock_guard<Mutex> guard(mutex_);
+        return fat_.sync();
+    }
 
     Result<vfs::FileHandle> open(const char* relpath, int flags) override {
         ENSURE(relpath && relpath[0] != '\0', Error::Invalid);
@@ -187,6 +191,8 @@ Result<int> FatFile::append(const void* buf, size_t size, size_t* end_offset) {
 }
 
 Error FatFile::stat(vfs::Stat* st) {
+    ActivityGuard activity;
+    TRY(begin_io(activity));
     return fs_.stat(location_, st);
 }
 

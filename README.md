@@ -178,8 +178,10 @@ make debug ARCH=x86
 | `clear` | Clear the screen |
 | `shutdown` | Power off the system (no arguments) |
 
-`shutdown` requests immediate platform power-off and exits QEMU. The current
-implementations support the configured x86 `pc` machine (PIIX4 PM), aarch64
+`shutdown` stops new storage operations, drains in-flight file and raw block I/O,
+synchronizes mounted filesystems and device caches, then requests platform
+power-off. A synchronization failure returns an error and keeps the shell usable.
+The current power-control implementations support the configured x86 `pc` machine (PIIX4 PM), aarch64
 `virt` (PSCI over HVC), and riscv64 firmware providing the SBI System Reset
 extension. Unsupported power control reports an error and returns to the shell.
 
@@ -199,6 +201,12 @@ extension. Unsupported power control reports an error and returns to the shell.
 | `ls [/mnt]` | List files with attributes and sizes |
 | `cat <file> [/mnt]` | Display file contents |
 | `info` | Show filesystem information |
+| `sync` | Synchronize mounted filesystems and device caches; report errors |
+
+P0-2 shutdown/reboot regressions run on temporary disk copies after building
+`TEST=1` images: `python3 scripts/test_shutdown_qemu.py x86 --boot bios --unsupported`,
+`python3 scripts/test_shutdown_qemu.py x86 --boot uefi`, or the same script with
+`aarch64` / `riscv64`. Logs remain under `obj/<arch>/shutdown-<boot>/`.
 
 ### Debug & Test
 | Command | Description |

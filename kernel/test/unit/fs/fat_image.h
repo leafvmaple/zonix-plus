@@ -51,6 +51,7 @@ public:
         return 1 + copy * fat_sectors_ + cluster * sizeof(uint32_t) / BLOCK_SIZE_BYTES;
     }
     Fat32BootSector& boot_sector() { return *reinterpret_cast<Fat32BootSector*>(data_); }
+    const Fat32BootSector& boot_sector() const { return *reinterpret_cast<const Fat32BootSector*>(data_); }
     uint8_t* cluster_data(uint32_t cluster) { return data_ + cluster_lba(cluster) * BLOCK_SIZE_BYTES; }
     void set_link(uint32_t cluster, uint32_t value) {
         for (uint32_t copy = 0; copy < fat_copies_; ++copy) {
@@ -89,7 +90,8 @@ public:
         write_error_ = error;
     }
     void set_write_hook(void (*hook)()) { write_hook_ = hook; }
-    Error read(uint32_t block, void* buffer, size_t count) override {
+    Error flush_cache() override { return Error::None; }
+    Error read_blocks(uint32_t block, void* buffer, size_t count) override {
         if (block > block_count || count > block_count - block) {
             return Error::Io;
         }
@@ -102,7 +104,7 @@ public:
         memcpy(buffer, data_ + block * BLOCK_SIZE_BYTES, count * BLOCK_SIZE_BYTES);
         return Error::None;
     }
-    Error write(uint32_t block, const void* buffer, size_t count) override {
+    Error write_blocks(uint32_t block, const void* buffer, size_t count) override {
         if (block > block_count || count > block_count - block) {
             return Error::Io;
         }

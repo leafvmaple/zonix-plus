@@ -5,6 +5,7 @@
 #include "lib/result.h"
 #include "lib/string.h"
 #include <sys/memory.hpp>
+#include "lib/activity_gate.h"
 
 struct BlockDevice;
 
@@ -69,11 +70,13 @@ public:
     bool can_read() const { return (open_flags_ & O_ACCMODE) != O_WRONLY; }
     bool can_write() const { return (open_flags_ & O_ACCMODE) != O_RDONLY; }
     bool is_append() const { return (open_flags_ & O_APPEND) != 0; }
+    Error begin_io(ActivityGuard& guard) const;
 
 private:
     friend Result<FileHandle> open(const char* path, int flags);
     // Factories produce unrestricted handles; open() installs the requested access mode.
     int open_flags_{O_RDWR};
+    bool storage_backed_{};
     size_t* mount_users_{};
 };
 
@@ -86,6 +89,10 @@ public:
 int init();
 Error mount(const char* mount_point, BlockDevice* dev, const char* fs_type);
 Error umount(const char* mount_point);
+Error sync();
+Error freeze();
+void thaw();
+bool is_frozen();
 
 // Own the returned handle. get()/operator-> borrow; release() hands ownership off.
 Result<FileHandle> open(const char* path, int flags = O_RDONLY);

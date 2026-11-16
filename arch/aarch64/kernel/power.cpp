@@ -1,4 +1,4 @@
-#include <kernel/power.h>
+#include <asm/power.h>
 #include <asm/arch.h>
 
 #include "drivers/intr.h"
@@ -10,7 +10,7 @@ constexpr int32_t PSCI_NOT_SUPPORTED = -1;
 
 }  // namespace
 
-Error power::shutdown() {
+Error arch_power_off() {
     intr::Guard guard;
     // QEMU virt without EL2 virtualization exposes PSCI through HVC.
     register uint64_t function_id __asm__("x0") = PSCI_SYSTEM_OFF;

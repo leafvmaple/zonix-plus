@@ -81,7 +81,8 @@ Result<int> FatInfo::read_file(FatDirEntry* entry, uint8_t* io_buf, uint32_t off
 
 Result<int> FatInfo::read_dir(uint32_t start_cluster, DirVisitor& visitor) {
     int count{};
-    SectorArray<FatDirEntry> sector_buf{};
+    auto scratch = TRY(KernelBuffer::alloc(BlockDevice::BLOCK_SIZE_BYTES));
+    auto& sector_buf = *reinterpret_cast<SectorArray<FatDirEntry>*>(scratch.data());
 
     ClusterChain chain(*this, start_cluster);
     uint32_t cluster{};
@@ -129,7 +130,8 @@ Result<int> FatInfo::read_dir(const char* relpath, DirVisitor& visitor) {
 }
 
 Error FatInfo::find_entry(uint32_t start_cluster, const char* name, FatDirEntry* out, EntryLocation* location) {
-    SectorArray<FatDirEntry> sector_buf{};
+    auto scratch = TRY(KernelBuffer::alloc(BlockDevice::BLOCK_SIZE_BYTES));
+    auto& sector_buf = *reinterpret_cast<SectorArray<FatDirEntry>*>(scratch.data());
 
     ClusterChain chain(*this, start_cluster);
     uint32_t cluster{};
@@ -204,19 +206,21 @@ Error FatInfo::find_file(const char* filename, FatDirEntry* result, EntryLocatio
 Error FatInfo::read_file_entry(const EntryLocation& location, FatDirEntry* entry) {
     ENSURE(entry && location.index < SectorArray<FatDirEntry>::COUNT, Error::Invalid);
     ENSURE(location.sector >= data_start_sector_ && location.sector < total_sector_count_, Error::Invalid);
-    SectorArray<FatDirEntry> sector{};
-    TRY(dev_->read(partition_start_lba_ + location.sector, &sector, 1));
-    *entry = sector.entries[location.index];
+    auto storage = TRY(KernelBuffer::alloc(BlockDevice::BLOCK_SIZE_BYTES));
+    auto* sector = reinterpret_cast<SectorArray<FatDirEntry>*>(storage.data());
+    TRY(dev_->read(partition_start_lba_ + location.sector, sector, 1));
+    *entry = sector->entries[location.index];
     ENSURE(entry->is_valid(), Error::NotFound);
     ENSURE(!entry->is_directory(), Error::Invalid);
     return Error::None;
 }
 
 Error FatInfo::write_file_entry(const EntryLocation& location, const FatDirEntry& entry) {
-    SectorArray<FatDirEntry> sector{};
-    TRY(dev_->read(partition_start_lba_ + location.sector, &sector, 1));
-    sector.entries[location.index] = entry;
-    return dev_->write(partition_start_lba_ + location.sector, &sector, 1);
+    auto storage = TRY(KernelBuffer::alloc(BlockDevice::BLOCK_SIZE_BYTES));
+    auto* sector = reinterpret_cast<SectorArray<FatDirEntry>*>(storage.data());
+    TRY(dev_->read(partition_start_lba_ + location.sector, sector, 1));
+    sector->entries[location.index] = entry;
+    return write_sectors(partition_start_lba_ + location.sector, sector, 1);
 }
 
 Error FatInfo::validate_file_chain(const FatDirEntry& entry) {
@@ -233,27 +237,21 @@ Error FatInfo::validate_file_chain(const FatDirEntry& entry) {
     return Error::None;
 }
 
-Result<uint32_t> FatInfo::extend_file_chain(uint32_t tail) {
-    uint32_t old_link = fat::FAT32_EOC_MAX;
-    if (tail != 0) {
-        old_link = TRY(read_entry(tail));
-        ENSURE(old_link >= fat::FAT32_EOC_MIN, Error::BadFs);
-    }
-    uint32_t cluster = TRY(alloc_cluster());
+Error FatInfo::link_file_cluster(uint32_t tail, uint32_t old_link, uint32_t cluster) {
     if (tail != 0) {
         Error error = write_entry(tail, cluster);
         if (error != Error::None) {
             // Never free a target until every FAT copy no longer references it.
             Error cleanup = write_entry(tail, old_link);
             if (cleanup == Error::None) {
-                rollback_new_chain(cluster);
+                rollback_new_cluster(cluster);
             } else {
                 klog::error("fat: retaining cluster %u after failed tail restore: %s\n", cluster, error_str(cleanup));
             }
             return error;
         }
     }
-    return cluster;
+    return Error::None;
 }
 
 Result<int> FatInfo::write_file(const EntryLocation& location, const uint8_t* buf, uint32_t offset, uint32_t size,
@@ -275,6 +273,20 @@ Result<int> FatInfo::write_file(const EntryLocation& location, const uint8_t* bu
     }
     TRY(validate_file_chain(entry));
 
+    uint32_t done{};
+    // Keep confirmed progress when a later sector, allocation or metadata write fails.
+    Error error = transfer_file(location, entry, buf, offset, size, done);
+    if (error != Error::None && done == 0) {
+        return error;
+    }
+    if (end_offset) {
+        *end_offset = static_cast<size_t>(offset) + done;
+    }
+    return static_cast<int>(done);
+}
+
+Error FatInfo::transfer_file(const EntryLocation& location, FatDirEntry& entry, const uint8_t* buf, uint32_t offset,
+                             uint32_t size, uint32_t& done) {
     uint32_t position = sys::min(offset, entry.file_size);
     const uint32_t end = offset + size;
     uint32_t cluster = entry.cluster();
@@ -287,66 +299,60 @@ Result<int> FatInfo::write_file(const EntryLocation& location, const uint8_t* bu
         --skip;
     }
     uint32_t cluster_offset = position % bytes_per_cluster_;
-    uint32_t done{};
     auto storage = TRY(KernelBuffer::alloc(BlockDevice::BLOCK_SIZE_BYTES));
     uint8_t* sector = storage.data();
 
-    // Keep confirmed progress when a later sector, allocation or metadata write fails.
-    auto transfer = [&]() -> Error {
-        while (position < end) {
-            if (!valid_cluster(cluster)) {
-                cluster = TRY(extend_file_chain(tail));
-                if (tail == 0) {
-                    entry.first_cluster_high = static_cast<uint16_t>(cluster >> 16);
-                    entry.first_cluster_low = static_cast<uint16_t>(cluster);
-                    // A failed directory write may already have published this cluster.
-                    TRY(write_file_entry(location, entry));
-                }
+    while (position < end) {
+        if (!valid_cluster(cluster)) {
+            uint32_t old_link = fat::FAT32_EOC_MAX;
+            if (tail != 0) {
+                old_link = TRY(read_entry(tail));
+                ENSURE(old_link >= fat::FAT32_EOC_MIN, Error::BadFs);
             }
-            uint32_t sector_offset = cluster_offset % bytes_per_sector_;
-            uint32_t count = sys::min(bytes_per_sector_ - sector_offset, end - position);
-            const bool gap = position < offset;
-            if (gap) {
-                count = sys::min(count, offset - position);
-            }
-            uint32_t lba = partition_start_lba_ + cluster_to_sector(cluster) + cluster_offset / bytes_per_sector_;
-            if (sector_offset != 0 || count != bytes_per_sector_) {
-                TRY(dev_->read(lba, sector, 1));
-            }
-            if (gap) {
-                memset(sector + sector_offset, 0, count);
-            } else {
-                memcpy(sector + sector_offset, buf + done, count);
-            }
-            TRY(dev_->write(lba, sector, 1));
-            FatDirEntry updated = entry;
-            updated.file_size = sys::max(entry.file_size, position + count);
-            updated.attr |= FAT_ATTR_ARCHIVE;
-            if (updated.file_size != entry.file_size || updated.attr != entry.attr) {
-                TRY(write_file_entry(location, updated));
-                entry = updated;
-            }
-            position += count;
-            cluster_offset += count;
-            if (!gap) {
-                done += count;
-            }
-            if (position < end && cluster_offset == bytes_per_cluster_) {
-                tail = cluster;
-                cluster = TRY(read_entry(cluster));
-                cluster_offset = 0;
+            cluster = TRY(alloc_cluster());
+            TRY(link_file_cluster(tail, old_link, cluster));
+            if (tail == 0) {
+                entry.first_cluster_high = static_cast<uint16_t>(cluster >> 16);
+                entry.first_cluster_low = static_cast<uint16_t>(cluster);
+                // A failed directory write may already have published this cluster.
+                TRY(write_file_entry(location, entry));
             }
         }
-        return Error::None;
-    };
-    Error error = transfer();
-    if (error != Error::None && done == 0) {
-        return error;
+        uint32_t sector_offset = cluster_offset % bytes_per_sector_;
+        uint32_t count = sys::min(bytes_per_sector_ - sector_offset, end - position);
+        const bool gap = position < offset;
+        if (gap) {
+            count = sys::min(count, offset - position);
+        }
+        uint32_t lba = partition_start_lba_ + cluster_to_sector(cluster) + cluster_offset / bytes_per_sector_;
+        if (sector_offset != 0 || count != bytes_per_sector_) {
+            TRY(dev_->read(lba, sector, 1));
+        }
+        if (gap) {
+            memset(sector + sector_offset, 0, count);
+        } else {
+            memcpy(sector + sector_offset, buf + done, count);
+        }
+        TRY(write_sectors(lba, sector, 1));
+        FatDirEntry updated = entry;
+        updated.file_size = sys::max(entry.file_size, position + count);
+        updated.attr |= FAT_ATTR_ARCHIVE;
+        if (updated.file_size != entry.file_size || updated.attr != entry.attr) {
+            TRY(write_file_entry(location, updated));
+            entry = updated;
+        }
+        position += count;
+        cluster_offset += count;
+        if (!gap) {
+            done += count;
+        }
+        if (position < end && cluster_offset == bytes_per_cluster_) {
+            tail = cluster;
+            cluster = TRY(read_entry(cluster));
+            cluster_offset = 0;
+        }
     }
-    if (end_offset) {
-        *end_offset = static_cast<size_t>(offset) + done;
-    }
-    return static_cast<int>(done);
+    return Error::None;
 }
 
 Error FatInfo::truncate_file(const EntryLocation& location) {
@@ -437,11 +443,15 @@ Error FatInfo::resolve_parent(const char* relpath, uint32_t* parent_cluster, cha
     return Error::None;
 }
 
-void FatInfo::rollback_new_chain(uint32_t start_cluster) {
-    // Cleanup failure is secondary: preserve the operation's original error.
-    Error cleanup = free_chain(start_cluster);
+void FatInfo::rollback_new_cluster(uint32_t start_cluster) {
+    // This is one newly allocated, unpublished cluster, not an arbitrary chain.
+    // Finish an uncertain mirrored update before replacing its cached EOC link.
+    Error cleanup = flush_fat_buffer();
+    if (cleanup == Error::None) {
+        cleanup = write_entry(start_cluster, fat::FAT32_FREE);
+    }
     if (cleanup != Error::None) {
-        cprintf("fat: failed to roll back new chain %d: %s (%d)\n", start_cluster, error_str(cleanup),
+        cprintf("fat: failed to roll back new cluster %d: %s (%d)\n", start_cluster, error_str(cleanup),
                 static_cast<int>(cleanup));
     }
 }
@@ -483,7 +493,7 @@ Error FatInfo::add_dir_entry(uint32_t dir_cluster, const FatDirEntry* new_entry,
                             // Prepare the new terminator before publishing over the old one.
                             TRY(dev_->read(next_sector, &sector_buf, 1));
                             sector_buf.entries[0] = {};
-                            TRY(dev_->write(next_sector, &sector_buf, 1));
+                            TRY(write_sectors(next_sector, &sector_buf, 1));
                             TRY(dev_->read(abs_sector, &sector_buf, 1));
                             sector_buf.entries[j] = *new_entry;
                         }
@@ -492,7 +502,7 @@ Error FatInfo::add_dir_entry(uint32_t dir_cluster, const FatDirEntry* new_entry,
                     if (entry_may_exist) {
                         *entry_may_exist = true;
                     }
-                    TRY(dev_->write(abs_sector, &sector_buf, 1));
+                    TRY(write_sectors(abs_sector, &sector_buf, 1));
                     return Error::None;
                 }
             }
@@ -508,9 +518,9 @@ Error FatInfo::add_dir_entry(uint32_t dir_cluster, const FatDirEntry* new_entry,
             sector_buf.entries[0] = *new_entry;
 
             for (uint32_t s = 0; s < sectors_per_cluster_; s++) {
-                Error error = dev_->write(new_base_sector + s, &sector_buf, 1);
+                Error error = write_sectors(new_base_sector + s, &sector_buf, 1);
                 if (error != Error::None) {
-                    rollback_new_chain(new_cluster);
+                    rollback_new_cluster(new_cluster);
                     return error;
                 }
                 if (s == 0) {
@@ -523,7 +533,7 @@ Error FatInfo::add_dir_entry(uint32_t dir_cluster, const FatDirEntry* new_entry,
                 // Restore the old tail before freeing its possible target.
                 Error cleanup = write_entry(cluster, next);
                 if (cleanup == Error::None) {
-                    rollback_new_chain(new_cluster);
+                    rollback_new_cluster(new_cluster);
                 } else {
                     if (entry_may_exist) {
                         *entry_may_exist = true;
@@ -542,7 +552,8 @@ Error FatInfo::add_dir_entry(uint32_t dir_cluster, const FatDirEntry* new_entry,
 
 Error FatInfo::remove_dir_entry(uint32_t dir_cluster, const char* name) {
     using Sector = SectorArray<FatDirEntry>;
-    Sector sector_buf{};
+    auto scratch = TRY(KernelBuffer::alloc(BlockDevice::BLOCK_SIZE_BYTES));
+    auto& sector_buf = *reinterpret_cast<Sector*>(scratch.data());
 
     ClusterChain chain(*this, dir_cluster);
     uint32_t cluster{};
@@ -570,7 +581,7 @@ Error FatInfo::remove_dir_entry(uint32_t dir_cluster, const char* name) {
 
                 if (strcmp(entry_name, name) == 0) {
                     entries[j].name[0] = static_cast<char>(0xE5);  // Mark deleted.
-                    TRY(dev_->write(abs_sector, &sector_buf, 1));
+                    TRY(write_sectors(abs_sector, &sector_buf, 1));
                     return Error::None;
                 }
             }
@@ -598,6 +609,7 @@ Error FatInfo::mkdir(const char* relpath) {
     FatDirEntry dir_entry{};
     memset(&dir_entry, 0, sizeof(dir_entry));
     TRY(make_83_name(child_name, dir_entry.name, dir_entry.ext));
+    auto scratch = TRY(KernelBuffer::alloc(BlockDevice::BLOCK_SIZE_BYTES));
     uint32_t new_cluster = TRY(alloc_cluster());
     dir_entry.attr = FAT_ATTR_DIRECTORY;
     dir_entry.first_cluster_high = static_cast<uint16_t>(new_cluster >> 16);
@@ -605,8 +617,8 @@ Error FatInfo::mkdir(const char* relpath) {
     dir_entry.file_size = 0;
 
     // Write the "." and ".." entries into the new directory cluster.
-    uint8_t sector_buf[512]{};
-    memset(sector_buf, 0, sizeof(sector_buf));
+    uint8_t* sector_buf = scratch.data();
+    memset(sector_buf, 0, scratch.size());
     auto* entries = reinterpret_cast<FatDirEntry*>(sector_buf);
 
     // "." entry
@@ -630,9 +642,9 @@ Error FatInfo::mkdir(const char* relpath) {
     entries[1].first_cluster_low = static_cast<uint16_t>(parent_val & 0xFFFF);
 
     uint32_t sector = partition_start_lba_ + cluster_to_sector(new_cluster);
-    err = dev_->write(sector, sector_buf, 1);
+    err = write_sectors(sector, sector_buf, 1);
     if (err != Error::None) {
-        rollback_new_chain(new_cluster);
+        rollback_new_cluster(new_cluster);
         return err;
     }
 
@@ -641,7 +653,7 @@ Error FatInfo::mkdir(const char* relpath) {
     err = add_dir_entry(parent_cluster, &dir_entry, &entry_may_exist);
     if (err != Error::None) {
         if (!entry_may_exist) {
-            rollback_new_chain(new_cluster);
+            rollback_new_cluster(new_cluster);
         } else {
             // Do not free a cluster that a partially written entry may reference.
             cprintf("fat: mkdir '%s' may have published cluster %d; retaining it after %s (%d)\n", relpath, new_cluster,
@@ -713,7 +725,8 @@ Error FatInfo::rmdir(const char* relpath) {
 
     // Check that directory is empty (only . and .. allowed).
     uint32_t dir_cluster = entry.cluster();
-    uint8_t sector_buf[512]{};
+    auto scratch = TRY(KernelBuffer::alloc(BlockDevice::BLOCK_SIZE_BYTES));
+    uint8_t* sector_buf = scratch.data();
     bool empty = true;
 
     ClusterChain chain(*this, dir_cluster);

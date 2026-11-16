@@ -50,6 +50,10 @@ long sys_file_io(Task* cur, int fd, uintptr_t user_buf, size_t count, FileIo ope
     if (count == 0) {
         return 0;
     }
+    ActivityGuard activity;
+    if (entry->file->begin_io(activity) != Error::None) {
+        return -1;
+    }
     if (!vmm::user_range_valid(cur->memory(), user_buf, count, to_user)) {
         return -1;
     }

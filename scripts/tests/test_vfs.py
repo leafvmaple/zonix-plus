@@ -18,9 +18,11 @@ class VfsOwnershipTests(unittest.TestCase):
         cls.binary = Path(cls.directory.name) / "vfs-tests"
         flags = [CXX_STANDARD_FLAG, *ZSTL_FLAGS, "-nostdinc", "-nostdinc++", "-ffreestanding",
                  "-fno-exceptions", "-fno-rtti", "-fno-elide-constructors", "-Werror=unused-result",
+                 "-I" + str(ROOT / "arch/x86/test/host/storage_include"),
                  "-I" + str(ROOT / "kernel"), "-I" + str(ROOT / "include"),
                  "-I" + str(ROOT / "arch/x86/include")]
-        sources = ["kernel/fs/vfs.cpp", "kernel/fs/devfs.cpp", "kernel/test/host/vfs_contract_test.cpp"]
+        sources = ["kernel/fs/vfs.cpp", "kernel/fs/devfs.cpp", "kernel/sync/activity_gate.cpp",
+                   "kernel/test/host/vfs_contract_test.cpp"]
         result = subprocess.run([CLANG, *flags, *(str(ROOT / source) for source in sources),
                                  "-o", str(cls.binary)], capture_output=True, text=True, timeout=30)
         if result.returncode:

@@ -2,6 +2,7 @@
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -18,12 +19,13 @@ class StorageDriverTests(unittest.TestCase):
         cls.binary = Path(cls.directory.name) / "storage-tests"
         flags = [CXX_STANDARD_FLAG, *ZSTL_FLAGS, "-nostdinc", "-nostdinc++", "-ffreestanding",
                  "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-O2", "-ffunction-sections", "-fdata-sections",
-                 "-Werror=unused-result", "-Werror=unused-value", "-pthread", "-Wl,--gc-sections"]
+                 "-Werror=unused-result", "-Werror=unused-value", "-pthread", "-Wl,-dead_strip" if sys.platform == "darwin" else "-Wl,--gc-sections"]
         includes = ["arch/x86/test/host/storage_include", "kernel", "include",
                     "arch/x86/include", "arch/x86/kernel"]
         flags += ["-I" + str(ROOT / path) for path in includes]
         sources = ["arch/x86/test/host/storage_driver_contract_test.cpp", "kernel/mm/mmio.cpp",
-                   "kernel/block/blk.cpp", "kernel/drivers/pci.cpp", "kernel/drivers/sdhci.cpp",
+                   "kernel/block/blk.cpp", "kernel/block/device.cpp", "kernel/sync/activity_gate.cpp",
+                   "kernel/drivers/pci.cpp", "kernel/drivers/sdhci.cpp",
                    "arch/x86/kernel/drivers/ahci.cpp", "arch/x86/kernel/drivers/ide.cpp"]
         result = subprocess.run([CLANG, *flags, *(str(ROOT / path) for path in sources), "-o", str(cls.binary)],
                                 capture_output=True, text=True, timeout=30)
@@ -39,6 +41,11 @@ class StorageDriverTests(unittest.TestCase):
         result = subprocess.run([str(self.binary), case], capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("storage contract passed", result.stdout)
+
+    def test_cache_flush_capability_and_non_data_commands(self):
+        for case in ["flush_capability", "flush_ahci", "flush_ahci_io", "flush_ahci_timeout", "flush_sd", "flush_ide"]:
+            with self.subTest(case=case):
+                self.run_case(case)
 
     def test_mmio_owner_and_mapping_failure(self):
         self.run_case("mmio")

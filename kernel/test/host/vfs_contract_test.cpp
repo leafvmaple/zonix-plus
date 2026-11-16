@@ -122,6 +122,7 @@ public:
         VfsFixture::active().check_transition(mount_point_);
         return Error::None;
     }
+    Error sync() override { return Error::None; }
     Result<vfs::FileHandle> open(const char* path, int) override {
         VfsFixture::active().check_path(mount_point_, path);
         if (strcmp(path, "empty") == 0)
@@ -374,6 +375,25 @@ Guard::~Guard() {
     VfsFixture::leave_guard();
 }
 }  // namespace intr
+
+namespace sched {
+Task* current() {
+    return nullptr;
+}
+}  // namespace sched
+void Spinlock::lock() {
+    assert(!locked_);
+    locked_ = true;
+    VfsFixture::enter_guard();
+}
+void Spinlock::unlock() {
+    locked_ = false;
+    VfsFixture::leave_guard();
+}
+void WaitQueue::sleep() {
+    assert(false);
+}
+void WaitQueue::wakeup_all() {}
 
 extern "C" int main(int argc, char** argv) {
     assert(argc == 2);

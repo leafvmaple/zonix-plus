@@ -305,7 +305,22 @@ static void cmd_rmdir(int argc, char** argv) {
     }
 }
 
+static void cmd_sync(int argc, char** argv) {
+    static_cast<void>(argv);
+    if (argc != 1) {
+        cprintf("Usage: sync\n");
+        return;
+    }
+    Error error = vfs::sync();
+    if (error != Error::None) {
+        cprintf("sync: %s (%d)\n", error_str(error), static_cast<int>(error));
+        return;
+    }
+    cprintf("Data synchronized.\n");
+}
+
 void register_fs_commands() {
+    shell::register_command("sync", "Synchronize files and device caches", cmd_sync);
     shell::register_command("ls", "List files (usage: ls [/mnt])", cmd_ls);
     shell::register_command("cat", "Display file contents (usage: cat <file> [/mnt])", cmd_cat);
     shell::register_command("mkdir", "Create directory (usage: mkdir <dir> [/mnt])", cmd_mkdir);

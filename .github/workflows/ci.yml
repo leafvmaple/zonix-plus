@@ -119,6 +119,9 @@ jobs:
           chmod +x scripts/ci_qemu_test.sh
           bash scripts/ci_qemu_test.sh bios
 
+      - name: Verify shutdown and reboot persistence
+        run: python3 scripts/test_shutdown_qemu.py x86 --boot bios --unsupported
+
   # ======================================================================
   # Job 5: Unit tests in QEMU (UEFI boot)
   # ======================================================================
@@ -150,6 +153,9 @@ jobs:
           chmod +x scripts/ci_qemu_test.sh
           bash scripts/ci_qemu_test.sh uefi
 
+      - name: Verify shutdown and reboot persistence
+        run: python3 scripts/test_shutdown_qemu.py x86 --boot uefi
+
   # ======================================================================
   # Job 6: Integration tests in QEMU (AArch64 UEFI boot)
   # ======================================================================
@@ -180,6 +186,9 @@ jobs:
         run: |
           chmod +x scripts/ci_qemu_test_aarch64.sh
           bash scripts/ci_qemu_test_aarch64.sh
+
+      - name: Verify shutdown and reboot persistence
+        run: python3 scripts/test_shutdown_qemu.py aarch64
 
   # ======================================================================
   # Job 7: Build riscv64 kernel
@@ -234,6 +243,9 @@ jobs:
         run: |
           chmod +x scripts/ci_qemu_test_riscv64.sh
           bash scripts/ci_qemu_test_riscv64.sh
+
+      - name: Verify shutdown and reboot persistence
+        run: python3 scripts/test_shutdown_qemu.py riscv64
 
   # ======================================================================
   # Job 9: Static analysis (clang-tidy, non-blocking)

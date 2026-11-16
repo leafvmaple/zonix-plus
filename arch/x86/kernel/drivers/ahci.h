@@ -2,6 +2,7 @@
 
 #include <base/types.h>
 #include "block/blk.h"
+#include "drivers/ata.h"
 #include "lib/result.h"
 #include "lib/mutex.h"
 #include "mm/mmio.h"
@@ -216,11 +217,12 @@ struct AhciDevice : public BlockDevice {
     [[nodiscard]] blk::DeviceState state() const { return state_; }
     void interrupt();
 
-    Error read(uint32_t start_lba, void* buf, size_t block_count) override;
-    Error write(uint32_t start_lba, const void* buf, size_t block_count) override;
     void print_info() override;
 
 private:
+    Error read_blocks(uint32_t start_lba, void* buf, size_t block_count) override;
+    Error write_blocks(uint32_t start_lba, const void* buf, size_t block_count) override;
+    Error flush_cache() override;
     Error setup_memory();
     Error identify();
     Error shutdown_locked();
@@ -230,6 +232,7 @@ private:
     Error transfer_blocks(uint32_t start_lba, size_t block_count, void* buf, bool write);
 
     Mutex io_mutex_{};
+    ata::CacheFlush cache_flush_{};
     blk::DeviceState state_{blk::DeviceState::Offline};
     uintptr_t port_base_{};
     bool memory_configured_{};

@@ -4,6 +4,7 @@
 #include <sys/array.hpp>
 
 #include "block/blk.h"
+#include "drivers/ata.h"
 #include "lib/result.h"
 #include "lib/mutex.h"
 #include "lib/waitqueue.h"
@@ -103,16 +104,18 @@ struct IdeDevice : public BlockDevice {
     void interrupt();
     [[nodiscard]] blk::DeviceState state() const { return state_; }
 
-    Error read(uint32_t start_lba, void* buf, size_t block_count) override;
-    Error write(uint32_t start_lba, const void* buf, size_t block_count) override;
     void print_info() override;
 
 private:
+    Error read_blocks(uint32_t start_lba, void* buf, size_t block_count) override;
+    Error write_blocks(uint32_t start_lba, const void* buf, size_t block_count) override;
+    Error flush_cache() override;
     Result<bool> detect_locked(const IdeConfig* cfg);
     Result<bool> identify_locked();
     Error transfer_blocks(uint32_t start_lba, void* buf, size_t count, bool write);
     Error transfer_sector_locked(uint32_t lba, uint8_t* buf, bool write);
 
+    ata::CacheFlush cache_flush_{};
     blk::DeviceState state_{blk::DeviceState::Offline};
     friend class IdeManager;
 };

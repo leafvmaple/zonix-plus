@@ -33,6 +33,7 @@ public:
     Error mount(BlockDevice*) override { return Error::None; }
 
     Error unmount() override { return Error::None; }
+    Error sync() override { return Error::None; }
 
     Result<vfs::FileHandle> open(const char* relpath, int flags) override {
         ENSURE(relpath && relpath[0] != '\0', Error::Invalid);

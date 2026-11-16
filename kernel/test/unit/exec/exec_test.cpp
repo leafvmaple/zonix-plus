@@ -61,6 +61,7 @@ public:
         mounted_ = nullptr;
         return Error::None;
     }
+    Error sync() override { return Error::None; }
     Result<vfs::FileHandle> open(const char* path, int) override {
         if (strcmp(path, "open") == 0) {
             return Error::NoDevice;

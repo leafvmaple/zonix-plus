@@ -1,4 +1,4 @@
-#include <kernel/power.h>
+#include <asm/power.h>
 #include <asm/arch.h>
 
 #include "drivers/intr.h"
@@ -14,7 +14,7 @@ constexpr int64_t SBI_INVALID_PARAM = -3;
 
 }  // namespace
 
-Error power::shutdown() {
+Error arch_power_off() {
     intr::Guard guard;
     register uint64_t error __asm__("a0") = SBI_RESET_SHUTDOWN;
     register uint64_t reason __asm__("a1") = SBI_RESET_REASON_NONE;

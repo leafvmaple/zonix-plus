@@ -115,10 +115,24 @@ Error FatInfo::mount(BlockDevice* dev) {
 }
 
 Error FatInfo::unmount() {
-    TRY(free_detached_chain());
-    TRY(flush_fat_buffer());
+    TRY(sync());
     dev_ = nullptr;
     buffer_sector_ = FAT_INVALID_SECTOR;
+    return Error::None;
+}
+
+Error FatInfo::write_sectors(uint32_t start_lba, const void* buf, size_t block_count) {
+    needs_sync_ = true;
+    return dev_->write(start_lba, buf, block_count);
+}
+
+Error FatInfo::sync() {
+    ENSURE(dev_, Error::NoDevice);
+    TRY(free_detached_chain());
+    TRY(flush_fat_buffer());
+    needs_sync_ = true;
+    TRY(dev_->flush());
+    needs_sync_ = false;
     return Error::None;
 }
 
@@ -140,7 +154,7 @@ void FatInfo::print() const {
 Error FatInfo::flush_fat_buffer() {
     if (buffer_dirty_) {
         for (uint32_t i = 0; i < fat_count_; i++) {
-            TRY(dev_->write(partition_start_lba_ + buffer_sector_ + i * fat_sector_count_, buffer_, 1));
+            TRY(write_sectors(partition_start_lba_ + buffer_sector_ + i * fat_sector_count_, buffer_, 1));
         }
         buffer_dirty_ = false;
     }
@@ -194,15 +208,15 @@ Result<uint32_t> FatInfo::alloc_cluster() {
         if (TRY(read_entry(c)) == fat::FAT32_FREE) {
             Error error = write_entry(c, fat::FAT32_EOC_MAX);
             if (error != Error::None) {
-                rollback_new_chain(c);
+                rollback_new_cluster(c);
                 return error;
             }
 
             uint32_t sector = cluster_to_sector(c);
             for (uint32_t s = 0; s < sectors_per_cluster_; s++) {
-                error = dev_->write(partition_start_lba_ + sector + s, ZERO_SECTOR, 1);
+                error = write_sectors(partition_start_lba_ + sector + s, ZERO_SECTOR, 1);
                 if (error != Error::None) {
-                    rollback_new_chain(c);
+                    rollback_new_cluster(c);
                     return error;
                 }
             }

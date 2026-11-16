@@ -33,6 +33,7 @@ class LifetimeFs : public vfs::FileSystem {
 public:
     Error mount(BlockDevice*) override { return Error::None; }
     Error unmount() override { return Error::None; }
+    Error sync() override { return Error::None; }
     Result<vfs::FileHandle> open(const char* path, int) override {
         if (strcmp(path, "empty") == 0) {
             return vfs::FileHandle{};

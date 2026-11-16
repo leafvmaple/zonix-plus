@@ -245,8 +245,53 @@ Truncate/unlink detach before freeing; failed detached-chain cleanup retains its
 cursor and next link in `FatInfo` and is retried before subsequent mutations or
 unmount. Failed mirrored FAT writes stay dirty across cache switches, including
 reads. An I/O failure can leave partial changes and uncertain allocations; it
-does not promise rollback or power-loss consistency. Device cache flushing and
-system-wide orderly shutdown remain separate work in TODO P0-2.
+does not promise rollback or power-loss consistency. Normal persistence requires
+the checked synchronization and shutdown sequence below.
+
+### Storage synchronization and power-off
+
+File I/O currently writes through; there is no dirty file-page cache. FAT owns
+its pending detached-chain cleanup, dirty mirrored FAT sector and `needs_sync`
+durability state. `FileSystem::sync()` retries that cleanup and metadata, then
+calls `BlockDevice::flush()`. A failed write or flush retains pending state; only
+a successful cache barrier clears it. Checked unmount uses the same path and
+retains the mounted filesystem on failure. Virtual filesystems explicitly return
+success without a storage barrier. The default device flush is `NotSupported`.
+
+IDE and AHCI choose ATA FLUSH CACHE / FLUSH CACHE EXT from valid IDENTIFY
+capability words. A device verified to lack a write cache needs no command;
+unknown capability cannot claim durability. AHCI flush commands have no PRDT or
+data phase and retain the existing DMA stop/quarantine protocol on errors. IDE
+flush uses the channel lock and bounded polling with interrupt-mask cleanup.
+SD initialization resets the card and never enables its optional cache; CMD13
+must confirm ready-for-data and transfer state, with card errors propagated.
+These are device completion guarantees, not guarantees about host storage or
+sudden power loss.
+
+`sync` calls `vfs::sync()`: pin each live mount, invoke every filesystem outside
+the registry interrupt guard, and return the first error. Mount transitions
+report `Busy`. Existing open handles do not prevent synchronization.
+
+`power::prepare_shutdown()` returns a move-only, task-affine `ShutdownGuard`:
+
+1. Close VFS admission and wait for admitted operations to finish. An entire
+   multi-chunk file syscall holds one lease; synchronous nested requests can
+   finish while new operations receive `Busy`.
+2. Close block admission, drain raw requests, then allow only the coordinator's
+   internal synchronization I/O. Device registration is also frozen.
+3. Run `vfs::sync()` and flush all registered devices, including raw/swap devices;
+   attempt the remaining barriers after an error, preserving the first error.
+4. Close the coordinator's I/O exemption and retain both freezes until platform
+   power-off. Console I/O remains available throughout.
+
+The guard releases only freezes it owns, in block-then-VFS order. Preparation
+failure, cancellation and a returning platform error restore storage admission;
+reentrant or competing preparation returns `Busy` without releasing another
+caller's lease. `power::shutdown()` holds the guard while calling
+`arch_power_off()`. It never calls the platform if synchronization fails. A
+successful platform call does not return; unsupported power control returns to
+the shell. A failed device may still require explicit reset; reopening admission
+does not bypass its offline/quarantined state or discard pending FAT metadata.
 
 Directory update and write-transfer scratch sectors use `KernelBuffer`, as does
 staging a FAT cache miss before replacing the live cache. Cluster initialization

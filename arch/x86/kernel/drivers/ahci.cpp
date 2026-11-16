@@ -94,6 +94,7 @@ Error AhciDevice::identify() {
     TRY(wait_cmd_complete());
 
     uint16_t* id = reinterpret_cast<uint16_t*>(dma_buf_);
+    cache_flush_.identify(id);
 
     info.cylinders = id[1];
     info.heads = id[3];
@@ -406,16 +407,37 @@ Error AhciDevice::transfer_blocks(uint32_t start_lba, size_t block_count, void* 
     return Error::None;
 }
 
-Error AhciDevice::read(uint32_t start_lba, void* buf, size_t block_count) {
+Error AhciDevice::read_blocks(uint32_t start_lba, void* buf, size_t block_count) {
     return transfer_blocks(start_lba, block_count, buf, false);
 }
 
-Error AhciDevice::write(uint32_t start_lba, const void* buf, size_t block_count) {
+Error AhciDevice::write_blocks(uint32_t start_lba, const void* buf, size_t block_count) {
     return transfer_blocks(start_lba, block_count, const_cast<void*>(buf), true);
 }
 
+Error AhciDevice::flush_cache() {
+    sys::lock_guard<Mutex> guard(io_mutex_);
+    ENSURE(state_ == blk::DeviceState::Ready, Error::NoDevice);
+    const uint8_t command = TRY(cache_flush_.command());
+    if (command == 0) {
+        return Error::None;
+    }
+    Error error = issue_cmd(command, 0, 0, false);
+    if (error == Error::None) {
+        error = wait_cmd_complete();
+    }
+    if (error != Error::None) {
+        Error stopped = shutdown_locked();
+        if (stopped != Error::None) {
+            klog::error("ahci: %s: failed to stop command after flush failure: %s\n", name, error_str(stopped));
+        }
+    }
+    return error;
+}
+
 Error AhciDevice::issue_cmd(uint8_t command, uint32_t lba, uint16_t count, bool write) {
-    if (count == 0 || count > MAX_SECTORS) {
+    const bool flush = command == ata::CMD_FLUSH_CACHE || command == ata::CMD_FLUSH_CACHE_EXT;
+    if ((count == 0 && !flush) || count > MAX_SECTORS || (flush && count != 0)) {
         return Error::Invalid;
     }
 
@@ -440,7 +462,7 @@ Error AhciDevice::issue_cmd(uint8_t command, uint32_t lba, uint16_t count, bool 
     auto& cmd = cmd_list_[0];
     cmd.cfl = sizeof(RegisterHostToDeviceFis) / 4;
     cmd.write = write ? 1 : 0;
-    cmd.prdtl = 1;
+    cmd.prdtl = flush ? 0 : 1;
     cmd.prdbc = 0;
 
     cmd_table_ = {};
@@ -448,8 +470,10 @@ Error AhciDevice::issue_cmd(uint8_t command, uint32_t lba, uint16_t count, bool 
     auto* fis = reinterpret_cast<RegisterHostToDeviceFis*>(cmd_table_.cfis);
     fis->set_command(command, lba, count);
 
-    auto& prdt = cmd_table_.prdt[0];
-    prdt.set_data_buffer(buf_phys, data_bytes);
+    if (!flush) {
+        auto& prdt = cmd_table_.prdt[0];
+        prdt.set_data_buffer(buf_phys, data_bytes);
+    }
 
     // Clear port interrupt status
     mmio::write32(port_base_, ahci::PORT_IS, 0xFFFFFFFF);

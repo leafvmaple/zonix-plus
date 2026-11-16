@@ -370,9 +370,16 @@ void test_tail_and_mirror_failures() {
         Volume volume;
         TEST_ASSERT(volume.ready(), "Mounted tail rollback volume");
         if (volume.ready()) {
-            uint8_t bytes[512]{};
+            auto allocation = KernelBuffer::alloc(512);
+            TEST_ASSERT(allocation.ok(), "Allocated tail rollback payload off the kernel stack");
+            if (!allocation.ok()) {
+                TEST_END();
+                return;
+            }
+            auto bytes = allocation.release_value();
+            memset(bytes.data(), 0, bytes.size());
             auto file = open_file("/mnt/TAIL.BIN", O_CREAT | O_RDWR);
-            TEST_ASSERT(file && wrote(file.get(), bytes, sizeof(bytes)), "Seeded tail rollback target");
+            TEST_ASSERT(file && wrote(file.get(), bytes.data(), bytes.size()), "Seeded tail rollback target");
             volume.image.fail_write_at(volume.image.fat_lba(3), 2, Error::Timeout, 0, true);
             auto result = vfs::write(file.get(), "x", 1, 512);
             TEST_ASSERT(!result.ok() && result.error() == Error::Timeout && has_size(file.get(), 512) &&
@@ -527,6 +534,7 @@ class AppendProbeFs : public vfs::FileSystem {
 public:
     Error mount(BlockDevice*) override { return Error::None; }
     Error unmount() override { return Error::None; }
+    Error sync() override { return Error::None; }
     Result<vfs::FileHandle> open(const char*, int) override {
         vfs::FileHandle file(new (sys::nothrow) AppendProbe());
         ENSURE(file, Error::NoMem);
@@ -550,12 +558,14 @@ Error prepare_user_memory(MemoryDesc& mm) {
 }
 
 long invoke(int nr, uintptr_t arg0, uintptr_t arg1, uintptr_t arg2) {
-    TrapFrame tf{};
-    tf.set_syscall(nr, arg0, arg1, arg2);
-    if (!trap::handle_syscall(&tf)) {
+    sys::unique_ptr<TrapFrame> tf(new (sys::nothrow) TrapFrame{});
+    if (!tf)
+        return -2;
+    tf->set_syscall(nr, arg0, arg1, arg2);
+    if (!trap::handle_syscall(tf.get())) {
         return -2;
     }
-    return static_cast<long>(tf.syscall_return());
+    return static_cast<long>(tf->syscall_return());
 }
 
 void test_append_syscall_boundary() {

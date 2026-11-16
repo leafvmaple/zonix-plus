@@ -66,6 +66,7 @@ constexpr uint8_t SD_CMD3_SEND_RCA = 3;
 constexpr uint8_t SD_CMD7_SELECT = 7;
 constexpr uint8_t SD_CMD8_SEND_IF = 8;
 constexpr uint8_t SD_CMD9_SEND_CSD = 9;
+constexpr uint8_t SD_CMD13_SEND_STATUS = 13;
 constexpr uint8_t SD_CMD16_SET_BLKLEN = 16;
 constexpr uint8_t SD_CMD17_READ = 17;
 constexpr uint8_t SD_CMD24_WRITE = 24;
@@ -77,6 +78,11 @@ constexpr uint32_t ACMD41_VOLTAGE = 0x00FF8000;  // 2.7-3.6V
 
 constexpr uint32_t OCR_BUSY = (1U << 31);  // Card power-up status (ready)
 constexpr uint32_t OCR_CCS = (1U << 30);   // Card Capacity Status (SDHC)
+
+constexpr uint32_t CARD_STATUS_ERRORS = 0xFFF9A008;
+constexpr uint32_t CARD_READY_FOR_DATA = 1U << 8;
+constexpr uint32_t CARD_STATE_MASK = 0xFU << 9;
+constexpr uint32_t CARD_STATE_TRANSFER = 4U << 9;
 
 constexpr int COMMAND_POLL_LIMIT = 1000000;  // Poll budget; not a wall-clock duration
 constexpr int ACMD41_RETRIES = 100;
@@ -433,12 +439,29 @@ void SdDevice::shutdown_locked() {
     state_ = blk::DeviceState::Offline;
 }
 
-Error SdDevice::read(uint32_t start_lba, void* buf, size_t count) {
+Error SdDevice::read_blocks(uint32_t start_lba, void* buf, size_t count) {
     return transfer_blocks(start_lba, buf, count, false);
 }
 
-Error SdDevice::write(uint32_t start_lba, const void* buf, size_t count) {
+Error SdDevice::write_blocks(uint32_t start_lba, const void* buf, size_t count) {
     return transfer_blocks(start_lba, const_cast<void*>(buf), count, true);
+}
+
+Error SdDevice::flush_cache() {
+    sys::lock_guard<Mutex> guard(io_mutex_);
+    ENSURE(state_ == blk::DeviceState::Ready, Error::NoDevice);
+    // CMD0 resets the card and this driver never enables the optional SD cache.
+    // Wait for programming to finish; transfer completion alone is insufficient.
+    for (int polls = COMMAND_POLL_LIMIT; polls > 0; --polls) {
+        TRY(send_cmd(SD_CMD13_SEND_STATUS, static_cast<uint32_t>(rca_) << 16, CMD_RESP_48 | CMD_CRC_EN | CMD_IDX_EN));
+        const uint32_t status = read_response(0);
+        ENSURE((status & CARD_STATUS_ERRORS) == 0, Error::Io);
+        if ((status & CARD_READY_FOR_DATA) != 0 && (status & CARD_STATE_MASK) == CARD_STATE_TRANSFER) {
+            return Error::None;
+        }
+        arch_spin_hint();
+    }
+    return Error::Timeout;
 }
 
 Error SdDevice::transfer_blocks(uint32_t start_lba, void* buf, size_t count, bool write) {
