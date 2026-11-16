@@ -1,3 +1,4 @@
+#include "mm/page_table.h"
 #include "test/test_defs.h"
 #include "test/task_access.h"
 #include "exec/exec.h"

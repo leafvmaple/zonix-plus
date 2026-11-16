@@ -1,3 +1,4 @@
+#include "mm/page_table.h"
 #include "swap.h"
 #include <kernel/log.h>
 #include "block/blk.h"
@@ -171,7 +172,7 @@ Error in(MemoryDesc* mm, uintptr_t va, Page** page_ptr) {
         error = pmm::page_insert(mm->pgdir, page, va, perm);
     }
     if (error != Error::None) {
-        page->node().unlink();
+        page->list_node.unlink();
         pmm::free_pages(page);
         return error;
     }
@@ -215,7 +216,7 @@ int out(MemoryDesc* mm, int page_count, int in_timer_tick) {
                 release_entry((static_cast<uintptr_t>(reserved.value()) << 8) | ENTRY_HAS_PERMISSIONS);
             }
             intr::Guard irq_guard;
-            mm->swap_list.add(victim->node());
+            mm->swap_list.push_front(*victim);
             break;
         }
         uintptr_t resident = *ptep;
@@ -225,7 +226,7 @@ int out(MemoryDesc* mm, int page_count, int in_timer_tick) {
         intr::Guard irq_guard;
         if (error != Error::None || *ptep != resident || victim->ref_count != 1) {
             release_entry(entry);
-            mm->swap_list.add(victim->node());
+            mm->swap_list.push_front(*victim);
             break;
         }
         *ptep = entry;

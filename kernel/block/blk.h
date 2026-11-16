@@ -1,6 +1,7 @@
 #pragma once
 
 #include <base/types.h>
+#include <debug/assert.h>
 #include <sys/inplace_vector.hpp>
 #include "lib/result.h"
 

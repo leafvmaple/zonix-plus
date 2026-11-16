@@ -84,7 +84,7 @@ Error Task::setup_kernel_stack() {
 void Task::set_links() {
     TaskManager::add_process(this);
     if (parent) {
-        parent->child_list.add(child_node);
+        parent->child_list.push_front(*this);
     }
 }
 

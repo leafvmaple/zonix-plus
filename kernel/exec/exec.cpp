@@ -1,3 +1,4 @@
+#include "mm/page_table.h"
 #include "exec.h"
 #include "elf_loader.h"
 #include "fs/vfs.h"

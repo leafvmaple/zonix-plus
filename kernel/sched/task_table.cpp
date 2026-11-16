@@ -14,8 +14,8 @@ static const char* state_str(TaskState state) {
 }
 
 void TaskManager::add_process(Task* proc) {
-    hash_node(proc->pid).add(proc->hash_node);
-    proc_list_.add(proc->list_node);
+    hash_list(proc->pid).push_front(*proc);
+    proc_list_.push_front(*proc);
     process_count_++;
 }
 
@@ -31,9 +31,8 @@ Task* TaskManager::find_process(int pid) {
     if (pid <= 0) {
         return nullptr;
     }
-    ListNode& head = hash_node(pid);
-    for (auto* node : head) {
-        Task* proc = Task::from_hash_link(node);
+    for (Task& task : hash_list(pid)) {
+        Task* proc = &task;
         if (proc->pid == pid) {
             return proc;
         }
@@ -47,8 +46,8 @@ void TaskManager::print() {
     cprintf("PID  STAT  PPID  PRIO  SLICE  KSTACK            MM                NAME\n");
     cprintf("---  ----  ----  ----  -----  ----------------  ----------------  ----------------\n");
 
-    for (auto* node : proc_list_.reversed()) {
-        Task* proc = Task::from_list_link(node);
+    for (Task& task : proc_list_.reversed()) {
+        Task* proc = &task;
         cprintf("%c%-3d %-4s  %-4d  %-4d  %-5d  %016lx  %016lx  %s\n", (proc == current) ? '*' : ' ', proc->pid,
                 state_str(proc->state_), (proc->parent ? proc->parent->pid : -1), proc->priority, proc->time_slice,
                 proc->kernel_stack(), reinterpret_cast<uintptr_t>(proc->memory()), proc->name_);

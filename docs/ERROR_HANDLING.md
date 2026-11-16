@@ -90,6 +90,16 @@ stateful deleters; this migration uses single-object ownership and stateless pol
 `KernelBuffer` owns raw bytes, not constructed C++ elements. Allocating zero bytes
 succeeds with null data and zero length; allocation failure returns `NoMem`.
 
+The kernel heap supplies 16/32/64/128/256/512/1024-byte size classes. These
+blocks are aligned to their class size, at least the default C++ new alignment.
+Larger blocks remain physically contiguous and page-aligned. Empty slab pages
+are returned immediately. `KernelBuffer` records the requested size, not the
+size-class capacity; neither allocation path initializes the requested bytes.
+Page tables and kernel stacks continue to request complete pages. Small buffers
+must not assume page alignment; device-specific DMA alignment remains a caller
+contract. `kfree` accepts only a live base returned by `kmalloc`, never an interior
+pointer or a page obtained directly from PMM.
+
 Construct an owner from a raw pointer only when the caller already holds ownership. Raw
 pointers/references passed to ordinary operations borrow by default. Borrowing
 does not extend lifetime; discard borrowed pointers before the owner is reset,
@@ -371,7 +381,8 @@ FAT updates or power-loss recovery; those require a separate filesystem design.
 ## Shared standard types and kernel types
 
 Standard containers and generic utilities come from `external/zstl`; add missing
-capabilities and contract tests there. The migration boundary is:
+capabilities there; add or run tests only at the owner's explicit request.
+The migration boundary is:
 
 | Use | Implementation / boundary |
 | --- | --- |
@@ -381,7 +392,7 @@ capabilities and contract tests there. The migration boundary is:
 | Generic scoped locking | `sys::lock_guard`; kernel lockables expose `lock()` / `unlock()` |
 | Pointer traits, min/max, array size, C string and variadic primitives | zstl `type_traits`, `algorithm`, `iterator`, `cstring`, `cstdarg` |
 | Spinlock, Mutex, Semaphore and WaitQueue | Kernel backends own interrupt restoration, task ownership and scheduler sleep/wakeup |
-| Embedded ListNode / circular traversal | Intrusive lists retain task/page/wait-entry ownership; allocating `std::list` has different semantics |
+| Embedded hooks / circular traversal | `sys::intrusive_list<T, MEMBER>` borrows stable objects; explicit unlink/erase, no allocation or object destruction |
 | Result/Error, KernelBuffer, file/MM owners | Domain interfaces use zstl ownership internally; cleanup and failure contracts are kernel-specific |
 | SectorArray, register/DMA/firmware layouts, boot/runtime ABI | Exact layout, alignment, addresses and C/linker contracts are not generic containers |
 
@@ -391,6 +402,17 @@ require kernel dependencies. Inline registries must not be changed to allocating
 keeps the subsystem's existing code. `inplace_vector::pop_back` requires nonempty
 storage; FAT `..` normalization checks explicitly. Architecture-backed runtime byte
 operations stay in the kernel, with declarations supplied by zstl.
+
+Container invariants and kernel checks use the same standard `assert` from
+`sys/cassert.hpp`, including its `NDEBUG` policy. Kernel consumers include
+`debug/assert.h` before the relevant zstl header; it binds the
+`ZSTL_ASSERT_FAILURE` diagnostic hook to `panic_at`, with the expression, file
+and line. Kernel builds currently leave `NDEBUG` undefined, so checks stay
+enabled. Containers do not introduce a separate always-on assertion policy.
+This is for programming errors such as duplicate list insertion, invalid
+erasure or destruction while linked. Expected capacity, allocation and I/O
+failures still use checked operations and Error/Result. Containers never choose
+a CPU trap instruction; failure reporting belongs to the embedding runtime.
 
 ## Storage probes and hardware cleanup
 
@@ -552,3 +574,21 @@ The PMM kernel tests use a local owned address space to check that MMIO unmap
 retains siblings and borrowed device frames, then recycles empty table frames.
 `scripts/tests/test_fbcons.py` injects a context switch at scrolling and checks
 that interrupt masking defers it and framebuffer boundary canaries stay intact.
+
+
+### Intrusive list lifetime
+
+Use zstl `list_hook<T>` initialized with `*this` and bind each list to one member
+hook. Hooks and containers cannot be copied or moved. `erase(iterator)` returns
+the following iterator; ordinary and circular traversal yield objects, not raw
+nodes. The owner pointer is borrowed, costs one pointer per hook, and avoids
+member-offset conversion even for non-standard-layout `Task`. `Page` instead
+uses the two-pointer `first_member_hook` as its first field. It must remain
+standard-layout, with the hook at offset zero. The hook does not constrain
+the total size of `Page`. Both hooks use the same list operations.
+
+Insert only detached hooks. `unlink()` remains idempotent. Destruction checks
+that hooks are detached and containers empty; it never automatically mutates a
+list outside the subsystem's locking/interrupt protocol. Circular traversal
+requires stable links. Scheduling invalidates its saved object cursor before
+removal/destruction; a typed iterator alone cannot prevent use after free.

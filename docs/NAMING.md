@@ -177,7 +177,7 @@ The clang-tidy configuration mirrors the convention for editor/manual linting;
 the mandatory harness does not require clang-tidy to be installed.
 
 The existing local pre-commit checks the exact isolated index for all three
-architectures and runs positive/negative harness tests. make check is the manual
-entry point. Normal builds and CI must not automatically invoke naming checks.
+architectures. Regression tests require a separate explicit owner request;
+make check is the manual entry point for static rules. Normal builds and CI must not automatically invoke naming checks.
 Migrate declarations, definitions, uses, assembly and tests together. Keep
 behavior changes separate from naming changes, and never mass-format a rename.

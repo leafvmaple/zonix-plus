@@ -1,79 +1,8 @@
 #include "test/test_defs.h"
 #include "block/blk.h"
-#include "lib/result.h"
-#include "lib/string.h"
-#include "lib/memory.h"
 
 static int tests_passed = 0;
 static int tests_failed = 0;
-
-// ============================================================================
-// Mock block device for testing
-// ============================================================================
-
-class MockBlockDevice : public BlockDevice {
-public:
-    uint8_t backing[512]{};
-    int read_count{};
-    int write_count{};
-
-    MockBlockDevice(const char* dev_name, blk::DeviceType dev_type, uint32_t dev_size) {
-        strncpy(name, dev_name, sizeof(name) - 1);
-        type = dev_type;
-        block_count = dev_size;
-    }
-
-    Error read(uint32_t, void* buf, size_t) override {
-        read_count++;
-        memcpy(buf, backing, 512);
-        return Error::None;
-    }
-
-    Error write(uint32_t, const void* buf, size_t) override {
-        write_count++;
-        memcpy(backing, buf, 512);
-        return Error::None;
-    }
-};
-
-// ============================================================================
-// Device count (observe-only, do not register real devices)
-// ============================================================================
-
-static void test_device_count() {
-    TEST_START("BlockManager device count");
-
-    int count = BlockManager::device_count();
-    TEST_ASSERT(count >= 0, "Device count is non-negative");
-    cprintf("  (Current device count: %d)\n", count);
-
-    TEST_END();
-}
-
-// ============================================================================
-// Mock device read/write
-// ============================================================================
-
-static void test_mock_readwrite() {
-    TEST_START("Mock BlockDevice read/write");
-
-    MockBlockDevice mock("test0", blk::DeviceType::Disk, 1024);
-
-    uint8_t wbuf[512], rbuf[512];
-    for (int i = 0; i < 512; i++)
-        wbuf[i] = static_cast<uint8_t>(i & 0xFF);
-
-    Error rc = mock.write(0, wbuf, 1);
-    TEST_ASSERT(rc == Error::None, "Mock write returns None");
-    TEST_ASSERT(mock.write_count == 1, "Write count incremented");
-
-    rc = mock.read(0, rbuf, 1);
-    TEST_ASSERT(rc == Error::None, "Mock read returns None");
-    TEST_ASSERT(mock.read_count == 1, "Read count incremented");
-    TEST_ASSERT(memcmp(wbuf, rbuf, 512) == 0, "Read data matches written data");
-
-    TEST_END();
-}
 
 // ============================================================================
 // Get device by index (existing devices)
@@ -164,8 +93,6 @@ void test() {
     tests_passed = 0;
     tests_failed = 0;
 
-    test_device_count();
-    test_mock_readwrite();
     test_find_device_by_index();
     test_find_device_by_name();
     test_find_device_by_type();

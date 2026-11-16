@@ -1,6 +1,7 @@
 #pragma once
 
-#include "lib/list.h"
+#include "mm/page_table.h"
+
 #include "lib/result.h"
 #include "pmm.h"
 
@@ -14,10 +15,9 @@ struct MemoryDesc {
     MemoryDesc(MemoryDesc&&) = delete;
     MemoryDesc& operator=(MemoryDesc&&) = delete;
 
-    ListNode mmap_list{};  // VMA list ordered by start VA
     pde_t* pgdir{};        // Root page table for this address space
     int map_count{};       // Number of VMAs
-    ListNode swap_list{};  // active swap queue for page replacement
+    PageList swap_list{};  // active swap queue for page replacement
 
     ~MemoryDesc() {
         if (pgdir && ownership_ == PageTableOwnership::Owned) {

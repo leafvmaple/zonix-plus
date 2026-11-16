@@ -166,11 +166,15 @@ int vformat(Sink& sink, const char* fmt, va_list args) {
 
 }  // namespace
 
-int cprintf(const char* fmt, ...) {
+int vcprintf(const char* fmt, va_list args) {
     ConsoleSink sink{0};
+    return vformat(sink, fmt, args);
+}
+
+int cprintf(const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
-    int n = vformat(sink, fmt, args);
+    int n = vcprintf(fmt, args);
     va_end(args);
     return n;
 }

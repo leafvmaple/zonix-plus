@@ -1,6 +1,7 @@
 #include "fs/vfs.h"
 #include "fs/vfs_fs.h"
 
+#include <debug/assert.h>
 #include <sys/inplace_vector.hpp>
 #include "lib/memory.h"
 #include "lib/stdio.h"

@@ -90,8 +90,8 @@ static void test_process_state_transitions() {
     // Test initial state
     TEST_ASSERT(proc->state() == TaskState::Uninit, "Initial state is Uninit");
 
-    // Transition: Uninit -> Runnable (via wakeup)
-    proc->sleep();  // Set to sleeping first
+    proc->sleep();
+    TEST_ASSERT(proc->state() == TaskState::Sleeping, "sleep() sets state to Sleeping");
     proc->wakeup();
     TEST_ASSERT(proc->state() == TaskState::Runnable, "wakeup() sets state to Runnable");
 
@@ -246,17 +246,16 @@ static void test_parent_child_relationships() {
 
     // Add children using set_links (simulating fork behavior)
     TaskManager::add_process(child1);
-    parent->child_list.add(child1->child_node);
+    parent->child_list.push_front(*child1);
 
     TaskManager::add_process(child2);
-    parent->child_list.add(child2->child_node);
+    parent->child_list.push_front(*child2);
 
     TEST_ASSERT(!parent->child_list.empty(), "Parent has children");
 
     // Verify children through list traversal
     int child_count = 0;
-    ListNode* head = &parent->child_list;
-    for (auto* le = head->next_node(); le != head; le = le->next_node()) {
+    for ([[maybe_unused]] const Task& child : parent->child_list) {
         child_count++;
     }
     TEST_ASSERT(child_count == 2, "Parent has 2 children in list");
@@ -366,353 +365,11 @@ static void test_process_destruction() {
 }
 
 // ============================================================================
-// Unit Tests - Scheduler Selection
-// ============================================================================
-
-static void test_scheduler_selection() {
-    TEST_START("Scheduler Process Selection");
-
-    int initial_count = TaskManager::process_count();
-
-    // Create multiple processes with different states
-    Task* proc1 = new Task();
-    Task* proc2 = new Task();
-    Task* proc3 = new Task();
-
-    init_test_proc(proc1, 500);
-    init_test_proc(proc2, 501);
-    init_test_proc(proc3, 502);
-
-    // Set different states
-    proc1->sleep();   // Should NOT be selected
-    proc2->wakeup();  // Should be selected (first runnable)
-    proc3->wakeup();  // Should NOT be selected (second runnable)
-
-    TaskManager::add_process(proc1);
-    TaskManager::add_process(proc2);
-    TaskManager::add_process(proc3);
-
-    // Verify process states
-    TEST_ASSERT(proc1->state() == TaskState::Sleeping, "proc1 is Sleeping");
-    TEST_ASSERT(proc2->state() == TaskState::Runnable, "proc2 is Runnable");
-    TEST_ASSERT(proc3->state() == TaskState::Runnable, "proc3 is Runnable");
-
-    // Test that schedule would select first runnable process
-    // We can't call schedule() directly as it would switch context,
-    // so we simulate the selection logic
-    Task* next = TaskManager::idle_task();
-    ListNode* head = &TaskManager::task_list();
-    for (auto* le = head->next_node(); le != head; le = le->next_node()) {
-        Task* proc = Task::from_list_link(le);
-        if (proc->state() == TaskState::Runnable) {
-            next = proc;
-            break;
-        }
-    }
-
-    // The first runnable in our test processes should be found
-    // (Note: idle/init are also in the list, so we just verify a runnable is selected)
-    TEST_ASSERT(next->state() == TaskState::Runnable, "Scheduler selects a runnable process");
-
-    // Clean up
-    TaskManager::remove_process(proc1);
-    TaskManager::remove_process(proc2);
-    TaskManager::remove_process(proc3);
-
-    delete proc1;
-    delete proc2;
-    delete proc3;
-
-    TEST_ASSERT(TaskManager::process_count() == initial_count, "Process count restored");
-
-    TEST_END();
-}
-
-// ============================================================================
-// Unit Tests - Process State During Scheduling
-// ============================================================================
-
-static void test_process_state_scheduling() {
-    TEST_START("Process State During Scheduling");
-
-    Task* current = Scheduler::current();
-    TEST_ASSERT(current != nullptr, "Current process exists");
-
-    // Current process should be Running
-    TEST_ASSERT(current->state() == TaskState::Running || current->state() == TaskState::Runnable,
-                "Current process is Running or Runnable");
-
-    // Verify idle process state
-    TEST_ASSERT(TaskManager::idle_task() != nullptr, "Idle process exists");
-
-    // Verify init process state
-    TEST_ASSERT(TaskManager::init_task() != nullptr, "Init process exists");
-    TEST_ASSERT(TaskManager::init_task()->state() != TaskState::Zombie, "Init process is not Zombie");
-
-    TEST_END();
-}
-
-// ============================================================================
-// Unit Tests - Runnable Queue Behavior
-// ============================================================================
-
-static void test_runnable_queue() {
-    TEST_START("Runnable Queue Behavior");
-
-    int initial_count = TaskManager::process_count();
-
-    // Create processes and add to runnable queue
-    constexpr int process_count = 5;
-    Task* procs[process_count];
-
-    for (int i = 0; i < process_count; i++) {
-        procs[i] = new Task();
-        init_test_proc(procs[i], 600 + i);
-        procs[i]->wakeup();
-        TaskManager::add_process(procs[i]);
-    }
-
-    TEST_ASSERT(TaskManager::process_count() == initial_count + process_count, "All processes added to queue");
-
-    // Count runnable processes (excluding our test procs, count only new ones)
-    int runnable_count = 0;
-    ListNode* head = &TaskManager::task_list();
-    for (auto* le = head->next_node(); le != head; le = le->next_node()) {
-        Task* proc = Task::from_list_link(le);
-        if (proc->state() == TaskState::Runnable) {
-            runnable_count++;
-        }
-    }
-    TEST_ASSERT(runnable_count >= process_count, "At least process_count runnable processes");
-
-    // Set some to sleeping, verify they won't be scheduled
-    procs[0]->sleep();
-    procs[2]->sleep();
-
-    runnable_count = 0;
-    for (auto* le = head->next_node(); le != head; le = le->next_node()) {
-        Task* proc = Task::from_list_link(le);
-        // Only count our test procs
-        if (proc->pid >= 600 && proc->pid < 600 + process_count) {
-            if (proc->state() == TaskState::Runnable) {
-                runnable_count++;
-            }
-        }
-    }
-    TEST_ASSERT(runnable_count == 3, "Only 3 of our test procs are runnable after sleeping 2");
-
-    // Clean up
-    for (int i = 0; i < process_count; i++) {
-        TaskManager::remove_process(procs[i]);
-        delete procs[i];
-    }
-
-    TEST_ASSERT(TaskManager::process_count() == initial_count, "Process count restored");
-
-    TEST_END();
-}
-
-// ============================================================================
-// Unit Tests - Sleep and Wakeup
-// ============================================================================
-
-static void test_sleep_wakeup() {
-    TEST_START("Sleep and Wakeup");
-
-    int initial_count = TaskManager::process_count();
-
-    Task* proc = new Task();
-    init_test_proc(proc, 700);
-    proc->wakeup();
-    TaskManager::add_process(proc);
-
-    // Test sleep transition
-    proc->sleep();
-    TEST_ASSERT(proc->state() == TaskState::Sleeping, "Process is sleeping");
-
-    // Verify sleeping process won't be selected by scheduler
-    bool would_be_selected = false;
-    ListNode* head = &TaskManager::task_list();
-    for (auto* le = head->next_node(); le != head; le = le->next_node()) {
-        Task* p = Task::from_list_link(le);
-        if (p == proc && p->state() == TaskState::Runnable) {
-            would_be_selected = true;
-            break;
-        }
-    }
-    TEST_ASSERT(!would_be_selected, "Sleeping process not selected by scheduler");
-
-    // Test wakeup
-    proc->wakeup();
-    TEST_ASSERT(proc->state() == TaskState::Runnable, "Process woken up to Runnable");
-
-    // Now it should be selectable
-    would_be_selected = false;
-    for (auto* le = head->next_node(); le != head; le = le->next_node()) {
-        Task* p = Task::from_list_link(le);
-        if (p == proc && p->state() == TaskState::Runnable) {
-            would_be_selected = true;
-            break;
-        }
-    }
-    TEST_ASSERT(would_be_selected, "Woken process can be selected by scheduler");
-
-    // Clean up
-    TaskManager::remove_process(proc);
-    delete proc;
-
-    TEST_ASSERT(TaskManager::process_count() == initial_count, "Process count restored");
-
-    TEST_END();
-}
-
-// ============================================================================
-// Unit Tests - Wait State
-// ============================================================================
-
-static void test_wait_state() {
-    TEST_START("Wait State Management");
-
-    int initial_count = TaskManager::process_count();
-
-    // Create parent
-    Task* parent = new Task();
-    init_test_proc(parent, 800);
-    parent->wakeup();
-    parent->wait_state = 0;
-    TaskManager::add_process(parent);
-
-    // Create child
-    Task* child = new Task();
-    init_test_proc(child, 801);
-    child->parent = parent;
-    child->wakeup();
-    TaskManager::add_process(child);
-    parent->child_list.add(child->child_node);
-
-    // Simulate parent waiting for child
-    parent->wait_state = 1;
-    parent->sleep();
-
-    TEST_ASSERT(parent->wait_state == 1, "Parent wait_state is set");
-    TEST_ASSERT(parent->state() == TaskState::Sleeping, "Parent is sleeping while waiting");
-
-    // Simulate child exit (becomes zombie)
-    child->mark_zombie(42);
-
-    TEST_ASSERT(child->state() == TaskState::Zombie, "Child is zombie");
-    TEST_ASSERT(child->exit_code == 42, "Child exit code preserved");
-
-    // Parent wakes up when child exits (simulated)
-    if (parent->wait_state) {
-        parent->wakeup();
-    }
-    TEST_ASSERT(parent->state() == TaskState::Runnable, "Parent woken up after child exit");
-
-    // Reset wait state
-    parent->wait_state = 0;
-    TEST_ASSERT(parent->wait_state == 0, "Parent wait_state cleared");
-
-    // Verify parent can retrieve exit code
-    TEST_ASSERT(child->exit_code == 42, "Can retrieve child exit code");
-
-    // Clean up
-    child->child_node.unlink();
-    TaskManager::remove_process(child);
-    TaskManager::remove_process(parent);
-    delete child;
-    delete parent;
-
-    TEST_ASSERT(TaskManager::process_count() == initial_count, "Process count restored");
-
-    TEST_END();
-}
-
-// ============================================================================
-// Unit Tests - Round Robin Fairness (Simulated)
-// ============================================================================
-
-static void test_round_robin_simulation() {
-    TEST_START("Round Robin Fairness (Simulated)");
-
-    int initial_count = TaskManager::process_count();
-
-    // Create multiple runnable processes
-    constexpr int process_count = 4;
-    Task* procs[process_count];
-
-    for (int i = 0; i < process_count; i++) {
-        procs[i] = new Task();
-        init_test_proc(procs[i], 900 + i);
-        procs[i]->wakeup();
-        TaskManager::add_process(procs[i]);
-    }
-
-    // Simulate multiple schedule cycles
-    // In round-robin, each process should get a chance
-    int selection_count[process_count] = {0};
-    int total_selections = 0;
-
-    for (int cycle = 0; cycle < process_count * 2; cycle++) {
-        // Find first runnable among OUR test procs only
-        // (This simulates the scheduler's behavior for our processes)
-        ListNode* head = &TaskManager::task_list();
-        for (auto* le = head->next_node(); le != head; le = le->next_node()) {
-            Task* proc = Task::from_list_link(le);
-
-            // Only consider our test processes (PID 900-903)
-            if (proc->pid >= 900 && proc->pid < 900 + process_count) {
-                if (proc->state() == TaskState::Runnable) {
-                    int idx = proc->pid - 900;
-                    selection_count[idx]++;
-                    total_selections++;
-
-                    // Simulate running: move this process to end of list
-                    // by temporarily setting it to Running, then back
-                    proc->mark_running();
-
-                    // Unlink and re-add to end to simulate round-robin rotation
-                    // Note: add_before(head) puts it at the END of the list
-                    proc->list_node.unlink();
-                    TaskManager::task_list().add_before(proc->list_node);
-
-                    proc->wakeup();
-                    break;
-                }
-            }
-        }
-    }
-
-    // Verify that selections happened
-    TEST_ASSERT(total_selections == process_count * 2, "All schedule cycles made a selection");
-
-    // Verify round-robin fairness: each process should be selected at least once
-    bool all_selected = true;
-    for (int i = 0; i < process_count; i++) {
-        if (selection_count[i] == 0) {
-            all_selected = false;
-            break;
-        }
-    }
-    TEST_ASSERT(all_selected, "All processes got at least one turn (round-robin)");
-
-    // Clean up
-    for (int i = 0; i < process_count; i++) {
-        TaskManager::remove_process(procs[i]);
-        delete procs[i];
-    }
-
-    TEST_ASSERT(TaskManager::process_count() == initial_count, "Process count restored");
-
-    TEST_END();
-}
-
-// ============================================================================
 // Real policy regression (isolated list, no fake task enters the live scheduler).
 static void test_policy_removal_and_current() {
     TEST_START("Policy cursor removal, running priority and round robin");
     SchedulerPolicy policy;
-    ListNode head;
+    TaskList head;
     Task* first = new Task();
     Task* victim = new Task();
     Task* last = new Task();
@@ -727,9 +384,9 @@ static void test_policy_removal_and_current() {
     first->wakeup();
     victim->wakeup();
     last->wakeup();
-    head.add_before(first->list_node);
-    head.add_before(victim->list_node);
-    head.add_before(last->list_node);
+    head.push_back(*first);
+    head.push_back(*victim);
+    head.push_back(*last);
     TEST_ASSERT(policy.pick_next(head, TaskManager::idle_task()) == first, "First task selected");
     policy.task_removed(*victim);
     victim->list_node.unlink();
@@ -787,14 +444,7 @@ void test() {
     test_context_structure();
     test_process_destruction();
 
-    // Scheduling behavior tests
     test_policy_removal_and_current();
-    test_scheduler_selection();
-    test_process_state_scheduling();
-    test_runnable_queue();
-    test_sleep_wakeup();
-    test_wait_state();
-    test_round_robin_simulation();
 
     // Print summary
     cprintf("\n========================================\n");

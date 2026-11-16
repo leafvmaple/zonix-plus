@@ -15,7 +15,7 @@ void panic_at(const char* file, int line, const char* fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
     cprintf("kernel panic at %s:%d:\n    ", file, line);
-    // vcprintf(fmt, ap);
+    vcprintf(fmt, ap);
     cprintf("\n");
 
     va_end(ap);

@@ -73,14 +73,12 @@ int TaskManager::exit(int error_code) {
         current->parent->wakeup();
     }
 
-    ListNode* children = &current->child_list;
-    while (!children->empty()) {
-        ListNode* node = children->next_node();
-        node->unlink();
-
-        Task* child = Task::from_child_link(node);
+    auto& children = current->child_list;
+    while (!children.empty()) {
+        Task* child = &children.front();
+        children.erase(children.begin());
         child->parent = init_proc_;
-        init_proc_->child_list.add(*node);
+        init_proc_->child_list.push_front(*child);
 
         // If child is zombie, it was waiting to be reaped by its original parent.
         // Now that init is the new parent, wake up init so it can reap the zombie.
@@ -108,8 +106,8 @@ Result<int> TaskManager::wait(int pid, int* code_store) {
         bool has_children{};
         Task* zombie_child{};
 
-        for (auto* node : current->child_list) {
-            Task* child = Task::from_child_link(node);
+        for (Task& task : current->child_list) {
+            Task* child = &task;
             if (pid == 0 || child->pid == pid) {
                 has_children = true;
                 if (child->state_ == TaskState::Zombie) {

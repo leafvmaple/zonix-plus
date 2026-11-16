@@ -1,3 +1,4 @@
+#include "mm/page_table.h"
 #include "drivers/ahci.h"
 #include "drivers/ide.h"
 #include "drivers/sdhci.h"
@@ -16,6 +17,12 @@ extern "C" int vprintf(const char*, va_list);
 extern "C" void* aligned_alloc(size_t, size_t);
 extern "C" void free(void*);
 extern "C" [[noreturn]] void exit(int);
+
+// Match kernel/cxxrt.cpp: kernel-lifetime singleton state has no hosted exit
+// teardown. Local owners still run their destructors and lifetime checks.
+extern "C" int atexit(void (*)()) {
+    return 0;
+}
 
 class HardwareFixture {
 public:

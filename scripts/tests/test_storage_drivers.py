@@ -17,7 +17,7 @@ class StorageDriverTests(unittest.TestCase):
         cls.directory = tempfile.TemporaryDirectory(prefix="zonix-storage-tests-")
         cls.binary = Path(cls.directory.name) / "storage-tests"
         flags = [CXX_STANDARD_FLAG, *ZSTL_FLAGS, "-nostdinc", "-nostdinc++", "-ffreestanding",
-                 "-fno-exceptions", "-fno-rtti", "-O2", "-ffunction-sections", "-fdata-sections",
+                 "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-O2", "-ffunction-sections", "-fdata-sections",
                  "-Werror=unused-result", "-Werror=unused-value", "-pthread", "-Wl,--gc-sections"]
         includes = ["arch/x86/test/host/storage_include", "kernel", "include",
                     "arch/x86/include", "arch/x86/kernel"]

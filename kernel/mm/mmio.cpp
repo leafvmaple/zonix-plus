@@ -1,3 +1,4 @@
+#include "mm/page_table.h"
 #include "mmio.h"
 #include "vmm.h"
 #include "drivers/intr.h"
@@ -23,12 +24,12 @@ public:
         ENSURE(region, Error::NoMem);
         intr::Guard guard;
         ENSURE(Manager::kernel_pgdir(), Error::NoMem);
-        ListNode* insertion = &mappings_;
+        auto insertion = mappings_.end();
         uintptr_t va = KERNEL_DEVIO_BASE;
-        for (auto* node : mappings_) {
-            auto* current = node->container<MmioMapping>();
+        for (auto it = mappings_.begin(); it != mappings_.end(); ++it) {
+            auto* current = &*it;
             if (current->va_ - va >= span) {
-                insertion = node;
+                insertion = it;
                 break;
             }
             va = current->va_ + current->span_;
@@ -53,7 +54,7 @@ public:
         region->span_ = span;
         region->offset_ = offset;
         region->size_ = byte_count;
-        insertion->add_before(region->node_);
+        mappings_.insert(insertion, *region);
         return sys::move(region);
     }
 
@@ -76,7 +77,7 @@ private:
         }
         arch_invalidate_tlb_range(va, span);
     }
-    inline static ListNode mappings_{};
+    inline static sys::intrusive_list<MmioMapping, &MmioMapping::node_> mappings_{};
 };
 
 void MmioUnmap::operator()(MmioMapping* mapping) const {

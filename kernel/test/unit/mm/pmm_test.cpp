@@ -1,3 +1,4 @@
+#include "mm/page_table.h"
 #include "test/test_defs.h"
 #include "mm/pmm.h"
 #include "lib/memory.h"
@@ -145,8 +146,9 @@ static void test_kmalloc_kfree() {
         kfree(ptr);
     }
 
+    const size_t free_before = pmm::free_page_count();
     kfree(nullptr);
-    TEST_ASSERT(true, "kfree(nullptr) does not crash");
+    TEST_ASSERT(pmm::free_page_count() == free_before, "kfree(nullptr) releases no pages");
 
     TEST_END();
 }
@@ -223,7 +225,8 @@ static void test_mmio_table_cleanup() {
                     pmm::unmap_mmio_page(mm.pgdir, second);
                     TEST_ASSERT(pmm::free_page_count() == with_tables + PT_WALK_LEVELS - 1,
                                 "Prune every empty allocated level");
-                    TEST_ASSERT(device->ref_count == 0 && device->node().empty(), "Borrowed device page is not freed");
+                    TEST_ASSERT(device->ref_count == 0 && !device->list_node.is_linked(),
+                                "Borrowed device page is not freed");
                 } else {
                     pmm::unmap_mmio_page(mm.pgdir, first);
                 }

@@ -1,218 +1,123 @@
 #include "test/test_defs.h"
-#include "lib/list.h"
+#include <debug/assert.h>
+#include <sys/intrusive_list.hpp>
 
 static int tests_passed = 0;
 static int tests_failed = 0;
+struct ListItem {
+    sys::list_hook<ListItem> link{*this};
+};
+using ItemList = sys::intrusive_list<ListItem, &ListItem::link>;
 
-// ============================================================================
-// Helper: count nodes in list (excluding head sentinel)
-// ============================================================================
-
-static int list_count(ListNode* head) {
-    int n = 0;
-    for (auto* le = head->next_node(); le != head; le = le->next_node())
-        n++;
-    return n;
+static int list_count(const ItemList& list) {
+    int count = 0;
+    for ([[maybe_unused]] const auto& item : list) {
+        ++count;
+    }
+    return count;
 }
-
-// ============================================================================
-// Init and Empty
-// ============================================================================
-
 static void test_init_and_empty() {
-    TEST_START("ListNode Init & Empty");
-
-    ListNode head{};
-
-    TEST_ASSERT(head.empty(), "Freshly initialized list is empty");
-    TEST_ASSERT(head.next_node() == &head, "next points to self");
-    TEST_ASSERT(head.previous_node() == &head, "prev points to self");
-    TEST_ASSERT(list_count(&head) == 0, "Count is 0");
-
+    TEST_START("Intrusive list init and empty");
+    ItemList list;
+    ListItem item;
+    TEST_ASSERT(list.empty() && list.begin() == list.end(), "Empty list has no objects");
+    TEST_ASSERT(!item.link.is_linked(), "New hook is detached");
+    TEST_ASSERT(list_count(list) == 0, "Empty list count is zero");
     TEST_END();
 }
-
-// ============================================================================
-// add (add_after)
-// ============================================================================
-
 static void test_add() {
-    TEST_START("ListNode add (add_after)");
-
-    ListNode head{};
-
-    ListNode a, b, c;
-    head.add(a);
-
-    TEST_ASSERT(!head.empty(), "List not empty after add");
-    TEST_ASSERT(head.next_node() == &a, "head->next is a");
-    TEST_ASSERT(a.next_node() == &head, "a->next is head");
-    TEST_ASSERT(list_count(&head) == 1, "Count is 1");
-
-    head.add(b);
-    TEST_ASSERT(head.next_node() == &b, "head->next is b after second add");
-    TEST_ASSERT(b.next_node() == &a, "b->next is a");
-    TEST_ASSERT(list_count(&head) == 2, "Count is 2");
-
-    head.add(c);
-    TEST_ASSERT(list_count(&head) == 3, "Count is 3");
-
+    TEST_START("Intrusive list push_front");
+    ItemList list;
+    ListItem a, b, c;
+    list.push_front(a);
+    TEST_ASSERT(&list.front() == &a && &list.back() == &a, "First object is both front and back");
+    list.push_front(b);
+    list.push_front(c);
+    TEST_ASSERT(&list.front() == &c && &list.back() == &a, "Push front keeps original tail");
+    TEST_ASSERT(list_count(list) == 3, "All three objects are linked");
+    list.clear();
     TEST_END();
 }
-
-// ============================================================================
-// add_before
-// ============================================================================
-
 static void test_add_before() {
-    TEST_START("ListNode add_before");
-
-    ListNode head{};
-
-    ListNode a, b, c;
-
-    head.add_before(a);
-    TEST_ASSERT(head.previous_node() == &a, "a is before head (tail)");
-    TEST_ASSERT(head.next_node() == &a, "a is also after head (only element)");
-
-    head.add_before(b);
-    TEST_ASSERT(head.previous_node() == &b, "b is now tail");
-    TEST_ASSERT(a.next_node() == &b, "a->next is b");
-
-    head.add_before(c);
-    TEST_ASSERT(head.previous_node() == &c, "c is now tail");
-    TEST_ASSERT(list_count(&head) == 3, "Count is 3");
-
+    TEST_START("Intrusive list insertion");
+    ItemList list;
+    ListItem a, b, c;
+    list.push_back(a);
+    list.push_back(c);
+    list.insert(list.iterator_to(c), b);
+    auto it = list.begin();
+    TEST_ASSERT(&*it++ == &a && &*it++ == &b && &*it++ == &c && it == list.end(),
+                "Insert places object before the supplied position");
+    list.clear();
     TEST_END();
 }
-
-// ============================================================================
-// unlink
-// ============================================================================
-
 static void test_unlink() {
-    TEST_START("ListNode unlink");
-
-    ListNode head{};
-
-    ListNode a, b, c;
-    head.add(a);
-    head.add(b);
-    head.add(c);
-
-    TEST_ASSERT(list_count(&head) == 3, "Start with 3 nodes");
-
-    b.unlink();
-    TEST_ASSERT(list_count(&head) == 2, "After unlink b, count is 2");
-    TEST_ASSERT(c.next_node() == &a, "c->next is a (b removed)");
-
-    a.unlink();
-    TEST_ASSERT(list_count(&head) == 1, "After unlink a, count is 1");
-    TEST_ASSERT(head.next_node() == &c, "Only c remains");
-
-    c.unlink();
-    TEST_ASSERT(head.empty(), "List empty after removing all");
-    TEST_ASSERT(a.empty() && b.empty() && c.empty(), "Detached nodes are self-linked");
-    head.add(a);
-    b.unlink();
-    TEST_ASSERT(list_count(&head) == 1 && head.next_node() == &a,
-                "A second unlink cannot resurrect another detached node");
-    a.unlink();
-
+    TEST_START("Intrusive list erase and repeated unlink");
+    ItemList list;
+    ListItem a, b, c;
+    list.push_back(a);
+    list.push_back(b);
+    list.push_back(c);
+    auto next = list.erase(list.iterator_to(b));
+    TEST_ASSERT(&*next == &c && !b.link.is_linked(), "Erase detaches and returns next object");
+    b.link.unlink();
+    TEST_ASSERT(list_count(list) == 2, "Repeated unlink preserves neighbours");
+    for (auto it = list.begin(); it != list.end();) {
+        it = list.erase(it);
+    }
+    TEST_ASSERT(list.empty() && !a.link.is_linked() && !c.link.is_linked(), "Erase while traversing empties list");
     TEST_END();
 }
-
-// ============================================================================
-// Traversal order: add_before builds FIFO order
-// ============================================================================
-
 static void test_fifo_order() {
-    TEST_START("ListNode FIFO order via add_before");
-
-    ListNode head{};
-
-    ListNode nodes[5];
-    for (int i = 0; i < 5; i++) {
-        head.add_before(nodes[i]);
+    TEST_START("Intrusive list FIFO and const traversal");
+    ItemList list;
+    ListItem items[5];
+    for (auto& item : items) {
+        list.push_back(item);
     }
-
-    int idx = 0;
-    bool correct_order = true;
-    for (auto* le = head.next_node(); le != &head; le = le->next_node()) {
-        if (le != &nodes[idx]) {
-            correct_order = false;
-            break;
-        }
-        idx++;
+    int index = 0;
+    bool ordered = true;
+    const auto& borrowed = list;
+    for (const auto& item : borrowed) {
+        ordered = ordered && &item == &items[index++];
     }
-
-    TEST_ASSERT(correct_order && idx == 5, "add_before produces FIFO traversal order");
-
+    TEST_ASSERT(ordered && index == 5, "Const traversal preserves FIFO order");
+    list.clear();
     TEST_END();
 }
-
-// ============================================================================
-// Traversal order: add (add_after) builds LIFO order
-// ============================================================================
-
 static void test_lifo_order() {
-    TEST_START("ListNode LIFO order via add (add_after)");
-
-    ListNode head{};
-
-    ListNode nodes[5];
-    for (int i = 0; i < 5; i++) {
-        head.add(nodes[i]);
+    TEST_START("Intrusive list LIFO and reverse traversal");
+    ItemList list;
+    ListItem items[5];
+    for (auto& item : items) {
+        list.push_front(item);
     }
-
-    int idx = 4;
-    bool correct_order = true;
-    for (auto* le = head.next_node(); le != &head; le = le->next_node()) {
-        if (le != &nodes[idx]) {
-            correct_order = false;
-            break;
-        }
-        idx--;
+    int index = 0;
+    bool ordered = true;
+    for (auto& item : list.reversed()) {
+        ordered = ordered && &item == &items[index++];
     }
-
-    TEST_ASSERT(correct_order && idx == -1, "add (add_after) produces LIFO traversal order");
-
+    TEST_ASSERT(ordered && index == 5, "Reverse traversal reverses LIFO order");
+    list.clear();
     TEST_END();
 }
-
-// ============================================================================
-// Multiple unlink and re-add
-// ============================================================================
-
 static void test_unlink_readd() {
-    TEST_START("ListNode unlink then re-add");
-
-    ListNode head{};
-
-    ListNode a, b;
-    head.add(a);
-    head.add(b);
-
-    a.unlink();
-    TEST_ASSERT(list_count(&head) == 1, "Count 1 after unlink");
-
-    head.add_before(a);
-    TEST_ASSERT(list_count(&head) == 2, "Count 2 after re-add");
-    TEST_ASSERT(head.previous_node() == &a, "a is at tail after add_before");
-
+    TEST_START("Intrusive list unlink and reinsert");
+    ItemList list;
+    ListItem a, b;
+    list.push_front(a);
+    list.push_front(b);
+    a.link.unlink();
+    list.push_back(a);
+    TEST_ASSERT(&list.front() == &b && &list.back() == &a && list_count(list) == 2,
+                "Detached hook can be inserted again");
+    list.clear();
     TEST_END();
 }
-
-// ============================================================================
-// Test Runner
-// ============================================================================
-
 namespace list_test {
-
 void test() {
     tests_passed = 0;
     tests_failed = 0;
-
     test_init_and_empty();
     test_add();
     test_add_before();
@@ -220,8 +125,6 @@ void test() {
     test_fifo_order();
     test_lifo_order();
     test_unlink_readd();
-
     TEST_SUMMARY("Linked List");
 }
-
 }  // namespace list_test

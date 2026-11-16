@@ -1,7 +1,8 @@
 #pragma once
 
 #include "lib/result.h"
-#include "lib/list.h"
+#include <debug/assert.h>
+#include <sys/intrusive_list.hpp>
 #include <sys/memory.hpp>
 
 namespace vmm {
@@ -16,7 +17,6 @@ public:
     MmioMapping& operator=(MmioMapping&&) = delete;
     uintptr_t address() const { return va_ + offset_; }
     size_t size() const { return size_; }
-    static constexpr size_t node_offset() { return offset_of(&MmioMapping::node_); }
 
 private:
     friend class MmioAllocator;
@@ -25,7 +25,7 @@ private:
     size_t span_{};
     size_t offset_{};
     size_t size_{};
-    ListNode node_{};
+    sys::list_hook<MmioMapping> node_{*this};
 };
 
 struct MmioUnmap {

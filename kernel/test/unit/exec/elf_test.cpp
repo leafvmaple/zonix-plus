@@ -1,3 +1,4 @@
+#include "mm/page_table.h"
 #include "test/test_defs.h"
 #include "lib/memory.h"
 #include "lib/result.h"

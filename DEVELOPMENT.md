@@ -10,8 +10,8 @@
 新克隆先执行 `make install-hooks`，启用提交前的硬规则检查。Windows Git 的
 hook 使用默认 WSL 发行版中的 Python、Make 和 Clang。
 
-pre-commit 在临时目录中检查暂存区快照，运行 harness 回归测试和三架构的
-`make check`。未暂存的修改不会影响结果，失败会阻断本地提交。详细规则见
+pre-commit 在临时目录中检查暂存区快照，只运行三架构的 `make check`，
+不自动运行回归测试。只有项目所有者明确要求时才添加或运行回归测试。未暂存的修改不会影响结果，失败会阻断本地提交。详细规则见
 [AGENTS.md](AGENTS.md)。需要手动检查时执行 `make check ARCH=<架构>`；普通构建
 与 CI 不自动执行这些规则检查。
 
@@ -216,11 +216,10 @@ Makefile                         # 顶层: 变量、宏、kernel、磁盘镜像�
 
 - [x] **`.gitignore` 扩展** *(已修复)*: 增加 `*.o`, `*.d`, `*.bin`, `*.img`, `*.EFI`, `compile_commands.json`, `*.swp`, `.vscode/`, `-c` 等。
 
-- [x] **内嵌 TODO 注释 (5 处)** *(已审计)*: 位置已验证，内容为未来功能规划，保留不动：
+- [x] **内嵌 TODO 注释 (4 处)** *(已审计)*: 位置已验证，内容为未来功能规划，保留不动：
   - `stdio.cpp:206` — cprintf 返回值
   - `ahci.cpp:34` — AHCI 硬编码设备大小
   - `kernel/fs/fat/fat_core.cpp` — FAT write 支持
-  - `pmm.cpp:229` — slab allocator
   - `sched.cpp:128` — 进程完整复制
 
 ---
@@ -235,6 +234,22 @@ Makefile                         # 顶层: 变量、宏、kernel、磁盘镜像�
 纯属性 getter 使用裸属性名，跨架构接口使用功能名称。标准、固件和汇编 ABI
 例外按具体路径和名字记录。命名 harness 在本地 pre-commit 和手动 `make check`
 执行，普通构建及 CI 不自动运行。
+
+### 侵入式链表
+
+zstl 的 `intrusive_list<T, MEMBER>` 绑定对象和成员 hook；容器不分配、不拥有对象。
+节点保存借用的 owner 指针，避免成员偏移反查；64 位平台每个 hook 从两个指针变为三个。
+遍历得到对象引用，`erase` 返回后继；摘链和销毁仍遵循子系统的锁及中断协议。
+
+### 内存分配分层
+
+- `kernel/mm/pmm.cpp` 与 `pmm_firstfit.cpp` 管理物理页、启动内存图和空闲页合并。
+- `kernel/mm/page_table.cpp` 管理页表遍历、映射权限、TLB 和用户页表回收；接口保留现有 `pmm::` 名称，声明在 `page_table.h`。
+- `kernel/mm/heap.cpp` 在物理页之上实现内核堆：16～1024 字节使用单页 slab，较大块继续分配连续整页。slab 空页立即回收。
+- `kernel/cxxrt.cpp` 将 `new/delete` 接到同一个 `kmalloc/kfree` ABI；zstl 提供容器、所有权类型和分配声明。
+
+堆的元数据不递归申请内存。当前单核通过中断 Guard 串行化分配与回收，不触发阻塞式回收或磁盘 I/O。零字节 `kmalloc` 返回空，C++ 零长度数组仍由 runtime 保证有效分配。
+用户态 `malloc` 属于用户 runtime，未来通过地址空间系统调用取得内存；它与内核堆分层，内核不依赖 glibc。
 
 ### 公共 API 模式
 

@@ -221,11 +221,7 @@ static void test_handle_char_empty() {
 
     g_dispatch_count = 0;
     shell::handle_char('\n');
-
-    // Empty input should not dispatch any command, g_dispatch_count unchanged
-    // (We can't easily verify "nothing was dispatched" without side effects,
-    //  but at least verify no crash)
-    TEST_ASSERT(true, "Empty enter does not crash");
+    TEST_ASSERT(g_dispatch_count == 0, "Empty enter does not dispatch a command");
 
     TEST_END();
 }
@@ -237,16 +233,12 @@ static void test_handle_char_empty() {
 static void test_handle_char_control_chars() {
     TEST_START("shell::handle_char — control chars ignored");
 
-    // Send some control characters, then a valid command
-    shell::handle_char('\0');  // NUL — handle_char checks c <= 0
-    shell::handle_char(0x01);  // SOH — below printable range
-    shell::handle_char(0x7F);  // DEL — explicitly ignored
-
-    // These should not have added anything to the buffer — no crash
-    TEST_ASSERT(true, "Control characters do not crash");
-
-    // Clean up the buffer by pressing enter (flush whatever is there)
+    g_dispatch_count = 0;
+    shell::handle_char('\0');
+    shell::handle_char(0x01);
+    shell::handle_char(0x7F);
     shell::handle_char('\n');
+    TEST_ASSERT(g_dispatch_count == 0, "Ignored controls and the following enter do not dispatch");
 
     TEST_END();
 }

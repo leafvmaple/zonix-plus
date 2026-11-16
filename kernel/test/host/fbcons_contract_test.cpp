@@ -1,3 +1,4 @@
+#include "mm/page_table.h"
 #include "drivers/fbcons.h"
 #include "drivers/intr.h"
 #include "debug/assert.h"

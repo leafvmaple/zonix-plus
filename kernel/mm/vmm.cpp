@@ -1,3 +1,4 @@
+#include "mm/page_table.h"
 #include <asm/arch.h>
 #include <kernel/log.h>
 #include <asm/page.h>

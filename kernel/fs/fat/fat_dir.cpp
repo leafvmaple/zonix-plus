@@ -1,5 +1,6 @@
 #include "fs/fat.h"
 
+#include <debug/assert.h>
 #include <sys/inplace_vector.hpp>
 #include <sys/array.hpp>
 #include <sys/algorithm.hpp>

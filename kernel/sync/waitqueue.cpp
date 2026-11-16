@@ -3,15 +3,6 @@
 #include "sched/sched.h"
 #include "drivers/intr.h"
 
-struct Entry {
-    Task* task{};
-    ListNode node{};
-
-    static Entry* from_node(ListNode* n) {
-        return reinterpret_cast<Entry*>(reinterpret_cast<char*>(n) - __builtin_offsetof(Entry, node));
-    }
-};
-
 void WaitQueue::sleep() {
     intr::Guard irq_guard;  // Do not preempt a task marked sleeping before schedule().
     Entry entry;
@@ -19,7 +10,7 @@ void WaitQueue::sleep() {
 
     {
         sys::lock_guard<Spinlock> guard(lock_);
-        head_.add_before(entry.node);
+        head_.push_back(entry);
         entry.task->sleep();
     }
 
@@ -37,18 +28,16 @@ void WaitQueue::wakeup_one() {
         return;
     }
 
-    ListNode* first = head_.next_node();
-    Entry* entry = Entry::from_node(first);
-    first->unlink();
+    Entry* entry = &head_.front();
+    head_.erase(head_.begin());
     entry->task->wakeup();
 }
 
 void WaitQueue::wakeup_all() {
     sys::lock_guard<Spinlock> guard(lock_);
     while (!head_.empty()) {
-        ListNode* node = head_.next_node();
-        Entry* entry = Entry::from_node(node);
-        node->unlink();
+        Entry* entry = &head_.front();
+        head_.erase(head_.begin());
         entry->task->wakeup();
     }
 }

@@ -3,6 +3,7 @@
 #include "cmd/cmd.h"
 #include "lib/stdio.h"
 #include "lib/string.h"
+#include <debug/assert.h>
 #include <sys/inplace_vector.hpp>
 #include "lib/cons_defs.h"
 

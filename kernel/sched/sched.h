@@ -3,7 +3,9 @@
 #include <asm/context.h>
 #include <base/types.h>
 
-#include "lib/list.h"
+#include <debug/assert.h>
+#include <sys/intrusive_list.hpp>
+#include <sys/array.hpp>
 #include "lib/result.h"
 #include "lib/kernel_buffer.h"
 #include "fs/fd.h"
@@ -35,18 +37,6 @@ inline constexpr int BASE_TIMESLICE = 10;  // 100ms default
 
 struct Task;
 
-class SchedulerPolicy {
-public:
-    [[nodiscard]] const char* name() const;
-    [[nodiscard]] int calc_time_slice(int priority) const;
-    void tick(Task* current, Task* idle) const;
-    [[nodiscard]] Task* pick_next(ListNode& proc_list, Task* idle, Task* current = nullptr);
-    void task_removed(const Task& task);
-
-private:
-    ListNode* cursor_{};
-};
-
 // Process control block - modeling Linux's task_struct
 struct Task {
     static constexpr size_t KSTACK_SIZE = 4096;  // 4KB kernel stack
@@ -75,14 +65,15 @@ public:
     TrapFrame* trap_frame{};  // Trap frame for current interrupt
     uint32_t flags{};         // Process flags
 
-    ListNode list_node{};   // Link in process list
-    ListNode hash_node{};   // Link in hash list
-    ListNode child_node{};  // Link in parent's child list
-    int exit_code{};        // Exit code (for zombie processes)
-    uint32_t wait_state{};  // Waiting state
+    sys::list_hook<Task> list_node{*this};   // Link in process list
+    sys::list_hook<Task> hash_node{*this};   // Link in hash list
+    sys::list_hook<Task> child_node{*this};  // Link in parent's child list
+    int exit_code{};                         // Exit code (for zombie processes)
+    uint32_t wait_state{};                   // Waiting state
 
-    Task* parent{};         // Parent process
-    ListNode child_list{};  // Head of child process list
+    Task* parent{};  // Parent process
+    using ChildList = sys::intrusive_list<Task, &Task::child_node>;
+    ChildList child_list{};  // Head of child process list
 
     // Scheduling fields
     int priority{sched_prio::DEFAULT};  // Static priority (lower = higher)
@@ -113,25 +104,26 @@ public:
     [[nodiscard]] fd::Table& files() { return files_; }
     [[nodiscard]] const fd::Table& files() const { return files_; }
 
-    ListNode* node() { return &list_node; }
-
-    static Task* from_list_link(ListNode* node) {
-        return reinterpret_cast<Task*>(reinterpret_cast<char*>(node) - offset_of(&Task::list_node));
-    }
-
-    static Task* from_hash_link(ListNode* node) {
-        return reinterpret_cast<Task*>(reinterpret_cast<char*>(node) - offset_of(&Task::hash_node));
-    }
-
-    static Task* from_child_link(ListNode* node) {
-        return reinterpret_cast<Task*>(reinterpret_cast<char*>(node) - offset_of(&Task::child_node));
-    }
-
     void set_links();
     void remove_links();
     void destroy();
 
     friend class TaskManager;
+};
+
+using TaskList = sys::intrusive_list<Task, &Task::list_node>;
+using TaskHashList = sys::intrusive_list<Task, &Task::hash_node>;
+
+class SchedulerPolicy {
+public:
+    [[nodiscard]] const char* name() const;
+    [[nodiscard]] int calc_time_slice(int priority) const;
+    void tick(Task* current, Task* idle) const;
+    [[nodiscard]] Task* pick_next(TaskList& proc_list, Task* idle, Task* current = nullptr);
+    void task_removed(const Task& task);
+
+private:
+    Task* cursor_{};
 };
 
 // CPU scheduling owns the active task, policy cursor and telemetry.
@@ -166,12 +158,12 @@ public:
 
     static int init();
 
-    static ListNode& task_list() { return proc_list_; }
+    static TaskList& task_list() { return proc_list_; }
     static Task* idle_task() { return idle_proc_; }
     static Task* init_task() { return init_proc_; }
     static int process_count() { return process_count_; }
 
-    static inline ListNode& hash_node(int pid) { return hash_list_[pid_hash(pid)]; }
+    static inline TaskHashList& hash_list(int pid) { return hash_list_[pid_hash(pid)]; }
 
     static void add_process(Task* proc);
     static void remove_process(Task* proc);
@@ -188,8 +180,8 @@ public:
 
 private:
     friend struct Task;
-    inline static ListNode proc_list_{};
-    inline static ListNode hash_list_[HASH_LIST_SIZE]{};
+    inline static TaskList proc_list_{};
+    inline static sys::array<TaskHashList, HASH_LIST_SIZE> hash_list_{};
     inline static Task* idle_proc_{};  // Idle process (PID 0)
     inline static Task* init_proc_{};  // Init process (PID 1)
     inline static int process_count_{};
@@ -212,7 +204,7 @@ inline void Task::adopt_memory(sys::unique_ptr<MemoryDesc> memory) {
 inline Task::~Task() {
     // Published tasks must be off CPU and detached before resource release.
     assert(this != Scheduler::current());
-    assert(list_node.empty() && hash_node.empty() && child_node.empty() && child_list.empty());
+    assert(!list_node.is_linked() && !hash_node.is_linked() && !child_node.is_linked() && child_list.empty());
     files_.close_all();
     kernel_stack_ = KernelBuffer{};
     // owned_memory_ releases the address space after files and stack; borrows are untouched.

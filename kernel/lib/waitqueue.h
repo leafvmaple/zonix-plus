@@ -1,6 +1,7 @@
 #pragma once
 
-#include "lib/list.h"
+#include <debug/assert.h>
+#include <sys/intrusive_list.hpp>
 #include "lib/spinlock.h"
 
 struct Task;
@@ -15,6 +16,10 @@ public:
     [[nodiscard]] bool empty() const { return head_.empty(); }
 
 private:
-    ListNode head_{};
+    struct Entry {
+        Task* task{};
+        sys::list_hook<Entry> node{*this};
+    };
+    sys::intrusive_list<Entry, &Entry::node> head_{};
     Spinlock lock_{};
 };

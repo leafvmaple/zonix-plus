@@ -1,5 +1,6 @@
 #include "drivers/pci.h"
 #include <kernel/log.h>
+#include <debug/assert.h>
 #include <sys/inplace_vector.hpp>
 #include <sys/array.hpp>
 #include "lib/stdio.h"

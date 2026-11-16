@@ -52,7 +52,6 @@
   {"path": "kernel/mm/pmm.cpp", "name": "__kernel_boot_info", "reason": "Assembly/linker ABI symbol; keep its external symbol name and storage contract."},
   {"path": "kernel/mm/pmm.cpp", "name": "page_init::KERNEL_END", "reason": "Assembly/linker ABI symbol; keep its external symbol name and storage contract."},
   {"path": "kernel/mm/pmm.cpp", "name": "user_stack", "reason": "Assembly/linker ABI symbol; keep its external symbol name and storage contract."},
-  {"path": "kernel/mm/pmm_firstfit.cpp", "name": "free_area", "reason": "Pre-existing first-fit allocator state outside this migration; new state must belong to a class."},
   {"path": "kernel/sched/init_proc.cpp", "name": "user_stack", "reason": "Assembly/linker ABI symbol; keep its external symbol name and storage contract."},
   {"path": "kernel/trap/trap.cpp", "name": "timer::ticks", "reason": "Pre-existing timer ABI state outside this migration; new state must belong to a class."}
 ]

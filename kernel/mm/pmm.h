@@ -4,7 +4,8 @@
 #include <asm/cpu.h>
 #include <asm/page.h>
 
-#include "lib/list.h"
+#include <debug/assert.h>
+#include <sys/intrusive_list.hpp>
 #include "lib/result.h"
 
 // Page flags
@@ -12,31 +13,39 @@ enum class PageFlag : uint8_t {
     Reserved = 0,
     Property = 1,
     PageTable = 2,
+    Heap = 3,
+    Slab = 4,
 };
 
 // Page descriptor structures
 struct Page {
-    int ref_count{};                  // page frame's reference counter
-    uint32_t flags{};                 // page flags (bitmask of PageFlag)
-    unsigned int block_page_count{};  // Page span of a free run or kmalloc allocation
-    ListNode list_node{};             // free list link
+    sys::first_member_hook list_node{};  // Must be the first member.
+    int ref_count{};                     // Page frame reference count
+    uint32_t flags{};                    // Bitmask of PageFlag
+    unsigned int block_page_count{};     // Page span of a free run or kmalloc allocation
 
     void set_reserved() { flags |= (1 << static_cast<uint32_t>(PageFlag::Reserved)); }
     void set_page_table() { flags |= (1 << static_cast<uint32_t>(PageFlag::PageTable)); }
     bool is_page_table() const { return (flags & (1 << static_cast<uint32_t>(PageFlag::PageTable))) != 0; }
 
+    void set_heap() { flags |= (1 << static_cast<uint32_t>(PageFlag::Heap)); }
+    void set_slab() { flags |= (1 << static_cast<uint32_t>(PageFlag::Slab)); }
+    bool is_heap() const { return (flags & (1 << static_cast<uint32_t>(PageFlag::Heap))) != 0; }
+    bool is_slab() const { return (flags & (1 << static_cast<uint32_t>(PageFlag::Slab))) != 0; }
+
     void clear_reserved() { flags &= ~(1 << static_cast<uint32_t>(PageFlag::Reserved)); }
 
     [[nodiscard]] bool is_reserved() const { return (flags & (1 << static_cast<uint32_t>(PageFlag::Reserved))) != 0; }
-
-    [[nodiscard]] ListNode& node() { return list_node; }
-
-    static constexpr size_t node_offset() { return offset_of(&Page::list_node); }
 };
+
+static_assert(__is_standard_layout(Page));
+static_assert(__builtin_offsetof(Page, list_node) == 0);
+
+using PageList = sys::intrusive_list<Page, &Page::list_node>;
 
 class FreeArea {
 public:
-    ListNode free_list{};
+    PageList free_list{};
     unsigned int free_page_count{};
 };
 
@@ -51,24 +60,16 @@ public:
     void free(Page* base, size_t page_count);
 
     [[nodiscard]] size_t free_page_count() const;
+
+private:
+    inline static FreeArea free_area_{};
 };
 
 namespace pmm {
 
 int init();
 
-// TLB and page table operations
-void invalidate_tlb_page(pde_t* pgdir, uintptr_t va);
-
-Page* alloc_and_map_page(pde_t* pgdir, uintptr_t va, uint32_t perm);
-pte_t* get_pte(pde_t* pgdir, uintptr_t va, bool create);
-// Remove an MMIO leaf without freeing its device physical address. Prune empty
-// allocated tables, preserving reserved assembly-backed boot tables.
-void unmap_mmio_page(pde_t* pgdir, uintptr_t va);
-Error page_insert(pde_t* pgdir, Page* page, uintptr_t va, uint32_t perm);
-// Validate every page-table level and return a kernel alias for a user address.
-Result<void*> user_address(pde_t* pgdir, uintptr_t user_va, bool write);
-
+size_t page_count();
 size_t free_page_count();
 Page* alloc_pages(size_t page_count = 1);
 void free_pages(Page* base, size_t page_count = 1);
@@ -78,11 +79,4 @@ uintptr_t page_to_phys(Page* page);
 Page* phys_to_page(uintptr_t pa);
 Page* kva_to_page(void* kva);
 
-// Free entire user address space (lower-half page tables + mapped pages + pgdir)
-void free_user_pgdir(pde_t* pgdir);
-
 }  // namespace pmm
-
-// Kernel memory allocation (page-granularity, global library functions)
-void* kmalloc(size_t byte_count);
-void kfree(void* ptr);

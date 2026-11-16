@@ -25,22 +25,16 @@ void SchedulerPolicy::tick(Task* current, Task* idle) const {
 }
 
 void SchedulerPolicy::task_removed(const Task& task) {
-    if (cursor_ == &task.list_node) {
+    if (cursor_ == &task) {
         cursor_ = nullptr;
     }
 }
 
-Task* SchedulerPolicy::pick_next(ListNode& proc_list, Task* idle, Task* current) {
+Task* SchedulerPolicy::pick_next(TaskList& proc_list, Task* idle, Task* current) {
     Task* next = idle;
     int best_prio = sched_prio::IDLE_PRIO + 1;  // Worse than idle
-    ListNode* head = &proc_list;
-
-    if (!cursor_ || cursor_ == head) {
-        cursor_ = head->next_node();
-    }
-
-    for (auto* node : proc_list.circular_from(cursor_)) {
-        Task* proc = Task::from_list_link(node);
+    for (Task& task : proc_list.circular_from(cursor_)) {
+        Task* proc = &task;
         if ((proc->state() == TaskState::Runnable || (proc == current && proc->state() == TaskState::Running)) &&
             proc != idle) {
             if (proc->priority < best_prio) {
@@ -51,7 +45,9 @@ Task* SchedulerPolicy::pick_next(ListNode& proc_list, Task* idle, Task* current)
     }
 
     if (next != idle) {
-        cursor_ = next->list_node.next_node();
+        auto following = proc_list.iterator_to(*next);
+        ++following;
+        cursor_ = following == proc_list.end() ? nullptr : &*following;
     }
 
     return next;

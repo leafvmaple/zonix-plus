@@ -17,9 +17,9 @@ Error SwapManager::init_mm(MemoryDesc* mm) {
 }
 
 Error SwapManager::map_swappable(MemoryDesc* mm, uintptr_t va, Page* page, int from_swap_in) {
-    ENSURE(mm && page && page->node().empty());
+    ENSURE(mm && page && !page->list_node.is_linked());
     intr::Guard guard;
-    mm->swap_list.add_before(page->node());
+    mm->swap_list.push_back(*page);
 
     return Error::None;
 }
@@ -32,11 +32,8 @@ Error SwapManager::swap_out_victim(MemoryDesc* mm, Page** page_ptr, int in_timer
         return Error::NotFound;
     }
 
-    ListNode* victim = mm->swap_list.next_node();
-
-    // Remove from list
-    victim->unlink();
-
-    *page_ptr = victim->container<Page>();
+    Page& victim = mm->swap_list.front();
+    mm->swap_list.erase(mm->swap_list.begin());
+    *page_ptr = &victim;
     return Error::None;
 }

@@ -17,7 +17,7 @@ class TaskOwnershipTests(unittest.TestCase):
         cls.directory = tempfile.TemporaryDirectory(prefix="zonix-task-ownership-")
         cls.binary = Path(cls.directory.name) / "task-tests"
         cls.flags = [CXX_STANDARD_FLAG, *ZSTL_FLAGS, "-nostdinc", "-nostdinc++", "-ffreestanding",
-                     "-fno-exceptions", "-fno-rtti", "-fno-elide-constructors", "-Werror=unused-result",
+                     "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-elide-constructors", "-Werror=unused-result",
                      "-ffunction-sections", "-fdata-sections", "-I" + str(ROOT / "kernel"),
                      "-I" + str(ROOT / "include"), "-I" + str(ROOT / "arch/x86/include"),
                      "-I" + str(ROOT / "arch/x86/kernel")]

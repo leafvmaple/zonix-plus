@@ -19,7 +19,8 @@ existing subsystem design rather than adding a second implementation style.
 - Use the project-level `external/zstl` submodule for standard structures and
   utilities, including `sys::unique_ptr`, `sys::move` and `sys::nothrow`. Do not
   implement another first-party standard container or smart pointer. Add missing
-  required functionality and its tests to zstl instead.
+  required functionality to zstl instead. Add tests only when the owner explicitly
+  requests them.
 - All consumers, including future mini-cocos integration, must select the same
   zstl include root and runtime ABI. zstl is always self-contained; do not define
   the obsolete `ZSTL_FREESTANDING` macro. Freestanding compilation and using a
@@ -107,7 +108,7 @@ existing subsystem design rather than adding a second implementation style.
 
 - Run `make install-hooks` once per clone. The versioned `.githooks/pre-commit`
   checks an isolated snapshot of the Git index for all three architectures and
-  runs the harness regression tests before allowing a local commit. Windows Git
+  does not run regression tests automatically. Windows Git
   delegates to the default WSL distribution. Do not bypass this hook.
 - Run `make check ARCH=x86`, `make check ARCH=aarch64` and
   `make check ARCH=riscv64` after changing kernel code or these rules.
@@ -117,10 +118,16 @@ existing subsystem design rather than adding a second implementation style.
 - Local pre-commit is the submission gate; `make check` is the explicit manual
   entry point. Normal builds and CI must not invoke this check automatically.
   A failed check must be fixed, never ignored or bypassed.
-- Run the affected builds/tests. For shared MM, scheduling, trap or executable
-  changes, compile all three kernels with `TEST=1`; exercise x86 BIOS and UEFI
-  when the environment supports them. Report any validation limitation plainly.
-- Add positive and negative harness cases when changing what the checker accepts.
+- Do not add or run any regression tests unless the owner explicitly requests
+  them for the current task. This includes host harness suites, zstl tests,
+  kernel `TEST=1` execution and QEMU regression scripts, including indirect
+  execution through hooks. Preserve existing tests and adapt their API uses
+  only as needed to keep them compilable.
+- Run affected production builds with `TEST=0`. For shared MM, scheduling, trap
+  or executable changes, compile all three kernels. Report validation
+  limitations plainly; successful compilation is not runtime validation.
+- When changing checker acceptance, add harness cases only if the owner
+  explicitly requests tests.
 
 ## Working with the user
 

@@ -9,6 +9,12 @@ extern "C" void* aligned_alloc(size_t, size_t);
 extern "C" void free(void*);
 extern "C" [[noreturn]] void exit(int);
 
+// Match kernel/cxxrt.cpp: kernel-lifetime singleton state has no hosted exit
+// teardown. Local owners still run their destructors and lifetime checks.
+extern "C" int atexit(void (*)()) {
+    return 0;
+}
+
 class TaskFixture {
 public:
     TaskFixture() {
