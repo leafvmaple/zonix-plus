@@ -1,11 +1,16 @@
 #include "sched.h"
 #include <kernel/log.h>
+#ifdef TEST_MODE
 #include "cons/shell.h"
+#else
+#include "exec/exec.h"
+#endif
 #include "lib/stdio.h"
 #include <asm/arch.h>
 
 extern long user_stack[];
 
+#ifdef TEST_MODE
 static int init_main(void* arg) {
     auto shell_pid_r = TaskManager::kernel_thread(shell::main, nullptr);
     if (!shell_pid_r.ok()) {
@@ -32,6 +37,8 @@ static int init_main(void* arg) {
     PANIC("init process exited!");
     return 0;
 }
+
+#endif
 
 int TaskManager::init() {
     if (init_idle() != 0) {
@@ -77,6 +84,7 @@ int TaskManager::init_idle() {
 }
 
 int TaskManager::init_init_proc() {
+#ifdef TEST_MODE
     TrapFrame trap_frame{};
 
     arch_setup_kthread_tf(&trap_frame, reinterpret_cast<uintptr_t>(init_main), 0, 0);
@@ -87,6 +95,16 @@ int TaskManager::init_init_proc() {
         return -1;
     }
 
+#else
+    auto args = sys::unique_ptr<exec::Arguments>(new (sys::nothrow) exec::Arguments());
+    if (!args || args->add("/user/INIT.ELF") != Error::None)
+        return -1;
+    auto ret = exec::spawn("/user/INIT.ELF", *args);
+    if (!ret.ok()) {
+        klog::error("init: cannot load /user/INIT.ELF (%s)\n", error_str(ret.error()));
+        return -1;
+    }
+#endif
     init_proc_ = find_process(ret.value());
     if (!init_proc_) {
         klog::error("sched: init_init_proc: find_process(%d) returned null\n", ret.value());

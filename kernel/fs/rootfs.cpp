@@ -26,4 +26,19 @@ int init() {
     return -1;
 }
 
+int init_user() {
+    const char* system = vfs::mounted_device("/");
+    for (int i = 0; i < BlockManager::device_count(); ++i) {
+        auto* device = BlockManager::find_device(i);
+        if (!device || device->type != blk::DeviceType::Disk || (system && strcmp(system, device->name) == 0))
+            continue;
+        if (vfs::mount("/user", device, "fat") == Error::None) {
+            klog::info("rootfs: %s mounted at /user (fat)\n", device->name);
+            return 0;
+        }
+    }
+    klog::error("rootfs: missing user disk; prepare it with make user-image\n");
+    return -1;
+}
+
 }  // namespace rootfs

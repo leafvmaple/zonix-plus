@@ -20,12 +20,14 @@
 #define NR_OPEN    5
 #define NR_CLOSE   6
 #define NR_WAIT    7
+#define NR_CHDIR   12
 #define NR_GETPID  20
 #define NR_PAUSE   29
 #define NR_KILL    37
 #define NR_READDIR 89
 #define NR_STAT    106
 #define NR_YIELD   158
+#define NR_GETCWD  183
 #define NR_SPAWN   400
 
 /* ---- Stdout / Stderr fd constants ---- */

@@ -11,17 +11,11 @@ static_assert(static_cast<int>(Error::Invalid) == SYS_ERROR_INVALID && static_ca
 
 namespace {
 
-Error copy_path(Task* task, const char* user, char* path) {
-    TRY(syscall::copy_string(task, reinterpret_cast<uintptr_t>(user), path, exec::MAX_PATH));
-    ENSURE(path[0] == '/', Error::Invalid);
-    return Error::None;
-}
-
 Result<int> spawn_user(Task* task, const char* path, long argc, uintptr_t argv) {
     ENSURE(task && argc >= 0, Error::Invalid);
     ENSURE(static_cast<size_t>(argc) <= exec::MAX_ARGS, Error::Full);
     char copied_path[exec::MAX_PATH]{};
-    TRY(copy_path(task, path, copied_path));
+    TRY(syscall::copy_path(task, path, copied_path));
     auto args = sys::unique_ptr<exec::Arguments>(new (sys::nothrow) exec::Arguments());
     ENSURE(args, Error::NoMem);
     if (argc != 0 || argv != 0) {
@@ -73,6 +67,74 @@ Error syscall::copy_string(Task* task, uintptr_t user, char* out, size_t capacit
             return Error::None;
     }
     return Error::Invalid;
+}
+
+Error syscall::copy_path(Task* task, const char* user, char* path) {
+    char source[exec::MAX_PATH]{};
+    TRY(copy_string(task, reinterpret_cast<uintptr_t>(user), source, sizeof(source)));
+    ENSURE(source[0], Error::Invalid);
+    size_t used = 1;
+    path[0] = '/';
+    if (source[0] != '/') {
+        used = strlen(task->cwd());
+        memcpy(path, task->cwd(), used);
+    }
+    const char* part = source;
+    while (*part) {
+        while (*part == '/')
+            ++part;
+        const char* end = part;
+        while (*end && *end != '/')
+            ++end;
+        size_t length = end - part;
+        if (length == 2 && part[0] == '.' && part[1] == '.') {
+            while (used > 1 && path[used - 1] != '/')
+                --used;
+            if (used > 1)
+                --used;
+        } else if (length && !(length == 1 && part[0] == '.')) {
+            size_t separator = used > 1 ? 1 : 0;
+            ENSURE(used + separator + length < exec::MAX_PATH, Error::Full);
+            if (separator)
+                path[used++] = '/';
+            memcpy(path + used, part, length);
+            used += length;
+        }
+        // A slash requires a real directory, even before a following "..".
+        path[used] = '\0';
+        if (*end == '/' && length != 0) {
+            vfs::Stat st{};
+            TRY(vfs::stat(path, &st));
+            ENSURE(st.type == vfs::NodeType::Directory, Error::Invalid);
+        }
+        part = end;
+    }
+    path[used] = '\0';
+    return Error::None;
+}
+
+long syscall::chdir(Task* task, const char* path) {
+    char copied[exec::MAX_PATH]{};
+    Error error = copy_path(task, path, copied);
+    if (error != Error::None)
+        return static_cast<long>(error);
+    vfs::Stat st{};
+    error = vfs::stat(copied, &st);
+    if (error != Error::None)
+        return static_cast<long>(error);
+    if (st.type != vfs::NodeType::Directory)
+        return static_cast<long>(Error::Invalid);
+    task->set_cwd(copied);
+    return 0;
+}
+
+long syscall::getcwd(Task* task, uintptr_t output, size_t capacity) {
+    if (!task)
+        return static_cast<long>(Error::Invalid);
+    size_t size = strlen(task->cwd()) + 1;
+    if (capacity < size)
+        return static_cast<long>(Error::Full);
+    return static_cast<long>(vmm::copy_to_user(task->memory(), output, task->cwd(), size));
 }
 
 long syscall::spawn(Task* task, const char* path, long argc, uintptr_t argv) {

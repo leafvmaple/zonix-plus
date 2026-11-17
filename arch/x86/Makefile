@@ -68,8 +68,7 @@ KERNEL_POST_LINK  :=
 
 # ---------- top-level "all" prerequisites ----------
 ALL_PREREQS := $(BINDIR)/mbr $(BINDIR)/vbr $(BINDIR)/bootloader $(BINDIR)/BOOTX64.EFI \
-               $(BINDIR)/kernel $(BINDIR)/zonix.img $(BINDIR)/zonix-uefi.img \
-               $(BINDIR)/userdata.img
+               $(BINDIR)/kernel $(BINDIR)/zonix.img $(BINDIR)/zonix-uefi.img
 
 # ---------- QEMU run / debug targets ----------
 DISK ?= ahci

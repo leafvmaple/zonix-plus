@@ -70,13 +70,13 @@ $(BINDIR)/sdcard.img: $(BINDIR)/zonix-uefi.img
 # ---------- QEMU run / debug targets ----------
 .PHONY: qemu debug
 
-qemu: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img
+qemu: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img $(BINDIR)/userdata.img
 	$(QEMU) -cpu cortex-a72 \
 		-bios $(AAVMF) \
 		-readconfig qemu-uefi-aarch64.cfg \
 		-serial stdio $(QEMU_FLAGS) -no-reboot
 
-debug: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img
+debug: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img $(BINDIR)/userdata.img
 	$(QEMU) -cpu cortex-a72 \
 		-bios $(AAVMF) \
 		-readconfig qemu-uefi-aarch64.cfg \

@@ -105,14 +105,14 @@ AAVMF_VARS ?= $(shell bash $(SCRIPTDIR)/qemu_firmware.sh riscv64-vars)
 $(BINDIR)/riscv_vars.fd: | $$(dir $$@)
 	cp $(AAVMF_VARS) $@
 
-qemu: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img $(BINDIR)/riscv_vars.fd
+qemu: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img $(BINDIR)/riscv_vars.fd $(BINDIR)/userdata.img
 	$(QEMU) -cpu rv64 \
 		-drive if=pflash,format=raw,unit=0,file=$(AAVMF),readonly=on \
 		-drive if=pflash,format=raw,unit=1,file=$(BINDIR)/riscv_vars.fd \
 		-readconfig qemu-uefi-riscv64.cfg \
 		-serial stdio $(QEMU_FLAGS) -no-reboot
 
-debug: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img $(BINDIR)/riscv_vars.fd
+debug: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img $(BINDIR)/riscv_vars.fd $(BINDIR)/userdata.img
 	$(QEMU) -cpu rv64 \
 		-drive if=pflash,format=raw,unit=0,file=$(AAVMF),readonly=on \
 		-drive if=pflash,format=raw,unit=1,file=$(BINDIR)/riscv_vars.fd \

@@ -64,9 +64,10 @@ A teaching operating system kernel targeting **x86_64**, **aarch64**, and **risc
 - **Architecture Abstraction**: `arch_*()` wrappers for interrupts, I/O, spin hints (portable across ISAs)
 
 ### Interactive Shell
-- 20+ built-in commands including `ps`, `ls`, `cat`, `mount`, `lsblk`, `hdparm`
-- Argument parsing (argc/argv), runs as dedicated kernel process (PID 2)
-- Scheduler and swap system test commands (`schedtest`, `swaptest`)
+- Normal boot runs zcc-built userspace init (PID 1) and shell (PID 2) from a separate user disk
+- Quoted arguments, per-process current directory, foreground execution and exit status
+- Init restarts the shell and reaps orphaned children; the kernel debug shell remains in `TEST=1`
+- Build/install instructions and current limits: [Userspace](docs/USERSPACE.md)
 
 ## Environment
 
@@ -92,6 +93,7 @@ brew install llvm lld qemu nasm dosfstools mtools gptfdisk flex bison coreutils
 git submodule update --init --recursive
 make install-hooks
 make ARCH=x86 TEST=0 -j8
+make user-image ARCH=x86 TEST=0
 make qemu ARCH=x86
 ```
 
@@ -149,6 +151,8 @@ are independent of the log threshold.
 
 ## Run
 
+Prepare the independent user disk with `make user-image ARCH=<arch> TEST=0` before normal boot. This is separate from building the system image; see [Userspace](docs/USERSPACE.md).
+
 ```bash
 # x86 UEFI + AHCI (default)
 make qemu ARCH=x86
@@ -166,7 +170,9 @@ make qemu ARCH=riscv64
 make debug ARCH=x86
 ```
 
-## Shell Commands
+## Kernel Debug Shell Commands (`TEST=1`)
+
+Normal boot uses the [userspace shell](docs/USERSPACE.md#当前-shell). The following commands belong to the retained kernel debug shell.
 
 ### System Commands
 | Command | Description |

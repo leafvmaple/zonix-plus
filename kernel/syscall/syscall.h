@@ -7,6 +7,9 @@ struct Task;
 
 namespace syscall {
 Error copy_string(Task* task, uintptr_t user, char* out, size_t capacity);
+Error copy_path(Task* task, const char* user, char* path);
+long chdir(Task* task, const char* path);
+long getcwd(Task* task, uintptr_t output, size_t capacity);
 long spawn(Task* task, const char* path, long argc, uintptr_t argv);
 long wait(Task* task, long pid, uintptr_t status);
 long stat(Task* task, const char* path, uintptr_t output);

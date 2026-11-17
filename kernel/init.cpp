@@ -87,6 +87,9 @@ static const InitStep KERN_STEPS[] = {
     {"pci_probe", probe_pci_devices, false},
     {"rootfs", rootfs::init, false},
     {"swap", swap::init, false},
+#ifndef TEST_MODE
+    {"userfs", rootfs::init_user, true},
+#endif
     {"sched", sched::init, true},
 };
 

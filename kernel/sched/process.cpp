@@ -4,6 +4,10 @@
 #include "lib/stdio.h"
 #include <asm/arch.h>
 
+void Task::set_cwd(const char* path) {
+    strncpy(cwd_, path, sizeof(cwd_));
+}
+
 namespace {
 
 Error setup_stdio(fd::Table& files) {
@@ -33,6 +37,7 @@ Result<int> TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* 
     auto proc = sys::unique_ptr<Task>(new (sys::nothrow) Task());
     ENSURE(proc, Error::NoMem);
     proc->parent = parent;
+    proc->set_cwd(parent->cwd());
     TRY(proc->files().fork_from(parent->files(), fd::ForkPolicy::Reset));
 
     TRY(setup_stdio(proc->files()));
@@ -62,12 +67,16 @@ Result<int> TaskManager::spawn_user(sys::unique_ptr<MemoryDesc> memory, uintptr_
     auto proc = sys::unique_ptr<Task>(new (sys::nothrow) Task());
     ENSURE(proc, Error::NoMem);
     proc->parent = parent;
-    TRY(proc->files().fork_from(parent->files(), fd::ForkPolicy::Share));
+    proc->set_cwd(parent->cwd());
+    if (parent == idle_proc_)
+        TRY(setup_stdio(proc->files()));
+    else
+        TRY(proc->files().fork_from(parent->files(), fd::ForkPolicy::Share));
     TRY(proc->setup_kernel_stack());
     proc->adopt_memory(sys::move(memory));
     proc->setup_user_thread(entry, stack);
     proc->set_name(name);
-    proc->priority = parent->priority;
+    proc->priority = parent == idle_proc_ ? sched_prio::DEFAULT : parent->priority;
     proc->time_slice = Scheduler::time_slice(proc->priority);
     return publish(sys::move(proc));
 }
@@ -78,6 +87,7 @@ Error TaskManager::terminate(int pid) {
     Task* current = Scheduler::current();
     Task* target = find_process(pid);
     ENSURE(target && target->state() != TaskState::Zombie, Error::NotFound);
+    ENSURE(target != init_proc_, Error::Access);
     ENSURE(target == current || target->parent == current, Error::Access);
     ENSURE(target->memory() && target->memory() != &vmm::Manager::kernel_mm(), Error::Access);
     target->termination_requested_ = true;
@@ -97,6 +107,8 @@ Result<int> TaskManager::kernel_thread(KernelThreadEntry fn, void* arg) {
 
 int TaskManager::exit(int error_code) {
     Task* current = Scheduler::current();
+    if (current == init_proc_)
+        PANIC("init exited with code %d", error_code);
     // Descriptions can sleep during close; finish cleanup before publishing zombie state.
     current->files().close_all();
     // Publish zombie state, notify the parent and adopt children atomically.

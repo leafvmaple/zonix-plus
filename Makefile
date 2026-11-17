@@ -193,9 +193,16 @@ $(call make_dir)
 # ==========================================================================
 # Disk images
 # ==========================================================================
+ifeq ($(TEST),1)
 $(BINDIR)/userdata.img: $(SCRIPTDIR)/create_userdata_image.sh
 	@echo "  IMG     $@"
 	$(Q)BINDIR=$(BINDIR) bash $(SCRIPTDIR)/create_userdata_image.sh
+
+else
+$(BINDIR)/userdata.img:
+	@echo "Missing user disk. Run make user-image ARCH=$(ARCH) first."
+	@false
+endif
 
 $(BINDIR)/zonix.img: $(BINDIR)/mbr $(BINDIR)/vbr $(BINDIR)/bootloader $(BINDIR)/kernel $(SCRIPTDIR)/create_zonix_image.sh | $$(dir $$@)
 	@echo "  IMG     $@"

@@ -50,6 +50,7 @@ private:
     inline static MountSlot mounts_[] = {
         {"/dev", nullptr, nullptr, nullptr, nullptr},
         {"/mnt", nullptr, nullptr, nullptr, nullptr},
+        {"/user", nullptr, nullptr, nullptr, nullptr},
         {"/", nullptr, nullptr, nullptr, nullptr},
     };
 };
@@ -119,6 +120,12 @@ Result<ResolvedPath> resolve_path(const char* path) {
     } else if (str_starts_with(path, "/mnt/")) {
         mount_point = "/mnt";
         relpath = str_skip_char(path + 5, '/');
+    } else if (strcmp(path, "/user") == 0) {
+        mount_point = "/user";
+        relpath = "";
+    } else if (str_starts_with(path, "/user/")) {
+        mount_point = "/user";
+        relpath = str_skip_char(path + 6, '/');
     } else if (path[0] == '/') {
         mount_point = "/";
         relpath = str_skip_char(path + 1, '/');

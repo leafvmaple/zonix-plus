@@ -84,7 +84,7 @@ long syscall::open(Task* cur, const char* user_path, int flags, int mode) {
     }
 
     char path[SYSCALL_PATH_MAX]{};
-    if (copy_string(cur, reinterpret_cast<uintptr_t>(user_path), path, sizeof(path)) != Error::None) {
+    if (copy_path(cur, user_path, path) != Error::None) {
         return -1;
     }
 

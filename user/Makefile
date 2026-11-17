@@ -58,7 +58,11 @@ endif
 USER_ELFS += $(USER_BINDIR)/$(call uc,$(1)).ELF
 endef
 $(foreach p,$(USER_PROGRAMS),$(eval $(call user_program_template,$(p))))
-.PHONY: user user-clean check-syscall-abi
+.PHONY: user user-image user-clean check-syscall-abi
+# Explicitly install normal applications on a separate disk. Never a system-image prerequisite.
+user-image: $(USER_BINDIR)/INIT.ELF $(USER_BINDIR)/SH.ELF $(USER_BINDIR)/HELLO.ELF
+	$(Q)bash scripts/install_user_image.sh $(BINDIR)/userdata.img $^
+
 user-clean:
 	rm -rf $(USER_OBJDIR) $(USER_BINDIR)
 check-syscall-abi:

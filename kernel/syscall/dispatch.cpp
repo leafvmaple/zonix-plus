@@ -18,6 +18,8 @@ bool dispatch(Task* task, long nr, uintptr_t arg0, uintptr_t arg1, uintptr_t arg
         case NR_SPAWN:
             result = spawn(task, reinterpret_cast<const char*>(arg0), static_cast<long>(arg1), arg2);
             return true;
+        case NR_CHDIR: result = chdir(task, reinterpret_cast<const char*>(arg0)); return true;
+        case NR_GETCWD: result = getcwd(task, arg0, static_cast<size_t>(arg1)); return true;
         case NR_WAIT: result = wait(task, static_cast<long>(arg0), arg1); return true;
         case NR_GETPID: result = task ? task->pid : static_cast<long>(Error::Invalid); return true;
         case NR_KILL:

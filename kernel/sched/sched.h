@@ -51,6 +51,7 @@ struct Task {
     int pid{};  // Process ID
 
 private:
+    char cwd_[128]{"/"};
     char name_[32]{};            // Process name
     Context context_{};          // Process context for switching
     KernelBuffer kernel_stack_;  // Owned dynamic stack
@@ -89,6 +90,8 @@ public:
     void mark_running();
     void mark_zombie(int code);
     void set_name(const char* name);
+    const char* cwd() const { return cwd_; }
+    void set_cwd(const char* path);
     [[nodiscard]] TaskState state() const { return state_; }
     [[nodiscard]] uintptr_t page_table_root_pa() const;
 
