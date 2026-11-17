@@ -344,6 +344,12 @@ Error stat(const char* path, Stat* st) {
     auto resolved = TRY(resolve_path(path));
     ActivityGuard activity;
     TRY(begin_storage_io(resolved, activity));
+    // A published mount supplies its root directory, even when the backend
+    // only implements metadata for entries below it.
+    if (resolved.relpath[0] == '\0') {
+        st->set(NodeType::Directory, 0, 0);
+        return Error::None;
+    }
     return resolved.mount->fs->stat(resolved.relpath, st);
 }
 
