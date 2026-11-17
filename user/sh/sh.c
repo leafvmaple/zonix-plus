@@ -177,6 +177,7 @@ int main() {
         }
         if (!strcmp(args[0], "help")) {
             printf("help pwd cd [directory] echo [args] status exit [code]\n");
+            printf("Base commands: ls cat cp mkdir rm sync shutdown ps kill\n");
             printf("Programs: name (search /bin, /opt/bin), ./name or /absolute/path\n");
             printf("Quotes and backslash escape arguments. Foreground execution only.\n");
             last = 0;
@@ -209,13 +210,18 @@ int main() {
         } else {
             long pid = program_path(args[0], path);
             if (pid == 0)
-                pid = sys_spawn(path, argc, args);
-            if (pid < 0) {
+                pid = sys_spawn_foreground(path, argc, args);
+            if (pid == SYS_ERROR_INTERRUPTED) {
+                sys_write(STDOUT_FD, "^C\n", 3);
+                last = PROCESS_STATUS_KILLED;
+            } else if (pid < 0) {
                 printf("sh: cannot run %s (%d)\n", args[0], (int)pid);
                 last = 127;
             } else if (sys_wait((int)pid, &last) < 0) {
                 printf("sh: wait failed\n");
                 last = 1;
+            } else if (last == PROCESS_STATUS_KILLED) {
+                sys_write(STDOUT_FD, "^C\n", 3);
             }
         }
     }

@@ -13,8 +13,6 @@
   {"path": "arch/x86/kernel/cons.cpp", "name": "KERNEL_START", "reason": "Assembly/linker ABI symbol; keep its external symbol name and storage contract."},
   {"path": "arch/x86/kernel/drivers/cga.cpp", "name": "cga::crt_buf", "reason": "Pre-existing arch/x86/kernel/drivers/cga.cpp state outside this migration; new state must belong to a class."},
   {"path": "arch/x86/kernel/drivers/cga.cpp", "name": "cga::crt_pos", "reason": "Pre-existing arch/x86/kernel/drivers/cga.cpp state outside this migration; new state must belong to a class."},
-  {"path": "arch/x86/kernel/drivers/i8042.cpp", "name": "normal_map", "reason": "Pre-existing arch/x86/kernel/drivers/i8042.cpp state outside this migration; new state must belong to a class."},
-  {"path": "arch/x86/kernel/drivers/i8042.cpp", "name": "normal_map_initialized", "reason": "Pre-existing arch/x86/kernel/drivers/i8042.cpp state outside this migration; new state must belong to a class."},
   {"path": "arch/x86/kernel/drivers/i8253.cpp", "name": "timer::ticks", "reason": "Pre-existing arch/x86/kernel/drivers/i8253.cpp state outside this migration; new state must belong to a class."},
   {"path": "arch/x86/kernel/drivers/i8253.h", "name": "timer::ticks", "reason": "Pre-existing arch/x86/kernel/drivers/i8253.h state outside this migration; new state must belong to a class."},
   {"path": "arch/x86/kernel/drivers/i8259.cpp", "name": "i8259::irq_mask", "reason": "Pre-existing arch/x86/kernel/drivers/i8259.cpp state outside this migration; new state must belong to a class."},

@@ -168,6 +168,7 @@ static inline void* arch_memset(void* s, int c, size_t n) {
     return s;
 }
 
+// Copies low to high; memmove may use this when destination overlaps below source.
 static inline void* arch_memcpy(void* dst, const void* src, size_t n) {
     auto* d = static_cast<uint8_t*>(dst);
     const auto* s = static_cast<const uint8_t*>(src);

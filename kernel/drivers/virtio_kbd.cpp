@@ -3,6 +3,7 @@
 #include "virtio/pci_transport.h"
 #include "virtio/split_queue.h"
 #include "cons/cons.h"
+#include "cons/keyboard.h"
 #include "drivers/intr.h"
 #include "lib/stdio.h"
 #include <asm/arch.h>
@@ -23,25 +24,6 @@ struct InputEvent {
     uint32_t value;
 };
 static_assert(sizeof(InputEvent) == 8);
-
-static const char KEYMAP_NORMAL[128] = {
-    0,    0x1B, '1', '2',  '3',  '4', '5',  '6',   // 0-7
-    '7',  '8',  '9', '0',  '-',  '=', '\b', '\t',  // 8-15
-    'q',  'w',  'e', 'r',  't',  'y', 'u',  'i',   // 16-23
-    'o',  'p',  '[', ']',  '\n', 0,   'a',  's',   // 24-31
-    'd',  'f',  'g', 'h',  'j',  'k', 'l',  ';',   // 32-39
-    '\'', '`',  0,   '\\', 'z',  'x', 'c',  'v',   // 40-47
-    'b',  'n',  'm', ',',  '.',  '/', 0,    '*',   // 48-55
-    0,    ' ',  0,   0,    0,    0,   0,    0,     // 56-63
-    0,    0,    0,   0,    0,    0,   0,    '7',   // 64-71
-    '8',  '9',  '-', '4',  '5',  '6', '+',  '1',   // 72-79
-    '2',  '3',  '0', '.',  0,    0,   0,    0,     // 80-87
-    0,    0,    0,   0,    0,    0,   0,    0,     // 88-95
-    0,    0,    0,   0,    '\n', 0,   0,    0,     // 96-103 (96=KP_ENTER)
-    0,    0,    0,   0,    0,    0,   0,    0,     // 104-111
-    0,    0,    0,   0,    0,    0,   0,    0,     // 112-119
-    0,    0,    0,   0,    0,    0,   0,    0,     // 120-127
-};
 
 // Input policy owns its event buffers and interprets completed events. PCI
 // discovery/negotiation and ring layout live in the transport and queue layers.
@@ -91,10 +73,10 @@ public:
                 break;
             }
             const InputEvent input = events_[event.id];
-            if (input.type == EV_KEY && input.value == 1 && input.code < sys::size(KEYMAP_NORMAL)) {
-                char c = KEYMAP_NORMAL[input.code];
-                if (c != 0) {
-                    cons::push_input(c);
+            if (input.type == EV_KEY && input.value <= 2) {
+                int c = keyboard_.translate(input.code, input.value != 0);
+                if (c >= 0) {
+                    cons::push_input(static_cast<char>(c));
                 }
             }
             if (queue_.submit(static_cast<uint16_t>(event.id)) != Error::None) {
@@ -149,6 +131,7 @@ private:
         transport_.release();
         irq_ = -1;
         state_ = State::Uninitialized;
+        keyboard_ = cons::KeyboardState{};
         return Error::None;
     }
 
@@ -160,6 +143,7 @@ private:
         }
     }
 
+    cons::KeyboardState keyboard_{};
     virtio::PciTransport transport_{};
     virtio::SplitQueue queue_{};
     virtio::QueueNotification notification_{};

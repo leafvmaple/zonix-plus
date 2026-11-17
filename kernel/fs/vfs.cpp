@@ -293,6 +293,12 @@ Result<FileHandle> open(const char* path, int flags) {
     assert(!file->mount_users_);
     file->open_flags_ = flags;
     file->storage_backed_ = resolved.mount->device != nullptr;
+    for (int i = 0; i < BlockManager::device_count(); ++i) {
+        if (BlockManager::find_device(i) == resolved.mount->device) {
+            file->device_id_ = static_cast<uint64_t>(i) + 1;
+            break;
+        }
+    }
     file->mount_users_ = &resolved.mount.release()->users;
     return file;
 }
@@ -332,6 +338,14 @@ Result<int> write(File* file, const void* buf, size_t size, size_t offset, size_
     }
 
     return bytes;
+}
+
+Error truncate(File* file, size_t size) {
+    ENSURE(file, Error::Invalid);
+    ENSURE(file->can_write(), Error::Access);
+    ActivityGuard activity;
+    TRY(file->begin_io(activity));
+    return file->truncate(size);
 }
 
 void close(File* file) {

@@ -10,44 +10,54 @@
 #include "drivers/i8259.h"
 #include "drivers/intr.h"
 #include "cons/cons.h"
+#include "cons/keyboard.h"
 #include "lib/stdio.h"
 
-static uint8_t normal_map[256] = {
-    NO,   0x1B, '1', '2',  '3',  '4', '5',  '6',                                           // 0x00
-    '7',  '8',  '9', '0',  '-',  '=', '\b', '\t', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i',  // 0x10
-    'o',  'p',  '[', ']',  '\n', NO,  'a',  's',  'd', 'f', 'g', 'h', 'j', 'k', 'l', ';',  // 0x20
-    '\'', '`',  NO,  '\\', 'z',  'x', 'c',  'v',  'b', 'n', 'm', ',', '.', '/', NO,  '*',  // 0x30
-    NO,   ' ',  NO,  NO,   NO,   NO,  NO,   NO,   NO,  NO,  NO,  NO,  NO,  NO,  NO,  '7',  // 0x40
-    '8',  '9',  '-', '4',  '5',  '6', '+',  '1',  '2', '3', '0', '.', NO,  NO,  NO,  NO,   // 0x50
-};
+namespace {
 
-static bool normal_map_initialized = false;
-
-static void init_normal_map() {
-    if (normal_map_initialized) {
-        return;
+class Keyboard {
+public:
+    static int getc() {
+        if ((arch_port_read8(KBD_STATUS_REG) & KBD_OBF_FULL) == 0)
+            return -1;
+        uint8_t data = arch_port_read8(KBD_DATA_REG);
+        if (pause_left_ != 0) {
+            --pause_left_;
+            return -1;
+        }
+        if (data == 0xE1) {
+            pause_left_ = 5;
+            return -1;
+        }
+        if (data == 0xE0) {
+            extended_ = true;
+            return -1;
+        }
+        bool pressed = (data & 0x80) == 0;
+        uint16_t code = data & 0x7F;
+        if (extended_) {
+            extended_ = false;
+            switch (code) {
+                case 0x1C: code = 96; break;  // keypad Enter
+                case 0x1D: code = 97; break;  // right Ctrl
+                case 0x35: code = 98; break;  // keypad /
+                default: return -1;
+            }
+        }
+        return state_.translate(code, pressed);
     }
 
-    normal_map_initialized = true;
-    normal_map[0xC7] = KEY_HOME;
-    normal_map[0x9C] = KP_ENTER;
-    normal_map[0xB5] = KP_DIV;
-    normal_map[0xC8] = KEY_UP;
-    normal_map[0xC9] = KEY_PGUP;
-    normal_map[0xCB] = KEY_LF;
-    normal_map[0xCD] = KEY_RT;
-    normal_map[0xCF] = KEY_END;
-    normal_map[0xD0] = KEY_DN;
-    normal_map[0xD1] = KEY_PGDN;
-    normal_map[0xD2] = KEY_INS;
-    normal_map[0xD3] = KEY_DEL;
-}
+private:
+    inline static cons::KeyboardState state_{};
+    inline static bool extended_{};
+    inline static uint8_t pause_left_{};
+};
+
+}  // namespace
 
 namespace i8042 {
 
 int init() {
-    init_normal_map();
-
     // PS/2 controller self-test: send 0xAA, expect 0x55
     arch_port_write8(KBD_STATUS_REG, 0xAA);
 
@@ -72,23 +82,12 @@ int init() {
 }
 
 int getc() {
-    init_normal_map();
-    if ((arch_port_read8(KBD_STATUS_REG) & KBD_OBF_FULL) == 0)
-        return -1;
-
-    uint8_t data = arch_port_read8(KBD_DATA_REG);
-
-    // Ignore key release events (scancode & 0x80)
-    if (data & 0x80) {
-        return -1;
-    }
-
-    return normal_map[data];
+    return Keyboard::getc();
 }
 
 void intr() {
     int c = getc();
-    if (c <= 0)
+    if (c < 0)
         return;
 
     cons::push_input(static_cast<char>(c));

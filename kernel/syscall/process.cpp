@@ -5,13 +5,14 @@
 #include "fs/vfs.h"
 #include <abi/process.h>
 
+static_assert(sizeof(ProcessInfo) == 48);
 static_assert(exec::MAX_ARGS == PROCESS_MAX_ARGS && exec::MAX_ARG_BYTES == PROCESS_MAX_ARG_BYTES);
 static_assert(exec::MAX_PATH == PROCESS_MAX_PATH && sizeof(FileStat) == 12 && sizeof(DirectoryEntry) == 44);
 static_assert(static_cast<int>(Error::Invalid) == SYS_ERROR_INVALID && static_cast<int>(Error::Full) == SYS_ERROR_FULL);
 
 namespace {
 
-Result<int> spawn_user(Task* task, const char* path, long argc, uintptr_t argv) {
+Result<int> spawn_user(Task* task, const char* path, long argc, uintptr_t argv, bool foreground) {
     ENSURE(task && argc >= 0, Error::Invalid);
     ENSURE(static_cast<size_t>(argc) <= exec::MAX_ARGS, Error::Full);
     char copied_path[exec::MAX_PATH]{};
@@ -32,7 +33,7 @@ Result<int> spawn_user(Task* task, const char* path, long argc, uintptr_t argv) 
             TRY(args->add(reinterpret_cast<const char*>(scratch.data())));
         }
     }
-    return exec::spawn(copied_path, *args);
+    return exec::spawn(copied_path, *args, foreground);
 }
 
 class EntryAt : public vfs::DirVisitor {
@@ -137,8 +138,8 @@ long syscall::getcwd(Task* task, uintptr_t output, size_t capacity) {
     return static_cast<long>(vmm::copy_to_user(task->memory(), output, task->cwd(), size));
 }
 
-long syscall::spawn(Task* task, const char* path, long argc, uintptr_t argv) {
-    auto result = spawn_user(task, path, argc, argv);
+long syscall::spawn(Task* task, const char* path, long argc, uintptr_t argv, bool foreground) {
+    auto result = spawn_user(task, path, argc, argv, foreground);
     return result.ok() ? result.value() : static_cast<long>(result.error());
 }
 
@@ -158,6 +159,20 @@ long syscall::wait(Task* task, long pid, uintptr_t status) {
     }
     auto reaped = sched::wait(ready.value(), nullptr);
     return reaped.ok() ? reaped.value() : static_cast<long>(reaped.error());
+}
+
+long syscall::process_next(Task* task, long after_pid, uintptr_t output) {
+    if (!task || after_pid < -1 || after_pid > 0x7FFFFFFF ||
+        !vmm::user_range_valid(task->memory(), output, sizeof(ProcessInfo), true))
+        return static_cast<long>(Error::Invalid);
+    ProcessInfo info{};
+    auto next = TaskManager::next_process(static_cast<int>(after_pid), info);
+    if (!next.ok())
+        return static_cast<long>(next.error());
+    if (!next.value())
+        return 0;
+    Error error = vmm::copy_to_user(task->memory(), output, &info, sizeof(info));
+    return error == Error::None ? 1 : static_cast<long>(error);
 }
 
 long syscall::stat(Task* task, const char* path, uintptr_t output) {

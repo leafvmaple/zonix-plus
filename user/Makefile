@@ -1,6 +1,7 @@
 # Base components use Clang; applications can select zcc or a native C compiler.
 # Both share the existing startup, syscall wrappers, library and linker script.
 # Assembly register fixtures retain their dedicated entry points.
+BASE_PROGRAMS := init sh ls cat cp mkdir rm sync shutdown ps kill
 USER_DIR := user
 USER_BINDIR := $(BINDIR)/user
 USER_OBJDIR := $(OBJDIR)/user
@@ -58,13 +59,13 @@ $(USER_COMPILER_STAMP): FORCE
 define user_program_template
 _UP_C_$(1) := $$(wildcard $(USER_DIR)/$(1)/*.c)
 _UP_ASM_$(1) := $$(wildcard $(USER_DIR)/$(1)/*.S)
-_UP_COMPILER_DEP_$(1) := $$(if $$(filter init sh ssetest ssepeer,$(1)),,$(USER_COMPILER_STAMP) $(USER_COMPILER_CHANGED))
-ifneq ($$(and $$(filter-out init sh ssetest ssepeer,$(1)),$$(filter zcc,$(USER_CC))),)
+_UP_COMPILER_DEP_$(1) := $$(if $$(filter $(BASE_PROGRAMS) ssetest ssepeer,$(1)),,$(USER_COMPILER_STAMP) $(USER_COMPILER_CHANGED))
+ifneq ($$(and $$(filter-out $(BASE_PROGRAMS) ssetest ssepeer,$(1)),$$(filter zcc,$(USER_CC))),)
 $(USER_BINDIR)/$(call uc,$(1)).ELF: $$(_UP_C_$(1)) $(ZCC_COMPILER) $(ZCC_RUNTIME_STAMP) $$(_UP_COMPILER_DEP_$(1)) user/Makefile | $(USER_BINDIR) check-syscall-abi
 	@echo "  ZCC     $$@"
 	$(Q)$(ZCC_COMPILER) $(ZCC_TARGET) $$< -o $$@ -sysroot $(ZCC_SYSROOT)
 else
-_UP_CC_$(1) := $$(if $$(filter init sh ssetest ssepeer,$(1)),$(CC),$(USER_NATIVE_CC))
+_UP_CC_$(1) := $$(if $$(filter $(BASE_PROGRAMS) ssetest ssepeer,$(1)),$(CC),$(USER_NATIVE_CC))
 _UP_FLAGS_$(1) := $$(if $$(filter ssetest ssepeer,$(1)),$(USER_TEST_CFLAGS),$(USER_CFLAGS))
 _UP_OBJS_$(1) := $$(patsubst $(USER_DIR)/%,$(USER_OBJDIR)/%.o,$$(_UP_C_$(1)) $$(_UP_ASM_$(1)))
 $(USER_OBJDIR)/$(1)/%.c.o: $(USER_DIR)/$(1)/%.c $(ZCC_RUNTIME_STAMP) $$(_UP_COMPILER_DEP_$(1)) user/Makefile arch/$(ARCH)/Makefile
@@ -82,14 +83,14 @@ else
 	$(Q)$(LD) -nostdlib -T $(ZCC_SYSROOT)/linker.ld $$(_UP_OBJS_$(1)) -o $$@
 endif
 endif
-ifeq ($$(filter $(1),init sh),)
+ifeq ($$(filter $(1),$(BASE_PROGRAMS)),)
 USER_ELFS += $(USER_BINDIR)/$(call uc,$(1)).ELF
 endif
 endef
 $(foreach p,$(USER_PROGRAMS),$(eval $(call user_program_template,$(p))))
 .PHONY: user rootfs user-image zcc-examples user-clean check-syscall-abi
 # Explicit installations; neither is a boot-image prerequisite.
-rootfs: $(USER_BINDIR)/INIT.ELF $(USER_BINDIR)/SH.ELF
+rootfs: $(foreach p,$(BASE_PROGRAMS),$(USER_BINDIR)/$(call uc,$(p)).ELF)
 	$(Q)bash scripts/install_userspace_image.sh base $(BINDIR)/rootfs.img $^
 
 user-image: $(USER_BINDIR)/HELLO.ELF

@@ -36,6 +36,7 @@ inline constexpr int BASE_TIMESLICE = 10;  // 100ms default
 }  // namespace sched_prio
 
 struct Task;
+struct ProcessInfo;
 
 // Process control block - modeling Linux's task_struct
 struct Task {
@@ -178,13 +179,15 @@ public:
     static Task* find_process(int pid);
 
     static void print();
+    static Result<bool> next_process(int after_pid, ProcessInfo& info);
 
     // Publication, parent/child relationships and process resource lifetime.
     static Result<int> fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_frame);
     static Result<int> kernel_thread(KernelThreadEntry fn, void* arg);
     static Result<int> spawn_user(sys::unique_ptr<MemoryDesc> memory, uintptr_t entry, uintptr_t stack,
-                                  const char* name);
+                                  const char* name, bool foreground = false);
     static Error terminate(int pid);
+    static Error interrupt_console(int pid);
     static Result<int> wait_ready(int pid, int* code_store);
     static int exit(int error_code);
     static Result<int> wait(int pid, int* code_store);
@@ -199,7 +202,8 @@ private:
     inline static int next_pid_ = 1;
 
     static uint32_t pid_hash(int x);
-    static Result<int> publish(sys::unique_ptr<Task> task);
+    static Result<int> publish(sys::unique_ptr<Task> task, bool foreground = false);
+    static Error request_termination(Task* target);
 
     // Initialization helpers
     static int init_idle();

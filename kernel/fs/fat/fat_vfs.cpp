@@ -36,6 +36,7 @@ public:
     Result<int> write(const void* buf, size_t size, size_t offset) override;
     Result<int> append(const void* buf, size_t size, size_t* end_offset) override;
     Error stat(vfs::Stat* st) override;
+    Error truncate(size_t size) override;
 
 private:
     friend class FatFileSystem;
@@ -156,12 +157,20 @@ private:
                                static_cast<uint32_t>(size), append, end_offset);
     }
 
+    Error truncate(const FatInfo::EntryLocation& location, size_t size) {
+        ENSURE(size == 0, Error::NotSupported);
+        sys::lock_guard<Mutex> guard(mutex_);
+        return fat_.truncate_file(location);
+    }
+
     Error stat(const FatInfo::EntryLocation& location, vfs::Stat* st) {
         ENSURE(st, Error::Invalid);
         sys::lock_guard<Mutex> guard(mutex_);
         FatDirEntry entry{};
         TRY(fat_.read_file_entry(location, &entry));
         set_stat(entry, st);
+        st->file_id = static_cast<uint64_t>(location.sector) * (BlockDevice::BLOCK_SIZE_BYTES / sizeof(FatDirEntry)) +
+                      location.index + 1;
         return Error::None;
     }
 
@@ -188,6 +197,10 @@ Result<int> FatFile::write(const void* buf, size_t size, size_t offset) {
 
 Result<int> FatFile::append(const void* buf, size_t size, size_t* end_offset) {
     return fs_.write(location_, buf, size, 0, true, end_offset);
+}
+
+Error FatFile::truncate(size_t size) {
+    return fs_.truncate(location_, size);
 }
 
 Error FatFile::stat(vfs::Stat* st) {

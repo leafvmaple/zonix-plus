@@ -8,7 +8,7 @@ int main() {
     char retry;
     for (;;) {
         if (shell <= 0) {
-            shell = sys_spawn(args[0], 1, args);
+            shell = sys_spawn_foreground(args[0], 1, args);
             if (shell < 0) {
                 printf("init: cannot start shell (%d); press Enter to retry\n", (int)shell);
                 sys_read(STDIN_FD, &retry, 1);

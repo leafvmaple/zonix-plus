@@ -285,7 +285,7 @@ help:
 	@echo "Build:"
 	@echo "  make [all]           Build boot/kernel artifacts for current ARCH"
 	@echo "  make $(BINDIR)/kernel  Build kernel only"
-	@echo "  make rootfs          Install init/shell on the independent base rootfs"
+	@echo "  make rootfs          Install base userspace on the independent rootfs"
 	@echo "  make user-image      Install extra applications on optional apps.img"
 	@echo "  make user            Build applications with USER_CC (default: zcc)"
 	@echo "  make zcc-examples    Build compiler examples explicitly with zcc"

@@ -26,8 +26,9 @@ void* memmove(void* dst, const void* src, size_t n) {
     auto* d = static_cast<uint8_t*>(dst);
     const auto* s = static_cast<const uint8_t*>(src);
     if (d < s) {
-        while (n-- > 0)
-            *d++ = *s++;
+        // The architecture copy runs low to high, so overlap below the source
+        // is safe. Avoid a byte-at-a-time loop for framebuffer scrolling.
+        return arch_memcpy(dst, src, n);
     } else if (d > s) {
         d += n;
         s += n;

@@ -14,21 +14,30 @@
 #define ZONIX_ABI_SYSCALL_H
 
 /* ---- Syscall numbers ---- */
-#define NR_EXIT    1
-#define NR_READ    3
-#define NR_WRITE   4
-#define NR_OPEN    5
-#define NR_CLOSE   6
-#define NR_WAIT    7
-#define NR_CHDIR   12
-#define NR_GETPID  20
-#define NR_PAUSE   29
-#define NR_KILL    37
-#define NR_READDIR 89
-#define NR_STAT    106
-#define NR_YIELD   158
-#define NR_GETCWD  183
-#define NR_SPAWN   400
+#define NR_EXIT      1
+#define NR_READ      3
+#define NR_WRITE     4
+#define NR_OPEN      5
+#define NR_CLOSE     6
+#define NR_WAIT      7
+#define NR_UNLINK    10
+#define NR_CHDIR     12
+#define NR_GETPID    20
+#define NR_PAUSE     29
+#define NR_SYNC      36
+#define NR_KILL      37
+#define NR_MKDIR     39
+#define NR_RMDIR     40
+#define NR_READDIR   89
+#define NR_FTRUNCATE 93
+#define NR_STAT      106
+#define NR_FSTAT     108
+#define NR_YIELD     158
+#define NR_GETCWD    183
+#define NR_SPAWN     400
+#define NR_SHUTDOWN  401
+#define NR_SPAWN_FOREGROUND 402
+#define NR_PROCESS_NEXT 403
 
 /* ---- Stdout / Stderr fd constants ---- */
 #define STDIN_FD  0

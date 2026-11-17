@@ -36,18 +36,46 @@ SP -> argc                64 位
 | read / write | 3 / 4 | 返回实际字节数；无字节成功时错误返回 -1 |
 | open / close | 5 / 6 | 沿用文件 ABI；`mode=0`，错误返回 -1 |
 | wait | 7 | PID>0 等指定直接子进程，PID=0 等任意直接子进程；返回被回收的 PID，状态指针可为空 |
+| unlink | 10 | 删除文件；打开的文件仍由 FAT 的 Busy 规则保护 |
 | chdir | 12 | 切换本进程当前目录；成功返回 0，失败保持原目录 |
 | getpid | 20 | 返回当前 PID |
-| kill | 37 | 仅允许终止自身或直接的用户态子进程；成功返回 0 |
+| sync | 36 | 同步已挂载文件系统及其设备缓存；成功返回 0，失败返回负 Error |
+| kill | 37 | 单用户权限下可终止普通用户进程，init/内核任务受保护；成功返回 0 |
+| mkdir / rmdir | 39 / 40 | 创建目录 / 删除空目录；相对和绝对路径，成功返回 0 |
 | readdir | 89 | 相对/绝对目录路径、从零开始的索引、`DirectoryEntry*`；1 表示一项，0 表示结束 |
+| ftruncate | 93 | 只支持长度 0；FD 必须可写，不改变当前偏移 |
 | stat | 106 | 相对/绝对路径、`FileStat*`；成功返回 0 |
+| fstat | 108 | FD、`DescriptorStat*`；返回元数据和可比较的设备/文件身份 |
 | yield | 158 | 主动让出 CPU，返回 0 |
 | getcwd | 183 | 复制含 NUL 的当前目录；成功返回 0，容量不足返回 Full |
 | spawn | 400 | 相对/绝对 ELF 路径、argc、以 NULL 结束的 argv；返回新 PID |
+| shutdown | 401 | 复用有序关机；成功不返回，失败返回负 Error 并恢复存储访问 |
+| spawn_foreground | 402 | 与 spawn 相同参数，发布子进程前交接控制台；返回新 PID |
+| process_next | 403 | long 型 PID 游标、`ProcessInfo*`；1 表示一项，0 表示结束，负值表示错误 |
 
-新进程和元数据调用失败返回负的内核 `Error` 值，包括 NoMem=-2、Invalid=-3、NotFound=-4、Busy=-9、NotSupported=-11、Full=-12、Access=-14、Interrupted=-15。它们不是 Linux 系统调用的兼容实现。`include/abi/process.h` 定义用户侧结构、常用错误和参数限制；结构中类型、长度和属性字段均为 32 位无符号整数。zcc 运行时的系统调用定义必须与内核完整一致，进程结构和文件标志也必须同步；ABI 检查不允许单方面新增调用。
+进程、元数据、文件变更、同步和关机调用失败返回负的内核 `Error` 值，包括 NoMem=-2、Invalid=-3、NotFound=-4、Busy=-9、NotSupported=-11、Full=-12、Access=-14、Interrupted=-15。它们不是 Linux 系统调用的兼容实现。`include/abi/process.h` 定义用户侧结构、常用错误和参数限制；结构中类型、长度和属性字段均为 32 位无符号整数。zcc 运行时的系统调用定义必须与内核完整一致，进程结构和文件标志也必须同步；ABI 检查不允许单方面新增调用。原有 `FileStat`（12 字节）、`DirectoryEntry`（44 字节）和旧 syscall 语义保持不变。
+
+`DescriptorStat` 为 32 字节：type/size/attrs/reserved 各 32 位，随后 device/inode 各 64 位；reserved 固定为零。device/inode 非零时，可在句柄存活期间比较文件身份；零表示后端不提供身份。它们不是跨重启持久 ID。FAT 使用目录项位置作为文件标识，VFS 使用已注册块设备编号作为设备标识，不暴露内核地址。
+
+`ftruncate(fd, 0)` 持有同一打开文件描述的互斥锁，并通过现有文件系统同步边界截断文件；非零长度返回 NotSupported。只读 FD 返回 Access。mkdir/unlink/rmdir 使用与 open/stat 一致的路径复制、当前目录和规范化规则。
 
 用户指针按读写方向验证并复制。wait 状态写回成功后才回收子进程；错误的状态指针不会消耗退出结果。用户异常退出码为 -1，kill 退出码为 -128。kill 请求在返回用户态前生效；等待子进程、控制台输入及 FD 锁的阻塞可被唤醒并正常展开。其他进行中的内核操作须先完成和释放资源，不能从其活动栈中强行销毁任务。
+
+## 进程查看与终止权限
+
+`sys_process_next(long after_pid, ProcessInfo*)` 从游标 -1 开始，包括 PID 0；每次返回当前仍存在且大于游标的最小 PID，调用者以下一条返回的 pid 继续。游标限于 [-1, INT_MAX]，其他值返回 Invalid；用户输出区必须完整可写。返回 0 时不修改输出，复制失败不推进任何内核游标，可用相同 PID 重试。单条元数据在中断保护下复制，复制到用户态时不保留 Task 指针；PID 当前单调分配、退出不会导致列表下标位移漏项。枚举包含 zombie，但不保证多次调用期间的全表快照。
+
+`ProcessInfo` 固定为 48 字节：pid/ppid 为 32 位有符号整数，state/kind 为 32 位无符号整数，name 为 32 字节含 NUL 的名称。无父进程时 ppid=-1。状态固定为 Uninit=0、Sleeping=1、Runnable=2、Running=3、Zombie=4；类型为 User=1、Kernel=2。内核枚举值与这些 ABI 常量通过静态断言核对，不导出内部布局或地址。
+
+当前没有 UID、凭据或用户隔离，普通用户进程具有同等的查看和终止权限；不能用临时父子关系代替权限身份。kill 可请求终止其他普通用户进程，包括兄弟和已被 init 收养的进程；wait 仍只回收直接子进程。PID 必须为正 int，PID 0/负数/越界返回 Invalid，不提供 POSIX 进程组或广播语义。不存在或已是 zombie 的目标返回 NotFound。合法正 PID 指向 init 或使用内核 MM 的任务时返回 Access，复用 Ctrl-C 同一终止保护。shell 是普通用户进程，终止后由 init 重启。成功返回 0 仅代表请求受理，仍由既有安全边界、FD 清理、zombie 发布和父进程 wait 完成退出与回收；以后引入用户/凭据时须在此权限边界增加检查。
+
+## 控制台前台归属
+
+`spawn_foreground` 与普通 spawn 共用加载、参数复制、FD 继承和资源所有权实现；仅新增发布阶段的原子控制台交接。无控制者时只有 init 可创建控制者（正常启动为 shell）；有控制者时只有当前前台任务可把控制台交给新子进程。其他调用者返回 Access，不发布子进程，也不改变控制台归属。若创建者已收到终止请求，或控制者的输入队列中已有 Ctrl-C，则取消本次前台创建、返回 Interrupted，不发布子进程；消费对应中断输入，shell 记录 -128。普通 spawn 不改变前台 PID。前台任务退出时在发布 zombie 状态前恢复父进程归属；若父进程已退出、子进程被 init 收养，则恢复控制者。控制者退出后清空归属，允许 init 重新启动它。控制台只保存 PID，不保留可悬空的 Task 指针。
+
+前台控制者读取输入时，Ctrl-C 作为字节 3 交给用户态取消输入行；其他前台任务运行时，控制台消费 Ctrl-C 并丢弃待读输入，通过既有安全终止机制请求退出，退出码为 `PROCESS_STATUS_KILLED`（-128）。init 和所有内核 MM 任务共用同一终止保护；IRQ 不关闭 FD、不释放地址空间、不直接销毁任务。前台之外的控制台读取失败（旧 read ABI 返回 -1）；输出仍可共享。Shift/Ctrl 转换由 PS/2 和 VirtIO 键盘共用，串口直接提供相同字节。
+
+这是单控制台、单前台 PID 的接口，不是 POSIX 信号或进程组接口，不向后代进程广播中断。EOF、回显和行编辑仍由读取程序解释，Ctrl-D 不直接终止任意用户程序。
 
 ## FD 和资源
 

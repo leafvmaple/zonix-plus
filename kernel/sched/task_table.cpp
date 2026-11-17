@@ -1,6 +1,7 @@
 #include "sched.h"
 #include "drivers/intr.h"
 #include "lib/stdio.h"
+#include <abi/process.h>
 
 static const char* state_str(TaskState state) {
     switch (state) {
@@ -39,6 +40,31 @@ Task* TaskManager::find_process(int pid) {
     }
     return nullptr;
 }
+
+Result<bool> TaskManager::next_process(int after_pid, ProcessInfo& info) {
+    ENSURE(after_pid >= -1, Error::Invalid);
+    intr::Guard guard;
+    Task* selected{};
+    for (Task& task : proc_list_) {
+        if (task.pid > after_pid && (!selected || task.pid < selected->pid))
+            selected = &task;
+    }
+    if (!selected)
+        return false;
+    info = ProcessInfo{};
+    info.pid = selected->pid;
+    info.ppid = selected->parent ? selected->parent->pid : -1;
+    info.state = static_cast<unsigned int>(selected->state());
+    info.kind = selected->memory() == &vmm::Manager::kernel_mm() ? PROCESS_KIND_KERNEL : PROCESS_KIND_USER;
+    strncpy(info.name, selected->name_, sizeof(info.name) - 1);
+    return true;
+}
+
+static_assert(static_cast<unsigned int>(TaskState::Uninit) == PROCESS_STATE_UNINIT &&
+              static_cast<unsigned int>(TaskState::Sleeping) == PROCESS_STATE_SLEEPING &&
+              static_cast<unsigned int>(TaskState::Runnable) == PROCESS_STATE_RUNNABLE &&
+              static_cast<unsigned int>(TaskState::Running) == PROCESS_STATE_RUNNING &&
+              static_cast<unsigned int>(TaskState::Zombie) == PROCESS_STATE_ZOMBIE);
 
 void TaskManager::print() {
     Task* current = Scheduler::current();

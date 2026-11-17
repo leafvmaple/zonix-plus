@@ -262,6 +262,29 @@ reads. An I/O failure can leave partial changes and uncertain allocations; it
 does not promise rollback or power-loss consistency. Normal persistence requires
 the checked synchronization and shutdown sequence below.
 
+### User command metadata and truncation
+
+Legacy path `stat` retains its 12-byte ABI. The new FD `fstat` returns a separate
+32-byte `DescriptorStat`; its nonzero device/inode pair identifies a live open
+file. VFS assigns registered-device IDs, and FAT derives the file ID from the
+pinned directory slot. Unlink remains blocked while handles borrow that slot.
+Other backends may report zero identity. No kernel pointer is exposed.
+
+User `cp` opens the source and destination without truncation, reads both FD
+identities and rejects a same-file copy before calling `ftruncate(fd, 0)`. It does
+not rely on comparing path spellings. Truncation keeps the FD offset unchanged,
+requires write access and holds the shared description lock and VFS activity
+lease. FAT reuses its existing checked truncate and detached-chain cleanup.
+Only length zero is currently supported.
+
+Command read/write loops accept short transfers and stop on EOF; zero-progress
+writes and negative results fail. All acquired descriptors are closed on both
+success and failure. Failed copying can leave a partial destination; command
+success does not imply durability until explicit sync or orderly shutdown.
+
+User mkdir/unlink/rmdir call the existing VFS operations. User sync and shutdown
+reuse the storage protocol below rather than implementing a second flush path.
+
 ### Storage synchronization and power-off
 
 File I/O currently writes through; there is no dirty file-page cache. FAT owns

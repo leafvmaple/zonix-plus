@@ -22,11 +22,13 @@ struct Stat {
     NodeType type{NodeType::Unknown};
     uint32_t size{};
     uint32_t attrs{};
+    uint64_t file_id{};  // Backend identity, zero when unavailable.
 
     inline void set(NodeType t, uint32_t s, uint32_t a) {
         type = t;
         size = s;
         attrs = a;
+        file_id = 0;
     }
 };
 
@@ -66,6 +68,11 @@ public:
         return Error::NotSupported;
     }
     virtual Error stat(Stat* st) = 0;
+    virtual Error truncate(size_t size) {
+        static_cast<void>(size);
+        return Error::NotSupported;
+    }
+    uint64_t device_id() const { return device_id_; }
 
     bool can_read() const { return (open_flags_ & O_ACCMODE) != O_WRONLY; }
     bool can_write() const { return (open_flags_ & O_ACCMODE) != O_RDONLY; }
@@ -75,6 +82,7 @@ public:
 private:
     friend Result<FileHandle> open(const char* path, int flags);
     // Factories produce unrestricted handles; open() installs the requested access mode.
+    uint64_t device_id_{};
     int open_flags_{O_RDWR};
     bool storage_backed_{};
     size_t* mount_users_{};
@@ -98,6 +106,7 @@ bool is_frozen();
 Result<FileHandle> open(const char* path, int flags = O_RDONLY);
 Result<int> read(File* file, void* buf, size_t size, size_t offset);
 Result<int> write(File* file, const void* buf, size_t size, size_t offset, size_t* end_offset = nullptr);
+Error truncate(File* file, size_t size);
 void close(File* file);
 
 inline void FileCloser::operator()(File* file) const noexcept {

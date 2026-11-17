@@ -19,12 +19,11 @@ for directory in $directories; do
         mmd -i "$image" "::/$directory"
     fi
 done
-if [ "$kind" = base ]; then
-    mcopy -o -i "$image" "$1" ::/sbin/init
-    mcopy -o -i "$image" "$2" ::/bin/sh
-else
-    for program in "$@"; do
-        name="$(basename "$program" .ELF)"
-        mcopy -o -i "$image" "$program" "::/bin/$name"
-    done
-fi
+for program in "$@"; do
+    name="$(basename "$program" .ELF | tr '[:upper:]' '[:lower:]')"
+    destination=bin
+    if [ "$kind" = base ] && [ "$name" = init ]; then
+        destination=sbin
+    fi
+    mcopy -o -i "$image" "$program" "::/$destination/$name"
+done

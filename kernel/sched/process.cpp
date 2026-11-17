@@ -1,4 +1,5 @@
 #include "sched.h"
+#include "cons/cons.h"
 #include "drivers/intr.h"
 #include "fs/vfs.h"
 #include "lib/stdio.h"
@@ -52,16 +53,19 @@ Result<int> TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* 
     return publish(sys::move(proc));
 }
 
-Result<int> TaskManager::publish(sys::unique_ptr<Task> proc) {
+Result<int> TaskManager::publish(sys::unique_ptr<Task> proc, bool foreground) {
     intr::Guard guard;
-    proc->pid = next_pid_++;
+    proc->pid = next_pid_;
+    if (foreground)
+        TRY(cons::handoff(proc->parent, proc.get()));
+    ++next_pid_;
     proc->set_links();
     proc->wakeup();
     return proc.release()->pid;
 }
 
 Result<int> TaskManager::spawn_user(sys::unique_ptr<MemoryDesc> memory, uintptr_t entry, uintptr_t stack,
-                                    const char* name) {
+                                    const char* name, bool foreground) {
     Task* parent = Scheduler::current();
     ENSURE(parent && memory && memory->pgdir && entry && stack && name, Error::Invalid);
     auto proc = sys::unique_ptr<Task>(new (sys::nothrow) Task());
@@ -78,17 +82,25 @@ Result<int> TaskManager::spawn_user(sys::unique_ptr<MemoryDesc> memory, uintptr_
     proc->set_name(name);
     proc->priority = parent == idle_proc_ ? sched_prio::DEFAULT : parent->priority;
     proc->time_slice = Scheduler::time_slice(proc->priority);
-    return publish(sys::move(proc));
+    return publish(sys::move(proc), foreground);
 }
 
 Error TaskManager::terminate(int pid) {
     ENSURE(pid > 0, Error::Invalid);
     intr::Guard guard;
-    Task* current = Scheduler::current();
-    Task* target = find_process(pid);
+    // All user processes currently share one authority (no UID/credentials yet).
+    // Parentage governs wait/reaping, not permission to request termination.
+    return request_termination(find_process(pid));
+}
+
+Error TaskManager::interrupt_console(int pid) {
+    intr::Guard guard;
+    return request_termination(find_process(pid));
+}
+
+Error TaskManager::request_termination(Task* target) {
     ENSURE(target && target->state() != TaskState::Zombie, Error::NotFound);
     ENSURE(target != init_proc_, Error::Access);
-    ENSURE(target == current || target->parent == current, Error::Access);
     ENSURE(target->memory() && target->memory() != &vmm::Manager::kernel_mm(), Error::Access);
     target->termination_requested_ = true;
     if (target->state() == TaskState::Sleeping)
@@ -113,6 +125,7 @@ int TaskManager::exit(int error_code) {
     current->files().close_all();
     // Publish zombie state, notify the parent and adopt children atomically.
     intr::Guard irq_guard;
+    cons::task_exited(current);
     current->mark_zombie(error_code);
 
     if (current->parent && current->parent->wait_state) {

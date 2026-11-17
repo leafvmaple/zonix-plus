@@ -33,7 +33,7 @@ private:
 
 Result<pde_t*> create_user_pgdir();
 Result<uintptr_t> setup_user_stack(MemoryDesc& memory, const Arguments& args);
-Result<int> spawn(const char* path, const Arguments& args);
+Result<int> spawn(const char* path, const Arguments& args, bool foreground = false);
 Result<int> exec(const char* path);
 
 }  // namespace exec

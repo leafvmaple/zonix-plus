@@ -249,7 +249,8 @@ Guard::~Guard() {
 }
 }  // namespace intr
 
-Result<int> TaskManager::spawn_user(sys::unique_ptr<MemoryDesc> memory, uintptr_t entry, uintptr_t stack, const char*) {
+Result<int> TaskManager::spawn_user(sys::unique_ptr<MemoryDesc> memory, uintptr_t entry, uintptr_t stack, const char*,
+                                    bool) {
     ExecFixture::current().setup_frame(entry, stack);
     intr::Guard guard;
     const int pid = TRY(ExecFixture::current().fork());

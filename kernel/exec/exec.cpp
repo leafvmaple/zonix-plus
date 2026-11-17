@@ -103,7 +103,7 @@ private:
     uintptr_t stack_va_{};
 };
 
-Result<int> spawn(const char* path, const Arguments& args) {
+Result<int> spawn(const char* path, const Arguments& args, bool foreground) {
     ENSURE(path);
 
     auto file = TRY(vfs::open(path));
@@ -126,7 +126,7 @@ Result<int> spawn(const char* path, const Arguments& args) {
     const uintptr_t entry_va = image.entry_va();
     const uintptr_t user_stack_va = image.stack_va();
 
-    return TaskManager::spawn_user(image.take_memory(), entry_va, user_stack_va, path);
+    return TaskManager::spawn_user(image.take_memory(), entry_va, user_stack_va, path, foreground);
 }
 
 Result<int> exec(const char* path) {
