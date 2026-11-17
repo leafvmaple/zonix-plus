@@ -68,6 +68,7 @@ public:
         return Error::NotSupported;
     }
     virtual Error stat(Stat* st) = 0;
+    virtual Error control(unsigned int, void*) { return Error::NotSupported; }
     virtual Error truncate(size_t size) {
         static_cast<void>(size);
         return Error::NotSupported;

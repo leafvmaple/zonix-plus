@@ -67,7 +67,7 @@ A teaching operating system kernel targeting **x86_64**, **aarch64**, and **risc
 - Normal boot runs Clang-built userspace init (PID 1) and shell (PID 2) from an independent base rootfs
 - Quoted arguments, per-process current directory, foreground execution and exit status
 - Init restarts the shell and reaps orphaned children; the kernel debug shell remains in `TEST=1`
-- Clang-built userspace utilities: `ls`, `cat`, `cp`, `mkdir`, `rm`, `sync`, `shutdown`, `ps`, `kill`
+- Clang-built userspace utilities: `ls`, `cat`, `cp`, `mkdir`, `rm`, `sync`, `shutdown`, `ps`, `kill`, `vi`
 - Build/install instructions and current limits: [Userspace](docs/USERSPACE.md)
 
 ## Environment

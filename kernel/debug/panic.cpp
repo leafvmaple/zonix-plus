@@ -3,6 +3,7 @@
 #include "drivers/intr.h"
 
 #include "assert.h"
+#include "cons/cons.h"
 
 static int is_panic = 0;
 
@@ -11,6 +12,7 @@ void panic_at(const char* file, int line, const char* fmt, ...) {
         goto panic_dead;
     }
     is_panic = 1;
+    cons::emergency_restore();
 
     va_list ap;
     va_start(ap, fmt);

@@ -220,6 +220,24 @@ remain noncopyable and nonmovable. File syscalls hold the description's mutex
 across offset selection and I/O; acquiring this lock is interruptible by task
 termination, while internal subsystem locks retain their ordinary semantics.
 
+Descriptor slots own close-on-exec policy independently of the shared `OpenFile`.
+`Table::open` strips `O_CLOEXEC` before VFS open. `duplicate_cloexec` shares the
+same description into the lowest free slot at or above its minimum; failure
+releases the temporary reference. `duplicate_to` validates both descriptors,
+retains the source before replacing the target, and drops the old target outside
+an interrupt guard. A self-dup preserves flags; replacement clears close-on-exec.
+`ForkPolicy::Spawn` omits marked slots without changing the parent, while Share
+copies every slot and its flag. Shell backups and temporary redirect files use
+this policy, and explicit restore/close checks complete before another prompt.
+
+Terminal control validates and copies its wire parameters at the syscall boundary;
+`File::control` receives kernel-local values, not user pointers. The console owns
+an application raw-input/output lease by foreground PID. Task exit and foreground
+handoff release it after ordinary file cleanup; parser state, pending input and
+cursor visibility are restored independently of application destructors. Kernel
+panic explicitly reclaims the console before printing diagnostics. Non-owner
+output is bounded and deferred while the lease is active.
+
 ### File open and FAT I/O
 
 `include/abi/fcntl.h` defines the common open flags. The default VFS open is

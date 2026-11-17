@@ -1,7 +1,7 @@
 # Base components use Clang; applications can select zcc or a native C compiler.
 # Both share the existing startup, syscall wrappers, library and linker script.
 # Assembly register fixtures retain their dedicated entry points.
-BASE_PROGRAMS := init sh ls cat cp mkdir rm sync shutdown ps kill
+BASE_PROGRAMS := init sh ls cat cp mkdir rm sync shutdown ps kill vi
 USER_DIR := user
 USER_BINDIR := $(BINDIR)/user
 USER_OBJDIR := $(OBJDIR)/user
@@ -30,7 +30,7 @@ USER_CFLAGS := -g -O2 -Wall -Wextra -std=c11 -ffreestanding -nostdinc \
                -fno-unwind-tables -fno-asynchronous-unwind-tables \
                $(USER_ARCH_CFLAGS) -Iinclude -I$(ZCC_DIR)/src/runtime
 USER_ASFLAGS := -g -nostdinc -ffreestanding
-USER_PROGRAMS := $(notdir $(patsubst %/,%,$(dir $(wildcard $(USER_DIR)/*/*.S $(USER_DIR)/*/*.c))))
+USER_PROGRAMS := $(notdir $(patsubst %/,%,$(dir $(wildcard $(USER_DIR)/*/*.S $(USER_DIR)/*/*.c $(USER_DIR)/*/*.cpp))))
 USER_PROGRAMS := $(filter-out zcc,$(sort $(USER_PROGRAMS)))
 ifneq ($(ARCH),x86)
 USER_PROGRAMS := $(filter-out ssetest ssepeer,$(USER_PROGRAMS))
@@ -44,7 +44,7 @@ zcc_fat_name = $(shell echo 'Z$(1)' | tr '[:lower:]' '[:upper:]' | tr -d '_' | h
 $(ZCC_COMPILER): $(ZCC_SOURCES) $(ZCC_DIR)/makefile
 	$(Q)$(MAKE) -C $(ZCC_DIR) all
 
-$(ZCC_RUNTIME_STAMP): $(ZCC_RUNTIME_SOURCES) include/abi/syscall.h include/abi/process.h include/abi/fcntl.h
+$(ZCC_RUNTIME_STAMP): $(ZCC_RUNTIME_SOURCES) include/abi/syscall.h include/abi/process.h include/abi/fcntl.h include/abi/terminal.h
 	$(Q)$(MAKE) -C $(ZCC_DIR)/src/runtime $(ZCC_LIBARCH) ABI_DIR=$(abspath include/abi)
 	$(Q)touch $@
 
@@ -58,19 +58,24 @@ $(USER_COMPILER_STAMP): FORCE
 
 define user_program_template
 _UP_C_$(1) := $$(wildcard $(USER_DIR)/$(1)/*.c)
+_UP_CXX_$(1) := $$(wildcard $(USER_DIR)/$(1)/*.cpp)
 _UP_ASM_$(1) := $$(wildcard $(USER_DIR)/$(1)/*.S)
 _UP_COMPILER_DEP_$(1) := $$(if $$(filter $(BASE_PROGRAMS) ssetest ssepeer,$(1)),,$(USER_COMPILER_STAMP) $(USER_COMPILER_CHANGED))
 ifneq ($$(and $$(filter-out $(BASE_PROGRAMS) ssetest ssepeer,$(1)),$$(filter zcc,$(USER_CC))),)
-$(USER_BINDIR)/$(call uc,$(1)).ELF: $$(_UP_C_$(1)) $(ZCC_COMPILER) $(ZCC_RUNTIME_STAMP) $$(_UP_COMPILER_DEP_$(1)) user/Makefile | $(USER_BINDIR) check-syscall-abi
+$(USER_BINDIR)/$(call uc,$(1)).ELF: $$(_UP_C_$(1)) $$(_UP_CXX_$(1)) $(ZCC_COMPILER) $(ZCC_RUNTIME_STAMP) $$(_UP_COMPILER_DEP_$(1)) user/Makefile | $(USER_BINDIR) check-syscall-abi
+	$(Q)if [ -n "$$(_UP_CXX_$(1))" ]; then echo "zcc accepts C; select USER_CC=clang for C++ applications" >&2; exit 1; fi
 	@echo "  ZCC     $$@"
 	$(Q)$(ZCC_COMPILER) $(ZCC_TARGET) $$< -o $$@ -sysroot $(ZCC_SYSROOT)
 else
 _UP_CC_$(1) := $$(if $$(filter $(BASE_PROGRAMS) ssetest ssepeer,$(1)),$(CC),$(USER_NATIVE_CC))
 _UP_FLAGS_$(1) := $$(if $$(filter ssetest ssepeer,$(1)),$(USER_TEST_CFLAGS),$(USER_CFLAGS))
-_UP_OBJS_$(1) := $$(patsubst $(USER_DIR)/%,$(USER_OBJDIR)/%.o,$$(_UP_C_$(1)) $$(_UP_ASM_$(1)))
+_UP_OBJS_$(1) := $$(patsubst $(USER_DIR)/%,$(USER_OBJDIR)/%.o,$$(_UP_C_$(1)) $$(_UP_CXX_$(1)) $$(_UP_ASM_$(1)))
 $(USER_OBJDIR)/$(1)/%.c.o: $(USER_DIR)/$(1)/%.c $(ZCC_RUNTIME_STAMP) $$(_UP_COMPILER_DEP_$(1)) user/Makefile arch/$(ARCH)/Makefile
 	$(Q)$(MKDIR) $$(@D)
 	$(Q)$$(_UP_CC_$(1)) $$(_UP_FLAGS_$(1)) $(DEPFLAGS) -c $$< -o $$@
+$(USER_OBJDIR)/$(1)/%.cpp.o: $(USER_DIR)/$(1)/%.cpp $(ZCC_RUNTIME_STAMP) $$(_UP_COMPILER_DEP_$(1)) user/Makefile arch/$(ARCH)/Makefile
+	$(Q)$(MKDIR) $$(@D)
+	$(Q)$$(_UP_CC_$(1)) $(filter-out -std=c11,$(USER_CFLAGS)) -std=$(CXX_STANDARD) -nostdinc++ -Iexternal/zstl/include -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-use-cxa-atexit $(DEPFLAGS) -c $$< -o $$@
 $(USER_OBJDIR)/$(1)/%.S.o: $(USER_DIR)/$(1)/%.S $(ZCC_RUNTIME_STAMP) $$(_UP_COMPILER_DEP_$(1)) user/Makefile arch/$(ARCH)/Makefile
 	$(Q)$(MKDIR) $$(@D)
 	$(Q)$$(_UP_CC_$(1)) $$(_UP_FLAGS_$(1)) $(DEPFLAGS) -c $$< -o $$@
@@ -110,6 +115,7 @@ ZCC_TEST_SRCS := $(wildcard $(ZCC_DIR)/test/*.c)
 define zcc_program_template
 
 $(USER_BINDIR)/$(call zcc_fat_name,$(1)).ELF: $(ZCC_DIR)/test/$(1).c $(ZCC_COMPILER) $(ZCC_RUNTIME_STAMP) | $(USER_BINDIR)
+	$(Q)if [ -n "$$(_UP_CXX_$(1))" ]; then echo "zcc accepts C; select USER_CC=clang for C++ applications" >&2; exit 1; fi
 	@echo "  ZCC     $$@"
 	$(Q)$(ZCC_COMPILER) $(ZCC_TARGET) $$< -o $$@ -sysroot $(ZCC_SYSROOT)
 

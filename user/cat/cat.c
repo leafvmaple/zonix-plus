@@ -1,8 +1,27 @@
 #include "../command.h"
 
 int main(int argc, char** argv) {
-    if (argc < 2)
-        return command_usage("Usage: cat file...\n");
+    if (argc == 1) {
+        struct DescriptorStat input;
+        long error = sys_fstat(STDIN_FD, &input);
+        if (error < 0)
+            return command_error("cat", "stdin", error);
+        if (input.type != FILE_TYPE_CHAR_DEVICE) {
+            error = command_copy(STDIN_FD, STDOUT_FD);
+            return error < 0 ? command_error("cat", "stdin", error) : 0;
+        }
+        char line[4096];
+        int skip_lf = 0;
+        for (;;) {
+            long size = command_read_line(line, sizeof(line), &skip_lf);
+            if (size == 0)
+                return 0;
+            if (size > 0)
+                size = command_write_all(STDOUT_FD, line, size);
+            if (size < 0)
+                return command_error("cat", 0, size);
+        }
+    }
     int status = 0;
     for (int i = 1; i < argc; ++i) {
         struct FileStat st;

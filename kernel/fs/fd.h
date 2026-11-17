@@ -8,7 +8,7 @@
 namespace fd {
 
 inline constexpr int MAX_FD = 16;
-enum class ForkPolicy : uint8_t { Reset = 0, Share = 1 };
+enum class ForkPolicy : uint8_t { Reset = 0, Share = 1, Spawn = 2 };
 
 class OpenFile;
 struct ReleaseOpenFile {
@@ -53,12 +53,18 @@ public:
     size_t size() const;
     OpenFile* get(int fd);
     Error close(int fd);
+    Result<int> duplicate_cloexec(int fd, int minimum);
+    Error duplicate_to(int old_fd, int new_fd);
     void close_all();
     Error fork_from(const Table& parent, ForkPolicy policy);
 
 private:
-    Result<int> install(OpenFileRef file);
-    OpenFileRef entries_[MAX_FD]{};
+    struct Entry {
+        OpenFileRef file;
+        bool close_on_exec{};
+    };
+    Result<int> install(OpenFileRef file, bool close_on_exec = false, int minimum = 0);
+    Entry entries_[MAX_FD]{};
 };
 
 }  // namespace fd

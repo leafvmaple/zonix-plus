@@ -28,9 +28,19 @@ public:
 
         const auto* in = static_cast<const char*>(buf);
         for (size_t i = 0; i < size; i++) {
-            cons::putc(in[i]);
+            cons::write_output(in[i]);
         }
         return static_cast<int>(size);
+    }
+
+    Error control(unsigned int request, void* value) override {
+        if (request == TERMINAL_GET_SIZE) {
+            *static_cast<TerminalSize*>(value) = cons::screen_size();
+            return Error::None;
+        }
+        if (request == TERMINAL_SET_RAW)
+            return cons::set_raw(*static_cast<unsigned int*>(value) != 0);
+        return Error::NotSupported;
     }
 
     Error stat(vfs::Stat* st) override {

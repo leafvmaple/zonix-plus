@@ -75,7 +75,7 @@ Result<int> TaskManager::spawn_user(sys::unique_ptr<MemoryDesc> memory, uintptr_
     if (parent == idle_proc_)
         TRY(setup_stdio(proc->files()));
     else
-        TRY(proc->files().fork_from(parent->files(), fd::ForkPolicy::Share));
+        TRY(proc->files().fork_from(parent->files(), fd::ForkPolicy::Spawn));
     TRY(proc->setup_kernel_stack());
     proc->adopt_memory(sys::move(memory));
     proc->setup_user_thread(entry, stack);

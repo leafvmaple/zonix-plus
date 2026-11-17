@@ -1,4 +1,5 @@
 #pragma once
+#include <abi/terminal.h>
 
 #include <base/types.h>
 
@@ -9,5 +10,10 @@ void init(uintptr_t fb_vaddr, uint32_t width, uint32_t height, uint32_t pitch, u
 void putc(int c);
 void tick();
 bool is_active();
+TerminalSize size();
+void move_cursor(unsigned int row, unsigned int col);
+void clear();
+void erase_line(unsigned int mode);
+void set_cursor_visible(bool visible);
 
 }  // namespace fbcons

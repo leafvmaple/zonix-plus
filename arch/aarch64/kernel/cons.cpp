@@ -29,4 +29,13 @@ void arch_putc(int c) {
     pl011::putc(c);
 }
 
+void arch_text_putc(int) {}
+TerminalSize arch_screen_size() {
+    return {24, 80};
+}
+void arch_move_cursor(unsigned int, unsigned int) {}
+void arch_clear_screen() {}
+void arch_erase_line(unsigned int) {}
+void arch_set_cursor_visible(bool) {}
+
 }  // namespace cons

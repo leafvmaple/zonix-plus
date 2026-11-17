@@ -92,6 +92,24 @@ long syscall::open(Task* cur, const char* user_path, int flags, int mode) {
     return result.ok() ? result.value() : -1;
 }
 
+long syscall::dup2(Task* task, long old_fd, long new_fd) {
+    if (!task || old_fd < 0 || old_fd >= fd::MAX_FD || new_fd < 0 || new_fd >= fd::MAX_FD)
+        return static_cast<long>(Error::Invalid);
+    Error error = task->files().duplicate_to(static_cast<int>(old_fd), static_cast<int>(new_fd));
+    return error == Error::None ? new_fd : static_cast<long>(error);
+}
+
+long syscall::fcntl(Task* task, long fd, long command, long argument) {
+    if (!task || fd < 0 || fd >= fd::MAX_FD || !task->files().get(static_cast<int>(fd)))
+        return static_cast<long>(Error::Invalid);
+    if (command != F_DUPFD_CLOEXEC)
+        return static_cast<long>(Error::NotSupported);
+    if (argument < 0 || argument >= fd::MAX_FD)
+        return static_cast<long>(Error::Invalid);
+    auto result = task->files().duplicate_cloexec(static_cast<int>(fd), static_cast<int>(argument));
+    return result.ok() ? result.value() : static_cast<long>(result.error());
+}
+
 long syscall::read(Task* cur, int fd, void* user_buf, size_t count) {
     if (!cur) {
         return -1;

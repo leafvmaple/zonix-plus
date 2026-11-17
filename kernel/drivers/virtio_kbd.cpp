@@ -76,7 +76,7 @@ public:
             if (input.type == EV_KEY && input.value <= 2) {
                 int c = keyboard_.translate(input.code, input.value != 0);
                 if (c >= 0) {
-                    cons::push_input(static_cast<char>(c));
+                    cons::push_key(c);
                 }
             }
             if (queue_.submit(static_cast<uint16_t>(event.id)) != Error::None) {

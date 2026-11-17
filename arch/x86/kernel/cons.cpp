@@ -37,10 +37,27 @@ int arch_init() {
 }
 
 void arch_putc(int c) {
-    if (!fbcons::is_active())
-        cga::putc(c);
     uart8250::putc(c);
     arch_port_write8(0xe9, c);
+}
+
+void arch_text_putc(int c) {
+    cga::putc(c);
+}
+TerminalSize arch_screen_size() {
+    return cga::size();
+}
+void arch_move_cursor(unsigned int row, unsigned int col) {
+    cga::move_cursor(row, col);
+}
+void arch_clear_screen() {
+    cga::clear();
+}
+void arch_erase_line(unsigned int mode) {
+    cga::erase_line(mode);
+}
+void arch_set_cursor_visible(bool visible) {
+    cga::set_cursor_visible(visible);
 }
 
 }  // namespace cons

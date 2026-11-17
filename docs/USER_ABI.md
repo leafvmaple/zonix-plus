@@ -42,6 +42,9 @@ SP -> argc                64 位
 | sync | 36 | 同步已挂载文件系统及其设备缓存；成功返回 0，失败返回负 Error |
 | kill | 37 | 单用户权限下可终止普通用户进程，init/内核任务受保护；成功返回 0 |
 | mkdir / rmdir | 39 / 40 | 创建目录 / 删除空目录；相对和绝对路径，成功返回 0 |
+| ioctl | 54 | 通用 FD 控制；当前支持终端尺寸查询与前台原始输入租约 |
+| fcntl | 55 | 当前仅支持 `F_DUPFD_CLOEXEC`：从指定最小 FD 起复制，结果在新程序启动时关闭 |
+| dup2 | 63 | 将旧 FD 复制到指定目标，返回目标 FD；无效参数返回负 Error |
 | readdir | 89 | 相对/绝对目录路径、从零开始的索引、`DirectoryEntry*`；1 表示一项，0 表示结束 |
 | ftruncate | 93 | 只支持长度 0；FD 必须可写，不改变当前偏移 |
 | stat | 106 | 相对/绝对路径、`FileStat*`；成功返回 0 |
@@ -69,6 +72,23 @@ SP -> argc                64 位
 
 当前没有 UID、凭据或用户隔离，普通用户进程具有同等的查看和终止权限；不能用临时父子关系代替权限身份。kill 可请求终止其他普通用户进程，包括兄弟和已被 init 收养的进程；wait 仍只回收直接子进程。PID 必须为正 int，PID 0/负数/越界返回 Invalid，不提供 POSIX 进程组或广播语义。不存在或已是 zombie 的目标返回 NotFound。合法正 PID 指向 init 或使用内核 MM 的任务时返回 Access，复用 Ctrl-C 同一终止保护。shell 是普通用户进程，终止后由 init 重启。成功返回 0 仅代表请求受理，仍由既有安全边界、FD 清理、zombie 发布和父进程 wait 完成退出与回收；以后引入用户/凭据时须在此权限边界增加检查。
 
+## 终端控制 ABI
+
+`include/abi/terminal.h` 与共用运行时副本同步。`sys_ioctl(fd, request, argument)` 的 argument 是 64 位 long：
+
+| request | argument / 结果 |
+| --- | --- |
+| `TERMINAL_GET_SIZE` (0x5601) | 用户可写 `TerminalSize*`；复制 rows/cols 两个 uint32，固定 8 字节 |
+| `TERMINAL_SET_RAW` (0x5602) | 立即值 0/1；1 将 Ctrl-C 交给前台程序，0 释放租约并恢复终端 |
+
+请求作用于真正的 console File；普通文件返回 NotSupported，无效 FD/指针/模式值返回 Invalid。VFS control 接口只接收内核局部参数，不持有用户地址。尺寸来自 framebuffer 字体网格；x86 文本模式为 80×25，纯串口 aarch64/riscv64 无 framebuffer 时使用 80×24。首版没有运行时尺寸变更通知。
+
+只有当前前台用户任务可设置模式；init、内核任务及后台任务返回 Access。租约由 PID 持有，不随 FD 复制而复制，前台交接、拥有者退出或 panic 会释放。释放时丢弃应用残留输入、重置控制序列、清屏并显示光标；其他控制台输出在占用期间暂存至 1 KiB 缓冲，释放后显示，超限有截断提示。不是 POSIX termios 的完整实现。
+
+输出使用通用 ANSI 子集：`CSI row;col H`/`f`（从 1 开始，缺省 1）、`CSI 2J`（清屏）、`CSI K`/`2K`（清到行尾/清整行）、`CSI ?25h`/`?25l`（显示/隐藏光标）。同一流发送到串口并由共享解析器交给 framebuffer 或架构文本后端，坐标在后端按实际网格限界。PS/2/VirtIO 方向键统一发出 `ESC [ A/B/C/D`，Home/End 发出 `ESC [ H/F`，Delete 发出 `ESC [ 3 ~`；串口可直接发送相同协议。
+
+基础组件可使用 Clang C/C++，C++ 组件使用相同 zstl include root、禁用宿主 C++ CRT/异常/RTTI，共用 C 链接运行时声明。zcc 的显式应用路径继续处理 C；选择 zcc 构建 C++ 应用会报错，不静默切换编译器。
+
 ## 控制台前台归属
 
 `spawn_foreground` 与普通 spawn 共用加载、参数复制、FD 继承和资源所有权实现；仅新增发布阶段的原子控制台交接。无控制者时只有 init 可创建控制者（正常启动为 shell）；有控制者时只有当前前台任务可把控制台交给新子进程。其他调用者返回 Access，不发布子进程，也不改变控制台归属。若创建者已收到终止请求，或控制者的输入队列中已有 Ctrl-C，则取消本次前台创建、返回 Interrupted，不发布子进程；消费对应中断输入，shell 记录 -128。普通 spawn 不改变前台 PID。前台任务退出时在发布 zombie 状态前恢复父进程归属；若父进程已退出、子进程被 init 收养，则恢复控制者。控制者退出后清空归属，允许 init 重新启动它。控制台只保存 PID，不保留可悬空的 Task 指针。
@@ -79,9 +99,15 @@ SP -> argc                64 位
 
 ## FD 和资源
 
-0/1/2 为 stdin/stdout/stderr，初始内核启动任务连接 `/dev/console`。spawn 保留父进程的 FD 编号；每个 FD 持有一个可移动的 `OpenFileRef` 引用（zstl `unique_ptr` 加领域释放器），共享同一打开文件描述及偏移。跨进程 I/O 持有描述的互斥锁；独立 open 的偏移彼此独立。close 只释放本进程引用，最后一个引用关闭 VFS 文件。
+0/1/2 为 stdin/stdout/stderr，初始内核启动任务连接 `/dev/console`。spawn 保留未标记 close-on-exec 的父进程 FD 编号；每个 FD 持有一个可移动的 `OpenFileRef` 引用（zstl `unique_ptr` 加领域释放器），共享同一打开文件描述及偏移。跨进程 I/O 持有描述的互斥锁；独立 open 的偏移彼此独立。close 只释放本进程引用，最后一个引用关闭 VFS 文件。
 
-exit 先关闭本进程全部 FD，再发布 zombie 状态；wait 在进程离开 CPU 后释放内核栈、用户地址空间及任务。孤儿交给现有 init 回收。路径可使用相对/绝对形式，进程拥有独立当前目录，spawn 继承目录值；目录枚举不承诺在并发目录修改时保持快照。用户态 init/shell 已实现，重定向与管道仍待完成。
+`O_CLOEXEC`（02000000）属于 FD 槽而非共享打开描述，`fd::Table::open` 消费它后再调用 VFS。`sys_fcntl(fd, F_DUPFD_CLOEXEC, minimum)` 返回不小于 minimum 的最小空槽，复制句柄并标记 close-on-exec；FD 或 minimum 不在 [0,16) 时 Invalid，无空槽时 Full，其他 fcntl 命令暂为 NotSupported。`sys_dup2(old, new)` 先验证源/目标，失败不改变目标；old==new 时保留原标记，否则替换目标并清除其 close-on-exec 标记。两者共享打开描述和偏移，均不重新打开文件。
+
+`ForkPolicy::Share` 保留所有 FD 及标记，`ForkPolicy::Spawn` 仅保留未标记 FD，`Reset` 清空。两个用户态 spawn 接口共用 Spawn 策略，过滤仅影响新进程；父进程的 FD 保持有效。dup2 先取得新引用再释放旧目标，最后关闭在引用计数中断保护之外执行。新 syscall 和 flags 已同步到共用运行时。
+
+控制台 CR/CRLF 在公共入口统一为 LF，跨前台交接保持同一转换状态。其余行编辑和 EOF 仍由 CLI 读取策略解释，不是内核完整 TTY 行规程。共用 `printf` 处理短写、返回实际字符数，并在写入失败时返回 -1，调用者可据此报告重定向输出失败。
+
+exit 先关闭本进程全部 FD，再发布 zombie 状态；wait 在进程离开 CPU 后释放内核栈、用户地址空间及任务。孤儿交给现有 init 回收。路径可使用相对/绝对形式，进程拥有独立当前目录，spawn 继承目录值；目录枚举不承诺在并发目录修改时保持快照。用户态 init/shell 与 stdin/stdout 重定向已实现，管道仍待完成。
 
 ## 构建与定向验证
 

@@ -41,6 +41,13 @@ public:
                 case 0x1C: code = 96; break;  // keypad Enter
                 case 0x1D: code = 97; break;  // right Ctrl
                 case 0x35: code = 98; break;  // keypad /
+                case 0x48: code = 103; break;
+                case 0x50: code = 108; break;
+                case 0x4D: code = 106; break;
+                case 0x4B: code = 105; break;
+                case 0x47: code = 102; break;
+                case 0x4F: code = 107; break;
+                case 0x53: code = 111; break;
                 default: return -1;
             }
         }
@@ -90,7 +97,7 @@ void intr() {
     if (c < 0)
         return;
 
-    cons::push_input(static_cast<char>(c));
+    cons::push_key(c);
 }
 
 }  // namespace i8042

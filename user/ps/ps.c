@@ -25,8 +25,9 @@ int main(int argc, char** argv) {
             return command_error("ps", 0, found);
         if (found == 0)
             return 0;
-        printf("%d\t%d\t%s\t%s\t%s\n", info.pid, info.ppid, state_name(info.state),
-               info.kind == PROCESS_KIND_KERNEL ? "kernel" : "user", info.name);
+        if (printf("%d\t%d\t%s\t%s\t%s\n", info.pid, info.ppid, state_name(info.state),
+                   info.kind == PROCESS_KIND_KERNEL ? "kernel" : "user", info.name) < 0)
+            return command_error("ps", 0, SYS_ERROR_IO);
         cursor = info.pid;
     }
 }

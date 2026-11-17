@@ -53,6 +53,11 @@ bool dispatch(Task* task, long nr, uintptr_t arg0, uintptr_t arg1, uintptr_t arg
         case NR_READ:
             result = read(task, static_cast<int>(arg0), reinterpret_cast<void*>(arg1), static_cast<size_t>(arg2));
             return true;
+        case NR_IOCTL: result = ioctl(task, static_cast<long>(arg0), static_cast<long>(arg1), arg2); return true;
+        case NR_DUP2: result = dup2(task, static_cast<long>(arg0), static_cast<long>(arg1)); return true;
+        case NR_FCNTL:
+            result = fcntl(task, static_cast<long>(arg0), static_cast<long>(arg1), static_cast<long>(arg2));
+            return true;
         case NR_CLOSE: result = close(task, static_cast<int>(arg0)); return true;
         case NR_WRITE:
             result =

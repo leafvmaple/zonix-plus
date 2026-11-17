@@ -28,6 +28,9 @@
 #define NR_KILL      37
 #define NR_MKDIR     39
 #define NR_RMDIR     40
+#define NR_IOCTL     54
+#define NR_FCNTL     55
+#define NR_DUP2      63
 #define NR_READDIR   89
 #define NR_FTRUNCATE 93
 #define NR_STAT      106

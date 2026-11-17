@@ -3,7 +3,7 @@
 
 /* Shared command I/O policy; startup, syscalls and libc primitives stay in the runtime. */
 static inline long command_write_all(int fd, const void* buffer, long size) {
-    const char* bytes = buffer;
+    const char* bytes = (const char*)buffer;
     long done = 0;
     while (done < size) {
         long written = sys_write(fd, (void*)(bytes + done), size - done);
@@ -60,5 +60,63 @@ static inline long command_copy(int input, int output) {
         long error = command_write_all(output, buffer, count);
         if (error < 0)
             return error;
+    }
+}
+
+/* CLI line policy over byte input: positive length includes Enter's newline;
+ * zero is EOF, negative is an Error. Echo uses stderr so stdout can be
+ * redirected. Ctrl-D delivers pending text before reporting EOF. */
+static inline long command_read_line(char* line, long capacity, int* skip_lf) {
+    long size = 0;
+    int overflow = 0;
+    for (;;) {
+        char c;
+        long count = sys_read(STDIN_FD, &c, 1);
+        if (count < 0)
+            return SYS_ERROR_IO;
+        if (count == 0) {
+            line[size] = 0;
+            return overflow ? SYS_ERROR_FULL : size;
+        }
+        if (*skip_lf && c == '\n') {
+            *skip_lf = 0;
+            continue;
+        }
+        *skip_lf = 0;
+        if (c == 3) {
+            line[0] = 0;
+            if (command_text(STDERR_FD, "^C\n") < 0)
+                return SYS_ERROR_IO;
+            return SYS_ERROR_INTERRUPTED;
+        }
+        if (c == 4) {
+            line[size] = 0;
+            return overflow ? SYS_ERROR_FULL : size;
+        }
+        if (c == '\r' || c == '\n') {
+            *skip_lf = c == '\r';
+            if (command_text(STDERR_FD, "\n") < 0)
+                return SYS_ERROR_IO;
+            if (overflow)
+                return SYS_ERROR_FULL;
+            line[size++] = '\n';
+            line[size] = 0;
+            return size;
+        }
+        if ((c == 8 || c == 127) && !overflow) {
+            if (size > 0) {
+                --size;
+                if (command_text(STDERR_FD, "\b \b") < 0)
+                    return SYS_ERROR_IO;
+            }
+        } else if (c >= 32 || c == '\t') {
+            if (size + 2 >= capacity)
+                overflow = 1;
+            else if (!overflow) {
+                line[size++] = c;
+                if (command_write_all(STDERR_FD, &c, 1) < 0)
+                    return SYS_ERROR_IO;
+            }
+        }
     }
 }

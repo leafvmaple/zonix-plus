@@ -10,6 +10,10 @@
 #define O_EXCL    0200
 #define O_TRUNC   01000
 #define O_APPEND  02000
+#define O_CLOEXEC 02000000
+
+/* Descriptor duplication: lowest free FD >= argument, closed on image spawn. */
+#define F_DUPFD_CLOEXEC 1030
 
 /* open's mode argument is reserved and must be zero; FAT has no POSIX mode bits. */
 

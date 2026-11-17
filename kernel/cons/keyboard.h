@@ -4,6 +4,8 @@
 
 namespace cons {
 
+enum class Key : int { Up = 256, Down, Right, Left, Home, End, Delete };
+
 // PC set-1 base keys and VirtIO input use the same key numbers here. Hardware
 // backends normalize extended keys and pass both press and release events.
 class KeyboardState {
@@ -15,6 +17,18 @@ public:
             case 29: left_ctrl_ = pressed; return -1;
             case 97: right_ctrl_ = pressed; return -1;
             default: break;
+        }
+        if (pressed) {
+            switch (code) {
+                case 103: return static_cast<int>(Key::Up);
+                case 108: return static_cast<int>(Key::Down);
+                case 106: return static_cast<int>(Key::Right);
+                case 105: return static_cast<int>(Key::Left);
+                case 102: return static_cast<int>(Key::Home);
+                case 107: return static_cast<int>(Key::End);
+                case 111: return static_cast<int>(Key::Delete);
+                default: break;
+            }
         }
         if (!pressed || code >= sizeof(NORMAL))
             return -1;
