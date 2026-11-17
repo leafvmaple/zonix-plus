@@ -32,6 +32,9 @@ void test() {
     TEST_ASSERT(trap::arch_is_page_fault(&tf), "Synchronous data abort still classified");
     tf.esr = static_cast<uint64_t>(TRAP_EC_SYSCALL) << 26;
     TEST_ASSERT(trap::arch_is_syscall(&tf), "Synchronous SVC still classified");
+    tf.pc = 0x400004;
+    trap::arch_on_syscall_entry(&tf);
+    TEST_ASSERT(tf.pc == 0x400004, "SVC preserves the hardware-provided next-instruction address");
     arch_setup_kthread_tf(&tf, 0x400000, 0, 0);
     TEST_ASSERT(!tf.from_user(), "Kernel frame reports kernel origin");
     TEST_END();

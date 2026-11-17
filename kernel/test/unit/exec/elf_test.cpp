@@ -1,5 +1,6 @@
 #include "mm/page_table.h"
 #include "test/test_defs.h"
+#include <sys/memory.hpp>
 #include "lib/memory.h"
 #include "lib/result.h"
 #include "exec/elf_loader.h"
@@ -280,11 +281,14 @@ static void test_load_and_stack() {
         ph->p_memsz = PG_SIZE + 16;
         memset(buf + ph->p_offset, 0x5a, ph->p_filesz);
 
-        const size_t empty_root_pages = pmm::free_page_count();
         auto bad = elf::load(buf, sizeof(ElfHeader) - 1, mm.pgdir);
         auto no_root = elf::load(buf, sizeof(buf), nullptr);
         auto no_data = elf::load(nullptr, sizeof(buf), mm.pgdir);
-        auto no_stack_root = exec::setup_user_stack(nullptr);
+        auto args = sys::unique_ptr<exec::Arguments>(new (sys::nothrow) exec::Arguments());
+        assert(args);
+        const size_t empty_root_pages = pmm::free_page_count();
+        MemoryDesc no_memory;
+        auto no_stack_root = exec::setup_user_stack(no_memory, *args);
         TEST_ASSERT(!bad.ok() && bad.error() == Error::Invalid, "Malformed ELF preserves Invalid");
         TEST_ASSERT(!no_root.ok() && no_root.error() == Error::Invalid, "Null ELF root returns Invalid");
         TEST_ASSERT(!no_data.ok() && no_data.error() == Error::Invalid, "Null ELF data returns Invalid");
@@ -305,8 +309,9 @@ static void test_load_and_stack() {
                         "BSS zeroed across the page boundary");
             TEST_ASSERT(!write.ok(), "Read-only executable segment rejects writes");
         }
-        auto stack = exec::setup_user_stack(mm.pgdir);
-        TEST_ASSERT(stack.ok() && stack.value() == USER_STACK_TOP, "Stack setup returns its virtual top");
+        auto stack = exec::setup_user_stack(mm, *args);
+        TEST_ASSERT(stack.ok() && stack.value() == USER_STACK_TOP - 32 && stack.value() % 16 == 0,
+                    "Stack entry reserves aligned argc/argv/environment words");
         bool zeroed = stack.ok();
         for (uintptr_t va = USER_STACK_TOP - USER_STACK_SIZE; va < USER_STACK_TOP && zeroed; va += PG_SIZE) {
             auto page = pmm::user_address(mm.pgdir, va, true);

@@ -23,6 +23,7 @@ TIMEOUT="${TIMEOUT:-180}"
 serial_log="$(mktemp /tmp/zonix-aarch64-ci-XXXXXX)"
 qemu="qemu-system-aarch64"
 qemu_pid=""
+userdata_dir=""
 
 cleanup() {
     if [ -n "$qemu_pid" ] && kill -0 "$qemu_pid" 2>/dev/null; then
@@ -30,6 +31,7 @@ cleanup() {
         wait "$qemu_pid" 2>/dev/null || true
     fi
     rm -f "$serial_log"
+    if [ -n "$userdata_dir" ]; then rm -rf "$userdata_dir"; fi
 }
 trap cleanup EXIT
 
@@ -56,6 +58,9 @@ if [ ! -f "${BINDIR}/sdcard.img" ]; then
     exit 1
 fi
 
+userdata_dir=$(mktemp -d /tmp/zonix-aarch64-users-XXXXXX)
+bash "$(dirname "$0")/prepare_test_userdata.sh" aarch64 "$userdata_dir"
+
 QEMU_CMD=(
     "$qemu"
     -M virt
@@ -70,6 +75,9 @@ QEMU_CMD=(
     -drive "file=${BINDIR}/sdcard.img,format=raw,if=none,id=sdcard"
     -device sdhci-pci
     -device "sd-card,drive=sdcard"
+    -drive "file=${userdata_dir}/userdata.img,format=raw,if=none,id=userdata"
+    -device sdhci-pci
+    -device "sd-card,drive=userdata"
 )
 
 echo "Starting qemu (aarch64 UEFI mode)..."

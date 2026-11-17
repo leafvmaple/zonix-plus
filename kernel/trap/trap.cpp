@@ -9,6 +9,7 @@
 #include "mm/vmm.h"
 #include "sched/sched.h"
 #include "debug/assert.h"
+#include <abi/process.h>
 
 namespace timer {
 extern volatile int64_t ticks;
@@ -87,6 +88,9 @@ extern "C" void trap_dispatch(TrapFrame* tf) {
     }
 
     Task* cur = sched::current();
+    if (cur && tf->from_user() && cur->termination_requested()) {
+        sched::exit(PROCESS_STATUS_KILLED);
+    }
     if (cur && cur->need_resched) {
         sched::schedule();
     }

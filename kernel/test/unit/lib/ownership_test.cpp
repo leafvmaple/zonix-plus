@@ -167,7 +167,7 @@ void test_descriptor_ownership() {
 }
 
 void test_table_destruction_and_fork() {
-    TEST_START("Table teardown closes files while unsupported sharing preserves both owners");
+    TEST_START("Shared descriptions retain one file and offset until the final descriptor closes");
     Counts counts;
     {
         fd::Table parent;
@@ -181,12 +181,15 @@ void test_table_destruction_and_fork() {
         }
         TEST_ASSERT(parent.alloc(first.release_value()).ok() && child.alloc(second.release_value()).ok(),
                     "Each table owns a distinct handle");
-        TEST_ASSERT(child.fork_from(parent, fd::ForkPolicy::Share) == Error::NotSupported && parent.get(0) &&
-                        child.get(0) && counts.destroyed == 0,
-                    "Sharing rejection neither duplicates nor destroys ownership");
-        TEST_ASSERT(child.fork_from(parent, fd::ForkPolicy::Reset) == Error::None && !child.get(0) && parent.get(0) &&
+        TEST_ASSERT(child.fork_from(parent, fd::ForkPolicy::Share) == Error::None && parent.get(0) == child.get(0) &&
                         counts.destroyed == 1,
-                    "Reset closes the child's old handle and preserves parent ownership");
+                    "Inheritance releases the old child file and shares the parent's description");
+        parent.get(0)->set_offset(7);
+        TEST_ASSERT(child.get(0)->offset() == 7 && child.close(0) == Error::None && parent.get(0) &&
+                        counts.destroyed == 1,
+                    "Shared offset survives closing only the child's descriptor");
+        TEST_ASSERT(child.fork_from(parent, fd::ForkPolicy::Reset) == Error::None && !child.get(0) && parent.get(0),
+                    "Reset leaves the parent's reference intact");
     }
     TEST_ASSERT(counts.destroyed == 2, "Scope exit closes the remaining parent handle");
     TEST_END();

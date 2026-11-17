@@ -20,6 +20,7 @@ enum class [[nodiscard]] Error : int {
     Full = -12,
     Fail = -13,
     Access = -14,
+    Interrupted = -15,
 };
 
 inline const char* error_str(Error e) {
@@ -39,6 +40,7 @@ inline const char* error_str(Error e) {
         case Error::Full: return "full";
         case Error::Fail: return "failed";
         case Error::Access: return "access denied";
+        case Error::Interrupted: return "interrupted";
         default: return "unknown error";
     }
 }

@@ -69,7 +69,7 @@ KERNEL_POST_LINK  :=
 # ---------- top-level "all" prerequisites ----------
 ALL_PREREQS := $(BINDIR)/mbr $(BINDIR)/vbr $(BINDIR)/bootloader $(BINDIR)/BOOTX64.EFI \
                $(BINDIR)/kernel $(BINDIR)/zonix.img $(BINDIR)/zonix-uefi.img \
-               user $(BINDIR)/userdata.img
+               $(BINDIR)/userdata.img
 
 # ---------- QEMU run / debug targets ----------
 DISK ?= ahci
@@ -117,3 +117,7 @@ disasm: $(BINDIR)/kernel $(BINDIR)/mbr $(BINDIR)/vbr $(BINDIR)/bootloader
 	$(Q)$(OBJDUMP) -S $(BINDIR)/bootloader > $(OBJDIR)/bootloader.asm
 	$(Q)$(DASM) -b 32 $(BINDIR)/bootloader.bin > $(OBJDIR)/bootloader.disasm 2>/dev/null || true
 	@echo "  DISASM  $(OBJDIR)/*.asm $(OBJDIR)/*.disasm"
+
+# Instruction-generation flags for existing TEST=1 user register-state fixtures.
+USER_TEST_CFLAGS := -g -O2 -m64 -mno-red-zone -march=x86-64 -msse2 -mno-avx -mno-avx2 \
+                   -nostdinc -ffreestanding -fno-builtin -fno-stack-protector -fno-pic

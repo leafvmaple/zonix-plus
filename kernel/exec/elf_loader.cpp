@@ -65,7 +65,7 @@ Result<uintptr_t> load(const uint8_t* data, size_t size, pde_t* pgdir) {
 
     TRY(validate(eh, size));
 
-    cprintf("elf: loading - %d program header(s), entry=0x%lx\n", eh->e_phnum, eh->e_entry);
+    klog::debug("elf: loading - %d program header(s), entry=0x%lx\n", eh->e_phnum, eh->e_entry);
 
     for (uint16_t i = 0; i < eh->e_phnum; i++) {
         size_t ph_offset = eh->e_phoff + i * eh->e_phentsize;
@@ -79,9 +79,9 @@ Result<uintptr_t> load(const uint8_t* data, size_t size, pde_t* pgdir) {
 
         uint32_t perm = user_page_perm((ph->p_flags & ELF_PF_W) != 0, (ph->p_flags & ELF_PF_X) != 0);
 
-        cprintf("elf:   LOAD seg %d: va=0x%lx, filesz=0x%lx, memsz=0x%lx, perm=%s%s%s\n", i, ph->p_va, ph->p_filesz,
-                ph->p_memsz, (ph->p_flags & ELF_PF_R) ? "R" : "-", (ph->p_flags & ELF_PF_W) ? "W" : "-",
-                (ph->p_flags & ELF_PF_X) ? "X" : "-");
+        klog::debug("elf:   LOAD seg %d: va=0x%lx, filesz=0x%lx, memsz=0x%lx, perm=%s%s%s\n", i, ph->p_va, ph->p_filesz,
+                    ph->p_memsz, (ph->p_flags & ELF_PF_R) ? "R" : "-", (ph->p_flags & ELF_PF_W) ? "W" : "-",
+                    (ph->p_flags & ELF_PF_X) ? "X" : "-");
 
         uintptr_t seg_start = round_down(ph->p_va, PG_SIZE);
         uintptr_t seg_end = round_up(ph->p_va + ph->p_memsz, PG_SIZE);

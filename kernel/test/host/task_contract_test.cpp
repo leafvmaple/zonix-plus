@@ -70,7 +70,7 @@ public:
     }
     void check_published(Task& task) {
         assert(task.pid == 1 && task.parent == &parent_ && task.state() == TaskState::Runnable);
-        assert(TaskManager::process_count() == 1 && guards_ == 0 && live_ == 5);
+        assert(TaskManager::process_count() == 1 && guards_ == 0 && live_ == 8);
         assert(task.memory() == &vmm::Manager::kernel_mm());
         assert(TaskManager::find_process(task.pid) == &task && !parent_.child_list.empty());
         stack_ = reinterpret_cast<void*>(task.kernel_stack());
@@ -194,14 +194,14 @@ extern "C" int main(int argc, char** argv) {
         const bool user_memory = strcmp(argv[1], "user") == 0;
         const bool open_failure =
             strcmp(argv[1], "open1") == 0 || strcmp(argv[1], "open2") == 0 || strcmp(argv[1], "open3") == 0;
-        if (argv[1][0] >= '1' && argv[1][0] <= '5')
+        if (argv[1][0] >= '1' && argv[1][0] <= '8')
             fixture.fail_allocation(argv[1][0] - '0');
         if (open_failure)
             fixture.fail_open(argv[1][4] - '0');
         TrapFrame frame{};
         auto result = TaskManager::fork(0, 0, &frame);
         if (!result.ok()) {
-            int closed = open_failure ? argv[1][4] - '1' : argv[1][0] - '2';
+            int closed = open_failure ? argv[1][4] - '1' : (argv[1][0] - '1') / 2;
             if (closed < 0)
                 closed = 0;
             fixture.check_failure(result, open_failure ? Error::Io : Error::NoMem, closed);

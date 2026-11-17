@@ -35,9 +35,16 @@ read whose byte count differs from the requested size returns `Io`.
 
 The private `UserImage` in `exec.cpp` owns a prepared `MemoryDesc`. It cannot be
 copied; moving it transfers ownership. Its destructor frees the address space
-on failure. After a successful fork, exec transfers the memory to the child
-while interrupts remain disabled. File handles and the input buffer also use
-local destructors for every return path.
+on failure. `exec::spawn(path, Arguments)` prepares the stack's argc/argv, then
+moves the MM into `TaskManager::spawn_user`. That operation prepares the task,
+inherited FD references and kernel stack before publishing any PID or links
+under an interrupt guard. The user TrapFrame is constructed directly in that
+child-owned stack; it must not reserve a full frame on the creator's syscall
+stack while loading/logging the ELF. On AArch64 the latter exceeded the 4 KiB
+kernel stack and overwrote the adjacent user stack's saved return address. File handles and the input buffer use local
+destructors for every return path. `exec::exec` supplies argv[0] for legacy
+kernel callers; ordinary user creation does not clone the parent's address space.
+See [USER_ABI.md](USER_ABI.md) for the shared three-architecture entry contract.
 
 ## VM mapping flags and swap
 
@@ -201,10 +208,17 @@ before handing ownership back to the device. Transport register sequencing
 and notifications use `arch_io_mb` to order DMA memory against device MMIO.
 
 `fd::Table::alloc(FileHandle)` consumes its argument on both success and failure.
-Success moves the file into the descriptor entry; failure closes it. Entry lookup
-borrows from the table. Closing, resetting or destroying the table invalidates
-those borrows. Tables cannot be copied or moved; `ForkPolicy::Share` remains
-`NotSupported` until shared open-file ownership is actually implemented.
+Success moves the file into an `OpenFile` description; failure closes it.
+`Table::open` reserves the description before a mutating VFS open, so failure to
+allocate descriptor storage cannot truncate a file. Each descriptor owns one
+`OpenFileRef` (zstl unique_ptr with the domain-specific `ReleaseOpenFile` deleter).
+`ForkPolicy::Share` retains the descriptions, FD numbers and offsets without
+allocation; closing one table releases only its references. The last reference
+closes the VFS file outside the reference-count interrupt guard. Entry lookup
+borrows from the table; close/reset/destruction invalidates that borrow. Tables
+remain noncopyable and nonmovable. File syscalls hold the description's mutex
+across offset selection and I/O; acquiring this lock is interruptible by task
+termination, while internal subsystem locks retain their ordinary semantics.
 
 ### File open and FAT I/O
 
@@ -225,13 +239,13 @@ This staging can return `NoMem`; single append requests are limited to INT_MAX
 bytes by the file I/O result type. Character devices support access modes and
 opening existing names, but reject truncate and append as `NotSupported`.
 
-Each FD entry owns a file handle and its current offset; separately opened FDs
-have separate offsets. Append updates that offset to the actual end of the
-confirmed write. A FAT file handle stores a stable directory-sector/slot identity,
+Each open-file description owns a file handle and its current offset. Inherited
+FDs share it; separately opened FDs have separate offsets. Append updates that
+offset to the actual end of the confirmed write. A FAT file handle stores a stable directory-sector/slot identity,
 not a private metadata snapshot. The filesystem owns serialization, its FAT
 cache and a non-owning registry of live handles. Reads, writes and stat reload
 the directory entry under that lock. Unlink of an open file returns `Busy`;
-delayed deletion and shared open-file descriptions are not implemented.
+delayed deletion is not implemented.
 
 FAT creates only validated 8.3 names and rejects file mutation paths ending in
 `/`, `.` or `..`. Writes can grow across clusters and zero-fill gaps beyond EOF;
@@ -622,8 +636,13 @@ The ELF/exec kernel tests cover mappings, BSS/stack zeroing, error propagation,
 file closure and physical page recovery. `scripts/tests/test_exec.py` compiles
 the actual exec and ELF loader with host substitutes under `kernel/test/host`.
 It disables copy elision and checks each allocation failure, fork failure and
-successful transfer of the address space to the child. These substitutes do
-not alter production interfaces or add test hooks to kernel code.
+successful transfer of the address space to the child, including materialized
+argc/argv. These substitutes do not alter production interfaces or add test
+hooks to kernel code. The lifecycle kernel fixture runs a real, portable C user
+parent that spawns children, checks shared descriptors and errors, isolates a
+fault and reaps 100 short programs. A second scenario cancels both a console
+reader and a second reader waiting on the same description lock. Task/FD counts
+and free physical pages are checked against their pre-run baseline.
 
 `scripts/tests/test_vfs.py` compiles the real VFS with host filesystem fixtures
 under `kernel/test/host`. Reentrant unmount attempts exercise operation, visitor

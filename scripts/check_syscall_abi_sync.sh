@@ -2,8 +2,8 @@
 # check_syscall_abi_sync.sh
 #
 # Verifies that the syscall ABI defined in zonix-plus matches the copy
-# vendored inside the zcc submodule. Both files MUST agree on every
-# `#define NR_*` and `#define *_FD`, otherwise a user program compiled by
+# vendored inside the zcc submodule. Both files must agree on every
+# `NR_*` and `*_FD` constant, otherwise programs compiled by
 # zcc will hit the wrong kernel handler at runtime.
 #
 # We intentionally keep two physical files (zcc must build standalone, so
@@ -46,5 +46,15 @@ if [[ -n "$diff_output" ]]; then
     echo "Update both before committing." >&2
     exit 1
 fi
+
+
+# The standalone runtime carries the same process/file structures and flags.
+for header in process.h fcntl.h; do
+    runtime="user/zcc/src/runtime/$header"
+    if [[ ! -f "$runtime" ]] || ! cmp -s "include/abi/$header" "$runtime"; then
+        echo "ERROR: ABI mismatch: include/abi/$header and $runtime must match" >&2
+        exit 1
+    fi
+done
 
 echo "  CHECK   syscall ABI in sync ($zonix_header <-> $zcc_header)"

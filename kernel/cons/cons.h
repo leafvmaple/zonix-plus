@@ -1,10 +1,13 @@
 #pragma once
 
+#include "lib/result.h"
+
 namespace cons {
 
 int init();
 int late_init();
 char getc();
+Result<char> read_input();
 void putc(int c);
 void push_input(char c);  // called by input ISRs (pl011, virtio_kbd, ...)
 

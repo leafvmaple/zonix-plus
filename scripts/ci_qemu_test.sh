@@ -29,8 +29,10 @@ if [ -z "$timeout_cmd" ]; then
 fi
 serial_log="$(mktemp /tmp/zonix-ci-XXXXXX)"
 firmware_copy=""
+userdata_dir=""
 
 cleanup() {
+    if [ -n "$userdata_dir" ]; then rm -rf "$userdata_dir"; fi
     rm -f "$serial_log"
     if [ -n "$firmware_copy" ]; then
         rm -f "$firmware_copy"
@@ -43,6 +45,8 @@ echo "  Mode:    $mode"
 echo "  Timeout: ${TIMEOUT}s"
 echo "  Log:     $serial_log"
 echo ""
+
+userdata_dir=$(mktemp -d /tmp/zonix-x86-users-XXXXXX)
 
 # ── Build qemu command ──────────────────────────────────────────────────
 
@@ -77,13 +81,11 @@ if [ "$mode" = "uefi" ]; then
         "${QEMU_COMMON[@]}"
     )
 
-    # Attach userdata disk if it exists
-    if [ -f "${BINDIR}/userdata.img" ]; then
-        QEMU_CMD+=(
-            -drive "file=${BINDIR}/userdata.img,format=raw,if=none,id=data0"
-            -device "ide-hd,bus=ahci0.1,drive=data0"
-        )
-    fi
+    # The test entry point prepares this independent disk before launching QEMU.
+    QEMU_CMD+=(
+        -drive "file=${userdata_dir}/userdata.img,format=raw,if=none,id=data0"
+        -device "ide-hd,bus=ahci0.1,drive=data0"
+    )
 elif [ "$mode" = "bios" ]; then
     if [ ! -f "${BINDIR}/zonix.img" ]; then
         echo "ERROR: ${BINDIR}/zonix.img not found. Run: make ARCH=x86 TEST=1"
@@ -98,16 +100,16 @@ elif [ "$mode" = "bios" ]; then
         "${QEMU_COMMON[@]}"
     )
 
-    if [ -f "${BINDIR}/userdata.img" ]; then
-        QEMU_CMD+=(
-            -drive "file=${BINDIR}/userdata.img,format=raw,if=none,id=data0"
-            -device "ide-hd,bus=ahci0.1,drive=data0"
-        )
-    fi
+    QEMU_CMD+=(
+        -drive "file=${userdata_dir}/userdata.img,format=raw,if=none,id=data0"
+        -device "ide-hd,bus=ahci0.1,drive=data0"
+    )
 else
     echo "ERROR: Unknown mode '$mode'. Use 'bios' or 'uefi'."
     exit 1
 fi
+
+bash "$(dirname "$0")/prepare_test_userdata.sh" x86 "$userdata_dir"
 
 # ── Run qemu ────────────────────────────────────────────────────────────
 

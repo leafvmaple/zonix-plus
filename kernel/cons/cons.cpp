@@ -3,6 +3,7 @@
 #include "drivers/intr.h"
 #include "lib/waitqueue.h"
 #include <sys/array.hpp>
+#include "sched/sched.h"
 
 namespace {
 
@@ -19,10 +20,12 @@ public:
         waitq_.wakeup_one();
     }
 
-    static char getc() {
+    static Result<char> read_input() {
         while (true) {
             // Keep checking the buffer and registering the waiter atomic.
             intr::Guard guard;
+            Task* task = sched::current();
+            ENSURE(!task || !task->termination_requested(), Error::Interrupted);
             if (read_ != write_) {
                 char c = input_[read_];
                 read_ = (read_ + 1) % input_.size();
@@ -54,7 +57,10 @@ void push_input(char c) {
     Console::push_input(c);
 }
 char getc() {
-    return Console::getc();
+    return Console::read_input().value_or(0);
+}
+Result<char> read_input() {
+    return Console::read_input();
 }
 void putc(int c) {
     arch_putc(c);

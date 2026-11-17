@@ -8,57 +8,32 @@ namespace {
 constexpr size_t SYSCALL_PATH_MAX = 128;
 enum class FileIo { Read, Write };
 
-int copy_user_cstr(Task* cur, const char* user, char* out, size_t out_size) {
-    if (!cur || !user || !out || out_size == 0) {
-        return -1;
-    }
-
-    uintptr_t base = reinterpret_cast<uintptr_t>(user);
-    if (base >= USER_SPACE_TOP) {
-        return -1;
-    }
-
-    for (size_t i = 0; i < out_size; i++) {
-        uintptr_t addr = base + i;
-        if (addr >= USER_SPACE_TOP) {
-            return -1;
-        }
-
-        char ch;
-        if (vmm::copy_from_user(cur->memory(), &ch, addr, 1) != Error::None) {
-            return -1;
-        }
-        out[i] = ch;
-        if (ch == '\0') {
-            return 0;
-        }
-    }
-
-    out[out_size - 1] = '\0';
-    return -1;
-}
 
 long sys_file_io(Task* cur, int fd, uintptr_t user_buf, size_t count, FileIo operation) {
     const bool to_user = operation == FileIo::Read;
     if (!cur) {
         return -1;
     }
-    fd::Entry* entry = cur->files().get(fd);
-    if (!entry || (to_user ? !entry->file->can_read() : !entry->file->can_write())) {
+    fd::OpenFile* entry = cur->files().get(fd);
+    if (!entry || (to_user ? !entry->file()->can_read() : !entry->file()->can_write())) {
         return -1;
     }
     if (count == 0) {
         return 0;
     }
     ActivityGuard activity;
-    if (entry->file->begin_io(activity) != Error::None) {
+    if (entry->file()->begin_io(activity) != Error::None) {
         return -1;
     }
+    if (entry->lock_interruptible() != Error::None) {
+        return -1;
+    }
+    sys::lock_guard<fd::OpenFile> file_lock(*entry, sys::adopt_lock);
     if (!vmm::user_range_valid(cur->memory(), user_buf, count, to_user)) {
         return -1;
     }
 
-    const bool append = !to_user && entry->file->is_append();
+    const bool append = !to_user && entry->file()->is_append();
     if (append && count > 0x7FFFFFFFU) {
         return -1;
     }
@@ -80,9 +55,9 @@ long sys_file_io(Task* cur, int fd, uintptr_t user_buf, size_t count, FileIo ope
             failed = true;
             break;
         }
-        size_t next_offset = entry->offset;
-        auto bytes_r = to_user ? vfs::read(entry->file.get(), buf, chunk, entry->offset)
-                               : vfs::write(entry->file.get(), buf, chunk, entry->offset, &next_offset);
+        size_t next_offset = entry->offset();
+        auto bytes_r = to_user ? vfs::read(entry->file(), buf, chunk, entry->offset())
+                               : vfs::write(entry->file(), buf, chunk, entry->offset(), &next_offset);
         if (!bytes_r.ok() || bytes_r.value() < 0 || static_cast<size_t>(bytes_r.value()) > chunk) {
             failed = true;
             break;
@@ -92,7 +67,7 @@ long sys_file_io(Task* cur, int fd, uintptr_t user_buf, size_t count, FileIo ope
             failed = true;
             break;
         }
-        entry->offset = to_user ? entry->offset + bytes : next_offset;
+        entry->set_offset(to_user ? entry->offset() + bytes : next_offset);
         done += bytes;
         if (bytes < chunk) {
             break;
@@ -109,21 +84,12 @@ long syscall::open(Task* cur, const char* user_path, int flags, int mode) {
     }
 
     char path[SYSCALL_PATH_MAX]{};
-    if (copy_user_cstr(cur, user_path, path, sizeof(path)) != 0) {
+    if (copy_string(cur, reinterpret_cast<uintptr_t>(user_path), path, sizeof(path)) != Error::None) {
         return -1;
     }
 
-    auto file = vfs::open(path, flags);
-    if (!file.ok()) {
-        return -1;
-    }
-
-    auto fd_r = cur->files().alloc(file.release_value());
-    if (!fd_r.ok()) {
-        return -1;
-    }
-
-    return fd_r.value();
+    auto result = cur->files().open(path, flags);
+    return result.ok() ? result.value() : -1;
 }
 
 long syscall::read(Task* cur, int fd, void* user_buf, size_t count) {

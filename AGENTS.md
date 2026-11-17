@@ -32,6 +32,24 @@
   acceptance criteria do not authorize running regression tests; the explicit
   owner-authorization rule below still applies.
 
+# User program toolchain
+
+- System boot images contain only boot assets and the kernel, never user ELF
+  programs, including in TEST=1. User programs are built and packaged separately;
+  test entry points prepare their own user disk instead of adding user-program
+  dependencies or copying ELF files in system-image recipes.
+- System C user programs use the existing `user/zcc` frontend and its runtime.
+  Add required language, target and ABI support there; do not introduce another
+  application startup, syscall wrapper or runtime implementation in this repo.
+  LLVM/Clang remain tools for preprocessing, target code generation, assembling
+  and the existing low-level runtime build. Existing architecture instruction
+  tests may retain their dedicated compiler/assembly fixtures.
+- Keep the kernel and zcc runtime ABI definitions synchronized. A runtime that
+  omits new kernel calls must not be accepted by weakening the ABI checker.
+- zcc is a separate Git submodule. Include its source changes and update the
+  parent gitlink when submitting toolchain changes; staged checks must inspect
+  the pinned dependency rather than uncommitted headers from the worktree.
+
 # Mandatory kernel rules
 
 These rules apply to every change, including bug fixes and test code. Follow the

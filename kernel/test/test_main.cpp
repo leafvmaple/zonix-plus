@@ -59,6 +59,11 @@ namespace fs_test {
 void test();
 }
 
+namespace lifecycle_test {
+void test();
+bool run_e2e();
+}  // namespace lifecycle_test
+
 namespace exec_test {
 void test();
 }
@@ -102,6 +107,7 @@ static const TestSuite SUITES[] = {
     {"File System", fs_test::test},
     {"Shell", shell_test::test},
     {"Exec (E2E)", exec_test::test},
+    {"P1-1 user lifecycle", lifecycle_test::test},
 };
 
 int test_run_all(void*) {
@@ -113,7 +119,7 @@ int test_run_all(void*) {
     int suite_count = sizeof(SUITES) / sizeof(SUITES[0]);
 
     // Dedicated reboot fixtures do not repeat the independent unit suites.
-    if (!storage_sync_test::run_power_e2e()) {
+    if (!storage_sync_test::run_power_e2e() && !lifecycle_test::run_e2e()) {
         for (int i = 0; i < suite_count; i++) {
             cprintf("\n>>> [%d/%d] Running: %s\n", i + 1, suite_count, SUITES[i].name);
             SUITES[i].run();

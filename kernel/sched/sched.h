@@ -57,9 +57,11 @@ private:
     uintptr_t boot_stack_{};     // Borrowed permanent boot stack
     sys::unique_ptr<MemoryDesc> owned_memory_;
     MemoryDesc* borrowed_memory_{};
+    bool termination_requested_{};
     volatile TaskState state_{};  // Process state
     fd::Table files_{};
     friend struct TaskAccess;
+    friend class TaskManager;
 
 public:
     TrapFrame* trap_frame{};  // Trap frame for current interrupt
@@ -80,6 +82,7 @@ public:
     int time_slice{};                   // Remaining ticks in current quantum
     volatile int need_resched{};        // Set by timer ISR to request reschedule
 
+    bool termination_requested() const { return termination_requested_; }
     void run();
     void sleep();
     void wakeup();
@@ -100,6 +103,7 @@ public:
         return kernel_stack_.empty() ? boot_stack_ : reinterpret_cast<uintptr_t>(kernel_stack_.data());
     }
     void copy_thread(uintptr_t stack_pointer, TrapFrame* src_tf);
+    void setup_user_thread(uintptr_t entry, uintptr_t stack);
     Error setup_kernel_stack();
     [[nodiscard]] fd::Table& files() { return files_; }
     [[nodiscard]] const fd::Table& files() const { return files_; }
@@ -175,6 +179,10 @@ public:
     // Publication, parent/child relationships and process resource lifetime.
     static Result<int> fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* trap_frame);
     static Result<int> kernel_thread(KernelThreadEntry fn, void* arg);
+    static Result<int> spawn_user(sys::unique_ptr<MemoryDesc> memory, uintptr_t entry, uintptr_t stack,
+                                  const char* name);
+    static Error terminate(int pid);
+    static Result<int> wait_ready(int pid, int* code_store);
     static int exit(int error_code);
     static Result<int> wait(int pid, int* code_store);
 
@@ -188,6 +196,7 @@ private:
     inline static int next_pid_ = 1;
 
     static uint32_t pid_hash(int x);
+    static Result<int> publish(sys::unique_ptr<Task> task);
 
     // Initialization helpers
     static int init_idle();

@@ -12,8 +12,25 @@ bool dispatch(Task* task, long nr, uintptr_t arg0, uintptr_t arg1, uintptr_t arg
                 result = -1;
                 return true;
             }
-            cprintf("[PID %d] exited with code %ld\n", task->pid, static_cast<long>(arg0));
+            klog::debug("[PID %d] exited with code %ld\n", task->pid, static_cast<long>(arg0));
             sched::exit(static_cast<int>(arg0));
+            return true;
+        case NR_SPAWN:
+            result = spawn(task, reinterpret_cast<const char*>(arg0), static_cast<long>(arg1), arg2);
+            return true;
+        case NR_WAIT: result = wait(task, static_cast<long>(arg0), arg1); return true;
+        case NR_GETPID: result = task ? task->pid : static_cast<long>(Error::Invalid); return true;
+        case NR_KILL:
+            result = arg0 <= 0x7FFFFFFF ? static_cast<long>(TaskManager::terminate(static_cast<int>(arg0)))
+                                        : static_cast<long>(Error::Invalid);
+            return true;
+        case NR_YIELD:
+            sched::schedule();
+            result = 0;
+            return true;
+        case NR_STAT: result = stat(task, reinterpret_cast<const char*>(arg0), arg1); return true;
+        case NR_READDIR:
+            result = readdir(task, reinterpret_cast<const char*>(arg0), static_cast<long>(arg1), arg2);
             return true;
         case NR_OPEN:
             result = open(task, reinterpret_cast<const char*>(arg0), static_cast<int>(arg1), static_cast<int>(arg2));

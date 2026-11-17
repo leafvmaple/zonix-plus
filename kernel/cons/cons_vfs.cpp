@@ -14,7 +14,10 @@ public:
 
         auto* out = static_cast<char*>(buf);
         for (size_t i = 0; i < size; i++) {
-            out[i] = cons::getc();
+            auto next = cons::read_input();
+            if (!next.ok())
+                return i != 0 ? Result<int>(static_cast<int>(i)) : Result<int>(next.error());
+            out[i] = next.value();
         }
         return static_cast<int>(size);
     }

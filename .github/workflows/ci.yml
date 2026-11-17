@@ -82,7 +82,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            clang lld llvm nasm make \
+            clang lld llvm llvm-dev flex bison nasm make \
             mtools dosfstools \
             gdisk
 
@@ -112,7 +112,7 @@ jobs:
             qemu-system-x86
 
       - name: Build with tests
-        run: make ARCH=x86 TEST=1 user bin/x86/zonix.img bin/x86/userdata.img
+        run: make ARCH=x86 TEST=1 bin/x86/zonix.img
 
       - name: Run BIOS boot tests
         run: |
@@ -146,7 +146,7 @@ jobs:
             ovmf
 
       - name: Build with tests
-        run: make ARCH=x86 TEST=1 user bin/x86/zonix-uefi.img bin/x86/userdata.img
+        run: make ARCH=x86 TEST=1 bin/x86/zonix-uefi.img
 
       - name: Run UEFI boot tests
         run: |
@@ -173,7 +173,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            clang lld llvm nasm make \
+            clang lld llvm llvm-dev flex bison nasm make \
             mtools dosfstools \
             gdisk \
             qemu-system-arm \
@@ -206,7 +206,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            clang lld llvm nasm make \
+            clang lld llvm llvm-dev flex bison nasm make \
             mtools dosfstools \
             gdisk
 
@@ -230,7 +230,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            clang lld llvm nasm make \
+            clang lld llvm llvm-dev flex bison nasm make \
             mtools dosfstools \
             gdisk \
             qemu-system-misc \

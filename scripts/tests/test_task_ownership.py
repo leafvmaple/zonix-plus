@@ -3,6 +3,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import sys
 import unittest
 
 from cxx_config import CXX_STANDARD_FLAG, ROOT, ZSTL_FLAGS
@@ -19,13 +20,14 @@ class TaskOwnershipTests(unittest.TestCase):
         cls.flags = [CXX_STANDARD_FLAG, *ZSTL_FLAGS, "-nostdinc", "-nostdinc++", "-ffreestanding",
                      "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-elide-constructors", "-Werror=unused-result",
                      "-ffunction-sections", "-fdata-sections", "-I" + str(ROOT / "kernel"),
-                     "-I" + str(ROOT / "include"), "-I" + str(ROOT / "arch/x86/include"),
+                     "-I" + str(ROOT / "include"), "-I" + str(ROOT / "arch/x86/test/host/storage_include"),
+                 "-I" + str(ROOT / "arch/x86/include"),
                      "-I" + str(ROOT / "arch/x86/kernel")]
         sources = ["kernel/sched/sched.cpp", "kernel/sched/task.cpp", "kernel/sched/process.cpp",
                    "kernel/sched/task_table.cpp", "kernel/sched/sched_priority_rr.cpp", "kernel/fs/fd.cpp",
                    "kernel/test/host/task_contract_test.cpp"]
         result = subprocess.run([CLANG, *cls.flags, *(str(ROOT / source) for source in sources),
-                                 "-Wl,--gc-sections", "-o", str(cls.binary)],
+                                 "-Wl,-dead_strip" if sys.platform == "darwin" else "-Wl,--gc-sections", "-o", str(cls.binary)],
                                 capture_output=True, text=True, timeout=30)
         if result.returncode:
             cls.directory.cleanup()
@@ -42,7 +44,7 @@ class TaskOwnershipTests(unittest.TestCase):
             self.assertIn("[OK] task resource contract: " + mode, result.stdout)
 
     def test_failed_creations_release_all_resources_without_publication(self):
-        for mode in ("1", "2", "3", "4", "5", "open1", "open2", "open3"):
+        for mode in ("1", "2", "3", "4", "5", "6", "7", "8", "open1", "open2", "open3"):
             with self.subTest(mode=mode):
                 self.run_case(mode)
 

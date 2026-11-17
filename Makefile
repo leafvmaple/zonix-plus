@@ -193,7 +193,7 @@ $(call make_dir)
 # ==========================================================================
 # Disk images
 # ==========================================================================
-$(BINDIR)/userdata.img: $(USER_ELFS) $(SCRIPTDIR)/create_userdata_image.sh
+$(BINDIR)/userdata.img: $(SCRIPTDIR)/create_userdata_image.sh
 	@echo "  IMG     $@"
 	$(Q)BINDIR=$(BINDIR) bash $(SCRIPTDIR)/create_userdata_image.sh
 

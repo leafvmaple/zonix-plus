@@ -24,3 +24,13 @@ inline void arch_port_read16_buffer(uint16_t port, void* buffer, size_t count) {
 inline void arch_port_write16_buffer(uint16_t port, void* buffer, size_t count) {
     storage_host::arch_port_write16_buffer(port, buffer, count);
 }
+
+// Hosted task/exec fixtures provide these architecture boundaries without ISA code.
+struct TrapFrame;
+void arch_setup_user_tf(TrapFrame*, uintptr_t entry, uintptr_t stack);
+void arch_setup_kthread_tf(TrapFrame*, uintptr_t entry, uintptr_t fn, uintptr_t arg);
+void arch_fixup_fork_tf(TrapFrame*, uintptr_t stack);
+void arch_set_kernel_stack(uintptr_t stack);
+inline void arch_load_page_table_root(uintptr_t) {
+    __builtin_trap();
+}

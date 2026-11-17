@@ -601,9 +601,9 @@ void test_append_syscall_boundary() {
         if (fd >= 0) {
             const long count = invoke(NR_WRITE, fd, USER_BASE + PG_SIZE, APPEND_SIZE);
             auto* entry = sched::current()->files().get(fd);
-            auto* probe = static_cast<AppendProbe*>(entry->file.get());
+            auto* probe = static_cast<AppendProbe*>(entry->file());
             TEST_ASSERT(count == static_cast<long>(APPEND_SIZE) && probe->calls() == 1 && probe->is_data_valid() &&
-                            entry->offset == 100 + APPEND_SIZE,
+                            entry->offset() == 100 + APPEND_SIZE,
                         "One syscall selects EOF exactly once, transfers every byte and publishes actual position");
             TEST_ASSERT(invoke(NR_CLOSE, fd, 0, 0) == 0, "Closed append operation probe");
         }
@@ -641,14 +641,14 @@ void test_syscall_contract() {
     }
     auto* entry = sched::current()->files().get(fd);
     TEST_ASSERT(invoke(NR_WRITE, fd, user_data, APPEND_SIZE) == static_cast<long>(APPEND_SIZE) &&
-                    entry->offset == APPEND_SIZE,
+                    entry->offset() == APPEND_SIZE,
                 "Cross-page syscall write advances by confirmed count");
     const int append_fd = static_cast<int>(invoke(NR_OPEN, USER_BASE, O_WRONLY | O_APPEND, 0));
     TEST_ASSERT(append_fd >= 0 && invoke(NR_WRITE, append_fd, user_data, APPEND_SIZE) == static_cast<long>(APPEND_SIZE),
                 "Append syscall accepts a record larger than bounce-buffer page");
     if (append_fd >= 0) {
         auto* append_entry = sched::current()->files().get(append_fd);
-        TEST_ASSERT(append_entry->offset == 2 * APPEND_SIZE && entry->offset == APPEND_SIZE,
+        TEST_ASSERT(append_entry->offset() == 2 * APPEND_SIZE && entry->offset() == APPEND_SIZE,
                     "Append uses actual EOF while separately opened descriptor keeps its own offset");
         TEST_ASSERT(invoke(NR_READ, append_fd, user_data, 0) == -1, "Write-only syscall rejects even empty reads");
         TEST_ASSERT(invoke(NR_CLOSE, append_fd, 0, 0) == 0, "Closed append descriptor");
@@ -728,7 +728,7 @@ int append_worker(void* raw) {
             const long count = invoke(NR_WRITE, fd, USER_BASE + PG_SIZE, APPEND_SIZE);
             auto* entry = sched::current()->files().get(fd);
             result = count == static_cast<long>(APPEND_SIZE) && entry &&
-                             (entry->offset == APPEND_SIZE || entry->offset == 2 * APPEND_SIZE)
+                             (entry->offset() == APPEND_SIZE || entry->offset() == 2 * APPEND_SIZE)
                          ? 0
                          : 1;
             if (invoke(NR_CLOSE, fd, 0, 0) != 0) {

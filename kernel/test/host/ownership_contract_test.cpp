@@ -1,6 +1,7 @@
 #include "lib/kernel_buffer.h"
 #include "lib/stdarg.h"
 #include "fs/vfs.h"
+#include "drivers/intr.h"
 
 extern "C" int vprintf(const char*, va_list);
 extern "C" void* aligned_alloc(size_t, size_t);
@@ -80,8 +81,16 @@ void operator delete[](void* ptr, size_t) noexcept {
     kfree(ptr);
 }
 
+namespace intr {
+Guard::Guard() = default;
+Guard::~Guard() = default;
+}  // namespace intr
+
 namespace vfs {
 File::~File() = default;
+Result<FileHandle> open(const char*, int) {
+    return Error::NotSupported;
+}
 void close(File* file) {
     delete file;
 }

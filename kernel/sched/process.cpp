@@ -44,14 +44,46 @@ Result<int> TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* 
     proc->priority = parent->priority;
     proc->time_slice = Scheduler::time_slice(proc->priority);
 
-    {
-        intr::Guard guard;
-        proc->pid = next_pid_++;
-        proc->set_links();
-        proc->wakeup();
-        // The process table owns the published task until wait detaches and destroys it.
-        return proc.release()->pid;
-    }
+    return publish(sys::move(proc));
+}
+
+Result<int> TaskManager::publish(sys::unique_ptr<Task> proc) {
+    intr::Guard guard;
+    proc->pid = next_pid_++;
+    proc->set_links();
+    proc->wakeup();
+    return proc.release()->pid;
+}
+
+Result<int> TaskManager::spawn_user(sys::unique_ptr<MemoryDesc> memory, uintptr_t entry, uintptr_t stack,
+                                    const char* name) {
+    Task* parent = Scheduler::current();
+    ENSURE(parent && memory && memory->pgdir && entry && stack && name, Error::Invalid);
+    auto proc = sys::unique_ptr<Task>(new (sys::nothrow) Task());
+    ENSURE(proc, Error::NoMem);
+    proc->parent = parent;
+    TRY(proc->files().fork_from(parent->files(), fd::ForkPolicy::Share));
+    TRY(proc->setup_kernel_stack());
+    proc->adopt_memory(sys::move(memory));
+    proc->setup_user_thread(entry, stack);
+    proc->set_name(name);
+    proc->priority = parent->priority;
+    proc->time_slice = Scheduler::time_slice(proc->priority);
+    return publish(sys::move(proc));
+}
+
+Error TaskManager::terminate(int pid) {
+    ENSURE(pid > 0, Error::Invalid);
+    intr::Guard guard;
+    Task* current = Scheduler::current();
+    Task* target = find_process(pid);
+    ENSURE(target && target->state() != TaskState::Zombie, Error::NotFound);
+    ENSURE(target == current || target->parent == current, Error::Access);
+    ENSURE(target->memory() && target->memory() != &vmm::Manager::kernel_mm(), Error::Access);
+    target->termination_requested_ = true;
+    if (target->state() == TaskState::Sleeping)
+        target->wakeup();
+    return Error::None;
 }
 
 Result<int> TaskManager::kernel_thread(KernelThreadEntry fn, void* arg) {
@@ -64,9 +96,11 @@ Result<int> TaskManager::kernel_thread(KernelThreadEntry fn, void* arg) {
 }
 
 int TaskManager::exit(int error_code) {
+    Task* current = Scheduler::current();
+    // Descriptions can sleep during close; finish cleanup before publishing zombie state.
+    current->files().close_all();
     // Publish zombie state, notify the parent and adopt children atomically.
     intr::Guard irq_guard;
-    Task* current = Scheduler::current();
     current->mark_zombie(error_code);
 
     if (current->parent && current->parent->wait_state) {
@@ -95,7 +129,7 @@ int TaskManager::exit(int error_code) {
     return 0;  // Never reached
 }
 
-Result<int> TaskManager::wait(int pid, int* code_store) {
+Result<int> TaskManager::wait_ready(int pid, int* code_store) {
     ENSURE(pid >= 0, Error::Invalid);
     Task* current = Scheduler::current();
 
@@ -103,6 +137,7 @@ Result<int> TaskManager::wait(int pid, int* code_store) {
         // Child inspection, sleep registration and scheduling are atomic
         // with respect to child exit on the single-CPU scheduler.
         intr::Guard guard;
+        ENSURE(!current->termination_requested(), Error::Interrupted);
         bool has_children{};
         Task* zombie_child{};
 
@@ -123,9 +158,6 @@ Result<int> TaskManager::wait(int pid, int* code_store) {
                 *code_store = zombie_child->exit_code;
             }
 
-            zombie_child->remove_links();
-            zombie_child->destroy();
-
             return child_pid;
         }
 
@@ -138,4 +170,15 @@ Result<int> TaskManager::wait(int pid, int* code_store) {
         Scheduler::schedule();
         current->wait_state = 0;
     }
+}
+
+Result<int> TaskManager::wait(int pid, int* code_store) {
+    int child_pid = TRY(wait_ready(pid, code_store));
+    // Only this parent can reap its child; retain it through any user status copy.
+    intr::Guard guard;
+    Task* child = find_process(child_pid);
+    assert(child && child->parent == Scheduler::current() && child->state() == TaskState::Zombie);
+    child->remove_links();
+    child->destroy();
+    return child_pid;
 }

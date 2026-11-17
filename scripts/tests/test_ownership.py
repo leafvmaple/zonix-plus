@@ -19,6 +19,7 @@ class OwnershipContractTests(unittest.TestCase):
         cls.flags = [CXX_STANDARD_FLAG, *ZSTL_FLAGS, "-nostdinc", "-nostdinc++", "-ffreestanding", "-fno-exceptions", "-fno-rtti",
                      "-fno-elide-constructors", "-Werror=unused-result", "-Werror=unused-value",
                      "-I" + str(ROOT / "kernel"), "-I" + str(ROOT / "include"),
+                     "-I" + str(ROOT / "arch/x86/test/host/storage_include"),
                      "-I" + str(ROOT / "arch/x86/include"), "-I" + str(ROOT / "arch/x86/kernel")]
         sources = ["kernel/test/unit/lib/ownership_test.cpp", "kernel/test/host/ownership_contract_test.cpp",
                    "kernel/fs/fd.cpp"]

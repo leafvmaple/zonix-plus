@@ -24,6 +24,7 @@ TIMEOUT="${TIMEOUT:-180}"
 serial_log="$(mktemp /tmp/zonix-riscv64-ci-XXXXXX)"
 qemu="qemu-system-riscv64"
 qemu_pid=""
+userdata_dir=""
 vars_copy=""
 
 cleanup() {
@@ -32,6 +33,7 @@ cleanup() {
         wait "$qemu_pid" 2>/dev/null || true
     fi
     rm -f "$serial_log"
+    if [ -n "$userdata_dir" ]; then rm -rf "$userdata_dir"; fi
     if [ -n "$vars_copy" ]; then
         rm -f "$vars_copy"
     fi
@@ -71,6 +73,9 @@ fi
 vars_copy="$(mktemp /tmp/zonix-riscv64-vars-XXXXXX)"
 cp "$RISCV_VARS" "$vars_copy"
 
+userdata_dir=$(mktemp -d /tmp/zonix-riscv64-users-XXXXXX)
+bash "$(dirname "$0")/prepare_test_userdata.sh" riscv64 "$userdata_dir"
+
 QEMU_CMD=(
     "$qemu"
     -M virt
@@ -86,6 +91,9 @@ QEMU_CMD=(
     -drive "file=${BINDIR}/sdcard.img,format=raw,if=none,id=sdcard"
     -device sdhci-pci
     -device "sd-card,drive=sdcard"
+    -drive "file=${userdata_dir}/userdata.img,format=raw,if=none,id=userdata"
+    -device sdhci-pci
+    -device "sd-card,drive=userdata"
 )
 
 echo "Starting qemu (riscv64 UEFI mode)..."

@@ -3,6 +3,7 @@
 #include <sys/mutex.hpp>
 #include "lib/spinlock.h"
 #include "lib/waitqueue.h"
+#include "lib/result.h"
 
 // Forward declaration
 struct Task;
@@ -14,12 +15,14 @@ struct Task;
 class Mutex {
 public:
     void lock();
+    Error lock_interruptible();
     void unlock();
     bool try_lock();
 
     [[nodiscard]] bool is_locked() const { return held_; }
 
 private:
+    Error acquire(bool interruptible);
     bool held_{false};
     Task* owner_{};
     Spinlock spin_{};

@@ -121,12 +121,8 @@ bool arch_is_syscall(const TrapFrame* tf) {
 }
 
 void arch_on_syscall_entry(TrapFrame* tf) {
-    if (!tf) {
-        return;
-    }
-
-    // Advance PC past SVC instruction (4 bytes)
-    tf->pc += 4;
+    // SVC records the following instruction in ELR_EL1; do not skip it again.
+    static_cast<void>(tf);
 }
 
 void arch_on_unhandled(TrapFrame* tf) {

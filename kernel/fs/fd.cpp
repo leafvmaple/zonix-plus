@@ -1,74 +1,93 @@
 #include "fd.h"
-#include "fs/vfs.h"
+#include "drivers/intr.h"
 
 namespace fd {
 
-void Table::init() {
-    for (auto& entry : entries_) {
-        entry.reset();
+OpenFileRef OpenFile::share() {
+    intr::Guard guard;
+    ++references_;
+    return OpenFileRef(this);
+}
+
+void ReleaseOpenFile::operator()(OpenFile* file) const noexcept {
+    bool last;
+    {
+        intr::Guard guard;
+        assert(file->references_ != 0);
+        last = --file->references_ == 0;
     }
+    if (last)
+        delete file;
+}
+
+void Table::init() {
+    close_all();
+}
+
+Result<int> Table::install(OpenFileRef file) {
+    ENSURE(file && file->file_, Error::Invalid);
+    for (int i = 0; i < MAX_FD; ++i) {
+        if (!entries_[i]) {
+            entries_[i] = sys::move(file);
+            return i;
+        }
+    }
+    return Error::Full;
 }
 
 Result<int> Table::alloc(vfs::FileHandle file) {
     ENSURE(file, Error::Invalid);
+    ENSURE(has_space(), Error::Full);
+    OpenFileRef description(new (sys::nothrow) OpenFile());
+    ENSURE(description, Error::NoMem);
+    description->file_ = sys::move(file);
+    return install(sys::move(description));
+}
 
-    for (auto& entry : entries_) {
-        if (!entry.used) {
-            entry.set(sys::move(file), 0, true);
-            return static_cast<int>(&entry - entries_);
-        }
-    }
-
-    return Error::Full;
+Result<int> Table::open(const char* path, int flags) {
+    ENSURE(has_space(), Error::Full);
+    OpenFileRef description(new (sys::nothrow) OpenFile());
+    ENSURE(description, Error::NoMem);
+    description->file_ = TRY(vfs::open(path, flags));
+    return install(sys::move(description));
 }
 
 bool Table::has_space() const {
-    for (const auto& entry : entries_) {
-        if (!entry.used) {
-            return true;
-        }
-    }
-    return false;
+    return size() < MAX_FD;
+}
+size_t Table::size() const {
+    size_t count{};
+    for (const auto& file : entries_)
+        count += static_cast<bool>(file);
+    return count;
 }
 
-Entry* Table::get(int fd) {
-    if (fd < 0 || fd >= MAX_FD) {
-        return nullptr;
-    }
-
-    if (!entries_[fd].used || !entries_[fd].file) {
-        return nullptr;
-    }
-
-    return &entries_[fd];
+OpenFile* Table::get(int fd) {
+    return fd >= 0 && fd < MAX_FD ? entries_[fd].get() : nullptr;
 }
 
 Error Table::close(int fd) {
-    Entry* entry = get(fd);
-    if (!entry) {
-        return Error::Invalid;
-    }
-
-    entry->reset();
-
+    ENSURE(get(fd), Error::Invalid);
+    entries_[fd].reset();
     return Error::None;
 }
 
 void Table::close_all() {
-    for (auto& entry : entries_) {
-        entry.reset();
-    }
+    for (auto& file : entries_)
+        file.reset();
 }
 
 Error Table::fork_from(const Table& parent, ForkPolicy policy) {
-    switch (policy) {
-        case ForkPolicy::Reset: init(); return Error::None;
-        case ForkPolicy::Share:
-            static_cast<void>(parent);
-            // Shared file descriptions need refcounted open-file objects.
-            return Error::NotSupported;
-        default: return Error::Invalid;
+    ENSURE(this != &parent, Error::Invalid);
+    ENSURE(policy == ForkPolicy::Reset || policy == ForkPolicy::Share, Error::Invalid);
+    close_all();
+    if (policy == ForkPolicy::Share) {
+        for (int i = 0; i < MAX_FD; ++i) {
+            if (parent.entries_[i])
+                entries_[i] = parent.entries_[i]->share();
+        }
     }
+    return Error::None;
 }
 
 }  // namespace fd

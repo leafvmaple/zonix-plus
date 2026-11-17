@@ -1,4 +1,5 @@
 #include "test/test_defs.h"
+#include "test/test_main.h"
 #include "block/blk.h"
 #include "exec/exec.h"
 #include "fs/vfs.h"
@@ -144,7 +145,7 @@ static int count_disks() {
     return disks;
 }
 
-static bool ensure_mnt_mounted() {
+bool exec_test::ensure_mnt_mounted() {
     if (vfs::is_mounted("/mnt")) {
         return true;
     }
@@ -183,7 +184,7 @@ static void test_exec_hello() {
         return;
     }
 
-    bool mounted = ensure_mnt_mounted();
+    bool mounted = exec_test::ensure_mnt_mounted();
     TEST_ASSERT(mounted, "Userdata disk mounted at /mnt");
     if (!mounted) {
         TEST_END();

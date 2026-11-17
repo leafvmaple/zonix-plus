@@ -19,6 +19,7 @@ class ExecContractTests(unittest.TestCase):
         flags = [CXX_STANDARD_FLAG, *ZSTL_FLAGS, "-nostdinc", "-nostdinc++", "-ffreestanding", "-fno-exceptions", "-fno-rtti",
                  "-fno-elide-constructors", "-Werror=unused-result", "-Werror=unused-value",
                  "-I" + str(ROOT / "kernel"), "-I" + str(ROOT / "include"),
+                 "-I" + str(ROOT / "arch/x86/test/host/storage_include"),
                  "-I" + str(ROOT / "arch/x86/include"), "-I" + str(ROOT / "arch/x86/kernel")]
         sources = ["kernel/exec/exec.cpp", "kernel/exec/elf_loader.cpp", "kernel/fs/fd.cpp",
                    "kernel/test/host/exec_contract_test.cpp"]
@@ -43,8 +44,8 @@ class ExecContractTests(unittest.TestCase):
         self.run_case("success")
 
     def test_every_allocation_failure_reclaims_the_partial_image(self):
-        # Buffer, MemoryDesc, root, two ELF pages and four stack pages.
-        for allocation in range(1, 10):
+        # Arguments, buffer, MemoryDesc, root, two ELF pages and four stack pages.
+        for allocation in range(1, 11):
             with self.subTest(allocation=allocation):
                 self.run_case(str(allocation))
 

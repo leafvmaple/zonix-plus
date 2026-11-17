@@ -1,10 +1,16 @@
 #pragma once
 
 #include <base/types.h>
+#include "lib/result.h"
 
 struct Task;
 
 namespace syscall {
+Error copy_string(Task* task, uintptr_t user, char* out, size_t capacity);
+long spawn(Task* task, const char* path, long argc, uintptr_t argv);
+long wait(Task* task, long pid, uintptr_t status);
+long stat(Task* task, const char* path, uintptr_t output);
+long readdir(Task* task, const char* path, long index, uintptr_t output);
 long open(Task* task, const char* path, int flags, int mode);
 long read(Task* task, int fd, void* buf, size_t count);
 long write(Task* task, int fd, const char* buf, size_t count);

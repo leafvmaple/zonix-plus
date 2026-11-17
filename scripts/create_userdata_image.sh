@@ -3,7 +3,6 @@
 # Create FAT32 data disk for Zonix OS (second disk / hdb)
 #
 # Contains:
-#   - User-mode ELF programs (from bin/user/*.ELF)
 #   - Test data files
 #
 # Uses mtools (mcopy) so NO sudo / loop-mount is needed.
@@ -13,7 +12,6 @@ set -e
 
 BINDIR="${BINDIR:-bin}"
 image_path="${BINDIR}/userdata.img"
-user_bin_dir="${BINDIR}/user"
 image_size_mib=64
 
 echo "=== Creating FAT32 Data Disk ==="
@@ -38,21 +36,7 @@ put_text() {
     rm -f "$tmp"
 }
 
-# 3. Copy user-mode ELF programs
-echo "Copying user programs..."
-elf_count=0
-if [ -d "$user_bin_dir" ]; then
-    for elf in "$user_bin_dir"/*.ELF; do
-        [ -f "$elf" ] || continue
-        name=$(basename "$elf")
-        mcopy -i "$image_path" "$elf" "::/$name"
-        echo "  + $name ($(wc -c < "$elf" | tr -d '[:space:]') bytes)"
-        elf_count=$((elf_count + 1))
-    done
-fi
-echo "  $elf_count program(s) copied."
-
-# 4. Create test data files
+# 3. Create test data files
 echo "Creating test data files..."
 
 echo "Hello from Zonix FAT32!" | put_text "::/HELLO.TXT"

@@ -5,14 +5,25 @@
 #include "drivers/intr.h"
 
 void Mutex::lock() {
+    const Error error = acquire(false);
+    assert(error == Error::None);
+}
+
+Error Mutex::lock_interruptible() {
+    return acquire(true);
+}
+
+Error Mutex::acquire(bool interruptible) {
     while (true) {
         intr::Guard irq_guard;  // Keep the condition check and sleep atomic.
+        Task* task = sched::current();
+        ENSURE(!interruptible || !task || !task->termination_requested(), Error::Interrupted);
         {
             sys::lock_guard<Spinlock> guard(spin_);
             if (!held_) {
                 held_ = true;
-                owner_ = sched::current();
-                return;
+                owner_ = task;
+                return Error::None;
             }
         }
         waitq_.sleep();

@@ -16,7 +16,6 @@
 
 #include <asm/page.h>
 #include <asm/mmu.h>
-#include <asm/arch.h>
 
 static_assert(USER_STACK_TOP < USER_SPACE_TOP && USER_STACK_TOP % PG_SIZE == 0);
 static_assert(USER_STACK_TOP > USER_STACK_SIZE + PG_SIZE);
@@ -35,7 +34,8 @@ Result<pde_t*> create_user_pgdir() {
     return pgdir;
 }
 
-Result<uintptr_t> setup_user_stack(pde_t* pgdir) {
+Result<uintptr_t> setup_user_stack(MemoryDesc& memory, const Arguments& args) {
+    auto* pgdir = memory.pgdir;
     ENSURE(pgdir);
     uintptr_t user_stack_bottom_va = USER_STACK_TOP - USER_STACK_SIZE;
 
@@ -46,19 +46,44 @@ Result<uintptr_t> setup_user_stack(pde_t* pgdir) {
         memset(phys_to_virt(pmm::page_to_phys(page)), 0, PG_SIZE);
     }
 
-    return USER_STACK_TOP;
+    const uintptr_t strings = USER_STACK_TOP - args.byte_count();
+    const uintptr_t stack = round_down(strings - (args.size() + 3) * sizeof(uintptr_t), 16);
+    if (args.byte_count())
+        TRY(vmm::copy_to_user(&memory, strings, args.data(), args.byte_count()));
+    const uintptr_t argc = args.size();
+    TRY(vmm::copy_to_user(&memory, stack, &argc, sizeof(argc)));
+    for (size_t i = 0; i < args.size(); ++i) {
+        const uintptr_t pointer = strings + args.offset(i);
+        TRY(vmm::copy_to_user(&memory, stack + (i + 1) * sizeof(pointer), &pointer, sizeof(pointer)));
+    }
+    const uintptr_t nulls[2]{};  // argv[argc], followed by an empty environment.
+    TRY(vmm::copy_to_user(&memory, stack + (args.size() + 1) * sizeof(uintptr_t), nulls, sizeof(nulls)));
+    return stack;
+}
+
+Error Arguments::add(const char* text) {
+    ENSURE(text, Error::Invalid);
+    ENSURE(offsets_.size() < MAX_ARGS, Error::Full);
+    size_t length{};
+    while (length < bytes_.size() - used_ && text[length] != '\0')
+        ++length;
+    ENSURE(length < bytes_.size() - used_, Error::Full);
+    assert(offsets_.try_push_back(used_));
+    memcpy(bytes_.data() + used_, text, length + 1);
+    used_ += length + 1;
+    return Error::None;
 }
 
 // Own the prepared address space until the child takes it under the interrupt guard.
 class UserImage {
 public:
-    static Result<UserImage> load(const uint8_t* data, size_t size) {
+    static Result<UserImage> load(const uint8_t* data, size_t size, const Arguments& args) {
         UserImage image;
         image.memory_ = sys::unique_ptr<MemoryDesc>(new (sys::nothrow) MemoryDesc());
         ENSURE(image.memory_, Error::NoMem);
         image.memory_->pgdir = TRY(create_user_pgdir());
         image.entry_va_ = TRY(elf::load(data, size, image.memory_->pgdir));
-        image.stack_va_ = TRY(setup_user_stack(image.memory_->pgdir));
+        image.stack_va_ = TRY(setup_user_stack(*image.memory_, args));
         return image;
     }
 
@@ -78,7 +103,7 @@ private:
     uintptr_t stack_va_{};
 };
 
-Result<int> exec(const char* path) {
+Result<int> spawn(const char* path, const Arguments& args) {
     ENSURE(path);
 
     auto file = TRY(vfs::open(path));
@@ -96,26 +121,20 @@ Result<int> exec(const char* path) {
     int bytes_read = TRY(vfs::read(file.get(), buf.data(), buf.size(), 0));
     ENSURE(bytes_read == static_cast<int>(file_size), Error::Io);
 
-    auto image = TRY(UserImage::load(buf.data(), buf.size()));
+    file.reset();
+    auto image = TRY(UserImage::load(buf.data(), buf.size(), args));
     const uintptr_t entry_va = image.entry_va();
     const uintptr_t user_stack_va = image.stack_va();
 
-    TrapFrame tf{};
-    arch_setup_user_tf(&tf, entry_va, user_stack_va);
+    return TaskManager::spawn_user(image.take_memory(), entry_va, user_stack_va, path);
+}
 
-    int pid{};
-    {
-        intr::Guard guard;
-        pid = TRY(sched::fork(0, user_stack_va, &tf));
-
-        Task* proc = sched::find_process(pid);
-        assert(proc);
-        proc->adopt_memory(image.take_memory());
-        proc->set_name(path);
-    }
-
-    cprintf("exec: started user process '%s' (PID %d) entry=0x%lx rsp=0x%lx\n", path, pid, entry_va, user_stack_va);
-    return pid;
+Result<int> exec(const char* path) {
+    ENSURE(path, Error::Invalid);
+    auto args = sys::unique_ptr<Arguments>(new (sys::nothrow) Arguments());
+    ENSURE(args, Error::NoMem);
+    TRY(args->add(path));
+    return spawn(path, *args);
 }
 
 }  // namespace exec

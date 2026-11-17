@@ -8,6 +8,7 @@
 #include "lib/string.h"
 #include <asm/mmu.h>
 #include <base/elf.h>
+#include <kernel/log.h>
 
 extern "C" int vprintf(const char*, va_list);
 extern "C" void* aligned_alloc(size_t, size_t);
@@ -76,7 +77,14 @@ public:
     void leave_guard() { --guards_; }
     bool guarded() const { return guards_ != 0; }
     void setup_frame(uintptr_t entry, uintptr_t stack) {
-        assert(entry == 0x400000 && stack == USER_STACK_TOP);
+        assert(entry == 0x400000 && stack % 16 == 0 && stack < USER_STACK_TOP);
+        auto* words = reinterpret_cast<const uintptr_t*>(
+            static_cast<const char*>(phys_to_virt(pte_addr(*this->entry(stack)))) + stack % PG_SIZE);
+        assert(words[0] == 1 && words[2] == 0 && words[3] == 0);
+        const uintptr_t argument = words[1];
+        const auto* text = reinterpret_cast<const char*>(
+            static_cast<const char*>(phys_to_virt(pte_addr(*this->entry(argument)))) + argument % PG_SIZE);
+        assert(strcmp(text, "file") == 0);
         frame_ready_ = true;
     }
     Result<int> fork() {
@@ -219,6 +227,17 @@ int init() {
     Manager::kernel_mm_.pgdir = ExecFixture::current().kernel_root();
     return 0;
 }
+Error copy_to_user(MemoryDesc*, uintptr_t destination, const void* source, size_t size) {
+    const auto* input = static_cast<const uint8_t*>(source);
+    for (size_t i = 0; i < size; ++i) {
+        const uintptr_t address = destination + i;
+        pte_t* entry = ExecFixture::current().entry(address);
+        ENSURE(entry && pte_present(*entry), Error::Invalid);
+        auto* output = reinterpret_cast<uint8_t*>(phys_to_virt(pte_addr(*entry)));
+        output[address % PG_SIZE] = input[i];
+    }
+    return Error::None;
+}
 }  // namespace vmm
 
 namespace intr {
@@ -230,19 +249,19 @@ Guard::~Guard() {
 }
 }  // namespace intr
 
-namespace sched {
-Result<int> fork(uint32_t, uintptr_t, TrapFrame*) {
-    return ExecFixture::current().fork();
+Result<int> TaskManager::spawn_user(sys::unique_ptr<MemoryDesc> memory, uintptr_t entry, uintptr_t stack, const char*) {
+    ExecFixture::current().setup_frame(entry, stack);
+    intr::Guard guard;
+    const int pid = TRY(ExecFixture::current().fork());
+    ExecFixture::current().child(pid)->adopt_memory(sys::move(memory));
+    return pid;
 }
-Task* find_process(int pid) {
-    return ExecFixture::current().child(pid);
-}
-}  // namespace sched
+
+namespace klog {
+void write(Level, const char*, ...) {}
+}  // namespace klog
 
 void Task::set_name(const char*) {}
-void arch_setup_user_tf(TrapFrame*, uintptr_t entry, uintptr_t stack) {
-    ExecFixture::current().setup_frame(entry, stack);
-}
 
 namespace vfs {
 File::~File() = default;
@@ -274,7 +293,10 @@ extern "C" int main(int argc, char** argv) {
     } else if (strcmp(argv[1], "missing") == 0) {
         // No allocation failure: VFS refuses the requested path.
     } else if (strcmp(argv[1], "success") != 0) {
-        fixture.fail_allocation(argv[1][0] - '0');
+        int allocation{};
+        for (const char* digit = argv[1]; *digit; ++digit)
+            allocation = allocation * 10 + *digit - '0';
+        fixture.fail_allocation(allocation);
     }
     auto result = exec::exec(strcmp(argv[1], "missing") == 0 ? "missing" : "file");
     if (strcmp(argv[1], "success") == 0) {
@@ -287,7 +309,7 @@ extern "C" int main(int argc, char** argv) {
     } else if (strcmp(argv[1], "missing") == 0) {
         fixture.verify_failure(Error::NotFound, result, 0);
     } else {
-        fixture.verify_failure(Error::NoMem, result);
+        fixture.verify_failure(Error::NoMem, result, strcmp(argv[1], "1") == 0 ? 0 : 1);
     }
     cprintf("[OK] exec ownership and errors: %s\n", argv[1]);
     return 0;

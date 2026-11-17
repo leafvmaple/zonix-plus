@@ -75,6 +75,14 @@ void Task::copy_thread(uintptr_t stack_pointer, TrapFrame* src_tf) {
     context_.set_stack(reinterpret_cast<uintptr_t>(trap_frame));
 }
 
+void Task::setup_user_thread(uintptr_t entry, uintptr_t stack) {
+    // Construct in the child's final storage, not a full frame on the creator's
+    // small syscall stack. copy_thread also initializes the scheduling context.
+    auto* frame = new (reinterpret_cast<TrapFrame*>(kernel_stack() + KSTACK_SIZE) - 1) TrapFrame();
+    arch_setup_user_tf(frame, entry, stack);
+    copy_thread(stack, frame);
+}
+
 Error Task::setup_kernel_stack() {
     ENSURE(kernel_stack_.empty() && boot_stack_ == 0, Error::Busy);
     kernel_stack_ = TRY(KernelBuffer::alloc(KSTACK_SIZE));

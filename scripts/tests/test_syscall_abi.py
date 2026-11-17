@@ -13,6 +13,11 @@ BASH = shutil.which("bash")
 @unittest.skipUnless(BASH, "bash is required for the ABI checker")
 class SyscallAbiTests(unittest.TestCase):
     def run_checker(self, root):
+        for name in ("process.h", "fcntl.h"):
+            for directory in ("include/abi", "user/zcc/src/runtime"):
+                header = root / directory / name
+                header.parent.mkdir(parents=True, exist_ok=True)
+                header.write_text("/* shared ABI fixture */\n")
         return subprocess.run([BASH, str(SCRIPT)], cwd=root, text=True,
                               capture_output=True, timeout=10)
 
@@ -46,6 +51,21 @@ class SyscallAbiTests(unittest.TestCase):
             result = self.run_checker(root)
             self.assertEqual(result.returncode, 1)
             self.assertIn("ABI mismatch", result.stderr)
+
+    def test_new_calls_must_be_synchronized_with_the_runtime(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            kernel = root / "include/abi/syscall.h"
+            runtime = root / "user/zcc/src/runtime/syscall.h"
+            for header in (kernel, runtime):
+                header.parent.mkdir(parents=True)
+                header.write_text("#define NR_EXIT 1\n#define STDIN_FD 0\n")
+            kernel.write_text(kernel.read_text() + "#define NR_SPAWN 400\n")
+            self.assertEqual(self.run_checker(root).returncode, 1)
+            runtime.write_text(runtime.read_text() + "#define NR_SPAWN 400\n")
+            self.assertEqual(self.run_checker(root).returncode, 0)
+            runtime.write_text(runtime.read_text() + "#define NR_UNKNOWN 401\n")
+            self.assertEqual(self.run_checker(root).returncode, 1)
 
 
 if __name__ == "__main__":

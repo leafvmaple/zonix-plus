@@ -1,0 +1,131 @@
+#include "syscall.h"
+#include "exec/exec.h"
+#include "sched/sched.h"
+#include "lib/kernel_buffer.h"
+#include "fs/vfs.h"
+#include <abi/process.h>
+
+static_assert(exec::MAX_ARGS == PROCESS_MAX_ARGS && exec::MAX_ARG_BYTES == PROCESS_MAX_ARG_BYTES);
+static_assert(exec::MAX_PATH == PROCESS_MAX_PATH && sizeof(FileStat) == 12 && sizeof(DirectoryEntry) == 44);
+static_assert(static_cast<int>(Error::Invalid) == SYS_ERROR_INVALID && static_cast<int>(Error::Full) == SYS_ERROR_FULL);
+
+namespace {
+
+Error copy_path(Task* task, const char* user, char* path) {
+    TRY(syscall::copy_string(task, reinterpret_cast<uintptr_t>(user), path, exec::MAX_PATH));
+    ENSURE(path[0] == '/', Error::Invalid);
+    return Error::None;
+}
+
+Result<int> spawn_user(Task* task, const char* path, long argc, uintptr_t argv) {
+    ENSURE(task && argc >= 0, Error::Invalid);
+    ENSURE(static_cast<size_t>(argc) <= exec::MAX_ARGS, Error::Full);
+    char copied_path[exec::MAX_PATH]{};
+    TRY(copy_path(task, path, copied_path));
+    auto args = sys::unique_ptr<exec::Arguments>(new (sys::nothrow) exec::Arguments());
+    ENSURE(args, Error::NoMem);
+    if (argc != 0 || argv != 0) {
+        ENSURE(vmm::user_range_valid(task->memory(), argv, (argc + 1) * sizeof(uintptr_t), false), Error::Invalid);
+        auto scratch = TRY(KernelBuffer::alloc(exec::MAX_ARG_BYTES));
+        for (long i = 0; i <= argc; ++i) {
+            uintptr_t text{};
+            TRY(vmm::copy_from_user(task->memory(), &text, argv + i * sizeof(text), sizeof(text)));
+            if (i == argc) {
+                ENSURE(text == 0, Error::Invalid);
+                break;
+            }
+            TRY(syscall::copy_string(task, text, reinterpret_cast<char*>(scratch.data()), scratch.size()));
+            TRY(args->add(reinterpret_cast<const char*>(scratch.data())));
+        }
+    }
+    return exec::spawn(copied_path, *args);
+}
+
+class EntryAt : public vfs::DirVisitor {
+public:
+    explicit EntryAt(size_t index) : index_(index) {}
+    int visit(const vfs::DirEntry& entry) override {
+        if (position_++ != index_)
+            return 0;
+        strncpy(value.name, entry.name, sizeof(value.name));
+        value.type = static_cast<unsigned int>(entry.type);
+        value.size = entry.size;
+        value.attrs = entry.attrs;
+        found = true;
+        return 1;
+    }
+    DirectoryEntry value{};
+    bool found{};
+
+private:
+    size_t index_;
+    size_t position_{};
+};
+
+}  // namespace
+
+Error syscall::copy_string(Task* task, uintptr_t user, char* out, size_t capacity) {
+    ENSURE(task && user && out && capacity, Error::Invalid);
+    for (size_t i = 0; i < capacity; ++i) {
+        ENSURE(user < USER_SPACE_TOP && i < USER_SPACE_TOP - user, Error::Invalid);
+        TRY(vmm::copy_from_user(task->memory(), out + i, user + i, 1));
+        if (out[i] == '\0')
+            return Error::None;
+    }
+    return Error::Invalid;
+}
+
+long syscall::spawn(Task* task, const char* path, long argc, uintptr_t argv) {
+    auto result = spawn_user(task, path, argc, argv);
+    return result.ok() ? result.value() : static_cast<long>(result.error());
+}
+
+long syscall::wait(Task* task, long pid, uintptr_t status) {
+    if (!task || pid < 0 || pid > 0x7FFFFFFF)
+        return static_cast<long>(Error::Invalid);
+    if (status && !vmm::user_range_valid(task->memory(), status, sizeof(int), true))
+        return static_cast<long>(Error::Invalid);
+    int code{};
+    auto ready = TaskManager::wait_ready(static_cast<int>(pid), &code);
+    if (!ready.ok())
+        return static_cast<long>(ready.error());
+    if (status) {
+        Error error = vmm::copy_to_user(task->memory(), status, &code, sizeof(code));
+        if (error != Error::None)
+            return static_cast<long>(error);
+    }
+    auto reaped = sched::wait(ready.value(), nullptr);
+    return reaped.ok() ? reaped.value() : static_cast<long>(reaped.error());
+}
+
+long syscall::stat(Task* task, const char* path, uintptr_t output) {
+    if (!task || !vmm::user_range_valid(task->memory(), output, sizeof(FileStat), true))
+        return static_cast<long>(Error::Invalid);
+    char copied[exec::MAX_PATH]{};
+    Error error = copy_path(task, path, copied);
+    if (error != Error::None)
+        return static_cast<long>(error);
+    vfs::Stat st{};
+    error = vfs::stat(copied, &st);
+    if (error != Error::None)
+        return static_cast<long>(error);
+    FileStat result{static_cast<unsigned int>(st.type), st.size, st.attrs};
+    return static_cast<long>(vmm::copy_to_user(task->memory(), output, &result, sizeof(result)));
+}
+
+long syscall::readdir(Task* task, const char* path, long index, uintptr_t output) {
+    if (!task || index < 0 || !vmm::user_range_valid(task->memory(), output, sizeof(DirectoryEntry), true))
+        return static_cast<long>(Error::Invalid);
+    char copied[exec::MAX_PATH]{};
+    Error error = copy_path(task, path, copied);
+    if (error != Error::None)
+        return static_cast<long>(error);
+    EntryAt visitor(static_cast<size_t>(index));
+    auto result = vfs::readdir(copied, visitor);
+    if (!result.ok())
+        return static_cast<long>(result.error());
+    if (!visitor.found)
+        return 0;
+    error = vmm::copy_to_user(task->memory(), output, &visitor.value, sizeof(visitor.value));
+    return error == Error::None ? 1 : static_cast<long>(error);
+}

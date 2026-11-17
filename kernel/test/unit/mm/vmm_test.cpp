@@ -173,12 +173,12 @@ static void test_file_io(MemoryDesc& mm, uintptr_t base) {
         return;
     }
     const int fd = fd_r.value();
-    fd::Entry* entry = current->files().get(fd);
+    fd::OpenFile* entry = current->files().get(fd);
     ScopedTaskMemory memory_view(*current, mm);
     const uintptr_t user = base + PG_SIZE - 31;
     const size_t count = PG_SIZE + 17;
 
-    TEST_ASSERT(syscall(NR_READ, fd, user, count) == static_cast<long>(count) && entry->offset == count &&
+    TEST_ASSERT(syscall(NR_READ, fd, user, count) == static_cast<long>(count) && entry->offset() == count &&
                     file->calls() == 2,
                 "Read spans user pages and transfers more than one bounce-buffer chunk");
     const auto* first_bytes = static_cast<const uint8_t*>(pmm::page_to_kva(first));
@@ -190,9 +190,9 @@ static void test_file_io(MemoryDesc& mm, uintptr_t base) {
         contents_valid = contents_valid && value == static_cast<uint8_t>(i);
     }
     TEST_ASSERT(contents_valid, "Read copies complete data across the page and chunk boundaries");
-    entry->offset = 0;
+    entry->set_offset(0);
     file->reset(TransferFile::Reply::Full);
-    TEST_ASSERT(syscall(NR_WRITE, fd, user, count) == static_cast<long>(count) && entry->offset == count &&
+    TEST_ASSERT(syscall(NR_WRITE, fd, user, count) == static_cast<long>(count) && entry->offset() == count &&
                     file->calls() == 2 && file->input_valid(),
                 "Write copies complete user data before both VFS calls");
 
@@ -200,22 +200,22 @@ static void test_file_io(MemoryDesc& mm, uintptr_t base) {
     constexpr TransferFile::Reply failures[] = {TransferFile::Reply::Error, TransferFile::Reply::Negative,
                                                 TransferFile::Reply::Oversized};
     for (int nr : syscalls) {
-        entry->offset = 0;
+        entry->set_offset(0);
         file->reset(TransferFile::Reply::Short);
-        TEST_ASSERT(syscall(nr, fd, user, 128) == 64 && entry->offset == 64 && file->calls() == 1,
+        TEST_ASSERT(syscall(nr, fd, user, 128) == 64 && entry->offset() == 64 && file->calls() == 1,
                     "Short file I/O stops and advances the offset by actual bytes");
-        entry->offset = 0;
+        entry->set_offset(0);
         file->reset(TransferFile::Reply::Empty);
-        TEST_ASSERT(syscall(nr, fd, user, count) == 0 && entry->offset == 0 && file->calls() == 1,
+        TEST_ASSERT(syscall(nr, fd, user, count) == 0 && entry->offset() == 0 && file->calls() == 1,
                     "Zero-byte file I/O stops without advancing the offset");
-        entry->offset = 0;
+        entry->set_offset(0);
         file->reset(TransferFile::Reply::FailAfterPage);
-        TEST_ASSERT(syscall(nr, fd, user, count) == PG_SIZE && entry->offset == PG_SIZE && file->calls() == 2,
+        TEST_ASSERT(syscall(nr, fd, user, count) == PG_SIZE && entry->offset() == PG_SIZE && file->calls() == 2,
                     "Failure after the first chunk preserves the completed byte count and offset");
         for (auto reply : failures) {
-            entry->offset = 0;
+            entry->set_offset(0);
             file->reset(reply);
-            TEST_ASSERT(syscall(nr, fd, user, 128) == -1 && entry->offset == 0 && file->calls() == 1,
+            TEST_ASSERT(syscall(nr, fd, user, 128) == -1 && entry->offset() == 0 && file->calls() == 1,
                         "Failed or invalid VFS byte counts do not advance the offset");
         }
         file->reset(TransferFile::Reply::Full);
