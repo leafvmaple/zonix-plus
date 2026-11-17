@@ -2,8 +2,7 @@
 
 int main() {
     printf("Zonix userspace init (PID %d)\n", (int)sys_getpid());
-    sys_chdir("/user");
-    char* args[2] = {"/user/SH.ELF", 0};
+    char* args[2] = {"/bin/sh", 0};
     long shell = 0;
     int status;
     char retry;

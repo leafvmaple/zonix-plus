@@ -97,11 +97,11 @@ int TaskManager::init_init_proc() {
 
 #else
     auto args = sys::unique_ptr<exec::Arguments>(new (sys::nothrow) exec::Arguments());
-    if (!args || args->add("/user/INIT.ELF") != Error::None)
+    if (!args || args->add("/sbin/init") != Error::None)
         return -1;
-    auto ret = exec::spawn("/user/INIT.ELF", *args);
+    auto ret = exec::spawn("/sbin/init", *args);
     if (!ret.ok()) {
-        klog::error("init: cannot load /user/INIT.ELF (%s)\n", error_str(ret.error()));
+        klog::error("init: cannot load /sbin/init (%s)\n", error_str(ret.error()));
         return -1;
     }
 #endif

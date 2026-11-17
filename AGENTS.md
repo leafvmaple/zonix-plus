@@ -38,12 +38,24 @@
   programs, including in TEST=1. User programs are built and packaged separately;
   test entry points prepare their own user disk instead of adding user-program
   dependencies or copying ELF files in system-image recipes.
-- System C user programs use the existing `user/zcc` frontend and its runtime.
-  Add required language, target and ABI support there; do not introduce another
-  application startup, syscall wrapper or runtime implementation in this repo.
-  LLVM/Clang remain tools for preprocessing, target code generation, assembling
-  and the existing low-level runtime build. Existing architecture instruction
-  tests may retain their dedicated compiler/assembly fixtures.
+- The base rootfs is a separate build/install artifact containing system user-space
+  programs, including `/sbin/init` and `/bin/sh`. Normal CLI boot must work without
+  an application disk. Optional user application images contain extra applications,
+  mount at `/opt`, and must not supply the base system's init or shell. Neither
+  base-rootfs nor application-image builds belong in boot-image prerequisites.
+- Prefer Clang cross-compilation for system base components such as init, shell
+  and CLI tools. Building the base system must not require the zcc compiler.
+  Applications are not tied to one compiler: zcc, Clang or a compatible cross-GCC
+  may produce a static ELF satisfying the same Zonix target and process ABI.
+- Preserve an explicit zcc build path using `user/zcc`'s frontend. When selecting
+  zcc or validating its examples, actually compile through zcc; do not silently
+  substitute Clang. Compiler choice does not determine a program's installation
+  role or whether it executes in user mode.
+- Share the existing `user/zcc/src/runtime` startup, syscall wrappers, library and
+  linker scripts across compilers. Its location does not require using the zcc
+  frontend. Do not add a second runtime or link a host OS CRT/libc. Match the
+  target architecture and calling convention; an ELF container alone is not
+  sufficient for compatibility. Existing register fixtures retain their own entry.
 - Keep the kernel and zcc runtime ABI definitions synchronized. A runtime that
   omits new kernel calls must not be accepted by weakening the ABI checker.
 - zcc is a separate Git submodule. Include its source changes and update the

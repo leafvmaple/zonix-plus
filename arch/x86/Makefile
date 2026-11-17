@@ -7,6 +7,8 @@
 CC      := $(LLVM_BIN)clang --target=x86_64-none-elf
 CXX     := $(LLVM_BIN)clang++ --target=x86_64-none-elf
 LD      := $(LLD_BIN)ld.lld
+# Shared user-space runtime ABI, independent of the application compiler.
+USER_ARCH_CFLAGS := -m64 -mno-red-zone -march=x86-64 -msse2 -mno-avx
 CFLAGS  := -g -fno-builtin -Wall -ggdb -O0 -m64 -mno-red-zone -mcmodel=kernel \
            -mno-sse -mno-sse2 -mno-mmx -msoft-float -nostdinc \
            -fno-stack-protector -fno-pic -gdwarf-2
@@ -79,29 +81,34 @@ $(QEMU_BIOS): FORCE $(OVMF) $(SCRIPTDIR)/qemu_firmware.sh | $$(dir $$@)
 	bash $(SCRIPTDIR)/qemu_firmware.sh x86-bios "$(OVMF)" "$@"
 
 ifeq ($(DISK),ahci)
-  QEMU_DATA := -drive file=$(BINDIR)/userdata.img,format=raw,if=none,id=data0 \
+  QEMU_ROOTFS := -drive file=$(BINDIR)/rootfs.img,format=raw,if=none,id=data0 \
                -device ide-hd,bus=ahci0.1,drive=data0
 else ifeq ($(DISK),ide)
-  QEMU_DATA := -drive file=$(BINDIR)/userdata.img,format=raw,if=ide,index=1
+  QEMU_ROOTFS := -drive file=$(BINDIR)/rootfs.img,format=raw,if=ide,index=1
 else
   $(error Unknown DISK=$(DISK). Use: ahci, ide)
 endif
 
+ifneq ($(USER_DISK),)
+  QEMU_APPS := -drive file=$(USER_DISK),format=raw,if=none,id=apps \
+               -device ide-hd,bus=ahci0.2,drive=apps
+endif
+
 .PHONY: qemu qemu-bios debug debug-bios disasm
 
-qemu: $(BINDIR)/zonix-uefi.img $(BINDIR)/userdata.img $(QEMU_BIOS)
-	$(QEMU) -bios $(QEMU_BIOS) -readconfig qemu-uefi.cfg $(QEMU_DATA) $(QEMU_FLAGS) -no-reboot
+qemu: $(BINDIR)/zonix-uefi.img $(BINDIR)/rootfs.img $(QEMU_BIOS) $(USER_DISK)
+	$(QEMU) -bios $(QEMU_BIOS) -readconfig qemu-uefi.cfg $(QEMU_ROOTFS) $(QEMU_APPS) $(QEMU_FLAGS) -no-reboot
 
-qemu-bios: $(BINDIR)/zonix.img $(BINDIR)/userdata.img
-	$(QEMU) -readconfig qemu-bios.cfg $(QEMU_DATA) $(QEMU_FLAGS) -no-reboot
+qemu-bios: $(BINDIR)/zonix.img $(BINDIR)/rootfs.img $(USER_DISK)
+	$(QEMU) -readconfig qemu-bios.cfg $(QEMU_ROOTFS) $(QEMU_APPS) $(QEMU_FLAGS) -no-reboot
 
-debug: $(BINDIR)/zonix-uefi.img $(BINDIR)/userdata.img $(QEMU_BIOS)
-	$(QEMU) -bios $(QEMU_BIOS) -readconfig qemu-uefi.cfg $(QEMU_DATA) $(QEMU_FLAGS) -S -s -no-reboot &
+debug: $(BINDIR)/zonix-uefi.img $(BINDIR)/rootfs.img $(QEMU_BIOS) $(USER_DISK)
+	$(QEMU) -bios $(QEMU_BIOS) -readconfig qemu-uefi.cfg $(QEMU_ROOTFS) $(QEMU_APPS) $(QEMU_FLAGS) -S -s -no-reboot &
 	sleep 2
 	gdb -q -x $(SCRIPTDIR)/gdbinit
 
-debug-bios: $(BINDIR)/zonix.img $(BINDIR)/userdata.img
-	$(QEMU) -readconfig qemu-bios.cfg $(QEMU_DATA) $(QEMU_FLAGS) -S -s -no-reboot &
+debug-bios: $(BINDIR)/zonix.img $(BINDIR)/rootfs.img $(USER_DISK)
+	$(QEMU) -readconfig qemu-bios.cfg $(QEMU_ROOTFS) $(QEMU_APPS) $(QEMU_FLAGS) -S -s -no-reboot &
 	sleep 2
 	gdb -q -x $(SCRIPTDIR)/gdbinit
 

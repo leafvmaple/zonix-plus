@@ -110,31 +110,26 @@ int program_path(char* name, char* path) {
     for (int i = 0; name[i]; i = i + 1) {
         if (name[i] == '/') {
             if (strlen(name) >= PROCESS_MAX_PATH)
-                return -1;
+                return SYS_ERROR_FULL;
             memcpy(path, name, strlen(name) + 1);
             return 0;
         }
     }
-    if (strlen(name) + 11 >= PROCESS_MAX_PATH)
-        return -1;
-    memcpy(path, "/user/", 6);
-    int size = 6;
-    int extension = 0;
-    for (int i = 0; name[i]; i = i + 1) {
-        int c = name[i];
-        if (c == '.')
-            extension = 1;
-        if (c >= 'a' && c <= 'z')
-            c = c - 'a' + 'A';
-        path[size] = (char)c;
-        size = size + 1;
+    char* directories[2] = {"/bin/", "/opt/bin/"};
+    struct FileStat st;
+    for (int i = 0; i < 2; i = i + 1) {
+        long prefix = strlen(directories[i]);
+        if (prefix + strlen(name) >= PROCESS_MAX_PATH)
+            return SYS_ERROR_FULL;
+        memcpy(path, directories[i], prefix);
+        memcpy(path + prefix, name, strlen(name) + 1);
+        long found = sys_stat(path, &st);
+        if (found == 0)
+            return 0;
+        if (found != SYS_ERROR_NOT_FOUND)
+            return (int)found;
     }
-    if (!extension) {
-        memcpy(path + size, ".ELF", 4);
-        size = size + 4;
-    }
-    path[size] = 0;
-    return 0;
+    return SYS_ERROR_NOT_FOUND;
 }
 
 int main() {
@@ -182,14 +177,14 @@ int main() {
         }
         if (!strcmp(args[0], "help")) {
             printf("help pwd cd [directory] echo [args] status exit [code]\n");
-            printf("Programs: name (search /user), ./NAME.ELF or /absolute/path\n");
+            printf("Programs: name (search /bin, /opt/bin), ./name or /absolute/path\n");
             printf("Quotes and backslash escape arguments. Foreground execution only.\n");
             last = 0;
         } else if (!strcmp(args[0], "pwd")) {
             printf("%s\n", cwd);
             last = 0;
         } else if (!strcmp(args[0], "cd")) {
-            char* target = "/user";
+            char* target = "/";
             if (argc == 2)
                 target = args[1];
             if (argc > 2) {
@@ -212,12 +207,9 @@ int main() {
             sys_write(STDOUT_FD, "\n", 1);
             last = 0;
         } else {
-            if (program_path(args[0], path) < 0) {
-                printf("sh: program path too long\n");
-                last = 2;
-                continue;
-            }
-            long pid = sys_spawn(path, argc, args);
+            long pid = program_path(args[0], path);
+            if (pid == 0)
+                pid = sys_spawn(path, argc, args);
             if (pid < 0) {
                 printf("sh: cannot run %s (%d)\n", args[0], (int)pid);
                 last = 127;

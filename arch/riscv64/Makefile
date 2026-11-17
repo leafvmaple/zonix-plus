@@ -18,6 +18,8 @@ BOARD_DEFINE := -DBOARD_$(shell echo $(BOARD) | tr a-z A-Z)
 CC      := $(LLVM_BIN)clang --target=riscv64-none-elf
 CXX     := $(LLVM_BIN)clang++ --target=riscv64-none-elf
 LD      := $(LLD_BIN)ld.lld
+# Shared user-space runtime ABI, independent of the application compiler.
+USER_ARCH_CFLAGS := -march=rv64imac -mabi=lp64 -mno-relax
 CFLAGS  := -g -Wall -O0 -nostdinc -fno-builtin -fno-stack-protector \
            -fno-pic -ffreestanding -gdwarf-2 -march=rv64gc -mabi=lp64d \
            -mcmodel=medany $(BOARD_DEFINE)
@@ -89,12 +91,17 @@ $(BINDIR)/zonix-uefi.img: $(BINDIR)/BOOTRISCV64.EFI $(BINDIR)/kernel $(SCRIPTDIR
 	@echo "  IMG     $@"
 	$(Q)BINDIR=$(BINDIR) ARCH=riscv64 bash $(SCRIPTDIR)/create_uefi_image.sh
 
-# ---------- SD card image (kernel-visible system disk) ----------
+# ---------- Boot-disk mirror for TEST=1 runners (normal boot uses rootfs.img) ----------
 $(BINDIR)/sdcard.img: $(BINDIR)/zonix-uefi.img
 	@echo "  IMG     $@"
 	$(Q)cp $< $@
 
 # ---------- QEMU run / debug targets ----------
+ifneq ($(USER_DISK),)
+QEMU_APPS := -drive file=$(USER_DISK),format=raw,if=none,id=apps \
+             -device sdhci-pci -device sd-card,drive=apps
+endif
+
 .PHONY: qemu debug
 
 # Boot via EDK2 UEFI firmware (qemu-efi-riscv64 package).
@@ -105,18 +112,18 @@ AAVMF_VARS ?= $(shell bash $(SCRIPTDIR)/qemu_firmware.sh riscv64-vars)
 $(BINDIR)/riscv_vars.fd: | $$(dir $$@)
 	cp $(AAVMF_VARS) $@
 
-qemu: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img $(BINDIR)/riscv_vars.fd $(BINDIR)/userdata.img
+qemu: $(BINDIR)/zonix-uefi.img $(BINDIR)/rootfs.img $(BINDIR)/riscv_vars.fd $(USER_DISK)
 	$(QEMU) -cpu rv64 \
 		-drive if=pflash,format=raw,unit=0,file=$(AAVMF),readonly=on \
 		-drive if=pflash,format=raw,unit=1,file=$(BINDIR)/riscv_vars.fd \
 		-readconfig qemu-uefi-riscv64.cfg \
-		-serial stdio $(QEMU_FLAGS) -no-reboot
+		-serial stdio $(QEMU_APPS) $(QEMU_FLAGS) -no-reboot
 
-debug: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img $(BINDIR)/riscv_vars.fd $(BINDIR)/userdata.img
+debug: $(BINDIR)/zonix-uefi.img $(BINDIR)/rootfs.img $(BINDIR)/riscv_vars.fd $(USER_DISK)
 	$(QEMU) -cpu rv64 \
 		-drive if=pflash,format=raw,unit=0,file=$(AAVMF),readonly=on \
 		-drive if=pflash,format=raw,unit=1,file=$(BINDIR)/riscv_vars.fd \
 		-readconfig qemu-uefi-riscv64.cfg \
-		-serial stdio $(QEMU_FLAGS) -S -s -no-reboot &
+		-serial stdio $(QEMU_APPS) $(QEMU_FLAGS) -S -s -no-reboot &
 	sleep 2
 	gdb -q -x $(SCRIPTDIR)/gdbinit

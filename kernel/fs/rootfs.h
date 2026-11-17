@@ -2,10 +2,10 @@
 
 namespace rootfs {
 
-// Scan all registered disk block devices and mount the first one that
-// contains a recognised filesystem to "/". Called once during kernel init,
-// after block devices and PCI drivers have been probed.
+// Mount the base filesystem containing /sbin/init at "/". TEST_MODE retains
+// the boot-disk root used by existing regression entry points.
 int init();
-int init_user();
+// Optionally mount a separate application filesystem (with /bin) at /opt.
+int init_apps();
 
 }  // namespace rootfs

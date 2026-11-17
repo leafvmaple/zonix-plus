@@ -3,7 +3,7 @@
 set -euo pipefail
 arch="$1"
 directory="$2"
-make ARCH="$arch" TEST=1 BINDIR="$directory" user "$directory/userdata.img"
+make ARCH="$arch" TEST=1 USER_CC=zcc BINDIR="$directory" user zcc-examples "$directory/userdata.img"
 for program in "$directory"/user/*.ELF; do
     mcopy -o -i "$directory/userdata.img" "$program" ::/
 done

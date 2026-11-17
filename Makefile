@@ -29,6 +29,8 @@ endif
 
 # Extra QEMU arguments, e.g. QEMU_FLAGS="-display none" for terminal use.
 QEMU_FLAGS ?=
+# Optional extra-application disk. Normal CLI boot needs only rootfs.img.
+USER_DISK ?=
 
 # Quiet / verbose output
 ifeq ($(V),0)
@@ -184,7 +186,7 @@ UEFI_CXXFLAGS += -DCONFIG_BOOT_VERBOSE=$(BOOT_VERBOSE)
 BOBJS = $(call toobj,$(bootfiles))
 
 # ==========================================================================
-# User-mode programs (separate toolchain, lives on second disk)
+# User-space base system and extra applications (separate from boot images)
 # ==========================================================================
 include user/Makefile
 
@@ -198,11 +200,11 @@ $(BINDIR)/userdata.img: $(SCRIPTDIR)/create_userdata_image.sh
 	@echo "  IMG     $@"
 	$(Q)BINDIR=$(BINDIR) bash $(SCRIPTDIR)/create_userdata_image.sh
 
-else
-$(BINDIR)/userdata.img:
-	@echo "Missing user disk. Run make user-image ARCH=$(ARCH) first."
-	@false
 endif
+
+$(BINDIR)/rootfs.img:
+	@echo "Missing base rootfs. Run make rootfs ARCH=$(ARCH) first."
+	@false
 
 $(BINDIR)/zonix.img: $(BINDIR)/mbr $(BINDIR)/vbr $(BINDIR)/bootloader $(BINDIR)/kernel $(SCRIPTDIR)/create_zonix_image.sh | $$(dir $$@)
 	@echo "  IMG     $@"
@@ -281,16 +283,19 @@ help:
 	@echo "Zonix OS build system  (ARCH=$(ARCH))"
 	@echo ""
 	@echo "Build:"
-	@echo "  make [all]           Build everything for current ARCH"
+	@echo "  make [all]           Build boot/kernel artifacts for current ARCH"
 	@echo "  make $(BINDIR)/kernel  Build kernel only"
-	@echo "  make user            Build user-mode programs"
+	@echo "  make rootfs          Install init/shell on the independent base rootfs"
+	@echo "  make user-image      Install extra applications on optional apps.img"
+	@echo "  make user            Build applications with USER_CC (default: zcc)"
+	@echo "  make zcc-examples    Build compiler examples explicitly with zcc"
 	@echo "  make disasm          Generate disassembly listings (x86)"
 	@echo "  make clean           Remove all build artifacts"
 	@echo ""
 	@echo "Run (x86):"
 	@echo "  make qemu            UEFI + AHCI (default)"
 	@echo "  make qemu-bios       BIOS + IDE fallback"
-	@echo "  make qemu DISK=ide   Use IDE for user-data disk"
+	@echo "  make qemu DISK=ide   Use IDE for base rootfs"
 	@echo "  make debug           UEFI + AHCI + GDB"
 	@echo "  make debug-bios      BIOS + IDE + GDB"
 	@echo ""
@@ -306,7 +311,9 @@ help:
 	@echo ""
 	@echo "Options:"
 	@echo "  ARCH=x86|aarch64|riscv64  Target architecture (default: x86)"
-	@echo "  DISK=ahci|ide        User-data disk controller (default: ahci)"
+	@echo "  DISK=ahci|ide        Base-rootfs controller (default: ahci)"
+	@echo "  USER_CC=zcc|clang|<cross-cc>  Application compiler (base uses Clang)"
+	@echo "  USER_DISK=<path>     Attach optional extra-application disk (default: none)"
 	@echo "  TEST=0|1             Include kernel test suites (default: 0)"
 	@echo "  BOOT_VERBOSE=0|1     Detailed startup logs (default: 0)"
 	@echo "  V=1                  Verbose build output"

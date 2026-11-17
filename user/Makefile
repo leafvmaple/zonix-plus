@@ -1,5 +1,6 @@
-# All C user programs use zcc's frontend, target selection and runtime.
-# Standalone assembly programs are retained for architecture register tests.
+# Base components use Clang; applications can select zcc or a native C compiler.
+# Both share the existing startup, syscall wrappers, library and linker script.
+# Assembly register fixtures retain their dedicated entry points.
 USER_DIR := user
 USER_BINDIR := $(BINDIR)/user
 USER_OBJDIR := $(OBJDIR)/user
@@ -11,8 +12,22 @@ ZCC_SYSROOT := $(ZCC_DIR)/lib/$(ZCC_LIBARCH)
 ZCC_RUNTIME_STAMP := $(ZCC_SYSROOT)/.runtime
 ZCC_SOURCES := $(shell find $(ZCC_DIR)/src $(ZCC_DIR)/parser -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.l' -o -name '*.y' \))
 ZCC_RUNTIME_SOURCES := $(shell find $(ZCC_DIR)/src/runtime -type f)
-# Used only for the naming check's Clang AST, never to compile user C into ELF.
-USER_CFLAGS := -ffreestanding -nostdinc -Iinclude -I$(ZCC_DIR)/src/runtime
+# zcc remains the default application path. "clang" uses the target Clang driver;
+# a cross-GCC (or other compatible C compiler) may be supplied as USER_CC instead.
+USER_CC ?= zcc
+USER_NATIVE_CC := $(USER_CC)
+ifeq ($(USER_CC),clang)
+USER_NATIVE_CC := $(CC)
+endif
+USER_COMPILER_STAMP := $(USER_OBJDIR)/.compiler
+# A frontend switch invalidates outputs even within one timestamp tick (make 3.81).
+ifneq ($(shell cat $(USER_COMPILER_STAMP) 2>/dev/null),$(USER_CC))
+USER_COMPILER_CHANGED := FORCE
+endif
+USER_CFLAGS := -g -O2 -Wall -Wextra -std=c11 -ffreestanding -nostdinc \
+               -fno-builtin -fno-stack-protector -fno-pic -fno-pie \
+               -fno-unwind-tables -fno-asynchronous-unwind-tables \
+               $(USER_ARCH_CFLAGS) -Iinclude -I$(ZCC_DIR)/src/runtime
 USER_ASFLAGS := -g -nostdinc -ffreestanding
 USER_PROGRAMS := $(notdir $(patsubst %/,%,$(dir $(wildcard $(USER_DIR)/*/*.S $(USER_DIR)/*/*.c))))
 USER_PROGRAMS := $(filter-out zcc,$(sort $(USER_PROGRAMS)))
@@ -35,40 +50,57 @@ $(ZCC_RUNTIME_STAMP): $(ZCC_RUNTIME_SOURCES) include/abi/syscall.h include/abi/p
 $(USER_BINDIR):
 	$(Q)$(MKDIR) $@
 
+# Like the kernel's TEST-mode stamp: changing frontend must rebuild app outputs.
+$(USER_COMPILER_STAMP): FORCE
+	$(Q)$(MKDIR) $(@D)
+	$(Q)if [ ! -f $@ ] || [ "$$(cat $@)" != "$(USER_CC)" ]; then echo "$(USER_CC)" > $@; fi
+
 define user_program_template
 _UP_C_$(1) := $$(wildcard $(USER_DIR)/$(1)/*.c)
 _UP_ASM_$(1) := $$(wildcard $(USER_DIR)/$(1)/*.S)
-ifeq ($$(filter $(1),ssetest ssepeer),)
-$(USER_BINDIR)/$(call uc,$(1)).ELF: $$(_UP_C_$(1)) $(ZCC_COMPILER) $(ZCC_RUNTIME_STAMP) | $(USER_BINDIR) check-syscall-abi
+_UP_COMPILER_DEP_$(1) := $$(if $$(filter init sh ssetest ssepeer,$(1)),,$(USER_COMPILER_STAMP) $(USER_COMPILER_CHANGED))
+ifneq ($$(and $$(filter-out init sh ssetest ssepeer,$(1)),$$(filter zcc,$(USER_CC))),)
+$(USER_BINDIR)/$(call uc,$(1)).ELF: $$(_UP_C_$(1)) $(ZCC_COMPILER) $(ZCC_RUNTIME_STAMP) $$(_UP_COMPILER_DEP_$(1)) user/Makefile | $(USER_BINDIR) check-syscall-abi
 	@echo "  ZCC     $$@"
 	$(Q)$(ZCC_COMPILER) $(ZCC_TARGET) $$< -o $$@ -sysroot $(ZCC_SYSROOT)
 else
-# Existing x86 register-state fixtures deliberately ask Clang to emit FP/SIMD.
-# They supply their own assembly entry and are never application runtime objects.
-_UP_TEST_OBJS_$(1) := $$(patsubst $(USER_DIR)/%,$(USER_OBJDIR)/%.o,$$(_UP_C_$(1)) $$(_UP_ASM_$(1)))
-$(USER_OBJDIR)/$(1)/%.c.o: $(USER_DIR)/$(1)/%.c
+_UP_CC_$(1) := $$(if $$(filter init sh ssetest ssepeer,$(1)),$(CC),$(USER_NATIVE_CC))
+_UP_FLAGS_$(1) := $$(if $$(filter ssetest ssepeer,$(1)),$(USER_TEST_CFLAGS),$(USER_CFLAGS))
+_UP_OBJS_$(1) := $$(patsubst $(USER_DIR)/%,$(USER_OBJDIR)/%.o,$$(_UP_C_$(1)) $$(_UP_ASM_$(1)))
+$(USER_OBJDIR)/$(1)/%.c.o: $(USER_DIR)/$(1)/%.c $(ZCC_RUNTIME_STAMP) $$(_UP_COMPILER_DEP_$(1)) user/Makefile arch/$(ARCH)/Makefile
 	$(Q)$(MKDIR) $$(@D)
-	$(Q)$(CC) $(USER_TEST_CFLAGS) $(DEPFLAGS) -c $$< -o $$@
-$(USER_OBJDIR)/$(1)/%.S.o: $(USER_DIR)/$(1)/%.S
+	$(Q)$$(_UP_CC_$(1)) $$(_UP_FLAGS_$(1)) $(DEPFLAGS) -c $$< -o $$@
+$(USER_OBJDIR)/$(1)/%.S.o: $(USER_DIR)/$(1)/%.S $(ZCC_RUNTIME_STAMP) $$(_UP_COMPILER_DEP_$(1)) user/Makefile arch/$(ARCH)/Makefile
 	$(Q)$(MKDIR) $$(@D)
-	$(Q)$(CC) $(USER_TEST_CFLAGS) $(DEPFLAGS) -c $$< -o $$@
-$(USER_BINDIR)/$(call uc,$(1)).ELF: $$(_UP_TEST_OBJS_$(1)) $(ZCC_RUNTIME_STAMP) | $(USER_BINDIR)
-	$(Q)$(LD) -nostdlib -T $(ZCC_SYSROOT)/linker.ld $$(_UP_TEST_OBJS_$(1)) -o $$@
+	$(Q)$$(_UP_CC_$(1)) $$(_UP_FLAGS_$(1)) $(DEPFLAGS) -c $$< -o $$@
+$(USER_BINDIR)/$(call uc,$(1)).ELF: $$(_UP_OBJS_$(1)) $(ZCC_RUNTIME_STAMP) $$(_UP_COMPILER_DEP_$(1)) | $(USER_BINDIR) check-syscall-abi
+ifeq ($$(filter $(1),ssetest ssepeer),)
+	@echo "  LINK    $$@ (shared user runtime)"
+	$(Q)$(LD) -nostdlib --no-relax -T $(ZCC_SYSROOT)/linker.ld $(ZCC_SYSROOT)/crt0.o $$(_UP_OBJS_$(1)) $(ZCC_SYSROOT)/libzccrt.a -o $$@
+else
+# Existing register fixtures supply their own assembly entry.
+	$(Q)$(LD) -nostdlib -T $(ZCC_SYSROOT)/linker.ld $$(_UP_OBJS_$(1)) -o $$@
 endif
+endif
+ifeq ($$(filter $(1),init sh),)
 USER_ELFS += $(USER_BINDIR)/$(call uc,$(1)).ELF
+endif
 endef
 $(foreach p,$(USER_PROGRAMS),$(eval $(call user_program_template,$(p))))
-.PHONY: user user-image user-clean check-syscall-abi
-# Explicitly install normal applications on a separate disk. Never a system-image prerequisite.
-user-image: $(USER_BINDIR)/INIT.ELF $(USER_BINDIR)/SH.ELF $(USER_BINDIR)/HELLO.ELF
-	$(Q)bash scripts/install_user_image.sh $(BINDIR)/userdata.img $^
+.PHONY: user rootfs user-image zcc-examples user-clean check-syscall-abi
+# Explicit installations; neither is a boot-image prerequisite.
+rootfs: $(USER_BINDIR)/INIT.ELF $(USER_BINDIR)/SH.ELF
+	$(Q)bash scripts/install_userspace_image.sh base $(BINDIR)/rootfs.img $^
+
+user-image: $(USER_BINDIR)/HELLO.ELF
+	$(Q)bash scripts/install_userspace_image.sh apps $(BINDIR)/apps.img $^
 
 user-clean:
 	rm -rf $(USER_OBJDIR) $(USER_BINDIR)
 check-syscall-abi:
 	$(Q)bash scripts/check_syscall_abi_sync.sh
 
-# Preserve zcc's existing sample programs in the data image.
+# Compiler examples have an explicit target; native application builds need no zcc frontend.
 ZCC_TEST_SRCS := $(wildcard $(ZCC_DIR)/test/*.c)
 # Template for each zcc test program
 # $(1) = source basename without extension, e.g. "hello"
@@ -80,7 +112,7 @@ $(USER_BINDIR)/$(call zcc_fat_name,$(1)).ELF: $(ZCC_DIR)/test/$(1).c $(ZCC_COMPI
 	@echo "  ZCC     $$@"
 	$(Q)$(ZCC_COMPILER) $(ZCC_TARGET) $$< -o $$@ -sysroot $(ZCC_SYSROOT)
 
-USER_ELFS += $(USER_BINDIR)/$(call zcc_fat_name,$(1)).ELF
+ZCC_EXAMPLE_ELFS += $(USER_BINDIR)/$(call zcc_fat_name,$(1)).ELF
 
 endef
 
@@ -91,3 +123,6 @@ endif
 
 
 user: check-syscall-abi $(USER_ELFS)
+zcc-examples: check-syscall-abi $(ZCC_EXAMPLE_ELFS)
+
+-include $(wildcard $(USER_OBJDIR)/*/*.d)

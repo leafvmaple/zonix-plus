@@ -18,7 +18,7 @@ A teaching operating system kernel targeting **x86_64**, **aarch64**, and **risc
 ### Process Management
 - **Preemptive Round-Robin Scheduler**: Priority-aware scheduling with per-tick timeslice decrement
 - **Kernel Threads**: `kernel_thread()` API with full context switch (callee-saved + CR3)
-- **User Programs**: zcc-built static ELF programs and one runtime on all three architectures; argc/argv, spawn/wait/kill and inherited shared file descriptions ([ABI contract](docs/USER_ABI.md))
+- **User Programs**: Compiler-independent static ELF ABI with shared runtime; Clang-built base components and selectable zcc/Clang application builds on all three architectures; argc/argv, spawn/wait/kill and inherited shared file descriptions ([ABI contract](docs/USER_ABI.md))
 - **Process Hierarchy**: Parent-child links, zombie reaping, orphan reparenting to init
 - **Process Table**: Hash table (1024 buckets) for O(1) PID lookup
 
@@ -64,7 +64,7 @@ A teaching operating system kernel targeting **x86_64**, **aarch64**, and **risc
 - **Architecture Abstraction**: `arch_*()` wrappers for interrupts, I/O, spin hints (portable across ISAs)
 
 ### Interactive Shell
-- Normal boot runs zcc-built userspace init (PID 1) and shell (PID 2) from a separate user disk
+- Normal boot runs Clang-built userspace init (PID 1) and shell (PID 2) from an independent base rootfs
 - Quoted arguments, per-process current directory, foreground execution and exit status
 - Init restarts the shell and reaps orphaned children; the kernel debug shell remains in `TEST=1`
 - Build/install instructions and current limits: [Userspace](docs/USERSPACE.md)
@@ -93,7 +93,7 @@ brew install llvm lld qemu nasm dosfstools mtools gptfdisk flex bison coreutils
 git submodule update --init --recursive
 make install-hooks
 make ARCH=x86 TEST=0 -j8
-make user-image ARCH=x86 TEST=0
+make rootfs ARCH=x86 TEST=0
 make qemu ARCH=x86
 ```
 
@@ -151,7 +151,7 @@ are independent of the log threshold.
 
 ## Run
 
-Prepare the independent user disk with `make user-image ARCH=<arch> TEST=0` before normal boot. This is separate from building the system image; see [Userspace](docs/USERSPACE.md).
+Prepare the base rootfs with `make rootfs ARCH=<arch> TEST=0` before normal boot. Extra applications are optional: `make user-image ARCH=<arch>` creates `apps.img`; attach it with `USER_DISK=bin/<arch>/apps.img`. Boot-image builds depend on neither; see [Userspace](docs/USERSPACE.md).
 
 ```bash
 # x86 UEFI + AHCI (default)

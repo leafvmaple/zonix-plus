@@ -7,6 +7,8 @@
 CC      := $(LLVM_BIN)clang --target=aarch64-none-elf
 CXX     := $(LLVM_BIN)clang++ --target=aarch64-none-elf
 LD      := $(LLD_BIN)ld.lld
+# Shared user-space runtime ABI, independent of the application compiler.
+USER_ARCH_CFLAGS := -mgeneral-regs-only
 CFLAGS  := -g -Wall -O0 -nostdinc -fno-builtin -fno-stack-protector \
            -fno-pic -ffreestanding -gdwarf-2
 CXXFLAGS := -g -Wall -O0 -nostdinc -nostdinc++ \
@@ -62,24 +64,29 @@ $(BINDIR)/zonix-uefi.img: $(BINDIR)/BOOTAA64.EFI $(BINDIR)/kernel $(SCRIPTDIR)/c
 	@echo "  IMG     $@"
 	$(Q)BINDIR=$(BINDIR) ARCH=aarch64 bash $(SCRIPTDIR)/create_uefi_image.sh
 
-# ---------- SD card image (128 MiB, power-of-2 required by QEMU) ----------
+# ---------- Boot-disk mirror for TEST=1 runners (normal boot uses rootfs.img) ----------
 $(BINDIR)/sdcard.img: $(BINDIR)/zonix-uefi.img
 	@echo "  IMG     $@"
 	$(Q)cp $< $@
 
 # ---------- QEMU run / debug targets ----------
+ifneq ($(USER_DISK),)
+QEMU_APPS := -drive file=$(USER_DISK),format=raw,if=none,id=apps \
+             -device sdhci-pci -device sd-card,drive=apps
+endif
+
 .PHONY: qemu debug
 
-qemu: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img $(BINDIR)/userdata.img
+qemu: $(BINDIR)/zonix-uefi.img $(BINDIR)/rootfs.img $(USER_DISK)
 	$(QEMU) -cpu cortex-a72 \
 		-bios $(AAVMF) \
 		-readconfig qemu-uefi-aarch64.cfg \
-		-serial stdio $(QEMU_FLAGS) -no-reboot
+		-serial stdio $(QEMU_APPS) $(QEMU_FLAGS) -no-reboot
 
-debug: $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img $(BINDIR)/userdata.img
+debug: $(BINDIR)/zonix-uefi.img $(BINDIR)/rootfs.img $(USER_DISK)
 	$(QEMU) -cpu cortex-a72 \
 		-bios $(AAVMF) \
 		-readconfig qemu-uefi-aarch64.cfg \
-		-serial stdio $(QEMU_FLAGS) -S -s -no-reboot &
+		-serial stdio $(QEMU_APPS) $(QEMU_FLAGS) -S -s -no-reboot &
 	sleep 2
 	gdb -q -x $(SCRIPTDIR)/gdbinit
