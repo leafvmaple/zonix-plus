@@ -61,7 +61,7 @@ $(USER_COMPILER_STAMP): FORCE
 
 define user_program_template
 _UP_C_$(1) := $$(wildcard $(USER_DIR)/$(1)/*.c)
-_UP_CXX_$(1) := $$(filter-out $(USER_DIR)/terminal/grid_renderer.cpp,$$(wildcard $(USER_DIR)/$(1)/*.cpp)) $$(if $$(filter desktop,$(1)),$(USER_DIR)/desktop/chrome/basic.cpp)
+_UP_CXX_$(1) := $$(strip $$(filter-out $(USER_DIR)/terminal/grid_renderer.cpp,$$(wildcard $(USER_DIR)/$(1)/*.cpp)) $$(if $$(filter desktop,$(1)),$(USER_DIR)/desktop/chrome/basic.cpp))
 _UP_ASM_$(1) := $$(wildcard $(USER_DIR)/$(1)/*.S)
 _UP_COMPILER_DEP_$(1) := $$(if $$(filter $(BASE_PROGRAMS) ssetest ssepeer,$(1)),,$(USER_COMPILER_STAMP) $(USER_COMPILER_CHANGED))
 ifneq ($$(and $$(filter-out $(BASE_PROGRAMS) ssetest ssepeer,$(1)),$$(filter zcc,$(USER_CC))),)
