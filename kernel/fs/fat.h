@@ -1,6 +1,8 @@
 #pragma once
 
+#include <debug/assert.h>
 #include <sys/array.hpp>
+#include <sys/inplace_vector.hpp>
 
 #include <base/types.h>
 #include <base/bpb.h>
@@ -31,10 +33,13 @@ public:
         bool operator==(const EntryLocation&) const = default;
     };
 
+    using EntryLocations = sys::inplace_vector<EntryLocation, 4>;
+
     struct DirectoryRecord {
         const FatDirEntry& entry;
         EntryLocation location;
         const char* long_name;
+        const EntryLocations& long_locations;
         bool has_long_name;
     };
 
@@ -63,7 +68,7 @@ public:
 
     Error mkdir(const char* relpath);
     Error create_file(const char* relpath);
-    Error rename(const char* relpath, const char* new_name);
+    Error rename(const char* relpath, const char* new_name, bool preserve_location);
     Error unlink(const char* relpath);
     Error rmdir(const char* relpath);
 
@@ -98,8 +103,18 @@ private:
     Error free_detached_chain();
     void rollback_new_cluster(uint32_t start_cluster);
 
+    struct NameSlots {
+        EntryLocations locations;
+        bool unsupported_long_name{};
+    };
+    struct DirectorySpace {
+        EntryLocations locations;
+        EntryLocation end;
+    };
+    class DirectoryEdit;
+
     Error find_entry(uint32_t start_cluster, const char* name, FatDirEntry* out, EntryLocation* location = nullptr,
-                     bool* has_long_name = nullptr);
+                     NameSlots* slots = nullptr);
     Error write_file_entry(const EntryLocation& location, const FatDirEntry& entry);
     // One write owns its cursor and sector scratch off the 4KB kernel stack.
     struct WriteState {
@@ -121,8 +136,12 @@ private:
     Error resolve_parent(const char* relpath, uint32_t* parent_cluster, char* child_name, size_t name_size);
     // On failure, report whether a partial write may have published the entry.
     Error add_dir_entry(uint32_t dir_cluster, const FatDirEntry* entry, bool* entry_may_exist = nullptr);
-    Error remove_dir_entry(uint32_t dir_cluster, const char* name);
-    Error make_83_name(const char* name, char out_name[8], char out_ext[3]);
+    Error add_named_entry(uint32_t dir_cluster, const FatDirEntry& entry, const char* long_name,
+                          bool* entry_may_exist = nullptr);
+    Result<DirectorySpace> reserve_dir_slots(uint32_t dir_cluster, size_t count);
+    Error remove_dir_entry(const NameSlots& slots);
+    Error prepare_name(uint32_t dir_cluster, const char* name, FatDirEntry& entry, bool& use_long_name,
+                       EntryLocation source = EntryLocation{0, 0});
 
     void do_init_state(BlockDevice* dev, uint32_t partition_start, const Fat32BootSector& bs);
 

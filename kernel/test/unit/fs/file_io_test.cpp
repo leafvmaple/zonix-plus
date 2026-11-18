@@ -169,12 +169,12 @@ void test_open_contract() {
     TEST_ASSERT(reader && writer && !read.ok() && read.error() == Error::Access && !write.ok() &&
                     write.error() == Error::Access && !empty_read.ok() && !empty_write.ok(),
                 "Read/write modes also protect zero-length I/O");
-    const char* invalid_paths[] = {"/mnt/TOOLONGXX.TXT", "/mnt/GOOD.TOOLONG", "/mnt/BAD..TXT", "/mnt/BAD NAME",
-                                   "/mnt/NEW/",          "/mnt/NEW/.",        "/mnt/NEW/.."};
+    const char* invalid_paths[] = {"/mnt/BAD:NAME", "/mnt/BAD?.TXT", "/mnt/BAD.TXT.", "/mnt/BAD NAME ",
+                                   "/mnt/NEW/",     "/mnt/NEW/.",    "/mnt/NEW/.."};
     for (const char* path : invalid_paths) {
         auto result = vfs::open(path, O_CREAT | O_RDWR);
         TEST_ASSERT(!result.ok() && result.error() == Error::Invalid,
-                    "Invalid 8.3 names and final path components are rejected");
+                    "Invalid FAT names and final path components are rejected");
     }
     TEST_ASSERT(volume.image.allocated_clusters() == 2, "Rejected opens do not allocate file storage");
     auto* entry = reinterpret_cast<FatDirEntry*>(volume.image.cluster_data(2));

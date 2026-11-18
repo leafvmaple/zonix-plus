@@ -265,8 +265,15 @@ cache and a non-owning registry of live handles. Reads, writes and stat reload
 the directory entry under that lock. Unlink of an open file returns `Busy`;
 delayed deletion is not implemented.
 
-FAT creates only validated 8.3 names and rejects file mutation paths ending in
-`/`, `.` or `..`. Writes can grow across clusters and zero-fill gaps beyond EOF;
+FAT creates 8.3 and VFAT long names and supports same-directory renames without
+replacement. Long names use printable ASCII and up to 31 bytes, including
+internal spaces. Forbidden FAT characters, trailing spaces or dots, and file
+mutation paths ending in `/`, `.` or `..` are rejected. The displayed name and
+its short alias share a case-insensitive namespace. A rename that needs to move
+the directory slot of an open file returns `Busy`. Supported long names and
+their aliases remove the same set of directory records on deletion.
+
+Writes can grow across clusters and zero-fill gaps beyond EOF;
 reads at or beyond EOF return zero. Partial writes return the confirmed byte
 count when later allocation, data or metadata I/O fails, otherwise the original
 error. Zero-length I/O still checks FD validity and access rights.
@@ -279,6 +286,11 @@ unmount. Failed mirrored FAT writes stay dirty across cache switches, including
 reads. An I/O failure can leave partial changes and uncertain allocations; it
 does not promise rollback or power-loss consistency. Normal persistence requires
 the checked synchronization and shutdown sequence below.
+
+Long-name mutations stage affected sectors and try to restore the original
+directory records on I/O failure. Restoration stops if a write fails while
+undoing a rename, so the old entry is not republished while the new entry may
+still reference the same chain. An uncertain allocation is retained.
 
 ### User command metadata and truncation
 

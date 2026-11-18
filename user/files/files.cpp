@@ -88,7 +88,7 @@ private:
     };
     static constexpr int HISTORY_SIZE = 16;
     // Keep one byte past the FAT limit so an overlong name is rejected.
-    static constexpr mstd::size_t NAME_INPUT_LIMIT = 13;
+    static constexpr mstd::size_t NAME_INPUT_LIMIT = sizeof(DirectoryEntry::name);
     mstd::vector<Entry> page_;
     IconGrid* grid_{};
     Dialog* dialog_{};
@@ -247,7 +247,7 @@ private:
             if (!is_leaf_name(name))
                 return "Enter a single folder name";
             long error = sys_mkdir(const_cast<char*>(name.c_str()));
-            return error == SYS_ERROR_INVALID ? "Use a FAT 8.3 name" : finish_mutation(error);
+            return error == SYS_ERROR_INVALID ? "Use a valid ASCII name of up to 31 characters" : finish_mutation(error);
         });
     }
 
@@ -257,7 +257,7 @@ private:
             if (!is_leaf_name(name))
                 return "Enter a single file or folder name";
             long error = sys_rename(const_cast<char*>(source.c_str()), const_cast<char*>(name.c_str()));
-            return error == SYS_ERROR_INVALID ? "Use a FAT 8.3 name" : finish_mutation(error);
+            return error == SYS_ERROR_INVALID ? "Use a valid ASCII name of up to 31 characters" : finish_mutation(error);
         });
     }
 

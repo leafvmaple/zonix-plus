@@ -121,7 +121,19 @@ public:
 
     Error rename(const char* relpath, const char* new_name) override {
         sys::lock_guard<Mutex> guard(mutex_);
-        return fat_.rename(relpath, new_name);
+        bool preserve_location = false;
+        if (!files_.empty()) {
+            FatDirEntry entry{};
+            FatInfo::EntryLocation location{};
+            TRY(fat_.find_file(relpath, &entry, &location));
+            for (const auto& file : files_) {
+                if (file.location_ == location) {
+                    preserve_location = true;
+                    break;
+                }
+            }
+        }
+        return fat_.rename(relpath, new_name, preserve_location);
     }
 
     Error unlink(const char* relpath) override {
