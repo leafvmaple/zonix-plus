@@ -12,6 +12,11 @@ long WindowChannel::open(unsigned int width, unsigned int height) {
     return command_write_all(STDOUT_FD, &size, sizeof(size));
 }
 
+long WindowChannel::edit_text(const EditPath& path) {
+    EditTextPacket request{{PixelRequest::EditText, {}}, path};
+    return command_write_all(STDOUT_FD, &request, sizeof(request));
+}
+
 long WindowChannel::read(Input& input) {
     long ready = sys_wait_readable(1U << STDIN_FD);
     if (ready < 0)

@@ -128,7 +128,7 @@ private:
     sys::array<Window, WINDOW_COUNT> windows_;
     Point pointer_;
     Point drag_offset_{};
-    sys::array<int, WINDOW_COUNT> order_{{1, 0, TERMINAL_WINDOW, PIXEL_WINDOW, FILE_WINDOW}};
+    sys::array<int, WINDOW_COUNT> order_{{1, 0, TERMINAL_WINDOW, PIXEL_WINDOW, FILE_WINDOW, EDITOR_WINDOW}};
     bool terminal_fits_{};
     int drag_ = NO_WINDOW;
     sys::array<int, 3> button_targets_{{NO_WINDOW, NO_WINDOW, NO_WINDOW}};
@@ -205,6 +205,21 @@ private:
         long error = windows_[index].client.start(index);
         if (error < 0)
             command_error("desktop", Client::program(index), error);
+    }
+
+    long edit_text(const char* path) {
+        if (!is_pixel_window(TERMINAL_WINDOW) || !terminal_fits_)
+            return SYS_ERROR_NOT_SUPPORTED;
+        auto& editor = windows_[EDITOR_WINDOW];
+        if (editor.open())
+            return SYS_ERROR_BUSY;
+        FileStat st{};
+        long error = sys_stat(const_cast<char*>(path), &st);
+        if (error < 0)
+            return error;
+        if (st.type != FILE_TYPE_FILE)
+            return SYS_ERROR_INVALID;
+        return editor.client.start(EDITOR_WINDOW, path);
     }
 
     long send(int index, const DisplayEvent& event) {
@@ -415,7 +430,7 @@ private:
                 int height = static_cast<int>(pixels.height()) + TITLE_HEIGHT + 2;
                 int x = 16;
                 int y = 16;
-                if (index == TERMINAL_WINDOW) {
+                if (index == TERMINAL_WINDOW || index == EDITOR_WINDOW) {
                     x = (screen_.width - width) / 2;
                     y = (screen_.height - height) / 2;
                 } else if (index == FILE_WINDOW) {
@@ -432,6 +447,15 @@ private:
                                  window.rect.origin.y + TITLE_HEIGHT + static_cast<int>(dirty.y)},
                                 static_cast<int>(dirty.width),
                                 static_cast<int>(dirty.height)});
+            }
+            case PixelSurface::Result::EditText: {
+                if (index != FILE_WINDOW)
+                    return close_window(index);
+                int previous = top_window();
+                long error = edit_text(pixels.edit_path());
+                if (error < 0)
+                    return send(index, {INPUT_EDIT_ERROR, 0, static_cast<int>(error), 0});
+                return focus(EDITOR_WINDOW, previous, 0);
             }
             case PixelSurface::Result::Closed: return close_window(index);
         }

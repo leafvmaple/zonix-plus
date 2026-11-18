@@ -8,7 +8,8 @@ namespace desktop_ipc {
 inline constexpr int TERMINAL_WINDOW = 2;
 inline constexpr int PIXEL_WINDOW = 3;
 inline constexpr int FILE_WINDOW = 4;
-inline constexpr int WINDOW_COUNT = 5;
+inline constexpr int EDITOR_WINDOW = 5;
+inline constexpr int WINDOW_COUNT = 6;
 
 #ifdef ZONIX_PIXEL_TERMINAL
 inline constexpr int FIRST_PIXEL_WINDOW = TERMINAL_WINDOW;
@@ -32,7 +33,7 @@ public:
     Client& operator=(const Client&) = delete;
 
     static const char* program(int index);
-    long start(int index);
+    long start(int index, const char* edit_path = nullptr);
     void stop();
     bool alive() const { return pid_ > 0; }
     unsigned int mask() const;

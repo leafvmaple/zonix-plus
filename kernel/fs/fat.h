@@ -31,10 +31,17 @@ public:
         bool operator==(const EntryLocation&) const = default;
     };
 
+    struct DirectoryRecord {
+        const FatDirEntry& entry;
+        EntryLocation location;
+        const char* long_name;
+        bool has_long_name;
+    };
+
     class DirVisitor {
     public:
         virtual ~DirVisitor() = default;
-        virtual int visit(FatDirEntry* entry) = 0;
+        virtual int visit(const DirectoryRecord& record) = 0;
     };
 
     Error mount(BlockDevice* dev);

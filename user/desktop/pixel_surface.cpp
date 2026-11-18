@@ -39,6 +39,8 @@ PixelSurface::Result PixelSurface::receive(int fd, unsigned int max_width, unsig
             header_bytes_ = 0;
             return Result::Configured;
         }
+        if (header_.request == PixelRequest::EditText)
+            return configured() && !rect.x && !rect.y && !rect.width && !rect.height ? Result::Pending : Result::Closed;
         bool update = header_.request == PixelRequest::Update || header_.request == PixelRequest::UpdatePart;
         if (!update || !configured() || !rect.width || !rect.height || rect.x >= width_ || rect.y >= height_ ||
             rect.width > width_ - rect.x || rect.height > height_ - rect.y ||
@@ -47,20 +49,23 @@ PixelSurface::Result PixelSurface::receive(int fd, unsigned int max_width, unsig
         return Result::Pending;
     }
 
+    if (header_.request == PixelRequest::EditText)
+        return receive_edit_path(fd);
+
     const auto& rect = header_.rect;
     unsigned int size = rect.width * rect.height * sizeof(unsigned int);
     auto* bytes = reinterpret_cast<unsigned char*>(pending_.data());
-    long count = sys_read(fd, bytes + pixel_bytes_, size - pixel_bytes_);
+    long count = sys_read(fd, bytes + payload_bytes_, size - payload_bytes_);
     if (count <= 0)
         return Result::Closed;
-    pixel_bytes_ += static_cast<unsigned int>(count);
-    if (pixel_bytes_ != size)
+    payload_bytes_ += static_cast<unsigned int>(count);
+    if (payload_bytes_ != size)
         return Result::Pending;
     for (unsigned int row = 0; row < rect.height; ++row) {
         auto* out = surface_.data() + (rect.y + row) * width_ + rect.x;
         memcpy(out, pending_.data() + row * rect.width, rect.width * sizeof(unsigned int));
     }
-    header_bytes_ = pixel_bytes_ = 0;
+    header_bytes_ = payload_bytes_ = 0;
     batch_damage_ = merge_damage(batch_damage_, rect);
     if (header_.request == PixelRequest::UpdatePart)
         return Result::Pending;
@@ -69,8 +74,24 @@ PixelSurface::Result PixelSurface::receive(int fd, unsigned int max_width, unsig
     return Result::Updated;
 }
 
+PixelSurface::Result PixelSurface::receive_edit_path(int fd) {
+    long count = sys_read(fd, edit_path_.data() + payload_bytes_, edit_path_.size() - payload_bytes_);
+    if (count <= 0)
+        return Result::Closed;
+    payload_bytes_ += static_cast<unsigned int>(count);
+    if (payload_bytes_ != edit_path_.size())
+        return Result::Pending;
+    header_bytes_ = payload_bytes_ = 0;
+    if (edit_path_[0] != '/' || edit_path_[1] == '\0')
+        return Result::Closed;
+    for (char byte : edit_path_)
+        if (byte == '\0')
+            return Result::EditText;
+    return Result::Closed;
+}
+
 void PixelSurface::reset() {
-    width_ = height_ = header_bytes_ = pixel_bytes_ = 0;
+    width_ = height_ = header_bytes_ = payload_bytes_ = 0;
     batch_damage_ = {};
     damage_ = {};
 }

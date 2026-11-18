@@ -5,6 +5,7 @@
 #include "../gui/controls/icon_grid.h"
 #include "../gui/controls/toolbar.h"
 #include "../gui/platform.h"
+#include "../gui/window_channel.h"
 #include <2d/ZCLabel.h>
 #include <base/ZCAutoreleasePool.h>
 #include <base/ZCDirector.h>
@@ -57,7 +58,11 @@ public:
         if (error < 0)
             return error;
         auto& director = zocos::Director::getInstance();
-        if (!director.init(WIDTH, HEIGHT, "Files"))
+        auto view = zonix_gui::make_window_view([this](int error) {
+            message_ = error == SYS_ERROR_BUSY ? "Close the current editor first" : command_error_text(error);
+            update_controls();
+        });
+        if (!director.init(WIDTH, HEIGHT, "Files", mstd::move(view)))
             return SYS_ERROR_IO;
         {
             zocos::AutoreleasePool startup("Files controls");
@@ -203,12 +208,11 @@ private:
         update_controls();
 
         zonix_gui::ContextMenu::Items items;
-        if (selected_folder())
-            items.push_back({"Open", refresh_after([this] { open_selected(); })});
         int selected = grid_->selection();
         if (selected != IconGrid::NO_ITEM) {
             const auto& entry = page_[selected].item;
             if (entry.type == FILE_TYPE_FILE || entry.type == FILE_TYPE_DIRECTORY) {
+                items.push_back({"Open", refresh_after([this] { open_selected(); })});
                 items.push_back({"Rename", [this, entry] { rename_item(entry); }});
                 items.push_back({"Delete", [this, entry] { delete_item(entry); }});
             }
@@ -380,8 +384,29 @@ private:
     }
 
     void open_selected() {
-        if (selected_folder())
-            navigate(page_[grid_->selection()].item.name);
+        int selected = grid_->selection();
+        if (selected == IconGrid::NO_ITEM)
+            return;
+        const auto& entry = page_[selected].item;
+        if (entry.type == FILE_TYPE_DIRECTORY) {
+            navigate(entry.name);
+        } else if (entry.type == FILE_TYPE_FILE) {
+            desktop_ipc::EditPath path{};
+            auto directory = strlen(path_);
+            auto name = strlen(entry.name);
+            auto separator = root() ? 0U : 1U;
+            if (directory + separator + name >= path.size()) {
+                message_ = "File path is too long";
+                return;
+            }
+            memcpy(path.data(), path_, directory);
+            if (separator != 0)
+                path[directory++] = '/';
+            memcpy(path.data() + directory, entry.name, name + 1);
+            long error = zonix_gui::WindowChannel::edit_text(path);
+            if (error < 0)
+                message_ = command_error_text(error);
+        }
     }
 
     bool change_page(int delta) {

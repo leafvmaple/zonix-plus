@@ -13,12 +13,16 @@ class VfsDirVisitor : public FatInfo::DirVisitor {
 public:
     explicit VfsDirVisitor(vfs::DirVisitor& outer) : outer_(outer) {}
 
-    int visit(FatDirEntry* entry) override {
-        char name[32];
-        entry->get_filename(name, sizeof(name));
-
-        return outer_.visit({name, entry->is_directory() ? vfs::NodeType::Directory : vfs::NodeType::File,
-                             entry->file_size, entry->attr});
+    int visit(const FatInfo::DirectoryRecord& record) override {
+        char short_name[13];
+        const char* name = record.long_name;
+        if (!name) {
+            record.entry.get_filename(short_name, sizeof(short_name));
+            name = short_name;
+        }
+        const auto& entry = record.entry;
+        return outer_.visit(
+            {name, entry.is_directory() ? vfs::NodeType::Directory : vfs::NodeType::File, entry.file_size, entry.attr});
     }
 
 private:

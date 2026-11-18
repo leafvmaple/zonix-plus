@@ -12,7 +12,9 @@
 
 namespace {
 
-constexpr int MAX_PART_LEN = 13;
+constexpr int SHORT_NAME_CAPACITY = 13;
+// Limit displayed names to the existing directory-entry ABI.
+constexpr int MAX_PART_LEN = 32;
 constexpr int MAX_DEPTH = 16;
 static char to_upper(char ch) {
     return (ch >= 'a' && ch <= 'z') ? static_cast<char>(ch - 32) : ch;
@@ -33,6 +35,122 @@ static bool next_part(const char*& path, sys::array<char, N>& buf) {
     }
     return true;
 }
+
+using PathParts = sys::inplace_vector<const char*, MAX_DEPTH>;
+
+Error split_path(const char* path, PathParts& parts) {
+    path = str_skip_char(path, '/');
+    ENSURE(path && *path);
+    while (*path) {
+        const char* start = path;
+        sys::array<char, MAX_PART_LEN> name{};
+        ENSURE(next_part(path, name));
+        if (!strcmp(name.data(), "."))
+            continue;
+        if (!strcmp(name.data(), "..")) {
+            if (!parts.empty())
+                parts.pop_back();
+        } else {
+            ENSURE(parts.try_push_back(start));
+        }
+    }
+    ENSURE(!parts.empty());
+    return Error::None;
+}
+
+bool name_matches(const char* name, const char* upper) {
+    while (*name && to_upper(*name) == *upper) {
+        ++name;
+        ++upper;
+    }
+    return *name == '\0' && *upper == '\0';
+}
+
+bool short_name_matches(const FatDirEntry& entry, const char* upper) {
+    char name[SHORT_NAME_CAPACITY];
+    entry.get_filename(name, sizeof(name));
+    return name_matches(name, upper);
+}
+
+class LongName {
+public:
+    void consume(const FatDirEntry& entry) {
+        present_ = !entry.is_deleted() && entry.attr == FAT_ATTR_LFN;
+        if (!present_) {
+            reset();
+            return;
+        }
+        const auto* bytes = reinterpret_cast<const uint8_t*>(&entry);
+        bool last = (bytes[0] & LAST_ENTRY) != 0;
+        unsigned int ordinal = bytes[0] & ~LAST_ENTRY;
+        if (last) {
+            next_ = ordinal;
+            length_ = ordinal * CHARS_PER_ENTRY;
+            checksum_ = bytes[13];
+        }
+        if (ordinal == 0 || ordinal > MAX_ORDINAL || ordinal != next_ || bytes[12] != 0 || bytes[26] != 0 ||
+            bytes[27] != 0 || bytes[13] != checksum_) {
+            reset();
+            return;
+        }
+        unsigned int position = (ordinal - 1) * CHARS_PER_ENTRY;
+        for (unsigned int offset : NAME_OFFSETS) {
+            unsigned int value = bytes[offset] | (static_cast<unsigned int>(bytes[offset + 1]) << 8);
+            if (position >= length_) {
+                if (value != 0xFFFF) {
+                    reset();
+                    return;
+                }
+            } else if (value == 0 && last) {
+                length_ = position;
+            } else if (position >= name_.size() - 1 || value < 0x20 || value > 0x7E ||
+                       strchr("\\/:*?\"<>|", static_cast<char>(value))) {
+                reset();
+                return;
+            } else {
+                name_[position] = static_cast<char>(value);
+            }
+            ++position;
+        }
+        --next_;
+    }
+
+    const char* name(const FatDirEntry& entry) {
+        if (next_ != 0 || length_ == 0 || length_ >= name_.size() || name_[length_ - 1] == '.' ||
+            name_[length_ - 1] == ' ' || checksum(entry) != checksum_)
+            return nullptr;
+        name_[length_] = '\0';
+        return name_.data();
+    }
+
+    bool present() const { return present_; }
+    void clear() {
+        present_ = false;
+        reset();
+    }
+
+private:
+    static constexpr unsigned int LAST_ENTRY = 0x40;
+    static constexpr sys::array<unsigned int, 13> NAME_OFFSETS{1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30};
+    static constexpr unsigned int CHARS_PER_ENTRY = NAME_OFFSETS.size();
+    static constexpr unsigned int MAX_ORDINAL = (MAX_PART_LEN - 2) / CHARS_PER_ENTRY + 1;
+
+    static uint8_t checksum(const FatDirEntry& entry) {
+        uint8_t sum = 0;
+        const auto* bytes = reinterpret_cast<const uint8_t*>(&entry);
+        for (size_t i = 0; i < sizeof(entry.name) + sizeof(entry.ext); ++i)
+            sum = static_cast<uint8_t>(((sum & 1U) << 7) + (sum >> 1) + bytes[i]);
+        return sum;
+    }
+
+    void reset() { next_ = length_ = 0; }
+
+    sys::array<char, MAX_PART_LEN> name_{};
+    unsigned int next_{};
+    unsigned int length_{};
+    uint8_t checksum_{};
+    bool present_{};
+};
 
 }  // namespace
 
@@ -84,6 +202,7 @@ Result<int> FatInfo::read_dir(uint32_t start_cluster, DirVisitor& visitor) {
     auto scratch = TRY(KernelBuffer::alloc(BlockDevice::BLOCK_SIZE_BYTES));
     auto& sector_buf = *reinterpret_cast<SectorArray<FatDirEntry>*>(scratch.data());
 
+    LongName long_name;
     ClusterChain chain(*this, start_cluster);
     uint32_t cluster{};
     while ((cluster = TRY(chain.next())) != 0) {
@@ -99,13 +218,16 @@ Result<int> FatInfo::read_dir(uint32_t start_cluster, DirVisitor& visitor) {
                 }
 
                 if (!entry.is_valid()) {
+                    long_name.consume(entry);
                     continue;
                 }
 
-                if (visitor.visit(&entry) != 0) {
+                EntryLocation location{base_sector + i, static_cast<uint32_t>(&entry - sector_buf.entries)};
+                if (visitor.visit({entry, location, long_name.name(entry), long_name.present()}) != 0) {
                     return count;
                 }
 
+                long_name.clear();
                 count++;
             }
         }
@@ -131,77 +253,50 @@ Result<int> FatInfo::read_dir(const char* relpath, DirVisitor& visitor) {
 
 Error FatInfo::find_entry(uint32_t start_cluster, const char* name, FatDirEntry* out, EntryLocation* location,
                           bool* has_long_name) {
-    auto scratch = TRY(KernelBuffer::alloc(BlockDevice::BLOCK_SIZE_BYTES));
-    auto& sector_buf = *reinterpret_cast<SectorArray<FatDirEntry>*>(scratch.data());
+    class Finder : public DirVisitor {
+    public:
+        Finder(const char* name, FatDirEntry* out, EntryLocation* location, bool* has_long_name)
+            : name_(name), out_(out), location_(location), has_long_name_(has_long_name) {}
 
-    ClusterChain chain(*this, start_cluster);
-    uint32_t cluster{};
-    bool preceding_long_name = false;
-    while ((cluster = TRY(chain.next())) != 0) {
-        uint32_t base_sector = cluster_to_sector(cluster);
-        for (uint32_t i = 0; i < sectors_per_cluster_; i++) {
-            TRY(dev_->read(partition_start_lba_ + base_sector + i, &sector_buf, 1));
-
-            for (auto& entry : sector_buf.entries) {
-                if (entry.is_end())
-                    return Error::NotFound;
-
-                if (!entry.is_valid()) {
-                    preceding_long_name = !entry.is_deleted() && entry.attr == FAT_ATTR_LFN;
-                    continue;
-                }
-
-                char entry_name[MAX_PART_LEN]{};
-                entry.get_filename(entry_name, sizeof(entry_name));
-                for (size_t k = 0; entry_name[k]; k++) {
-                    entry_name[k] = to_upper(entry_name[k]);
-                }
-
-                if (strcmp(entry_name, name) == 0) {
-                    *out = entry;
-                    if (location) {
-                        *location = {base_sector + i, static_cast<uint32_t>(&entry - sector_buf.entries)};
-                    }
-                    if (has_long_name)
-                        *has_long_name = preceding_long_name;
-                    return Error::None;
-                }
-                preceding_long_name = false;
-            }
+        int visit(const DirectoryRecord& record) override {
+            if (!short_name_matches(record.entry, name_) &&
+                !(record.long_name && name_matches(record.long_name, name_)))
+                return 0;
+            *out_ = record.entry;
+            if (location_)
+                *location_ = record.location;
+            if (has_long_name_)
+                *has_long_name_ = record.has_long_name;
+            found_ = true;
+            return 1;
         }
-    }
 
-    return Error::NotFound;
+        bool found() const { return found_; }
+
+    private:
+        const char* name_;
+        FatDirEntry* out_;
+        EntryLocation* location_;
+        bool* has_long_name_;
+        bool found_{};
+    };
+
+    Finder finder(name, out, location, has_long_name);
+    static_cast<void>(TRY(read_dir(start_cluster, finder)));
+    return finder.found() ? Error::None : Error::NotFound;
 }
 
 Error FatInfo::find_file(const char* filename, FatDirEntry* result, EntryLocation* location) {
     ENSURE(filename && result);
 
-    const char* path = str_skip_char(filename, '/');
-    ENSURE(path && path[0] != '\0');
-
-    sys::inplace_vector<sys::array<char, MAX_PART_LEN>, MAX_DEPTH> parts{};
-    while (*path) {
-        sys::array<char, MAX_PART_LEN> part{};
-        ENSURE(next_part(path, part));
-
-        if (!strcmp(part.data(), "."))
-            continue;
-
-        if (!strcmp(part.data(), "..")) {
-            if (!parts.empty())
-                parts.pop_back();
-            continue;
-        }
-
-        ENSURE(parts.try_push_back(part));
-    }
-
-    ENSURE(!parts.empty());
-
+    PathParts parts;
+    TRY(split_path(filename, parts));
     uint32_t cluster = root_cluster_;
     for (size_t i = 0; i < parts.size(); i++, cluster = result->cluster()) {
-        TRY(find_entry(cluster, parts[i].data(), result, i + 1 == parts.size() ? location : nullptr));
+        const char* part = parts[i];
+        sys::array<char, MAX_PART_LEN> name{};
+        ENSURE(next_part(part, name));
+        TRY(find_entry(cluster, name.data(), result, i + 1 == parts.size() ? location : nullptr));
 
         if (i + 1 < parts.size() && !result->is_directory())
             return Error::NotFound;
@@ -414,34 +509,21 @@ Error FatInfo::resolve_parent(const char* relpath, uint32_t* parent_cluster, cha
     }
     ENSURE(*last && strcmp(last, ".") != 0 && strcmp(last, "..") != 0, Error::Invalid);
 
-    const char* path = str_skip_char(relpath, '/');
-    ENSURE(path && path[0] != '\0');
-
-    sys::inplace_vector<sys::array<char, MAX_PART_LEN>, MAX_DEPTH> parts{};
-    const char* cursor = path;
-    while (*cursor) {
-        sys::array<char, MAX_PART_LEN> part{};
-        ENSURE(next_part(cursor, part));
-        if (!strcmp(part.data(), ".")) {
-            continue;
-        }
-        if (!strcmp(part.data(), "..")) {
-            if (!parts.empty())
-                parts.pop_back();
-            continue;
-        }
-        ENSURE(parts.try_push_back(part));
-    }
-
-    ENSURE(!parts.empty());
-
-    strncpy(child_name, parts.back().data(), name_size - 1);
-    child_name[name_size - 1] = '\0';
+    PathParts parts;
+    TRY(split_path(relpath, parts));
+    sys::array<char, MAX_PART_LEN> name{};
+    const char* leaf = parts.back();
+    ENSURE(next_part(leaf, name));
+    size_t length = strlen(name.data());
+    ENSURE(length < name_size);
+    memcpy(child_name, name.data(), length + 1);
 
     uint32_t cluster = root_cluster_;
     for (size_t i = 0; i + 1 < parts.size(); i++) {
+        const char* part = parts[i];
+        ENSURE(next_part(part, name));
         FatDirEntry entry{};
-        TRY(find_entry(cluster, parts[i].data(), &entry));
+        TRY(find_entry(cluster, name.data(), &entry));
         ENSURE(entry.is_directory(), Error::NotFound);
 
         cluster = entry.cluster();
@@ -581,13 +663,7 @@ Error FatInfo::remove_dir_entry(uint32_t dir_cluster, const char* name) {
                     continue;
                 }
 
-                char entry_name[MAX_PART_LEN]{};
-                entries[j].get_filename(entry_name, sizeof(entry_name));
-                for (size_t k = 0; entry_name[k]; k++) {
-                    entry_name[k] = to_upper(entry_name[k]);
-                }
-
-                if (strcmp(entry_name, name) == 0) {
+                if (short_name_matches(entries[j], name)) {
                     entries[j].name[0] = static_cast<char>(0xE5);  // Mark deleted.
                     TRY(write_sectors(abs_sector, &sector_buf, 1));
                     return Error::None;
@@ -709,6 +785,8 @@ Error FatInfo::unlink(const char* relpath) {
 
     FatDirEntry entry{};
     TRY(find_entry(parent_cluster, child_name, &entry));
+    // Removing VFAT name records is outside the short-name mutation path.
+    ENSURE(short_name_matches(entry, child_name), Error::NotSupported);
     ENSURE(!entry.is_directory());  // Use rmdir for directories.
     ENSURE((entry.attr & FAT_ATTR_READ_ONLY) == 0, Error::Access);
     TRY(validate_file_chain(entry));
@@ -730,7 +808,7 @@ Error FatInfo::rename(const char* relpath, const char* new_name) {
     TRY(find_entry(parent_cluster, child_name, &entry, &location, &has_long_name));
     FatDirEntry updated = entry;
     TRY(make_83_name(new_name, updated.name, updated.ext));
-    char target[MAX_PART_LEN]{};
+    char target[SHORT_NAME_CAPACITY]{};
     updated.get_filename(target, sizeof(target));
     if (strcmp(child_name, target) == 0)
         return Error::None;
@@ -754,6 +832,8 @@ Error FatInfo::rmdir(const char* relpath) {
 
     FatDirEntry entry{};
     TRY(find_entry(parent_cluster, child_name, &entry));
+    // Removing VFAT name records is outside the short-name mutation path.
+    ENSURE(short_name_matches(entry, child_name), Error::NotSupported);
     ENSURE(entry.is_directory());  // Not a directory.
     ENSURE((entry.attr & FAT_ATTR_READ_ONLY) == 0, Error::Access);
 

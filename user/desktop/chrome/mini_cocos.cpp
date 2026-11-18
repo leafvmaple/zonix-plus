@@ -18,8 +18,8 @@ constexpr int STRIP_ROWS = WINDOW_COUNT * TITLE_HEIGHT;
 constexpr int BUFFER_HEIGHT = STRIP_ROWS + 1;
 constexpr zocos::Color4B DESKTOP_BACKGROUND{23, 38, 53, 255};
 constexpr unsigned char TITLE_BACKGROUND[]{38, 61, 81, 255};
-constexpr const char* TITLES[]{"Example A", "Example B", "Terminal", "mini-cocos", "Files"};
-constexpr const char* SHORT_TITLES[]{"A", "B", "Term", "Cocos", "Files"};
+constexpr const char* TITLES[]{"Example A", "Example B", "Terminal", "mini-cocos", "Files", "Text Editor"};
+constexpr const char* SHORT_TITLES[]{"A", "B", "Term", "Cocos", "Files", "Editor"};
 static_assert(sizeof(TITLES) / sizeof(*TITLES) == WINDOW_COUNT);
 
 class TitleBands final : public zocos::Node {

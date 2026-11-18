@@ -1,5 +1,6 @@
 #pragma once
 
+#include <base/ZCView.h>
 #include <platform/software/ZCSoftwareRenderDevice.h>
 
 namespace zocos {
@@ -16,6 +17,7 @@ inline bool is_pointer_reset(zocos::Vec2 pointer) {
 }
 
 bool is_double_click(unsigned int modifiers);
+mstd::unique_ptr<zocos::View> make_window_view(mstd::function<void(int)> on_edit_error);
 
 // The caller owns the RGBA surface and keeps it alive until Director::shutdown.
 bool init_offscreen(zocos::Director& director, const zocos::PixelBuffer& buffer, zocos::Color4B background);

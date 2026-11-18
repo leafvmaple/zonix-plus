@@ -10,7 +10,7 @@ Client::~Client() {
 }
 
 const char* Client::program(int index) {
-    if (index == TERMINAL_WINDOW)
+    if (index == TERMINAL_WINDOW || index == EDITOR_WINDOW)
         return "/opt/bin/terminal";
     if (index == PIXEL_WINDOW)
         return "/opt/bin/minicoco";
@@ -19,12 +19,14 @@ const char* Client::program(int index) {
     return "/opt/bin/deskapp";
 }
 
-long Client::start(int index) {
+long Client::start(int index, const char* edit_path) {
     index_ = index;
     auto* path = const_cast<char*>(program(index));
     char identity[] = {index == 0 ? 'a' : 'b', 0};
     char mode[] = "--window";
     char* argument = index == TERMINAL_WINDOW ? nullptr : (is_pixel_window(index) ? mode : identity);
+    if (index == EDITOR_WINDOW)
+        argument = const_cast<char*>(edit_path);
     char* argv[] = {path, argument, nullptr};
 
     // Desktop reads input from its display FD. Keep descriptor 0 occupied
@@ -48,7 +50,7 @@ long Client::start(int index) {
         return error;
 
     // The extra copy of the child input is already closed. At most four
-    // temporary slots are needed, so five windows fit the 16-slot table.
+    // temporary slots are needed when launching another window.
     error = sys_pipe2(ends, index >= TERMINAL_WINDOW ? O_CLOEXEC : O_CLOEXEC | O_NONBLOCK);
     if (error < 0) {
         sys_dup2(STDERR_FD, STDIN_FD);

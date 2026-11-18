@@ -13,7 +13,7 @@ using fat_test::FatImage;
 
 class IgnoreEntries : public FatInfo::DirVisitor {
 public:
-    int visit(FatDirEntry*) override { return 0; }
+    int visit(const FatInfo::DirectoryRecord&) override { return 0; }
 };
 
 void test_geometry() {

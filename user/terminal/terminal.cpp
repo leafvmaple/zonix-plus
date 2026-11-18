@@ -96,32 +96,29 @@ private:
     }
 };
 
-long spawn_shell(int slave) {
+long spawn_session(int slave, int argc, char** argv) {
     Fd input(sys_fcntl(STDIN_FD, F_DUPFD_CLOEXEC, 0));
     Fd output(sys_fcntl(STDOUT_FD, F_DUPFD_CLOEXEC, 0));
     Fd error(sys_fcntl(STDERR_FD, F_DUPFD_CLOEXEC, 0));
     if (input.get() < 0 || output.get() < 0 || error.get() < 0)
         return SYS_ERROR_FULL;
     long pid = SYS_ERROR_IO;
-    if (sys_dup2(slave, STDIN_FD) >= 0 && sys_dup2(slave, STDOUT_FD) >= 0 && sys_dup2(slave, STDERR_FD) >= 0) {
-        char path[] = "/bin/sh";
-        char* argv[] = {path, nullptr};
-        pid = sys_spawn(path, 1, argv);
-    }
+    if (sys_dup2(slave, STDIN_FD) >= 0 && sys_dup2(slave, STDOUT_FD) >= 0 && sys_dup2(slave, STDERR_FD) >= 0)
+        pid = sys_spawn(argv[0], argc, argv);
     long in = sys_dup2(input.get(), STDIN_FD);
     long out = sys_dup2(output.get(), STDOUT_FD);
     long err = sys_dup2(error.get(), STDERR_FD);
     return in < 0 || out < 0 || err < 0 ? SYS_ERROR_IO : pid;
 }
 
-long open_shell(TerminalSize size, int& master) {
+long open_session(TerminalSize size, int argc, char** argv, int& master) {
     int ends[2];
     long result = sys_openpty(ends, &size);
     if (result < 0)
         return result;
     Fd owner(ends[0]);
     Fd slave(ends[1]);
-    long pid = spawn_shell(slave.get());
+    long pid = spawn_session(slave.get(), argc, argv);
     if (pid >= 0)
         master = owner.release();
     return pid;
@@ -141,7 +138,7 @@ void send_key(int fd, const DisplayEvent& event) {
     }
 }
 
-long run(int master) {
+long run(int master, long& pid, bool editing) {
     Grid grid;
     unsigned int tty_bit = 1U << master;
     unsigned int input_bit = 1U << STDIN_FD;
@@ -160,14 +157,32 @@ long run(int master) {
                 return 0;
             if (got != sizeof(input))
                 return SYS_ERROR_IO;
-            send_key(master, input.event);
+            if (tty_bit != 0) {
+                send_key(master, input.event);
+            } else if (input.event.type == DISPLAY_EVENT_KEY && input.event.value == DISPLAY_KEY_PRESS &&
+                       keyboard::KeyboardState::character(input.event.code, input.event.modifiers) == '\n') {
+                return 0;
+            }
         }
         if ((ready & tty_bit) != 0) {
             char output[1024];
             long got = sys_read(master, output, sizeof(output));
-            if (got <= 0)
+            if (got < 0 || (got == 0 && !editing))
                 return got;
-            grid.feed(output, static_cast<unsigned int>(got));
+            if (got == 0) {
+                int status = 0;
+                long waited = sys_wait(static_cast<int>(pid), &status);
+                if (waited < 0)
+                    return waited;
+                pid = 0;
+                if (status == 0)
+                    return 0;
+                tty_bit = 0;
+                constexpr char prompt[] = "\r\nPress Enter to close";
+                grid.feed(prompt, sizeof(prompt) - 1);
+            } else {
+                grid.feed(output, static_cast<unsigned int>(got));
+            }
             error = renderer.publish(grid.frame());
         }
     }
@@ -176,15 +191,20 @@ long run(int master) {
 
 }  // namespace
 
-extern "C" int main(int argc, char**) {
-    if (argc != 1)
-        return 2;
+extern "C" int main(int argc, char** argv) {
+    if (argc < 1 || argc > 2 || (argc == 2 && argv[1][0] != '/'))
+        return command_usage("Usage: terminal [/absolute/text-path]\n");
+    bool editing = argc == 2;
+    char shell[] = "/bin/sh";
+    char editor[] = "/bin/vi";
+    char* args[]{editing ? editor : shell, editing ? argv[1] : nullptr, nullptr};
     int master = -1;
-    long pid = open_shell({TERMINAL_ROWS, TERMINAL_COLS}, master);
+    long pid = open_session({TERMINAL_ROWS, TERMINAL_COLS}, argc, args, master);
     if (pid < 0)
-        return command_error("terminal", "/bin/sh", pid);
-    long error = run(master);
+        return command_error("terminal", args[0], pid);
+    long error = run(master, pid, editing);
     sys_close(master);
-    sys_wait(static_cast<int>(pid), nullptr);
+    if (pid > 0)
+        sys_wait(static_cast<int>(pid), nullptr);
     return error < 0 ? command_error("terminal", "PTY", error) : 0;
 }
