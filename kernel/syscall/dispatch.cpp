@@ -5,6 +5,7 @@
 #include <kernel/power.h>
 #include "fs/vfs.h"
 #include "fs/readiness.h"
+#include "trap/trap.h"
 
 namespace syscall {
 
@@ -56,8 +57,24 @@ bool dispatch(Task* task, long nr, uintptr_t arg0, uintptr_t arg1, uintptr_t arg
             result = read(task, static_cast<int>(arg0), reinterpret_cast<void*>(arg1), static_cast<size_t>(arg2));
             return true;
         case NR_IOCTL: result = ioctl(task, static_cast<long>(arg0), static_cast<long>(arg1), arg2); return true;
-        case NR_WAIT_READABLE: {
-            auto ready = fd::Readiness::wait(task, arg0);
+        case NR_UPTIME_MS: result = static_cast<long>(trap::uptime_ms()); return true;
+        case NR_GETRANDOM: result = getrandom(task, arg0, static_cast<long>(arg1), arg2); return true;
+        case NR_WAIT_READABLE:
+        case NR_WAIT_READABLE_FOR: {
+            if (nr == NR_WAIT_READABLE_FOR && arg1 > 0x7fffffffU) {
+                result = static_cast<long>(Error::Invalid);
+                return true;
+            }
+            auto ready = fd::Readiness::wait(task, arg0, nr == NR_WAIT_READABLE_FOR ? static_cast<int>(arg1) : -1);
+            result = ready.ok() ? static_cast<long>(ready.value()) : static_cast<long>(ready.error());
+            return true;
+        }
+        case NR_WAIT_IO: {
+            if (arg2 > 0x7fffffffU) {
+                result = static_cast<long>(Error::Invalid);
+                return true;
+            }
+            auto ready = fd::Readiness::wait(task, arg0, static_cast<int>(arg2), arg1);
             result = ready.ok() ? static_cast<long>(ready.value()) : static_cast<long>(ready.error());
             return true;
         }

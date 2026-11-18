@@ -7,6 +7,10 @@
 namespace pty {
 namespace {
 
+bool valid_size(TerminalSize size) {
+    return size.rows != 0 && size.cols != 0 && size.rows <= 4096 && size.cols <= 4096;
+}
+
 template<size_t CAPACITY>
 class Bytes {
 public:
@@ -48,8 +52,19 @@ public:
         return SessionRef(this);
     }
 
-    TerminalSize size() const { return size_; }
+    TerminalSize size() const {
+        intr::Guard guard;
+        return size_;
+    }
+    Error resize(TerminalSize size) {
+        ENSURE(valid_size(size));
+        intr::Guard guard;
+        ENSURE(!closed_, Error::Io);
+        size_ = size;
+        return Error::None;
+    }
     bool output_ready() const { return output_.size() != 0 || closed_; }
+    bool input_ready() const { return input_.space() != 0 || closed_; }
 
     Error attach(Task* parent, Task* child, bool foreground) {
         ENSURE(!closed_ && !parent->termination_requested(), Error::Interrupted);
@@ -154,8 +169,13 @@ public:
             ENSURE(task->pty_session() == this && is_foreground(task) && task->pid != job_owner_pid_ &&
                        (raw_owner_pid_ == 0 || raw_owner_pid_ == task->pid),
                    Error::Access);
-            if (input_.size() != 0)
-                return take(input_, buffer, count);
+            if (input_.size() != 0) {
+                bool was_full = input_.space() == 0;
+                int taken = take(input_, buffer, count);
+                if (was_full)
+                    fd::Readiness::notify();
+                return taken;
+            }
             input_ready_.sleep();
         }
     }
@@ -167,6 +187,7 @@ public:
         // Ctrl-C has priority even when input is already full.
         if (count == 1 && bytes[0] == 3) {
             input_.clear();
+            fd::Readiness::notify();
             if (job_owner_pid_ != 0 && raw_owner_pid_ == 0) {
                 job_cancelled_ = job_interrupted_ = true;
                 TaskManager::interrupt_job(job_owner_pid_);
@@ -239,11 +260,13 @@ private:
         if (!input_.has(3))
             return Error::None;
         input_.clear();
+        fd::Readiness::notify();
         return Error::Interrupted;
     }
     void release_raw() {
         raw_owner_pid_ = 0;
         input_.clear();
+        fd::Readiness::notify();
         input_ready_.wakeup_all();
     }
     template<size_t CAPACITY>
@@ -278,6 +301,10 @@ public:
         ENSURE(master_, Error::NotSupported);
         return session_->output_ready();
     }
+    Result<bool> write_ready() override {
+        ENSURE(master_, Error::NotSupported);
+        return session_->input_ready();
+    }
     Result<int> read(void* buffer, size_t count, size_t) override {
         return master_ ? session_->read_output(buffer, count) : session_->read_input(buffer, count);
     }
@@ -289,6 +316,8 @@ public:
         return Error::None;
     }
     Error control(unsigned int request, void* value) override {
+        if (request == TERMINAL_SET_SIZE && master_)
+            return session_->resize(*static_cast<const TerminalSize*>(value));
         ENSURE(!master_, Error::NotSupported);
         if (request == TERMINAL_GET_SIZE) {
             *static_cast<TerminalSize*>(value) = session_->size();
@@ -309,7 +338,7 @@ private:
 }  // namespace
 
 Error open(Task* task, int (&ends)[2], TerminalSize size) {
-    ENSURE(size.rows && size.cols && size.rows <= 4096 && size.cols <= 4096, Error::Invalid);
+    ENSURE(valid_size(size));
     ENSURE(task->files().size() <= fd::MAX_FD - 2, Error::Full);
     SessionRef session(new (sys::nothrow) Session(task->pid, size));
     ENSURE(session, Error::NoMem);

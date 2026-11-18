@@ -12,7 +12,9 @@ constexpr uint8_t STATUS_FEATURES_OK = 8;
 constexpr uint8_t CAP_COMMON = 1;
 constexpr uint8_t CAP_NOTIFY = 2;
 constexpr uint8_t CAP_ISR = 3;
+constexpr uint8_t CAP_DEVICE = 4;
 constexpr size_t STATUS_OFFSET = 0x14;
+constexpr size_t CONFIG_GENERATION = 0x15;
 constexpr size_t QUEUE_SELECT = 0x16;
 constexpr size_t QUEUE_SIZE = 0x18;
 constexpr size_t QUEUE_ENABLE = 0x1C;
@@ -55,7 +57,7 @@ Result<vmm::MmioRegion> PciTransport::map_capability(const pci::DeviceInfo& devi
     return vmm::map_mmio(pa, cap.length, VM_WRITE | VM_NOCACHE);
 }
 
-Error PciTransport::initialize(const pci::DeviceInfo& device) {
+Error PciTransport::initialize(const pci::DeviceInfo& device, uint32_t required_features) {
     ENSURE(!common_, Error::Busy);
     auto common_cap = TRY(find_capability(device, CAP_COMMON));
     auto notify_cap = TRY(find_capability(device, CAP_NOTIFY));
@@ -73,13 +75,15 @@ Error PciTransport::initialize(const pci::DeviceInfo& device) {
     TRY(reset());
     set_status(STATUS_ACK);
     set_status(STATUS_ACK | STATUS_DRIVER);
-    // Only VERSION_1 is negotiated, retaining the existing split-ring format.
     mmio::write32(common_->address(), 0x00, 1);
     arch_io_mb();
     ENSURE((mmio::read32(common_->address(), 0x04) & 1) != 0, Error::NotSupported);
+    mmio::write32(common_->address(), 0x00, 0);
+    arch_io_mb();
+    ENSURE((mmio::read32(common_->address(), 0x04) & required_features) == required_features, Error::NotSupported);
     mmio::write32(common_->address(), 0x08, 0);
     arch_io_mb();
-    mmio::write32(common_->address(), 0x0C, 0);
+    mmio::write32(common_->address(), 0x0C, required_features);
     arch_io_mb();
     mmio::write32(common_->address(), 0x08, 1);
     arch_io_mb();
@@ -87,6 +91,23 @@ Error PciTransport::initialize(const pci::DeviceInfo& device) {
     set_status(status() | STATUS_FEATURES_OK);
     ENSURE((status() & STATUS_FEATURES_OK) != 0, Error::NotSupported);
     return Error::None;
+}
+
+Error PciTransport::read_device_config(const pci::DeviceInfo& device, uint8_t* bytes, size_t size) {
+    ENSURE(common_ && bytes && size != 0);
+    auto capability = TRY(find_capability(device, CAP_DEVICE));
+    ENSURE(size <= capability.length);
+    auto config = TRY(map_capability(device, capability));
+    for (int attempt = 0; attempt < 8; ++attempt) {
+        uint8_t generation = mmio::read8(common_->address(), CONFIG_GENERATION);
+        arch_io_mb();
+        for (size_t i = 0; i < size; ++i)
+            bytes[i] = mmio::read8(config->address(), i);
+        arch_io_mb();
+        if (generation == mmio::read8(common_->address(), CONFIG_GENERATION))
+            return Error::None;
+    }
+    return Error::Busy;
 }
 
 Result<uint16_t> PciTransport::queue_size(uint16_t index) {

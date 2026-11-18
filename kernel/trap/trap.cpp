@@ -6,6 +6,9 @@
 #include <asm/page.h>
 
 #include "drivers/fbcons.h"
+#include "drivers/virtio_net.h"
+#include "drivers/virtio_rng.h"
+#include "fs/readiness.h"
 #include "mm/vmm.h"
 #include "sched/sched.h"
 #include "debug/assert.h"
@@ -26,6 +29,9 @@ void handle_timer_tick() {
     timer::ticks = timer::ticks + 1;
     sched::tick();
     fbcons::tick();
+    virtio_net::tick();
+    virtio_rng::tick();
+    fd::Readiness::tick();
 }
 
 int handle_page_fault(TrapFrame* tf, uint32_t err, uintptr_t fault_va) {

@@ -27,7 +27,8 @@ public:
     PciTransport() = default;
     PciTransport(const PciTransport&) = delete;
     PciTransport& operator=(const PciTransport&) = delete;
-    Error initialize(const pci::DeviceInfo& device);
+    Error initialize(const pci::DeviceInfo& device, uint32_t required_features = 0);
+    Error read_device_config(const pci::DeviceInfo& device, uint8_t* bytes, size_t size);
     Result<uint16_t> queue_size(uint16_t index);
     Result<QueueNotification> configure_queue(uint16_t index, const SplitQueue& queue);
     void ready();

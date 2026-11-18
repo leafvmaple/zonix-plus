@@ -268,6 +268,79 @@ Files 用管道后端接收窗口坐标中的键鼠事件，mini-cocos 将事件
 
 构建在对象目录展开固定版本源码，对副本应用 Zonix 的无 RTTI、字体、离屏视图和按钮绘制顺序兼容补丁。引擎和平台库使用项目的 `external/zstl` 静态链接到 GUI ELF。可选 GUI 软件及字体从应用盘安装，启动镜像和基础 rootfs 独立构建。x86 的 Desktop、Files 和 Terminal 共用分配器，链接时分别为各进程预留 6、8 和 1 MiB 堆。
 
+## x86 QEMU 最小联网
+
+可选的网络应用盘安装 `ping`。内核探测到现代 VirtIO PCI 网卡时注册 `/dev/net0`。首版使用 QEMU 用户态网络，来宾 IPv4 固定为 `10.0.2.15/24`。
+
+```sh
+make ARCH=x86 TEST=0
+make ARCH=x86 TEST=0 USER_CC=clang network-image
+make ARCH=x86 TEST=0 qemu USER_DISK=bin/x86/network.img \
+  QEMU_FLAGS='-netdev user,id=net0,ipv6=off,restrict=on -device virtio-net-pci,disable-legacy=on,netdev=net0'
+```
+
+在 Zonix shell 运行 `ping 10.0.2.2`。命令先通过 ARP 解析目标的 MAC，再发送一次 ICMP Echo 请求。成功会显示 `Reply from 10.0.2.2`。
+
+### TCP 回显示例
+
+可选的 `tcp-image` 使用 Clang 和固定版本 lwIP 构建 `tcpserve` 与 `tcpecho`，单独打包到 `tcp.img`。`tcpserve` 在用户态运行 IPv4/TCP 协议栈，通过 `/dev/net0` 收发，每次处理一条连接。它使用普通管道把 TCP 字节流接到指定子进程的标准输入和输出。`tcpecho` 只用标准输入输出就能回显二进制数据。退出 `tcpserve` 后即可重新用网卡运行 `ping`。
+
+```sh
+git clone --branch STABLE-2_2_1_RELEASE https://github.com/lwip-tcpip/lwip.git ../lwip
+make ARCH=x86 TEST=0 tcp-image LWIP_DIR=../lwip
+make ARCH=x86 TEST=0 qemu USER_DISK=bin/x86/tcp.img \
+  QEMU_FLAGS='-netdev user,id=net0,ipv6=off,restrict=on,hostfwd=tcp:127.0.0.1:2323-:2323 -device virtio-net-pci,disable-legacy=on,netdev=net0'
+```
+
+在 QEMU 窗口的 Zonix shell 运行 `tcpserve 2323 /opt/bin/tcpecho`，然后在宿主机用 `nc 127.0.0.1 2323` 连接。监听示例只把端口转发到宿主机回环地址。来宾 shell 中按 Ctrl-C 停止服务。
+
+## 系统随机源与用户态加密库
+
+`sys_getrandom` 可供普通 Zonix 用户程序读取系统随机字节。在 x86 QEMU 中可用 `rng-builtin` 给来宾提供宿主随机源。
+
+```sh
+make ARCH=x86 TEST=0 qemu \
+  QEMU_FLAGS='-object rng-builtin,id=entropy -device virtio-rng-pci,disable-legacy=on,rng=entropy'
+```
+
+可选的 `crypto` 目标构建 `bin/<arch>/user/libzonixcrypto.a`，供应用静态链接。它使用固定版本的 Mbed TLS 提供 SHA-256 和 ChaCha20-Poly1305，平台接口继续使用现有 Zonix 启动代码和 `libzccrt.a`。
+
+```sh
+git clone --branch mbedtls-3.6.8 https://github.com/Mbed-TLS/mbedtls.git ../mbedtls
+make ARCH=x86 TEST=0 crypto MBEDTLS_DIR=../mbedtls
+```
+
+应用使用 `-Iuser/crypto` 引入 `zonix_crypto.h`。`zonix_crypto_random` 循环读取到指定长度，返回 0 表示成功。失败返回负错误并擦除已写入的随机字节。使用 Mbed TLS 原生密码接口时，再加入 `-Iobj/<arch>/user/crypto/source/include` 和 `-DMBEDTLS_CONFIG_FILE='"zonix_mbedtls_config.h"'`。链接时把 `libzonixcrypto.a` 放在 `libzccrt.a` 前。Mbed TLS 源码和许可证位于 `obj/<arch>/user/crypto/source`。
+
+## 可选 SSH 登录
+
+SSH 服务使用固定版本的 TinySSH。`tcpserve` 将每条连接交给独立的 `sshd` 进程，认证通过后由它创建 PTY 并启动 `/bin/sh`。首版提供单个 `zonix` 登录名、一个授权 Ed25519 公钥、交互式 shell 和窗口尺寸更新。Zonix 目前是单用户系统，授权公钥持有者获得同本地 shell 一样的系统权限。
+
+准备好 `../lwip`、`../mbedtls` 和下列 TinySSH checkout。使用已有的 Ed25519 登录公钥文件，并在仓库外生成 SSH 主机密钥。
+
+```sh
+git clone --branch 20261101 https://github.com/janmojzis/tinyssh.git ../tinyssh
+make -C ../tinyssh tinysshd-makekey tinysshd-printkey
+hostkeys="$HOME/.config/zonix/ssh-host"
+mkdir -p "$(dirname "$hostkeys")"
+../tinyssh/tinysshd-makekey "$hostkeys"
+make ARCH=x86 TEST=0 ssh-image SSH_HOSTKEY_DIR="$hostkeys" \
+  SSH_AUTHORIZED_KEY="$HOME/.ssh/id_ed25519.pub"
+make ARCH=x86 TEST=0 qemu USER_DISK=bin/x86/ssh.img \
+  QEMU_FLAGS='-object rng-builtin,id=entropy -device virtio-rng-pci,disable-legacy=on,rng=entropy -netdev user,id=net0,ipv6=off,restrict=on,hostfwd=tcp:127.0.0.1:2222-:2222 -device virtio-net-pci,disable-legacy=on,netdev=net0'
+```
+
+在 QEMU 窗口中运行 `tcpserve 2222 /opt/bin/sshd`。在宿主机预先登记主机公钥，再用 OpenSSH 登录。
+
+```sh
+known_hosts="$HOME/.config/zonix/known_hosts"
+printf '[127.0.0.1]:2222 %s\n' "$(../tinyssh/tinysshd-printkey "$hostkeys")" > "$known_hosts"
+ssh -t -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$known_hosts" \
+  -o IdentitiesOnly=yes -i "$HOME/.ssh/id_ed25519" -p 2222 zonix@127.0.0.1
+```
+
+`ssh.img` 含来宾主机私钥，构建时将宿主文件权限设为 0600。退出远程 shell 或断开连接会回收该 PTY，来宾物理控制台按 Ctrl-C 停止监听。
+
 ## mini-cocos 软件渲染示例
 
 `minicoco` 是可选的 x86 用户态应用。它使用 mini-cocos 的 `zocos_software` 软件渲染库，绘制带旋转变换的棋盘贴图，并通过 `/dev/display` 提交画面。方向键或鼠标移动贴图，Space 切换配色，左键按下高亮、释放恢复，q/Esc 退出到 shell。

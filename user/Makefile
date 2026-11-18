@@ -2,7 +2,7 @@
 # Both share the existing startup, syscall wrappers, library and linker script.
 # Assembly register fixtures retain their dedicated entry points.
 BASE_PROGRAMS := init sh ls cat cp mkdir rm sync shutdown ps kill vi
-OPT_IN_PROGRAMS := gfxdemo desktop deskapp terminal
+OPT_IN_PROGRAMS := gfxdemo desktop deskapp terminal ping
 USER_DIR := user
 USER_BINDIR := $(BINDIR)/user
 USER_OBJDIR := $(OBJDIR)/user
@@ -32,7 +32,7 @@ USER_CFLAGS := -g -O2 -Wall -Wextra -std=c11 -ffreestanding -nostdinc \
                $(USER_ARCH_CFLAGS) -Iinclude -I$(ZCC_DIR)/src/runtime
 USER_ASFLAGS := -g -nostdinc -ffreestanding
 USER_PROGRAMS := $(notdir $(patsubst %/,%,$(dir $(wildcard $(USER_DIR)/*/*.S $(USER_DIR)/*/*.c $(USER_DIR)/*/*.cpp))))
-USER_PROGRAMS := $(filter-out zcc minicoco gui files,$(sort $(USER_PROGRAMS)))
+USER_PROGRAMS := $(filter-out zcc minicoco gui files net crypto ssh,$(sort $(USER_PROGRAMS)))
 ifeq ($(ARCH),x86)
 USER_PROGRAMS := $(filter-out desktop terminal,$(USER_PROGRAMS))
 else
@@ -47,7 +47,7 @@ zcc_fat_name = $(shell echo 'Z$(1)' | tr '[:lower:]' '[:upper:]' | tr -d '_' | h
 $(ZCC_COMPILER): $(ZCC_SOURCES) $(ZCC_DIR)/makefile
 	$(Q)$(MAKE) -C $(ZCC_DIR) all
 
-$(ZCC_RUNTIME_STAMP): $(ZCC_RUNTIME_SOURCES) include/abi/syscall.h include/abi/process.h include/abi/fcntl.h include/abi/terminal.h include/abi/display.h
+$(ZCC_RUNTIME_STAMP): $(ZCC_RUNTIME_SOURCES) include/abi/syscall.h include/abi/process.h include/abi/fcntl.h include/abi/terminal.h include/abi/display.h include/abi/net.h
 	$(Q)$(MAKE) -C $(ZCC_DIR)/src/runtime $(ZCC_LIBARCH) ABI_DIR=$(abspath include/abi)
 	$(Q)touch $@
 
@@ -102,13 +102,19 @@ $(USER_OBJDIR)/desktop/font.S.o: user/desktop/font.S fonts/console.psf arch/$(AR
 	$(Q)$(CC) $(USER_ASFLAGS) $(USER_ARCH_CFLAGS) $(DEPFLAGS) -c $< -o $@
 include user/gui/Makefile
 include user/minicoco/Makefile
-.PHONY: user rootfs user-image zcc-examples user-clean check-syscall-abi
+include user/net/Makefile
+include user/crypto/Makefile
+include user/ssh/Makefile
+.PHONY: user rootfs user-image network-image zcc-examples user-clean check-syscall-abi
 # Explicit installations; neither is a boot-image prerequisite.
 rootfs: $(foreach p,$(BASE_PROGRAMS),$(USER_BINDIR)/$(call uc,$(p)).ELF)
 	$(Q)bash scripts/install_userspace_image.sh base $(BINDIR)/rootfs.img $^
 
 user-image: $(USER_BINDIR)/HELLO.ELF
 	$(Q)bash scripts/install_userspace_image.sh apps $(BINDIR)/apps.img $^
+
+network-image: $(USER_BINDIR)/PING.ELF
+	$(Q)bash scripts/install_userspace_image.sh apps $(BINDIR)/network.img $^
 
 user-clean:
 	rm -rf $(USER_OBJDIR) $(USER_BINDIR)

@@ -15,6 +15,7 @@
 
 /* Descriptor duplication: lowest free FD >= argument, closed on image spawn. */
 #define F_DUPFD_CLOEXEC 1030
+#define F_SETFL 4
 
 /* open's mode argument is reserved and must be zero; FAT has no POSIX mode bits. */
 

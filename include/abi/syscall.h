@@ -45,6 +45,10 @@
 #define NR_PROCESS_NEXT 403
 #define NR_WAIT_READABLE 404
 #define NR_OPENPTY 405
+#define NR_UPTIME_MS 406
+#define NR_WAIT_READABLE_FOR 407
+#define NR_GETRANDOM 408
+#define NR_WAIT_IO 409
 
 /* ---- Stdout / Stderr fd constants ---- */
 #define STDIN_FD  0

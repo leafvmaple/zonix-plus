@@ -44,7 +44,7 @@ SP -> argc                64 位
 | rename | 38 | `sys_rename(path, new_name)` 在原目录内重命名，成功返回 0 |
 | mkdir / rmdir | 39 / 40 | 创建目录 / 删除空目录；相对和绝对路径，成功返回 0 |
 | ioctl | 54 | 通用 FD 控制；支持终端尺寸、前台原始输入/命令组与受控显示会话 |
-| fcntl | 55 | 当前仅支持 `F_DUPFD_CLOEXEC`：从指定最小 FD 起复制，结果在新程序启动时关闭 |
+| fcntl | 55 | `F_DUPFD_CLOEXEC` 复制并标记 FD，`F_SETFL` 修改管道端点的非阻塞模式 |
 | dup2 | 63 | 将旧 FD 复制到指定目标，返回目标 FD；无效参数返回负 Error |
 | readdir | 89 | 相对/绝对目录路径、从零开始的索引、`DirectoryEntry*`；1 表示一项，0 表示结束 |
 | ftruncate | 93 | 只支持长度 0；FD 必须可写，不改变当前偏移 |
@@ -59,6 +59,10 @@ SP -> argc                64 位
 | process_next | 403 | long 型 PID 游标、`ProcessInfo*`；1 表示一项，0 表示结束，负值表示错误 |
 | wait_readable | 404 | 等待指定 FD 位图中至少一项就绪，返回就绪子集或负 Error |
 | openpty | 405 | 创建伪终端 master/slave FD，复制调用者指定的终端尺寸 |
+| uptime_ms | 406 | 返回本次启动以来的单调时间，单位毫秒 |
+| wait_readable_for | 407 | 按 FD 位图等待读就绪，超时返回 0 |
+| getrandom | 408 | 读取系统随机字节，每次最多 256 字节，返回实际字节数或负 Error |
+| wait_io | 409 | 同时等待 FD 的读就绪和写就绪，超时返回 0 |
 
 进程、元数据、文件变更、同步和关机调用失败返回负的内核 `Error` 值，包括 NoMem=-2、Invalid=-3、NotFound=-4、Busy=-9、NoDevice=-10、NotSupported=-11、Full=-12、Access=-14、Interrupted=-15。它们不是 Linux 系统调用的兼容实现。`include/abi/process.h` 定义用户侧结构、常用错误和参数限制；结构中类型、长度和属性字段均为 32 位无符号整数。zcc 运行时的系统调用定义必须与内核完整一致，进程结构和文件标志也必须同步；ABI 检查不允许单方面新增调用。原有 `FileStat`（12 字节）、`DirectoryEntry`（44 字节）和旧 syscall 语义保持不变。
 
@@ -118,21 +122,39 @@ rename 接受相对或绝对源路径，第二个参数是原目录内的单个�
 
 两个端点通过 zstl move-only owner 和领域释放器引用同一 4 KiB 环形缓冲；dup/spawn 共享打开描述，最后一个该方向的描述关闭后才关闭端点。管道不维护文件偏移，不参与存储冻结。读到已有数据即可短读返回，不为填满用户缓冲等待下一批；空缓冲在仍有写端时睡眠，否则返回 0。写满缓冲时睡眠，读端关闭唤醒写者并返回 I/O 错误，不产生 SIGPIPE。两端关闭均唤醒等待者；终止请求可打断等待。read/write 沿用旧 ABI：失败且未传输时返回 -1，已传输时可返回正的短计数；调用者负责循环。
 
-`O_NONBLOCK` 由 `pipe2` 设置在两个端点上，dup 和 spawn 保留该模式。空管道仍有写端时，非阻塞 read 立即返回 -1。非阻塞写入不等待空间，至多 4096 字节的单次写入要么全部进入环形缓冲，要么返回 -1；更大的调用沿用 I/O 循环的分段与短写语义。最后写端关闭且数据读完后，读返回 0。
+`O_NONBLOCK` 由 `pipe2` 设置在两个端点上。`sys_fcntl(fd, F_SETFL, flags)` 接受 `0` 或 `O_NONBLOCK`，修改一个管道端点后续读写的模式，dup 和 spawn 共享该模式。其他文件类型返回 NotSupported。空管道仍有写端时，非阻塞 read 立即返回 -1。非阻塞写入不等待空间，至多 4096 字节的单次写入要么全部进入环形缓冲，要么返回 -1；更大的调用沿用 I/O 循环的分段与短写语义。最后写端关闭且数据读完后，读返回 0。
 
 `sys_wait_readable(long mask)` 接收当前进程非零的 16 位 FD 位图，阻塞至至少一项读就绪，返回所有当前就绪项的位图。管道读端及伪终端 master 有数据或 EOF 时均就绪，取得事件模式的显示描述符有待取事件时就绪，随后用 `DISPLAY_READ_EVENT` 读取。空位、超出范围的位返回 Invalid，其他文件类型返回 NotSupported，无访问权限返回 Access，终止请求可中断等待。就绪是快照，不为共享 FD 预留数据；多个进程读同一端点时仍需处理竞争。
+
+`sys_wait_readable_for(long mask, long timeout_ms)` 采用相同的 FD 位图，超时返回 0。超时取 0～2147483647 毫秒，传 0 检查当前状态后立即返回。`sys_uptime_ms()` 返回启动后的单调毫秒数，精度取决于内核定时器。
+
+`sys_wait_io(long read_mask, long write_mask, long timeout_ms)` 可在同一次调用中等待两个 16 位位图。返回值低 16 位为读就绪，高 16 位为写就绪。任一位图可为空，合并后至少需要一个 FD。管道写端和 PTY master 在可以写入至少一个字节或对端关闭时报告写就绪。就绪只反映当前状态，调用者仍需处理短写、竞争和关闭。
+
+## 原始以太网设备
+
+x86 探测到受支持的现代 VirtIO PCI 网卡后提供 `/dev/net0`，一次只允许一个打开文件描述使用设备。`NET_GET_MAC`（0x5801）向调用者的可写缓冲复制六字节 MAC。
+
+`read` 每次取一帧，缓冲须至少 1514 字节。接收队列有完成项时 FD 读就绪，可通过上述两种等待接口与其他 FD 一起等待。等待接收或发送队列时，驱动按定时器轮询，单次等候至多约一秒。`write` 每次提交一个 14 至 1514 字节的以太网帧，字节数含以太网头，FCS 由链路处理。read/write 失败沿用已有的 `-1` 返回约定。
 
 ## 最小伪终端 ABI
 
 `sys_openpty(int ends[2], TerminalSize* size)` 返回 0 或负 Error。size 指向调用者提供的行列数，行列各为 1～4096。ends[0] 是 master，ends[1] 是 slave，新 FD 都标记 CLOEXEC。两端支持双向字节流，slave 提供现有终端尺寸、原始输入和命令组调用；master 可等待输出或挂断。master 输入写入不阻塞，一个独立的字节 3 即使在输入队列满时也会处理。输出采用有界缓冲，slave 写入可阻塞，master 读取就绪数据或 EOF。
 
-创建者让第一个 shell 继承 slave stdin 后用普通 spawn 启动它，建立该伪终端的会话控制者。后代继承会话归属，即使重定向 stdio。会话独立维护前台进程和命令组。master 的单字节 Ctrl-C 按该会话的前台状态处理；仅当会话无前台命令或正在用原始模式时把字节交给读取者。最后关闭 master 或会话控制者退出会挂断，唤醒端点并终止该会话中的进程。所有关联引用释放后才销毁对象。此接口面向 Zonix shell，采用固定尺寸和现有终端命令集。
+创建者让第一个 shell 继承 slave stdin 后用普通 spawn 启动它，建立该伪终端的会话控制者。后代继承会话归属，即使重定向 stdio。会话独立维护前台进程和命令组。master 的单字节 Ctrl-C 按该会话的前台状态处理；仅当会话无前台命令或正在用原始模式时把字节交给读取者。最后关闭 master 或会话控制者退出会挂断，唤醒端点并终止该会话中的进程。所有关联引用释放后才销毁对象。
+
+`TERMINAL_SET_SIZE`（0x5604）通过 master 接收 `TerminalSize*`，行列各为 1～4096。slave 随后的 `TERMINAL_GET_SIZE` 读取新尺寸。
+
+## 系统随机源
+
+`sys_getrandom(void* output, long size, long flags)` 从系统随机源读取字节。`flags` 当前取 0，`size` 不能为负。长度为 0 时返回 0。正长度请求最多写入 256 字节，返回实际字节数，调用者可循环读满。设备缺失返回 NoDevice，设备等候超时返回 Timeout，任务终止可中断等待。
+
+当前后端是现代 VirtIO PCI 熵设备。内核接收设备填充的 DMA 缓冲，检查完成长度，再复制到用户缓冲。QEMU 来宾的随机质量依赖宿主提供的熵源。
 
 ## FD 和资源
 
 0/1/2 为 stdin/stdout/stderr，初始内核启动任务连接 `/dev/console`。spawn 保留未标记 close-on-exec 的父进程 FD 编号；每个 FD 持有一个可移动的 `OpenFileRef` 引用（zstl `unique_ptr` 加领域释放器），共享同一打开文件描述及偏移。跨进程 I/O 持有描述的互斥锁；独立 open 的偏移彼此独立。close 只释放本进程引用，最后一个引用关闭 VFS 文件。
 
-`O_CLOEXEC`（02000000）属于 FD 槽而非共享打开描述，`fd::Table::open` 消费它后再调用 VFS。`sys_fcntl(fd, F_DUPFD_CLOEXEC, minimum)` 返回不小于 minimum 的最小空槽，复制句柄并标记 close-on-exec；FD 或 minimum 不在 [0,16) 时 Invalid，无空槽时 Full，其他 fcntl 命令暂为 NotSupported。`sys_dup2(old, new)` 先验证源/目标，失败不改变目标；old==new 时保留原标记，否则替换目标并清除其 close-on-exec 标记。两者共享打开描述和偏移，均不重新打开文件。
+`O_CLOEXEC`（02000000）属于 FD 槽而非共享打开描述，`fd::Table::open` 消费它后再调用 VFS。`sys_fcntl(fd, F_DUPFD_CLOEXEC, minimum)` 返回不小于 minimum 的最小空槽，复制句柄并标记 close-on-exec；FD 或 minimum 不在 [0,16) 时 Invalid，无空槽时 Full。`sys_dup2(old, new)` 先验证源/目标，失败不改变目标；old==new 时保留原标记，否则替换目标并清除其 close-on-exec 标记。两者共享打开描述和偏移，均不重新打开文件。
 
 `ForkPolicy::Share` 保留所有 FD 及标记，`ForkPolicy::Spawn` 仅保留未标记 FD，`Reset` 清空。两个用户态 spawn 接口共用 Spawn 策略，过滤仅影响新进程；父进程的 FD 保持有效。dup2 先取得新引用再释放旧目标，最后关闭在引用计数中断保护之外执行。新 syscall 和 flags 已同步到共用运行时。
 

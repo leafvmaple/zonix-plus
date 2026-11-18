@@ -127,6 +127,11 @@ long syscall::dup2(Task* task, long old_fd, long new_fd) {
 long syscall::fcntl(Task* task, long fd, long command, long argument) {
     if (!task || fd < 0 || fd >= fd::MAX_FD || !task->files().get(static_cast<int>(fd)))
         return static_cast<long>(Error::Invalid);
+    if (command == F_SETFL) {
+        if (argument != 0 && argument != O_NONBLOCK)
+            return static_cast<long>(Error::Invalid);
+        return static_cast<long>(task->files().get(static_cast<int>(fd))->file()->set_nonblocking(argument != 0));
+    }
     if (command != F_DUPFD_CLOEXEC)
         return static_cast<long>(Error::NotSupported);
     if (argument < 0 || argument >= fd::MAX_FD)

@@ -74,6 +74,8 @@ public:
     virtual Error stat(Stat* st) = 0;
     virtual Error control(unsigned int, void*) { return Error::NotSupported; }
     virtual Result<bool> read_ready() { return Error::NotSupported; }
+    virtual Result<bool> write_ready() { return Error::NotSupported; }
+    virtual Error set_nonblocking(bool) { return Error::NotSupported; }
     virtual pty::Session* controlling_terminal() { return nullptr; }
     virtual Error truncate(size_t size) {
         static_cast<void>(size);

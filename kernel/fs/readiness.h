@@ -9,11 +9,13 @@ namespace fd {
 
 class Readiness {
 public:
-    static Result<unsigned int> wait(Task* task, uintptr_t mask);
+    static Result<unsigned int> wait(Task* task, uintptr_t read_mask, int timeout_ms = -1, uintptr_t write_mask = 0);
     static void notify();
+    static void tick();
 
 private:
     inline static WaitQueue changed_{};
+    inline static WaitQueue timed_{};
 };
 
 }  // namespace fd

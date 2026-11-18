@@ -27,15 +27,16 @@ public:
         (writer ? writer_open_ : reader_open_) = false;
         readable_.wakeup_all();
         writable_.wakeup_all();
-        if (writer)
-            fd::Readiness::notify();
+        fd::Readiness::notify();
     }
     bool read_ready() const { return count_ != 0 || !writer_open_; }
+    bool write_ready() const { return count_ < bytes_.size() || !reader_open_; }
     Result<int> read(void* out, size_t size, bool nonblocking) {
         while (true) {
             intr::Guard guard;
             ENSURE(!sched::current()->termination_requested(), Error::Interrupted);
             if (count_ != 0) {
+                bool was_full = count_ == bytes_.size();
                 size_t count = size < count_ ? size : count_;
                 auto* bytes = static_cast<uint8_t*>(out);
                 for (size_t i = 0; i < count; ++i) {
@@ -44,6 +45,8 @@ public:
                 }
                 count_ -= count;
                 writable_.wakeup_all();
+                if (was_full)
+                    fd::Readiness::notify();
                 return static_cast<int>(count);
             }
             if (!writer_open_)
@@ -99,9 +102,18 @@ public:
     }
     ~Endpoint() override { buffer_->close(writer_); }
     bool is_stream() const override { return true; }
+    Error set_nonblocking(bool nonblocking) override {
+        intr::Guard guard;
+        nonblocking_ = nonblocking;
+        return Error::None;
+    }
     Result<bool> read_ready() override {
         ENSURE(!writer_, Error::Access);
         return buffer_->read_ready();
+    }
+    Result<bool> write_ready() override {
+        ENSURE(writer_, Error::Access);
+        return buffer_->write_ready();
     }
     Result<int> read(void* out, size_t size, size_t) override {
         return writer_ ? Result<int>(Error::Access) : buffer_->read(out, size, nonblocking_);

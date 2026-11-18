@@ -1,0 +1,629 @@
+--- a/packet_auth.c
++++ b/packet_auth.c
+@@ -5,7 +5,6 @@
+ Public domain.
+ */
+ 
+-#include <pwd.h>
+ #include "buf.h"
+ #include "ssh.h"
+ #include "e.h"
+@@ -30,7 +29,7 @@
+     return packet_sendall();
+ }
+ 
+-int packet_auth(struct buf *b, struct buf *b2, int flagnoneauth) {
++int packet_auth(struct buf *b, struct buf *b2) {
+ 
+     crypto_uint8 ch, flagsignature;
+     long long pos, i, count, sign_bytes = 0;
+@@ -110,22 +109,6 @@
+                                   &len); /* publickey/password/hostbased/none */
+         pos = packetparser_skip(b->buf, b->len, pos, len);
+ 
+-        if (str_equaln((char *) b->buf + pos - len, len, "none")) {
+-            /*
+-            if auth. none is enabled verify the user against the process UID
+-            */
+-            if (flagnoneauth) {
+-                struct passwd *pw;
+-                pkname = "none";
+-                pos = packetparser_end(b->buf, b->len, pos);
+-                pw = getpwnam(packet.name);
+-                if (pw && pw->pw_uid == geteuid()) {
+-                    b->len = 0;
+-                    b->buf[0] = 0;
+-                    goto authorized;
+-                }
+-            }
+-        }
+         if (str_equaln((char *) b->buf + pos - len, len, "password"))
+             pkname = "password";
+         if (str_equaln((char *) b->buf + pos - len, len, "hostbased"))
+--- a/packet.h
++++ b/packet.h
+@@ -111,7 +111,7 @@
+ extern int packet_kexdh(const char *, struct buf *, struct buf *);
+ 
+ /* packet_auth.c */
+-extern int packet_auth(struct buf *, struct buf *, int);
++extern int packet_auth(struct buf *, struct buf *);
+ 
+ /* packet_channel_open.c */
+ extern int packet_channel_open(struct buf *, struct buf *);
+--- a/sshcrypto_kex.c
++++ b/sshcrypto_kex.c
+@@ -37,30 +37,6 @@
+         crypto_hash_sha256_BYTES,
+         curve25519_putkemkey,
+         sshcrypto_TYPENEWCRYPTO,
+-        0,
+-    },
+-    {
+-        "sntrup761x25519-sha512",
+-        crypto_kem_sntrup761x25519_enc,
+-        crypto_kem_sntrup761x25519_PUBLICKEYBYTES,  /* pk */
+-        crypto_kem_sntrup761x25519_CIPHERTEXTBYTES, /* c */
+-        crypto_kem_sntrup761x25519_BYTES,           /* k */
+-        crypto_hash_sha512,
+-        crypto_hash_sha512_BYTES,
+-        sntrup761x25519_putkemkey,
+-        sshcrypto_TYPEPQCRYPTO,
+-        0,
+-    },
+-    {
+-        "sntrup761x25519-sha512@openssh.com",
+-        crypto_kem_sntrup761x25519_enc,
+-        crypto_kem_sntrup761x25519_PUBLICKEYBYTES,  /* pk */
+-        crypto_kem_sntrup761x25519_CIPHERTEXTBYTES, /* c */
+-        crypto_kem_sntrup761x25519_BYTES,           /* k */
+-        crypto_hash_sha512,
+-        crypto_hash_sha512_BYTES,
+-        sntrup761x25519_putkemkey,
+-        sshcrypto_TYPEPQCRYPTO,
+         0,
+     },
+     {
+--- a/crypto_hash_sha256.h
++++ b/crypto_hash_sha256.h
+@@ -1,13 +1,13 @@
+ #ifndef crypto_hash_sha256_H
+ #define crypto_hash_sha256_H
+ 
+-#define crypto_hash_sha256_tinyssh_BYTES 32
+-extern int crypto_hash_sha256_tinyssh(unsigned char *, const unsigned char *,
++#define crypto_hash_sha256_zonix_BYTES 32
++extern int crypto_hash_sha256_zonix(unsigned char *, const unsigned char *,
+                                       unsigned long long);
+ 
+-#define crypto_hash_sha256 crypto_hash_sha256_tinyssh
+-#define crypto_hash_sha256_BYTES crypto_hash_sha256_tinyssh_BYTES
+-#define crypto_hash_sha256_IMPLEMENTATION "tinyssh"
++#define crypto_hash_sha256 crypto_hash_sha256_zonix
++#define crypto_hash_sha256_BYTES crypto_hash_sha256_zonix_BYTES
++#define crypto_hash_sha256_IMPLEMENTATION "Mbed TLS"
+ #define crypto_hash_sha256_VERSION "-"
+ 
+ #endif
+--- a/log.c
++++ b/log.c
+@@ -13,7 +13,6 @@
+ long messages are truncated.
+ */
+ 
+-#include <syslog.h>
+ #include "writeall.h"
+ #include "randommod.h"
+ #include "purge.h"
+@@ -26,12 +25,11 @@
+ int loglevel = 1;
+ 
+ static int logflagfnln = 1;
+-static int logflagsyslog = 0;
+ 
+ static char chars[] =
+     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+ 
+-void log_init(int level, const char *text, int line, int flagsyslog) {
++void log_init(int level, const char *text, int line) {
+ 
+     unsigned long long i;
+ 
+@@ -44,11 +42,6 @@
+     }
+     logstring[sizeof logstring - 1] = 0;
+ 
+-    if (flagsyslog) {
+-        openlog(text, 0, LOG_DAEMON);
+-        logflagsyslog = 1;
+-    }
+-
+     errno = 0;
+ }
+ 
+@@ -60,11 +53,7 @@
+ 
+ static void flush(void) {
+ 
+-    if (logflagsyslog) {
+-        buf[buflen] = 0;
+-        syslog(LOG_INFO, "%s", buf);
+-    }
+-    else { writeall(2, buf, buflen); }
++    writeall(2, buf, buflen);
+     purge(buf, buflen);
+     buflen = 0;
+ }
+@@ -144,7 +133,6 @@
+     /* 'name:' */
+     do {
+         if (level == 0) break;    /* don't print in usage level */
+-        if (logflagsyslog) break; /* don't print in syslog mode */
+         outs(logtext);
+         outs(": ");
+     } while (0);
+--- a/log.h
++++ b/log.h
+@@ -1,7 +1,7 @@
+ #ifndef LOG_H____
+ #define LOG_H____
+ 
+-extern void log_init(int, const char *, int, int);
++extern void log_init(int, const char *, int);
+ extern char *log_string(void);
+ 
+ extern int loglevel;
+--- a/packet_channel_request.c
++++ b/packet_channel_request.c
+@@ -23,7 +23,7 @@
+ }
+ 
+ int packet_channel_request(struct buf *b1, struct buf *b2,
+-                           const char *customcmd) {
++                           const char *unused) {
+ 
+     long long pos = 0;
+     crypto_uint8 ch, wantreply;
+@@ -31,7 +31,7 @@
+     char *cmd;
+     crypto_uint32 cmdlen;
+     char *p1, *p2;
+-    const char *ps;
++    (void)unused;
+     crypto_uint32 plen1, plen2;
+ 
+     pos = packetparser_uint8(b1->buf, b1->len, pos,
+@@ -49,81 +49,6 @@
+                              &wantreply); /* boolean   want reply */
+     cmd[cmdlen] = 0;
+ 
+-    if (str_equaln(cmd, cmdlen, "exec")) {
+-
+-        /*      byte      SSH_MSG_CHANNEL_REQUEST
+-                uint32    recipient channel
+-                string    "exec"
+-                boolean   want reply
+-                string    command
+-        */
+-        pos = packetparser_uint32(b1->buf, b1->len, pos, &plen1);
+-        p1 = (char *) b1->buf + pos;
+-        pos = packetparser_skip(b1->buf, b1->len, pos, plen1);
+-        pos = packetparser_end(b1->buf, b1->len, pos);
+-        buf_putnum8(b1, 0);
+-        if (stringhaszero(p1, plen1)) goto reject;
+-        p1[plen1] = 0;
+-
+-        if (channel.pid != 0) {
+-            log_d3("packet=SSH_MSG_CHANNEL_REQUEST, exec ", p1,
+-                   ", rejected: session already started");
+-            goto reject;
+-        }
+-
+-        if (customcmd) {
+-            log_d3("packet=SSH_MSG_CHANNEL_REQUEST, exec ", p1,
+-                   ", rejected: request disabled by -e");
+-            goto reject;
+-        }
+-
+-        if (!channel_exec(p1)) bug();
+-        log_d3("packet=SSH_MSG_CHANNEL_REQUEST, exec ", p1, ", accepted");
+-        goto accept;
+-    }
+-
+-    if (str_equaln(cmd, cmdlen, "subsystem")) {
+-
+-        /*      byte      SSH_MSG_CHANNEL_REQUEST
+-                uint32    recipient channel
+-                string    "subsystem"
+-                boolean   want reply
+-                string    subsystem name
+-        */
+-        pos = packetparser_uint32(b1->buf, b1->len, pos, &plen1);
+-        p1 = (char *) b1->buf + pos;
+-        pos = packetparser_skip(b1->buf, b1->len, pos, plen1);
+-        pos = packetparser_end(b1->buf, b1->len, pos);
+-        buf_putnum8(b1, 0);
+-        if (stringhaszero(p1, plen1)) goto reject;
+-        p1[plen1] = 0;
+-
+-        if (channel.pid != 0) {
+-            log_d3("packet=SSH_MSG_CHANNEL_REQUEST, subsystem ", p1,
+-                   ", rejected: session already started");
+-            goto reject;
+-        }
+-
+-        if (customcmd) {
+-            log_d3("packet=SSH_MSG_CHANNEL_REQUEST, subsystem ", p1,
+-                   ", rejected: request disabled by -e");
+-            goto reject;
+-        }
+-
+-        ps = channel_subsystem_get(p1);
+-        if (!ps) {
+-            log_d3("packet=SSH_MSG_CHANNEL_REQUEST, subsystem ", p1,
+-                   ", rejected");
+-            goto reject;
+-        }
+-
+-        if (!channel_exec(ps)) bug();
+-        log_d5("packet=SSH_MSG_CHANNEL_REQUEST, subsystem ", p1, "=", ps,
+-               ", accepted");
+-
+-        goto accept;
+-    }
+-
+     if (str_equaln(cmd, cmdlen, "shell")) {
+ 
+         /*      byte      SSH_MSG_CHANNEL_REQUEST
+@@ -140,16 +65,8 @@
+             goto reject;
+         }
+ 
+-        if (customcmd) {
+-            if (!channel_exec(customcmd)) bug();
+-            log_d3("packet=SSH_MSG_CHANNEL_REQUEST, shell, accepted, executing "
+-                   "custom shell '",
+-                   customcmd, "'");
+-        }
+-        else {
+-            if (!channel_exec(0)) bug();
+-            log_d1("packet=SSH_MSG_CHANNEL_REQUEST, shell, accepted");
+-        }
++        if (!channel_exec(0)) goto reject;
++        log_d1("packet=SSH_MSG_CHANNEL_REQUEST, shell, accepted");
+         goto accept;
+     }
+ 
+@@ -253,7 +170,7 @@
+             goto reject;
+         }
+ 
+-        channel_ptyresize(a, b, x, y);
++        if (!channel_ptyresize(a, b, x, y)) goto reject;
+         log_d1("packet=SSH_MSG_CHANNEL_REQUEST, window-change, accepted");
+         goto accept;
+     }
+--- a/channel.h
++++ b/channel.h
+@@ -61,7 +61,7 @@
+                         crypto_uint32, crypto_uint32 *);
+ extern int channel_openterminal(const char *, crypto_uint32, crypto_uint32,
+                                 crypto_uint32, crypto_uint32);
+-extern void channel_ptyresize(crypto_uint32, crypto_uint32, crypto_uint32,
++extern int channel_ptyresize(crypto_uint32, crypto_uint32, crypto_uint32,
+                               crypto_uint32);
+ extern int channel_env(const char *, const char *);
+ extern int channel_exec(const char *);
+--- a/channel.c
++++ b/channel.c
+@@ -7,25 +7,15 @@
+ The 'channel' library is used to handle data from/to SSH channel (rfc4254).
+ */
+ 
+-#include <sys/types.h>
+-#include <sys/wait.h>
++#include <signal.h>
+ #include <unistd.h>
+-#include <termios.h>
+-#include <sys/ioctl.h>
+-#include <paths.h>
+-extern char *ptsname(int);
+-#include "sig.h"
++#include "zonix_port.h"
+ #include "byte.h"
+ #include "bug.h"
+-#include "newenv.h"
+ #include "e.h"
+ #include "purge.h"
+-#include "iptostr.h"
+-#include "porttostr.h"
+ #include "buf.h"
+ #include "str.h"
+-#include "logsys.h"
+-#include "loginshell.h"
+ #include "trymlock.h"
+ #include "limit.h"
+ #include "channel.h"
+@@ -51,8 +41,6 @@
+ int channel_open(const char *user, crypto_uint32 id, crypto_uint32 remotewindow,
+                  crypto_uint32 maxpacket, crypto_uint32 *localwindow) {
+ 
+-    struct buf b = {channel.buf0, 0, CHANNEL_BUFSIZE};
+-
+     if (!localwindow) bug_inval();
+     if (!maxpacket) bug_proto();
+     if (channel.maxpacket != 0) return 0;
+@@ -67,34 +55,6 @@
+     channel.remotewindow = remotewindow;
+     channel.localwindow = *localwindow = CHANNEL_BUFSIZE;
+ 
+-    /* copy PATH */
+-    if (!newenv_copyenv("PATH")) {
+-        if (!newenv_env("PATH", "/bin:/usr/bin")) return 0;
+-    }
+-
+-    /* create env. SSH_CONNECTION */
+-    buf_purge(&b);
+-    buf_puts(&b, channel.remoteip);
+-    buf_puts(&b, " ");
+-    buf_puts(&b, channel.remoteport);
+-    buf_puts(&b, " ");
+-    buf_puts(&b, channel.localip);
+-    buf_puts(&b, " ");
+-    buf_puts(&b, channel.localport);
+-    buf_putnum8(&b, 0);
+-    if (!newenv_env("SSH_CONNECTION", (char *) b.buf)) return 0;
+-
+-#ifdef _PATH_MAILDIR
+-    /* create env. MAIL */
+-    buf_purge(&b);
+-    buf_puts(&b, _PATH_MAILDIR);
+-    buf_puts(&b, "/");
+-    buf_puts(&b, user);
+-    buf_putnum8(&b, 0);
+-    if (!newenv_env("MAIL", (char *) b.buf)) return 0;
+-#endif
+-
+-    purge(channel.buf0, sizeof channel.buf0);
+     return 1;
+ }
+ 
+@@ -105,23 +65,17 @@
+ int channel_openterminal(const char *name, crypto_uint32 a, crypto_uint32 b,
+                          crypto_uint32 x, crypto_uint32 y) {
+ 
+-    int master = -1, slave = -1, saved_errno;
+-
+-    if (channel.maxpacket == 0) bug_proto();
+-    if (channel.pid != 0) bug_proto();
+-    if (channel.flagterminal == 1) bug_proto();
+-
+-    if (!channel_openpty(&master, &slave)) return 0;
+-    if (!newenv_env("TERM", name)) {
+-        saved_errno = errno;
+-        close(master);
+-        close(slave);
+-        errno = saved_errno;
+-        return 0;
+-    }
+-
+-    channel.master = master;
+-    channel.slave = slave;
++    (void)name;
++    (void)x;
++    (void)y;
++    if (channel.maxpacket == 0 || channel.pid != 0 || channel.flagterminal)
++        bug_proto();
++
++    struct TerminalSize size = {b ? b : 24, a ? a : 80};
++    int ends[2];
++    if (sys_openpty(ends, &size) < 0) return 0;
++    channel.master = ends[0];
++    channel.slave = ends[1];
+     channel.flagterminal = 1;
+     channel.a = a;
+     channel.b = b;
+@@ -134,32 +88,12 @@
+ The 'channel_ptyresize' function sets new
+ terminal windowsize.
+ */
+-void channel_ptyresize(crypto_uint32 a, crypto_uint32 b, crypto_uint32 x,
+-                       crypto_uint32 y) {
+-
+-    struct winsize w;
+-
+-    if (channel.maxpacket == 0) bug_proto();
+-    if (channel.pid <= 0) bug_proto();
+-    if (!a && !b && !x && !y) return;
+-
+-    w.ws_col = a;
+-    w.ws_row = b;
+-    w.ws_xpixel = x;
+-    w.ws_ypixel = y;
+-    ioctl(channel.fd0, TIOCSWINSZ, &w);
+-}
+-
+-/*
+-The 'channel_env' adds new environment variable
+-sent from client.
+-*/
+-int channel_env(const char *x, const char *y) {
+-
+-    if (channel.maxpacket == 0) bug_proto();
+-    if (channel.pid != 0) bug_proto();
+-    if (!x || !y) bug_inval();
+-    return newenv_lowenv(x, y);
++int channel_ptyresize(crypto_uint32 a, crypto_uint32 b, crypto_uint32 x,
++                      crypto_uint32 y) {
++    (void)x;
++    (void)y;
++    struct TerminalSize size = {b, a};
++    return sys_ioctl(channel.master, TERMINAL_SET_SIZE, (long)&size) == 0;
+ }
+ 
+ /*
+@@ -170,54 +104,14 @@
+ */
+ int channel_exec(const char *cmd) {
+ 
+-    char *run[4];
+-    char *shell;
+-    char *name;
+-    int fd[3];
+-    char ln[NAME_MAX + 2];
+-
+-    if (channel.maxpacket == 0) bug_proto();
+-    if (channel.pid != 0) bug_proto();
+-
+-    if (channel.flagterminal) {
+-        channel.pid = channel_forkpty(fd, channel.master, channel.slave);
+-        if (channel.pid > 0) {
+-            name = ptsname(fd[0]);
+-            if (!name) bug();
+-            if (!str_copyn(channel.termname, sizeof channel.termname, name))
+-                bug_nomem();
+-        }
+-    }
+-    else { channel.pid = channel_fork(fd); }
+-    if (channel.pid == -1) return 0;
+-    if (channel.pid == 0) {
+-        logsys_login(channel.user, channel.remoteip, 0, 0);
+-        if (!channel_droppriv(channel.user, &shell)) _exit(111);
+-        if (cmd) {
+-            run[0] = shell;
+-            run[1] = (char *) "-c";
+-            run[2] = (char *) cmd;
+-            run[3] = 0;
+-        }
+-        else {
+-            if (!loginshell(ln, sizeof ln, shell)) bug();
+-            run[0] = ln;
+-            run[1] = 0;
+-        }
+-        sig_uncatch(SIGPIPE);
+-        newenv_exec(shell, run);
+-        _exit(111);
+-    }
+-    channel.fd0 = fd[0];
+-    channel.fd1 = fd[1];
+-    channel.fd2 = fd[2];
+-    channel.len0 = 0;
+-    /* EOF may arrive after channel open but before the session starts. */
+-    if (channel.remoteeof) channel_puteof();
+-    newenv_purge();
+-    if (channel.flagterminal && channel.pid > 0) {
+-        channel_ptyresize(channel.a, channel.b, channel.x, channel.y);
+-    }
++    if (channel.maxpacket == 0 || channel.pid != 0) bug_proto();
++    if (cmd || !channel.flagterminal) return 0;
++    long pid = zonix_spawn_shell(channel.slave);
++    if (pid < 0) return 0;
++    close(channel.slave);
++    channel.slave = -1;
++    channel.pid = pid;
++    channel.fd0 = channel.fd1 = channel.master;
+     return 1;
+ }
+ 
+@@ -282,6 +176,8 @@
+     if (channel.pid > 0) {
+         channel.flagclosed = 1;
+         channel_puteof();
++        close(channel.master);
++        channel.master = channel.fd0 = channel.fd1 = -1;
+         return;
+     }
+     if (channel.pid < 0) return;
+@@ -295,7 +191,6 @@
+     channel.fd1 = -1;
+     channel.fd2 = -1;
+     channel.pid = -1;
+-    newenv_purge();
+ }
+ 
+ /*
+@@ -333,7 +228,7 @@
+     if (r > 1048576) r = 1048576;
+     if (!channel.flagclosed && r > channel.remotewindow)
+         r = channel.remotewindow;
+-    r = read(channel.fd1, buf, r);
++    r = zonix_pty_read(channel.fd1, buf, r);
+     if (r == -1) {
+         if (errno == EINTR) return 0;
+         if (errno == EAGAIN) return 0;
+@@ -436,7 +331,7 @@
+ 
+     if (channel.len0 <= 0) return 1;
+ 
+-    w = write(channel.fd0, channel.buf0, channel.len0);
++    w = zonix_pty_write(channel.fd0, channel.buf0, channel.len0);
+     if (w == -1) {
+         if (errno == EINTR) return 1;
+         if (errno == EAGAIN) return 1;
+@@ -491,31 +386,15 @@
+ */
+ int channel_waitnohang(int *s, int *e) {
+ 
+-    int r, status;
+-
+-    if (!s || !e) bug_inval();
+-    if (channel.maxpacket == 0) bug_proto();
+-    if (channel.pid <= 0) return 0;
+-
+-    do {
+-        r = waitpid(channel.pid, &status, WNOHANG);
+-    } while (r == -1 && errno == EINTR);
+-    if (r <= 0) return 0;
+-
+-    if (channel.flagterminal) {
+-        logsys_logout(channel.user, channel.remoteip, channel.termname,
+-                      channel.pid);
+-    }
+-
+-    if (WIFEXITED(status)) {
+-        *e = WEXITSTATUS(status);
+-        *s = 0;
+-    }
+-    else if (WIFSIGNALED(status)) {
+-        *e = 0;
+-        *s = WTERMSIG(status);
+-    }
+-    else { *e = *s = -1; }
++    int status = 0;
++    if (!s || !e || channel.maxpacket == 0) bug_inval();
++    if (channel.pid <= 0 || !channel_iseof()) return 0;
++
++    if (channel.master >= 0) close(channel.master);
++    channel.master = channel.fd0 = -1;
++    if (sys_wait((int)channel.pid, &status) < 0) status = 111;
++    *s = status == PROCESS_STATUS_KILLED ? SIGTERM : 0;
++    *e = status < 0 ? 255 : status;
+ 
+     channel.pid = -1;
+     return 1;
+--- a/global.c
++++ b/global.c
+@@ -11,7 +11,6 @@
+ */
+ 
+ #include <unistd.h>
+-#include "newenv.h"
+ #include "channel.h"
+ #include "packet.h"
+ #include "sshcrypto.h"
+@@ -29,7 +28,6 @@
+ 
+     packet_init();
+     channel_init();
+-    newenv_init();
+ 
+     sshcrypto_init();
+ 
+@@ -50,7 +48,6 @@
+ 
+     packet_purge();
+     channel_purge();
+-    newenv_purge();
+ 
+     sshcrypto_purge();
+ 

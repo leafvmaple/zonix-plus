@@ -28,6 +28,7 @@ long open(Task* task, const char* path, int flags, int mode);
 long read(Task* task, int fd, void* buf, size_t count);
 long write(Task* task, int fd, const char* buf, size_t count);
 long close(Task* task, int fd);
+long getrandom(Task* task, uintptr_t output, long size, uintptr_t flags);
 long ioctl(Task* task, long fd, long request, uintptr_t argument);
 long display_control(Task* task, vfs::File* file, unsigned int request, uintptr_t argument);
 long pipe2(Task* task, uintptr_t output, long flags);

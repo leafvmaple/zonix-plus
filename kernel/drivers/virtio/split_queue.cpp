@@ -30,6 +30,12 @@ Error SplitQueue::set_buffer(uint16_t id, uintptr_t pa, uint32_t length, bool de
     return Error::None;
 }
 
+void SplitQueue::suppress_interrupts() {
+    constexpr uint16_t no_interrupt = 1;
+    assert(size_ != 0);
+    reinterpret_cast<Available*>(available_.data())->flags = no_interrupt;
+}
+
 Error SplitQueue::submit(uint16_t id) {
     ENSURE(id < size_);
     auto* available = reinterpret_cast<Available*>(available_.data());
@@ -54,6 +60,10 @@ Result<Completion> SplitQueue::pop_used() {
     ENSURE(completion.id < size_);
     ++last_used_;
     return completion;
+}
+
+bool SplitQueue::has_used() const {
+    return size_ != 0 && reinterpret_cast<const volatile Used*>(used_.data())->index != last_used_;
 }
 
 void SplitQueue::release() {

@@ -24,9 +24,11 @@ public:
     SplitQueue(const SplitQueue&) = delete;
     SplitQueue& operator=(const SplitQueue&) = delete;
     Error allocate(uint16_t size);
+    void suppress_interrupts();
     Error set_buffer(uint16_t id, uintptr_t pa, uint32_t length, bool device_writes);
     Error submit(uint16_t id);
     Result<Completion> pop_used();
+    bool has_used() const;
     void release();
     uint16_t size() const { return size_; }
     uintptr_t descriptor_pa() const;
