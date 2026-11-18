@@ -19,7 +19,8 @@ void emergency_restore();
 TerminalSize screen_size();
 void push_input(char c);  // called by input ISRs (pl011, virtio_kbd, ...)
 // Called with interrupts disabled at task publication / exit.
-Error handoff(Task* parent, Task* child);
+Error prepare_spawn(Task* parent, Task* child, bool foreground);
+Error control_job(unsigned int action);
 void task_exited(Task* task);
 
 // Hardware backends selected by the build; buffering and framebuffer are shared.
@@ -28,6 +29,7 @@ void arch_putc(int c);
 void arch_text_putc(int c);
 TerminalSize arch_screen_size();
 void arch_move_cursor(unsigned int row, unsigned int col);
+void arch_move_column(unsigned int col);
 void arch_clear_screen();
 void arch_erase_line(unsigned int mode);
 void arch_set_cursor_visible(bool visible);

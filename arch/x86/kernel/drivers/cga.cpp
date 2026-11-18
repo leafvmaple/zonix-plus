@@ -50,6 +50,10 @@ public:
         position_ = static_cast<uint16_t>(row * console::COLS + col);
         update_cursor();
     }
+    static void move_column(unsigned int col) {
+        intr::Guard guard;
+        move_cursor(position_ / console::COLS, col);
+    }
     static void clear() {
         intr::Guard guard;
         for (int i = 0; i < console::ROWS * console::COLS; ++i)
@@ -102,6 +106,9 @@ TerminalSize size() {
 }
 void move_cursor(unsigned int row, unsigned int col) {
     Screen::move_cursor(row, col);
+}
+void move_column(unsigned int col) {
+    Screen::move_column(col);
 }
 void clear() {
     Screen::clear();

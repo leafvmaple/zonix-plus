@@ -40,6 +40,7 @@ struct ProcessInfo {
 #define FILE_TYPE_FILE        1
 #define FILE_TYPE_DIRECTORY   2
 #define FILE_TYPE_CHAR_DEVICE 3
+#define FILE_TYPE_PIPE        4
 
 struct FileStat {
     unsigned int type;

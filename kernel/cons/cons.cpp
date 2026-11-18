@@ -44,6 +44,12 @@ public:
         if (c == 3) {
             // Discard pending input on interruption, even when the ring is full.
             read_ = write_;
+            if (job_owner_pid_ != 0 && raw_owner_pid_ == 0) {
+                job_cancelled_ = true;
+                job_interrupted_ = true;
+                TaskManager::interrupt_job(job_owner_pid_);
+                return;
+            }
             if (foreground_pid_ != 0 && foreground_pid_ != controller_pid_ && raw_owner_pid_ != foreground_pid_) {
                 static_cast<void>(TaskManager::interrupt_console(foreground_pid_));
                 return;
@@ -88,12 +94,13 @@ public:
     static Error set_raw(bool enabled) {
         intr::Guard guard;
         Task* task = sched::current();
-        ENSURE(task && task->pid == foreground_pid_ && task != TaskManager::init_task() && task->memory() &&
+        ENSURE(task && is_foreground(task) && task != TaskManager::init_task() && task->memory() &&
                    task->memory() != &vmm::Manager::kernel_mm(),
                Error::Access);
         if (enabled) {
             ENSURE(raw_owner_pid_ == 0 || raw_owner_pid_ == task->pid, Error::Busy);
             raw_owner_pid_ = task->pid;
+            waitq_.wakeup_all();
         } else {
             ENSURE(raw_owner_pid_ == 0 || raw_owner_pid_ == task->pid, Error::Access);
             release_raw();
@@ -107,7 +114,10 @@ public:
             intr::Guard guard;
             Task* task = sched::current();
             ENSURE(!task || !task->termination_requested(), Error::Interrupted);
-            ENSURE(!task || foreground_pid_ == 0 || task->pid == foreground_pid_, Error::Access);
+            ENSURE(!task || (job_owner_pid_ == 0 && foreground_pid_ == 0) ||
+                       (is_foreground(task) && task->pid != job_owner_pid_),
+                   Error::Access);
+            ENSURE(!task || raw_owner_pid_ == 0 || task->pid == raw_owner_pid_, Error::Access);
             if (read_ != write_) {
                 char c = input_[read_];
                 read_ = (read_ + 1) % input_.size();
@@ -115,6 +125,58 @@ public:
             }
             waitq_.sleep();
         }
+    }
+
+    static Error control_job(unsigned int action) {
+        Task* task = sched::current();
+        ENSURE(task && task != TaskManager::init_task() && task->memory() &&
+                   task->memory() != &vmm::Manager::kernel_mm(),
+               Error::Access);
+        intr::Guard guard;
+        if (action == TERMINAL_JOB_BEGIN) {
+            ENSURE(task->pid == foreground_pid_, Error::Access);
+            ENSURE(job_owner_pid_ == 0 && raw_owner_pid_ == 0, Error::Busy);
+            TRY(check_interrupt(task));
+            job_owner_pid_ = task->pid;
+            job_cancelled_ = false;
+            job_interrupted_ = false;
+            return Error::None;
+        }
+        ENSURE(job_owner_pid_ == task->pid, Error::Access);
+        if (action == TERMINAL_JOB_CANCEL) {
+            job_cancelled_ = true;
+            TaskManager::interrupt_job(job_owner_pid_);
+            return Error::None;
+        }
+        ENSURE(action == TERMINAL_JOB_END, Error::Invalid);
+        while (TaskManager::has_live_job(job_owner_pid_)) {
+            ENSURE(!task->termination_requested(), Error::Interrupted);
+            job_done_.sleep();
+        }
+        bool interrupted = job_interrupted_;
+        job_owner_pid_ = 0;
+        job_cancelled_ = false;
+        job_interrupted_ = false;
+        return interrupted ? Error::Interrupted : Error::None;
+    }
+
+    static Error prepare_spawn(Task* parent, Task* child, bool foreground) {
+        if (parent && parent->console_job() != 0) {
+            ENSURE(parent->console_job() == job_owner_pid_, Error::Access);
+            ENSURE(!parent->termination_requested() && !job_cancelled_, Error::Interrupted);
+            child->set_console_job(job_owner_pid_);
+            return Error::None;
+        }
+        if (!foreground)
+            return Error::None;
+        ENSURE(parent && child, Error::Invalid);
+        if (job_owner_pid_ != 0) {
+            ENSURE(parent->pid == job_owner_pid_, Error::Access);
+            ENSURE(!parent->termination_requested() && !job_cancelled_, Error::Interrupted);
+            child->set_console_job(job_owner_pid_);
+            return Error::None;
+        }
+        return handoff(parent, child);
     }
 
     static Error handoff(Task* parent, Task* child) {
@@ -129,14 +191,7 @@ public:
         // A controller may have read the command's newline before a queued
         // Ctrl-C. Cancel the pending spawn rather than giving that byte to a
         // new child which may never read input.
-        if (parent->pid == controller_pid_) {
-            for (size_t i = read_; i != write_; i = (i + 1) % input_.size()) {
-                if (input_[i] == 3) {
-                    read_ = write_;
-                    return Error::Interrupted;
-                }
-            }
-        }
+        TRY(check_interrupt(parent));
         if (controller_pid_ == 0)
             controller_pid_ = child->pid;
         if (raw_owner_pid_ == parent->pid)
@@ -146,6 +201,14 @@ public:
     }
 
     static void task_exited(Task* task) {
+        if (task->pid == job_owner_pid_) {
+            TaskManager::interrupt_job(job_owner_pid_);
+            job_owner_pid_ = 0;
+            job_cancelled_ = false;
+            job_interrupted_ = false;
+        }
+        if (task->console_job() != 0)
+            job_done_.wakeup_all();
         if (task->pid == raw_owner_pid_)
             release_raw();
         if (task->pid == controller_pid_) {
@@ -158,9 +221,23 @@ public:
     }
 
 private:
+    static bool is_foreground(Task* task) {
+        return task->pid == foreground_pid_ || (job_owner_pid_ != 0 && task->console_job() == job_owner_pid_);
+    }
+    static Error check_interrupt(Task* task) {
+        ENSURE(!task->termination_requested(), Error::Interrupted);
+        for (size_t i = read_; i != write_; i = (i + 1) % input_.size()) {
+            if (input_[i] == 3) {
+                read_ = write_;
+                return Error::Interrupted;
+            }
+        }
+        return Error::None;
+    }
     static void release_raw() {
         if (raw_owner_pid_ != 0) {
             raw_owner_pid_ = 0;
+            waitq_.wakeup_all();
             read_ = write_;  // Application keystrokes must not become shell commands.
             skip_lf_ = false;
             terminal::restore();
@@ -178,6 +255,10 @@ private:
     inline static sys::array<char, 1024> deferred_{};
     inline static size_t deferred_count_{};
     inline static bool deferred_overflow_{};
+    inline static int job_owner_pid_{};
+    inline static bool job_cancelled_{};
+    inline static bool job_interrupted_{};
+    inline static WaitQueue job_done_{};
     inline static int raw_owner_pid_{};
     inline static bool skip_lf_{};
     inline static int controller_pid_{};
@@ -214,8 +295,11 @@ void emergency_restore() {
 TerminalSize screen_size() {
     return terminal::size();
 }
-Error handoff(Task* parent, Task* child) {
-    return Console::handoff(parent, child);
+Error prepare_spawn(Task* parent, Task* child, bool foreground) {
+    return Console::prepare_spawn(parent, child, foreground);
+}
+Error control_job(unsigned int action) {
+    return Console::control_job(action);
 }
 void task_exited(Task* task) {
     Console::task_exited(task);

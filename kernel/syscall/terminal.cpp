@@ -19,11 +19,11 @@ long syscall::ioctl(Task* task, long fd, long request, uintptr_t argument) {
             return static_cast<long>(error);
         return static_cast<long>(vmm::copy_to_user(task->memory(), argument, &size, sizeof(size)));
     }
-    if (request == TERMINAL_SET_RAW) {
-        if (argument > 1)
+    if (request == TERMINAL_SET_RAW || request == TERMINAL_JOB) {
+        if (argument > (request == TERMINAL_JOB ? TERMINAL_JOB_CANCEL : 1))
             return static_cast<long>(Error::Invalid);
         unsigned int mode = static_cast<unsigned int>(argument);
-        return static_cast<long>(entry->file()->control(TERMINAL_SET_RAW, &mode));
+        return static_cast<long>(entry->file()->control(static_cast<unsigned int>(request), &mode));
     }
     return static_cast<long>(Error::NotSupported);
 }

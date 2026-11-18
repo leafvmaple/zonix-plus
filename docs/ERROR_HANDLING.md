@@ -752,3 +752,23 @@ that nodes are detached and containers empty; it never automatically mutates a
 list outside the subsystem's locking/interrupt protocol. Circular traversal
 requires stable links. Scheduling invalidates its saved object cursor before
 removal/destruction; a typed iterator alone cannot prevent use after free.
+
+## Anonymous pipes and foreground command groups
+
+Pipe endpoint Files use the same `fd::OpenFileRef` lifetime as other descriptors.
+Their move-only buffer references have a domain deleter; descriptor duplication
+and spawn do not create new endpoint Files. Last-close marks its direction closed
+and wakes both queues before releasing the buffer. Blocked I/O retains its File
+through the task's FD until the syscall unwinds; no waiter borrows a freed buffer.
+Pipe FD installation rolls back the first slot if the second allocation fails.
+`pipe2` validates user output before installing and closes both slots if copy-out
+fails. Streams return available reads and do not advance seekable-file offsets.
+
+The console owns one foreground command group by PID. Membership lives in Task
+and is assigned before publication; cancellation rejects later joins, including
+children being loaded at the time of Ctrl-C. Cancellation requests safe exits and
+wakes blocked tasks; it does not close descriptors in IRQ context. The owner waits
+for members, reaps its direct children and ends the group before prompting again.
+Owner exit cancels members even if userspace cleanup is never reached; init owns
+orphan reaping. Shell pipe originals and stdio backups are CLOEXEC, selected dup2
+bindings are inherited, and all parent endpoint copies are closed on every path.

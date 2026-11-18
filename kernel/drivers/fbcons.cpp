@@ -161,6 +161,10 @@ public:
             draw_cursor();
         }
     }
+    static void move_column(unsigned int col) {
+        intr::Guard guard;
+        move_cursor(cur_y_, col);
+    }
     static void clear() {
         intr::Guard guard;
         if (!active_)
@@ -315,6 +319,9 @@ TerminalSize size() {
 }
 void move_cursor(unsigned int row, unsigned int col) {
     Screen::move_cursor(row, col);
+}
+void move_column(unsigned int col) {
+    Screen::move_column(col);
 }
 void clear() {
     Screen::clear();

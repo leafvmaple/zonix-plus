@@ -40,6 +40,8 @@ public:
         }
         if (request == TERMINAL_SET_RAW)
             return cons::set_raw(*static_cast<unsigned int*>(value) != 0);
+        if (request == TERMINAL_JOB)
+            return cons::control_job(*static_cast<unsigned int*>(value));
         return Error::NotSupported;
     }
 

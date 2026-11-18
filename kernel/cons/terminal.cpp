@@ -79,6 +79,12 @@ private:
                 fbcons::move_cursor(row, col);
             else
                 cons::arch_move_cursor(row, col);
+        } else if (command == 'G') {
+            unsigned int col = params_[0] ? params_[0] - 1 : 0;
+            if (framebuffer)
+                fbcons::move_column(col);
+            else
+                cons::arch_move_column(col);
         } else if (command == 'J' && params_[0] == 2) {
             if (framebuffer)
                 fbcons::clear();

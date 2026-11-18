@@ -16,6 +16,7 @@ enum class NodeType : uint8_t {
     File = 1,
     Directory = 2,
     CharDevice = 3,
+    Pipe = 4,
 };
 
 struct Stat {
@@ -54,7 +55,7 @@ class File {
 public:
     virtual ~File();
 
-    File() = default;
+    explicit File(int flags = O_RDWR) : open_flags_(flags) {}
     File(const File&) = delete;
     File& operator=(const File&) = delete;
 
@@ -77,6 +78,7 @@ public:
 
     bool can_read() const { return (open_flags_ & O_ACCMODE) != O_WRONLY; }
     bool can_write() const { return (open_flags_ & O_ACCMODE) != O_RDONLY; }
+    virtual bool is_stream() const { return false; }
     bool is_append() const { return (open_flags_ & O_APPEND) != 0; }
     Error begin_io(ActivityGuard& guard) const;
 

@@ -56,8 +56,7 @@ Result<int> TaskManager::fork(uint32_t clone_flags, uintptr_t stack, TrapFrame* 
 Result<int> TaskManager::publish(sys::unique_ptr<Task> proc, bool foreground) {
     intr::Guard guard;
     proc->pid = next_pid_;
-    if (foreground)
-        TRY(cons::handoff(proc->parent, proc.get()));
+    TRY(cons::prepare_spawn(proc->parent, proc.get(), foreground));
     ++next_pid_;
     proc->set_links();
     proc->wakeup();
@@ -96,6 +95,20 @@ Error TaskManager::terminate(int pid) {
 Error TaskManager::interrupt_console(int pid) {
     intr::Guard guard;
     return request_termination(find_process(pid));
+}
+
+void TaskManager::interrupt_job(int owner) {
+    intr::Guard guard;
+    for (Task& task : proc_list_)
+        if (task.console_job() == owner)
+            static_cast<void>(request_termination(&task));
+}
+
+bool TaskManager::has_live_job(int owner) {
+    for (Task& task : proc_list_)
+        if (task.console_job() == owner && task.state() != TaskState::Zombie)
+            return true;
+    return false;
 }
 
 Error TaskManager::request_termination(Task* target) {

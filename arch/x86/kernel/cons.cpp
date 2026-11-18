@@ -50,6 +50,9 @@ TerminalSize arch_screen_size() {
 void arch_move_cursor(unsigned int row, unsigned int col) {
     cga::move_cursor(row, col);
 }
+void arch_move_column(unsigned int col) {
+    cga::move_column(col);
+}
 void arch_clear_screen() {
     cga::clear();
 }

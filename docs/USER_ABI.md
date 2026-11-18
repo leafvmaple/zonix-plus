@@ -51,6 +51,7 @@ SP -> argc                64 位
 | fstat | 108 | FD、`DescriptorStat*`；返回元数据和可比较的设备/文件身份 |
 | yield | 158 | 主动让出 CPU，返回 0 |
 | getcwd | 183 | 复制含 NUL 的当前目录；成功返回 0，容量不足返回 Full |
+| pipe2 | 331 | 创建匿名字节流的读/写 FD，flags 为 0 或 O_CLOEXEC；返回 0 或负 Error |
 | spawn | 400 | 相对/绝对 ELF 路径、argc、以 NULL 结束的 argv；返回新 PID |
 | shutdown | 401 | 复用有序关机；成功不返回，失败返回负 Error 并恢复存储访问 |
 | spawn_foreground | 402 | 与 spawn 相同参数，发布子进程前交接控制台；返回新 PID |
@@ -80,12 +81,13 @@ SP -> argc                64 位
 | --- | --- |
 | `TERMINAL_GET_SIZE` (0x5601) | 用户可写 `TerminalSize*`；复制 rows/cols 两个 uint32，固定 8 字节 |
 | `TERMINAL_SET_RAW` (0x5602) | 立即值 0/1；1 将 Ctrl-C 交给前台程序，0 释放租约并恢复终端 |
+| `TERMINAL_JOB` (0x5603) | 立即值 BEGIN=1 / CANCEL=2 / END=0；由前台用户任务管理一组前台命令 |
 
 请求作用于真正的 console File；普通文件返回 NotSupported，无效 FD/指针/模式值返回 Invalid。VFS control 接口只接收内核局部参数，不持有用户地址。尺寸来自 framebuffer 字体网格；x86 文本模式为 80×25，纯串口 aarch64/riscv64 无 framebuffer 时使用 80×24。首版没有运行时尺寸变更通知。
 
 只有当前前台用户任务可设置模式；init、内核任务及后台任务返回 Access。租约由 PID 持有，不随 FD 复制而复制，前台交接、拥有者退出或 panic 会释放。释放时丢弃应用残留输入、重置控制序列、清屏并显示光标；其他控制台输出在占用期间暂存至 1 KiB 缓冲，释放后显示，超限有截断提示。不是 POSIX termios 的完整实现。
 
-输出使用通用 ANSI 子集：`CSI row;col H`/`f`（从 1 开始，缺省 1）、`CSI 2J`（清屏）、`CSI K`/`2K`（清到行尾/清整行）、`CSI ?25h`/`?25l`（显示/隐藏光标）。同一流发送到串口并由共享解析器交给 framebuffer 或架构文本后端，坐标在后端按实际网格限界。PS/2/VirtIO 方向键统一发出 `ESC [ A/B/C/D`，Home/End 发出 `ESC [ H/F`，Delete 发出 `ESC [ 3 ~`；串口可直接发送相同协议。
+输出使用通用 ANSI 子集：`CSI row;col H`/`f`（从 1 开始，缺省 1）、`CSI nG`（当前行第 n 列，缺省 1）、`CSI 2J`（清屏）、`CSI K`/`2K`（清到行尾/清整行）、`CSI ?25h`/`?25l`（显示/隐藏光标）。同一流发送到串口并由共享解析器交给 framebuffer 或架构文本后端，坐标在后端按实际网格限界。PS/2/VirtIO 方向键统一发出 `ESC [ A/B/C/D`，Home/End 发出 `ESC [ H/F`，Delete 发出 `ESC [ 3 ~`；串口可直接发送相同协议。
 
 基础组件可使用 Clang C/C++，C++ 组件使用相同 zstl include root、禁用宿主 C++ CRT/异常/RTTI，共用 C 链接运行时声明。zcc 的显式应用路径继续处理 C；选择 zcc 构建 C++ 应用会报错，不静默切换编译器。
 
@@ -95,7 +97,21 @@ SP -> argc                64 位
 
 前台控制者读取输入时，Ctrl-C 作为字节 3 交给用户态取消输入行；其他前台任务运行时，控制台消费 Ctrl-C 并丢弃待读输入，通过既有安全终止机制请求退出，退出码为 `PROCESS_STATUS_KILLED`（-128）。init 和所有内核 MM 任务共用同一终止保护；IRQ 不关闭 FD、不释放地址空间、不直接销毁任务。前台之外的控制台读取失败（旧 read ABI 返回 -1）；输出仍可共享。Shift/Ctrl 转换由 PS/2 和 VirtIO 键盘共用，串口直接提供相同字节。
 
-这是单控制台、单前台 PID 的接口，不是 POSIX 信号或进程组接口，不向后代进程广播中断。EOF、回显和行编辑仍由读取程序解释，Ctrl-D 不直接终止任意用户程序。
+单命令保留上述单前台 PID 行为；最小管道使用下述命令组协议。它们不是 POSIX 信号、通用进程组或后台作业控制。EOF、回显和行编辑仍由读取程序解释，Ctrl-D 不直接终止任意用户程序。
+
+## 前台命令组
+
+对真实 console FD 调用 `TERMINAL_JOB_BEGIN`，仅当前前台普通用户任务可成功；已有命令组或原始输入租约时 Busy，init/内核/后台任务 Access。开始前检查已有 Ctrl-C，返回 Interrupted 时不建立命令组。组由拥有者 PID 标识，始终保留拥有者的前台归属以便并发发布多个命令；拥有者在组期间不能读取控制台，组成员可以读取，原始输入租约进一步限制到租约持有者。
+
+拥有者的 `spawn_foreground` 在子进程发布时原子加入该组，不转移单独的前台 PID；组成员产生的用户子进程继承成员身份（包括普通 spawn 和被 init 收养的后代）。Ctrl-C 标记该组中断并请求终止全部成员；已取消的组拒绝继续发布成员。请求沿用 init/内核保护和安全退出边界，不在 IRQ 中销毁任务。后台任务不能借此加入其他人的组。组成员不能再 BEGIN 一个嵌套组；首版由一个拥有者启动并管理整条管道。
+
+只有拥有者可 CANCEL 或 END。CANCEL 请求终止全部成员并封闭后续创建；END 可中断地等待所有成员结束，释放组，并在发生 Ctrl-C 时返回 Interrupted；主动 CANCEL 的错误清理不伪装成键盘中断。shell 仍逐个 wait 回收直接子进程，孤儿由 init 回收。拥有者退出时自动取消该组，终端不会依赖用户清理代码才能恢复。成员身份保存在任务中，只存 PID，不借用其他 Task 的指针。
+
+## 匿名管道 ABI
+
+`sys_pipe2(int ends[2], int flags)`（331）创建读端 ends[0]、写端 ends[1]；flags 仅接受 0 或 O_CLOEXEC。先验证完整可写输出范围和两个空 FD 槽，再分配端点/描述，失败回收全部资源；无效 flags/地址返回 Invalid，FD 不足返回 Full，分配失败返回 NoMem。每个进程仍最多 16 个 FD。`fstat` 类型为 FILE_TYPE_PIPE=4，size/device/inode 为 0；不表示磁盘文件。
+
+两个端点通过 zstl move-only owner 和领域释放器引用同一 4 KiB 环形缓冲；dup/spawn 共享打开描述，最后一个该方向的描述关闭后才关闭端点。管道不维护文件偏移，不参与存储冻结。读到已有数据即可短读返回，不为填满用户缓冲等待下一批；空缓冲在仍有写端时睡眠，否则返回 0。写满缓冲时睡眠，读端关闭唤醒写者并返回 I/O 错误，不产生 SIGPIPE。两端关闭均唤醒等待者；终止请求可打断等待。read/write 沿用旧 ABI：失败且未传输时返回 -1，已传输时可返回正的短计数；调用者负责循环。
 
 ## FD 和资源
 

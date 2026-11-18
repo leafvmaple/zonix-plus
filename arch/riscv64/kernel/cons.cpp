@@ -43,6 +43,7 @@ TerminalSize arch_screen_size() {
     return {24, 80};
 }
 void arch_move_cursor(unsigned int, unsigned int) {}
+void arch_move_column(unsigned int) {}
 void arch_clear_screen() {}
 void arch_erase_line(unsigned int) {}
 void arch_set_cursor_visible(bool) {}

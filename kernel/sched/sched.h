@@ -60,6 +60,7 @@ private:
     sys::unique_ptr<MemoryDesc> owned_memory_;
     MemoryDesc* borrowed_memory_{};
     bool termination_requested_{};
+    int console_job_{};
     volatile TaskState state_{};  // Process state
     fd::Table files_{};
     friend struct TaskAccess;
@@ -84,6 +85,11 @@ public:
     int time_slice{};                   // Remaining ticks in current quantum
     volatile int need_resched{};        // Set by timer ISR to request reschedule
 
+    int console_job() const { return console_job_; }
+    void set_console_job(int owner) {
+        assert(state_ == TaskState::Uninit);
+        console_job_ = owner;
+    }
     bool termination_requested() const { return termination_requested_; }
     void run();
     void sleep();
@@ -188,6 +194,8 @@ public:
                                   const char* name, bool foreground = false);
     static Error terminate(int pid);
     static Error interrupt_console(int pid);
+    static void interrupt_job(int owner);
+    static bool has_live_job(int owner);
     static Result<int> wait_ready(int pid, int* code_store);
     static int exit(int error_code);
     static Result<int> wait(int pid, int* code_store);

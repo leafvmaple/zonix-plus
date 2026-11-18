@@ -67,9 +67,10 @@ long sys_file_io(Task* cur, int fd, uintptr_t user_buf, size_t count, FileIo ope
             failed = true;
             break;
         }
-        entry->set_offset(to_user ? entry->offset() + bytes : next_offset);
+        if (!entry->file()->is_stream())
+            entry->set_offset(to_user ? entry->offset() + bytes : next_offset);
         done += bytes;
-        if (bytes < chunk) {
+        if (bytes < chunk || (to_user && entry->file()->is_stream())) {
             break;
         }
     }
@@ -90,6 +91,22 @@ long syscall::open(Task* cur, const char* user_path, int flags, int mode) {
 
     auto result = cur->files().open(path, flags);
     return result.ok() ? result.value() : -1;
+}
+
+long syscall::pipe2(Task* task, uintptr_t output, long flags) {
+    if (!task || (flags != 0 && flags != O_CLOEXEC) ||
+        !vmm::user_range_valid(task->memory(), output, 2 * sizeof(int), true))
+        return static_cast<long>(Error::Invalid);
+    int ends[2];
+    Error error = task->files().create_pipe(ends, flags == O_CLOEXEC);
+    if (error != Error::None)
+        return static_cast<long>(error);
+    error = vmm::copy_to_user(task->memory(), output, ends, sizeof(ends));
+    if (error != Error::None) {
+        static_cast<void>(task->files().close(ends[0]));
+        static_cast<void>(task->files().close(ends[1]));
+    }
+    return static_cast<long>(error);
 }
 
 long syscall::dup2(Task* task, long old_fd, long new_fd) {

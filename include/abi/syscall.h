@@ -37,6 +37,7 @@
 #define NR_FSTAT     108
 #define NR_YIELD     158
 #define NR_GETCWD    183
+#define NR_PIPE2     331
 #define NR_SPAWN     400
 #define NR_SHUTDOWN  401
 #define NR_SPAWN_FOREGROUND 402

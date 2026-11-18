@@ -47,7 +47,8 @@ public:
 
     void init();
     // Consume the file on success and failure; reserve a description before mutating open().
-    Result<int> alloc(vfs::FileHandle file);
+    Result<int> alloc(vfs::FileHandle file, bool close_on_exec = false);
+    Error create_pipe(int (&ends)[2], bool close_on_exec);
     Result<int> open(const char* path, int flags);
     bool has_space() const;
     size_t size() const;

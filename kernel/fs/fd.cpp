@@ -35,13 +35,13 @@ Result<int> Table::install(OpenFileRef file, bool close_on_exec, int minimum) {
     return Error::Full;
 }
 
-Result<int> Table::alloc(vfs::FileHandle file) {
+Result<int> Table::alloc(vfs::FileHandle file, bool close_on_exec) {
     ENSURE(file, Error::Invalid);
     ENSURE(has_space(), Error::Full);
     OpenFileRef description(new (sys::nothrow) OpenFile());
     ENSURE(description, Error::NoMem);
     description->file_ = sys::move(file);
-    return install(sys::move(description));
+    return install(sys::move(description), close_on_exec);
 }
 
 Result<int> Table::open(const char* path, int flags) {
