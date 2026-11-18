@@ -298,7 +298,7 @@ public:
 private:
     static void queue_event(const DisplayEvent& event) {
         size_t next = (events_write_ + 1) % events_.size();
-        unsigned long timestamp_ms = trap::uptime_ms();
+        auto timestamp_ms = static_cast<long>(trap::uptime_ms());
         if (next == events_read_) {
             events_read_ = events_write_;
             events_[events_write_] = {{DISPLAY_EVENT_RESET, 0, 0, event.modifiers}, timestamp_ms};

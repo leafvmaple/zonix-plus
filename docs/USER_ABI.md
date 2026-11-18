@@ -189,7 +189,7 @@ syscall 边界先复制描述、检查会话和完整源地址跨度，再逐行
 
 `DisplayEvent` 固定 16 字节，由 type、code、value、modifiers 四个 32 位字段组成，value 为有符号整数。事件只交给以 `DISPLAY_ACQUIRE_EVENTS` 取得会话的 File 与 PID。缺少对应会话返回 Access，输出地址无效返回 Invalid，终止请求可中断阻塞读取。
 
-`DisplayTimedEvent` 固定 24 字节，在 `DisplayEvent` 后附加 64 位无符号 `timestamp_ms`。时间以开机后的单调毫秒计，10 毫秒精度，在事件入队时记录。两种读取请求使用同一事件队列。
+`DisplayTimedEvent` 固定 24 字节，在 `DisplayEvent` 后附加一个 64 位 `long` 字段 `timestamp_ms`。时间以开机后的非负单调毫秒计，10 毫秒精度，在事件入队时记录。两种读取请求使用同一事件队列。
 
 | type | code 与 value |
 | --- | --- |

@@ -71,7 +71,7 @@ struct DisplayEvent {
  * requests consume the same event stream. */
 struct DisplayTimedEvent {
     struct DisplayEvent event;
-    unsigned long timestamp_ms;
+    long timestamp_ms;
 };
 
 #endif /* ZONIX_ABI_DISPLAY_H */
