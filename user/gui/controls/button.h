@@ -13,6 +13,7 @@ public:
     static Button* create(zocos::Director& director, const mstd::string& text, Action action);
     void layout(zocos::Size size, Alignment alignment = Alignment::Center);
     void set_enabled(bool enabled);
+    void set_render_layer(unsigned short layer);
 
 private:
     explicit Button(zocos::Director& director) : palette_(director) {}
@@ -22,6 +23,7 @@ private:
     static constexpr float TEXT_INSET = 11.f;
     control_style::Palette palette_;
     zocos::Label* label_{};
+    unsigned short render_layer_{};
     bool enabled_ = true;
 };
 

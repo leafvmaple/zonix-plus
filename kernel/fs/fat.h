@@ -56,6 +56,7 @@ public:
 
     Error mkdir(const char* relpath);
     Error create_file(const char* relpath);
+    Error rename(const char* relpath, const char* new_name);
     Error unlink(const char* relpath);
     Error rmdir(const char* relpath);
 
@@ -90,7 +91,8 @@ private:
     Error free_detached_chain();
     void rollback_new_cluster(uint32_t start_cluster);
 
-    Error find_entry(uint32_t start_cluster, const char* name, FatDirEntry* out, EntryLocation* location = nullptr);
+    Error find_entry(uint32_t start_cluster, const char* name, FatDirEntry* out, EntryLocation* location = nullptr,
+                     bool* has_long_name = nullptr);
     Error write_file_entry(const EntryLocation& location, const FatDirEntry& entry);
     // One write owns its cursor and sector scratch off the 4KB kernel stack.
     struct WriteState {

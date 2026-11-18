@@ -39,12 +39,17 @@ void Button::set_enabled(bool enabled) {
     label_->setOpacity(enabled ? 1.f : 0.45f);
 }
 
+void Button::set_render_layer(unsigned short layer) {
+    render_layer_ = layer;
+    label_->setRenderLayer(layer);
+}
+
 void Button::draw(zocos::Renderer& renderer, const zocos::Mat4& world) {
     using control_style::Color;
     auto color = Color::Disabled;
     if (enabled_)
         color = isPressed() ? Color::Pressed : Color::Button;
-    palette_.button(renderer, world, getContentSize(), color);
+    palette_.button(renderer, world, getContentSize(), color, zocos::makeRenderSortKey(0, render_layer_, 0));
 }
 
 bool Button::hitTest(float x, float y) const {

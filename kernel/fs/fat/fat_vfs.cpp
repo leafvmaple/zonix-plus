@@ -115,6 +115,11 @@ public:
         return fat_.create_file(relpath);
     }
 
+    Error rename(const char* relpath, const char* new_name) override {
+        sys::lock_guard<Mutex> guard(mutex_);
+        return fat_.rename(relpath, new_name);
+    }
+
     Error unlink(const char* relpath) override {
         sys::lock_guard<Mutex> guard(mutex_);
         FatDirEntry entry{};

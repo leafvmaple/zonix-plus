@@ -135,6 +135,7 @@ Error stat(const char* path, Stat* st);
 Result<int> readdir(const char* path, DirVisitor& visitor);
 
 Error mkdir(const char* path);
+Error rename(const char* path, const char* new_name);
 Error create(const char* path);
 Error unlink(const char* path);
 Error rmdir(const char* path);

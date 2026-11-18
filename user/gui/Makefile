@@ -10,7 +10,7 @@ MINICOCOS_ENGINE := $(GUI_OBJDIR)/engine
 MINICOCOS_CORE := $(MINICOCOS_ENGINE)/libzocos_core.a
 GUI_OBJECTS := $(addprefix $(GUI_OBJDIR)/,math_x86.cpp.o window_channel.cpp.o window_view.cpp.o file_utils.cpp.o \
                                         controls/style.cpp.o controls/button.cpp.o controls/toolbar.cpp.o \
-                                        controls/context_menu.cpp.o controls/icon_grid.cpp.o)
+                                        controls/context_menu.cpp.o controls/icon_grid.cpp.o controls/dialog.cpp.o)
 ZONIX_GUI := $(GUI_OBJDIR)/libzonix_gui.a
 MINICOCOS_LIB := $(MINICOCOS_ENGINE)/libzocos_software.a
 GUI_LIBRARIES := $(ZONIX_GUI) $(MINICOCOS_CORE) $(MINICOCOS_LIB)

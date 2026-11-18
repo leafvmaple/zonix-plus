@@ -129,12 +129,14 @@ Result<int> FatInfo::read_dir(const char* relpath, DirVisitor& visitor) {
     return read_dir(start_cluster, visitor);
 }
 
-Error FatInfo::find_entry(uint32_t start_cluster, const char* name, FatDirEntry* out, EntryLocation* location) {
+Error FatInfo::find_entry(uint32_t start_cluster, const char* name, FatDirEntry* out, EntryLocation* location,
+                          bool* has_long_name) {
     auto scratch = TRY(KernelBuffer::alloc(BlockDevice::BLOCK_SIZE_BYTES));
     auto& sector_buf = *reinterpret_cast<SectorArray<FatDirEntry>*>(scratch.data());
 
     ClusterChain chain(*this, start_cluster);
     uint32_t cluster{};
+    bool preceding_long_name = false;
     while ((cluster = TRY(chain.next())) != 0) {
         uint32_t base_sector = cluster_to_sector(cluster);
         for (uint32_t i = 0; i < sectors_per_cluster_; i++) {
@@ -144,8 +146,10 @@ Error FatInfo::find_entry(uint32_t start_cluster, const char* name, FatDirEntry*
                 if (entry.is_end())
                     return Error::NotFound;
 
-                if (!entry.is_valid())
+                if (!entry.is_valid()) {
+                    preceding_long_name = !entry.is_deleted() && entry.attr == FAT_ATTR_LFN;
                     continue;
+                }
 
                 char entry_name[MAX_PART_LEN]{};
                 entry.get_filename(entry_name, sizeof(entry_name));
@@ -158,8 +162,11 @@ Error FatInfo::find_entry(uint32_t start_cluster, const char* name, FatDirEntry*
                     if (location) {
                         *location = {base_sector + i, static_cast<uint32_t>(&entry - sector_buf.entries)};
                     }
+                    if (has_long_name)
+                        *has_long_name = preceding_long_name;
                     return Error::None;
                 }
+                preceding_long_name = false;
             }
         }
     }
@@ -712,6 +719,31 @@ Error FatInfo::unlink(const char* relpath) {
     return free_detached_chain();
 }
 
+Error FatInfo::rename(const char* relpath, const char* new_name) {
+    uint32_t parent_cluster{};
+    char child_name[MAX_PART_LEN]{};
+    TRY(resolve_parent(relpath, &parent_cluster, child_name, sizeof(child_name)));
+
+    FatDirEntry entry{};
+    EntryLocation location{};
+    bool has_long_name{};
+    TRY(find_entry(parent_cluster, child_name, &entry, &location, &has_long_name));
+    FatDirEntry updated = entry;
+    TRY(make_83_name(new_name, updated.name, updated.ext));
+    char target[MAX_PART_LEN]{};
+    updated.get_filename(target, sizeof(target));
+    if (strcmp(child_name, target) == 0)
+        return Error::None;
+    ENSURE(!has_long_name, Error::NotSupported);
+    ENSURE((entry.attr & FAT_ATTR_READ_ONLY) == 0, Error::Access);
+    Error existing = find_entry(parent_cluster, target, &entry);
+    ENSURE(existing != Error::None, Error::Exists);
+    ENSURE(existing == Error::NotFound, existing);
+
+    // Keep the directory slot identity, attributes and cluster chain.
+    return write_file_entry(location, updated);
+}
+
 Error FatInfo::rmdir(const char* relpath) {
     ENSURE(relpath);
     TRY(free_detached_chain());
@@ -723,6 +755,7 @@ Error FatInfo::rmdir(const char* relpath) {
     FatDirEntry entry{};
     TRY(find_entry(parent_cluster, child_name, &entry));
     ENSURE(entry.is_directory());  // Not a directory.
+    ENSURE((entry.attr & FAT_ATTR_READ_ONLY) == 0, Error::Access);
 
     // Check that directory is empty (only . and .. allowed).
     uint32_t dir_cluster = entry.cluster();
@@ -758,8 +791,7 @@ Error FatInfo::rmdir(const char* relpath) {
 
     ENSURE(empty, Error::NotEmpty);
 
-    // Free the directory's cluster chain.
-    TRY(free_chain(dir_cluster));
-
-    return remove_dir_entry(parent_cluster, child_name);
+    TRY(remove_dir_entry(parent_cluster, child_name));
+    pending_free_cluster_ = dir_cluster;
+    return free_detached_chain();
 }

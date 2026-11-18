@@ -26,6 +26,7 @@
 #define NR_PAUSE     29
 #define NR_SYNC      36
 #define NR_KILL      37
+#define NR_RENAME    38
 #define NR_MKDIR     39
 #define NR_RMDIR     40
 #define NR_IOCTL     54

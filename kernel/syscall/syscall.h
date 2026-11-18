@@ -17,6 +17,7 @@ long spawn(Task* task, const char* path, long argc, uintptr_t argv, bool foregro
 long wait(Task* task, long pid, uintptr_t status);
 long process_next(Task* task, long after_pid, uintptr_t output);
 long mkdir(Task* task, const char* path);
+long rename(Task* task, const char* path, uintptr_t new_name);
 long unlink(Task* task, const char* path);
 long rmdir(Task* task, const char* path);
 long fstat(Task* task, int fd, uintptr_t output);

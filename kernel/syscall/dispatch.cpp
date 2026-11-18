@@ -38,6 +38,7 @@ bool dispatch(Task* task, long nr, uintptr_t arg0, uintptr_t arg1, uintptr_t arg
             result = 0;
             return true;
         case NR_MKDIR: result = mkdir(task, reinterpret_cast<const char*>(arg0)); return true;
+        case NR_RENAME: result = rename(task, reinterpret_cast<const char*>(arg0), arg1); return true;
         case NR_UNLINK: result = unlink(task, reinterpret_cast<const char*>(arg0)); return true;
         case NR_RMDIR: result = rmdir(task, reinterpret_cast<const char*>(arg0)); return true;
         case NR_FSTAT: result = fstat(task, static_cast<int>(arg0), arg1); return true;

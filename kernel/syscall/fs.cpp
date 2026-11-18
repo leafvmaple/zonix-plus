@@ -17,6 +17,14 @@ long path_operation(Task* task, const char* user, Error (*operation)(const char*
 long syscall::mkdir(Task* task, const char* path) {
     return path_operation(task, path, vfs::mkdir);
 }
+long syscall::rename(Task* task, const char* path, uintptr_t new_name) {
+    char source[exec::MAX_PATH]{};
+    char name[exec::MAX_PATH]{};
+    Error error = copy_path(task, path, source);
+    if (error == Error::None)
+        error = copy_string(task, new_name, name, sizeof(name));
+    return static_cast<long>(error == Error::None ? vfs::rename(source, name) : error);
+}
 long syscall::unlink(Task* task, const char* path) {
     return path_operation(task, path, vfs::unlink);
 }

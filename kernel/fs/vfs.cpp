@@ -38,6 +38,22 @@ public:
     static void thaw() { io_gate_.open(); }
     static bool is_frozen() { return io_gate_.is_closed(); }
     static bool owns_freeze() { return io_gate_.is_owner(); }
+    static bool is_mount_name(const char* name) {
+        for (const auto& slot : mounts_) {
+            const char* part = name;
+            const char* mount_name = slot.mount_point + 1;
+            while (*part && *mount_name) {
+                char ch = *part >= 'A' && *part <= 'Z' ? *part + ('a' - 'A') : *part;
+                if (ch != *mount_name)
+                    break;
+                ++part;
+                ++mount_name;
+            }
+            if (!*part && !*mount_name)
+                return true;
+        }
+        return false;
+    }
 
 private:
     friend MountSlot* find_slot(const char* mount_point);
@@ -388,6 +404,19 @@ Error create(const char* path) {
     return resolved.mount->fs->create(resolved.relpath);
 }
 
+Error rename(const char* path, const char* new_name) {
+    ENSURE(new_name && *new_name && !strchr(new_name, '/') && strcmp(new_name, ".") != 0 && strcmp(new_name, "..") != 0,
+           Error::Invalid);
+    auto resolved = TRY(resolve_path(path));
+    ENSURE(*resolved.relpath, Error::Access);
+    if (strcmp(resolved.mount->mount_point, "/") == 0 && !strchr(resolved.relpath, '/')) {
+        ENSURE(!State::is_mount_name(resolved.relpath) && !State::is_mount_name(new_name), Error::Access);
+    }
+    ActivityGuard activity;
+    TRY(begin_storage_io(resolved, activity));
+    return resolved.mount->fs->rename(resolved.relpath, new_name);
+}
+
 Error unlink(const char* path) {
     auto resolved = TRY(resolve_path(path));
     ActivityGuard activity;
@@ -396,6 +425,9 @@ Error unlink(const char* path) {
 }
 
 Error rmdir(const char* path) {
+    if (path) {
+        ENSURE(!State::is_mount_name(path[0] == '/' ? path + 1 : path), Error::Access);
+    }
     auto resolved = TRY(resolve_path(path));
     ActivityGuard activity;
     TRY(begin_storage_io(resolved, activity));

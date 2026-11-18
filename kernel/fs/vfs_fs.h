@@ -24,6 +24,11 @@ public:
         static_cast<void>(relpath);
         return Error::NotSupported;
     }
+    virtual Error rename(const char* relpath, const char* new_name) {
+        static_cast<void>(relpath);
+        static_cast<void>(new_name);
+        return Error::NotSupported;
+    }
     virtual Error unlink(const char* relpath) {
         static_cast<void>(relpath);
         return Error::NotSupported;

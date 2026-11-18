@@ -1,6 +1,7 @@
 #include "../command.h"
 #include "../gui/controls/button.h"
 #include "../gui/controls/context_menu.h"
+#include "../gui/controls/dialog.h"
 #include "../gui/controls/icon_grid.h"
 #include "../gui/controls/toolbar.h"
 #include "../gui/platform.h"
@@ -14,6 +15,7 @@
 namespace {
 
 using zonix_gui::Button;
+using zonix_gui::Dialog;
 using zonix_gui::IconGrid;
 using zonix_gui::control_style::Color;
 using zonix_gui::control_style::Palette;
@@ -80,8 +82,11 @@ private:
         long index;
     };
     static constexpr int HISTORY_SIZE = 16;
+    // Keep one byte past the FAT limit so an overlong name is rejected.
+    static constexpr mstd::size_t NAME_INPUT_LIMIT = 13;
     mstd::vector<Entry> page_;
     IconGrid* grid_{};
+    Dialog* dialog_{};
     sys::array<mstd::string, HISTORY_SIZE> history_{};
     zonix_gui::Toolbar* toolbar_{};
     zocos::Label* status_{};
@@ -179,6 +184,11 @@ private:
         scene.addChild(grid_);
         page_.reserve(grid_->capacity());
 
+        dialog_ = Dialog::create(director);
+        if (!dialog_)
+            return false;
+        scene.addChild(dialog_, dialog_->getLocalZOrder());
+
         auto* keys = zocos::EventListenerKeyboard::create([this](zocos::EventKeyboard& event) { handle_key(event); });
         if (!keys)
             return false;
@@ -195,10 +205,65 @@ private:
         zonix_gui::ContextMenu::Items items;
         if (selected_folder())
             items.push_back({"Open", refresh_after([this] { open_selected(); })});
+        int selected = grid_->selection();
+        if (selected != IconGrid::NO_ITEM) {
+            const auto& entry = page_[selected].item;
+            if (entry.type == FILE_TYPE_FILE || entry.type == FILE_TYPE_DIRECTORY) {
+                items.push_back({"Rename", [this, entry] { rename_item(entry); }});
+                items.push_back({"Delete", [this, entry] { delete_item(entry); }});
+            }
+        }
+        items.push_back({"New folder", [this] { new_folder(); }});
         if (!root())
             items.push_back({"Go up", refresh_after([this] { parent(); })});
         items.push_back({"Refresh", refresh_after([this] { refresh_directory(); })});
         return items;
+    }
+
+    static bool is_leaf_name(const mstd::string& name) {
+        if (name.empty() || name == "." || name == "..")
+            return false;
+        for (char ch : name) {
+            if (ch == '/' || ch == '\\')
+                return false;
+        }
+        return true;
+    }
+
+    const char* finish_mutation(long error) {
+        if (error < 0)
+            return command_error_text(error);
+        refresh_directory();
+        update_controls();
+        return nullptr;
+    }
+
+    void new_folder() {
+        dialog_->prompt("New folder", "", NAME_INPUT_LIMIT, [this](const mstd::string& name) {
+            if (!is_leaf_name(name))
+                return "Enter a single folder name";
+            long error = sys_mkdir(const_cast<char*>(name.c_str()));
+            return error == SYS_ERROR_INVALID ? "Use a FAT 8.3 name" : finish_mutation(error);
+        });
+    }
+
+    void rename_item(const DirectoryEntry& entry) {
+        dialog_->prompt("Rename", entry.name, NAME_INPUT_LIMIT,
+                        [this, source = mstd::string(entry.name)](const mstd::string& name) {
+            if (!is_leaf_name(name))
+                return "Enter a single file or folder name";
+            long error = sys_rename(const_cast<char*>(source.c_str()), const_cast<char*>(name.c_str()));
+            return error == SYS_ERROR_INVALID ? "Use a FAT 8.3 name" : finish_mutation(error);
+        });
+    }
+
+    void delete_item(const DirectoryEntry& entry) {
+        dialog_->confirm("Permanently delete this item?", entry.name,
+                         [this, name = mstd::string(entry.name), folder = entry.type == FILE_TYPE_DIRECTORY]
+                         (const mstd::string&) {
+            auto* path = const_cast<char*>(name.c_str());
+            return finish_mutation(folder ? sys_rmdir(path) : sys_unlink(path));
+        });
     }
 
     void handle_key(const zocos::EventKeyboard& event) {
