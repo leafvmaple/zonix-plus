@@ -82,10 +82,11 @@ public:
             }
             if (error < 0 || (static_cast<unsigned long>(ready) & display_mask) == 0)
                 continue;
-            DisplayEvent event{};
-            error = sys_ioctl(fd_, DISPLAY_READ_EVENT, reinterpret_cast<long>(&event));
+            DisplayTimedEvent input{};
+            error = sys_ioctl(fd_, DISPLAY_READ_TIMED_EVENT, reinterpret_cast<long>(&input));
             if (error < 0)
                 break;
+            const auto& event = input.event;
             if (event.type == DISPLAY_EVENT_KEY && event.value == DISPLAY_KEY_PRESS) {
                 bool client_shortcuts = top_window() >= TERMINAL_WINDOW;
                 if (event.code == KEY_F12 ||
@@ -94,7 +95,7 @@ public:
                 if (!client_shortcuts && event.code == KEY_C && (event.modifiers & DISPLAY_MOD_CTRL) != 0)
                     sys_exit(PROCESS_STATUS_KILLED);
             }
-            error = handle(event);
+            error = handle(input);
         }
         return error;
     }
@@ -108,6 +109,8 @@ private:
     static constexpr unsigned int KEY_F4 = 62;
     static constexpr unsigned int KEY_F12 = 88;
     static constexpr int NO_WINDOW = -1;
+    static constexpr unsigned long DOUBLE_CLICK_MS = 400;
+    static constexpr int CLICK_DISTANCE = 5;
     static constexpr int CURSOR_SIZE = 11;
     static constexpr int TILE_SIZE = 64;
     static constexpr unsigned int FOCUSED_BORDER = 0x72CFCC;
@@ -129,6 +132,28 @@ private:
     bool terminal_fits_{};
     int drag_ = NO_WINDOW;
     sys::array<int, 3> button_targets_{{NO_WINDOW, NO_WINDOW, NO_WINDOW}};
+    struct Click {
+        int window = NO_WINDOW;
+        Point position{};
+        unsigned long timestamp_ms{};
+    };
+    Click last_click_{};
+    Point left_press_{};
+    bool left_click_{};
+
+    static bool near(Point a, Point b) {
+        int dx = a.x - b.x, dy = a.y - b.y;
+        return dx >= -CLICK_DISTANCE && dx <= CLICK_DISTANCE && dy >= -CLICK_DISTANCE && dy <= CLICK_DISTANCE;
+    }
+
+    bool finish_click(int index, unsigned long timestamp_ms) {
+        bool complete = left_click_ && index != NO_WINDOW && in_body(windows_[index].rect, pointer_);
+        left_click_ = false;
+        bool double_click = complete && last_click_.window == index && near(last_click_.position, pointer_) &&
+                            timestamp_ms - last_click_.timestamp_ms <= DOUBLE_CLICK_MS;
+        last_click_ = complete && !double_click ? Click{index, pointer_, timestamp_ms} : Click{};
+        return double_click;
+    }
 
     static int clamp(long value, int limit) {
         if (value < 0)
@@ -197,15 +222,17 @@ private:
     long show(int index, unsigned int modifiers) {
         if (index == TERMINAL_WINDOW && !terminal_fits_)
             return 0;
+        int previous = top_window();
         if (!windows_[index].open())
             start_client(index);
-        return windows_[index].open() ? focus(index, modifiers) : 0;
+        return windows_[index].open() ? focus(index, previous, modifiers) : 0;
     }
 
-    long focus(int index, unsigned int modifiers) {
-        int back = top_window();
-        if (index == back)
+    long focus(int index, int previous, unsigned int modifiers) {
+        if (index == previous)
             return repaint(windows_[index].rect);
+        last_click_ = {};
+        left_click_ = false;
         for (int slot = 0; slot < WINDOW_COUNT; ++slot) {
             if (order_[slot] != index)
                 continue;
@@ -216,9 +243,9 @@ private:
             order_[0] = index;
             break;
         }
-        long error = send(back, {DISPLAY_EVENT_RESET, 0, 0, modifiers});
-        if (error == 0 && back != NO_WINDOW && windows_[back].open())
-            error = repaint(windows_[back].rect);
+        long error = send(previous, {DISPLAY_EVENT_RESET, 0, 0, modifiers});
+        if (error == 0 && previous != NO_WINDOW && windows_[previous].open())
+            error = repaint(windows_[previous].rect);
         return error < 0 ? error : repaint(windows_[index].rect);
     }
 
@@ -233,6 +260,8 @@ private:
         }
         if (drag_ == index)
             drag_ = NO_WINDOW;
+        if (last_click_.window == index)
+            last_click_ = {};
         for (auto& target : button_targets_) {
             if (target == index)
                 target = NO_WINDOW;
@@ -246,7 +275,8 @@ private:
         return repaint(old);
     }
 
-    long handle(const DisplayEvent& event) {
+    long handle(const DisplayTimedEvent& input) {
+        const auto& event = input.event;
         if (event.type == DISPLAY_EVENT_KEY) {
             if (event.code >= KEY_F2 && event.code <= KEY_F4) {
                 int index = TERMINAL_WINDOW + static_cast<int>(event.code - KEY_F2);
@@ -266,6 +296,8 @@ private:
         }
         if (event.type == DISPLAY_EVENT_RESET) {
             drag_ = NO_WINDOW;
+            last_click_ = {};
+            left_click_ = false;
             for (auto& target : button_targets_)
                 target = NO_WINDOW;
             for (int index = 0; index < WINDOW_COUNT; ++index) {
@@ -278,29 +310,35 @@ private:
         if (event.type == DISPLAY_EVENT_REL && (event.code == DISPLAY_REL_X || event.code == DISPLAY_REL_Y))
             return move(event);
         if (event.type == DISPLAY_EVENT_BUTTON)
-            return button(event);
+            return button(event, input.timestamp_ms);
         return 0;
     }
 
-    long button(const DisplayEvent& event) {
+    long button(DisplayEvent event, unsigned long timestamp_ms) {
         if (event.code < DISPLAY_BUTTON_LEFT || event.code > DISPLAY_BUTTON_MIDDLE)
             return 0;
         bool left = event.code == DISPLAY_BUTTON_LEFT;
         int& target = button_targets_[event.code - DISPLAY_BUTTON_LEFT];
         if (event.value == DISPLAY_KEY_RELEASE) {
-            if (left)
-                drag_ = NO_WINDOW;
             int index = target;
             target = NO_WINDOW;
+            if (left) {
+                drag_ = NO_WINDOW;
+                if (finish_click(index, timestamp_ms))
+                    event.modifiers |= INPUT_MOD_DOUBLE_CLICK;
+            }
             return send(index, event);
         }
         int index = window_at(pointer_);
+        if (!left || index == NO_WINDOW || !in_body(windows_[index].rect, pointer_))
+            last_click_ = {};
+        DisplayEvent reset{DISPLAY_EVENT_RESET, 0, 0, event.modifiers};
         if (index == NO_WINDOW)
-            return 0;
+            return send(top_window(), reset);
         const auto& rect = windows_[index].rect;
         if (left && close_rect(rect).contains(pointer_))
             return close_window(index);
-        long error = focus(index, event.modifiers);
+        long error = focus(index, top_window(), event.modifiers);
         if (error < 0)
             return error;
         if (left && pointer_.y - rect.origin.y < TITLE_HEIGHT) {
@@ -308,9 +346,13 @@ private:
             drag_offset_ = {pointer_.x - rect.origin.x, pointer_.y - rect.origin.y};
         } else if (in_body(rect, pointer_)) {
             target = index;
+            if (left) {
+                left_press_ = pointer_;
+                left_click_ = true;
+            }
             return send(index, event);
         }
-        return 0;
+        return send(index, reset);
     }
 
     long move(const DisplayEvent& event) {
@@ -319,6 +361,8 @@ private:
             pointer_.x = clamp(static_cast<long>(pointer_.x) + event.value, screen_.width - 1);
         else
             pointer_.y = clamp(static_cast<long>(pointer_.y) + event.value, screen_.height - 1);
+        if (left_click_ && !near(left_press_, pointer_))
+            left_click_ = false;
         if (drag_ != NO_WINDOW) {
             Rect& window = windows_[drag_].rect;
             Rect old_window = window;

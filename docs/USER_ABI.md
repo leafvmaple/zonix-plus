@@ -175,6 +175,7 @@ zcc 是独立 Git 子模块。修改该子模块时，后续提交必须先记�
 | `DISPLAY_RELEASE` (0x5703) | 立即值 0，归还当前 File 与 PID 持有的会话 |
 | `DISPLAY_PRESENT` (0x5704) | 用户 `DisplayPresent*`，提交一个矩形 |
 | `DISPLAY_READ_EVENT` (0x5705) | 用户可写 `DisplayEvent*`，阻塞读取一条键鼠事件，成功返回 0 |
+| `DISPLAY_READ_TIMED_EVENT` (0x5706) | 用户可写 `DisplayTimedEvent*`，阻塞读取一条带入队时间的键鼠事件，成功返回 0 |
 
 `DisplayPresent` 固定 32 字节：x/y/width/height/stride/reserved 各 uint32，随后 pixels 为 64 位用户地址（long，与现有 syscall 地址参数一致）。reserved 必须为 0，宽高非零且整个矩形位于当前分辨率内，源 stride 不小于 width×4，单位为字节。像素为 `DISPLAY_FORMAT_XRGB8888`，每字 0x00RRGGBB；Info.stride 是用户紧密缓冲区每行字节数 width×4，不是硬件扫描行 pitch。内核适配固件 RGB/BGR 排列，不暴露设备地址或映射接口。
 
@@ -187,6 +188,8 @@ syscall 边界先复制描述、检查会话和完整源地址跨度，再逐行
 ### 前台键鼠事件
 
 `DisplayEvent` 固定 16 字节，由 type、code、value、modifiers 四个 32 位字段组成，value 为有符号整数。事件只交给以 `DISPLAY_ACQUIRE_EVENTS` 取得会话的 File 与 PID。缺少对应会话返回 Access，输出地址无效返回 Invalid，终止请求可中断阻塞读取。
+
+`DisplayTimedEvent` 固定 24 字节，在 `DisplayEvent` 后附加 64 位无符号 `timestamp_ms`。时间以开机后的单调毫秒计，10 毫秒精度，在事件入队时记录。两种读取请求使用同一事件队列。
 
 | type | code 与 value |
 | --- | --- |

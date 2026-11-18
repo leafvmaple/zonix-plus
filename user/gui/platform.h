@@ -9,6 +9,13 @@ class Director;
 namespace zonix_gui {
 
 inline constexpr const char* UI_FONT_PATH = "/opt/fonts/UI.TTF";
+inline constexpr float POINTER_RESET_COORDINATE = -1.f;
+
+inline bool is_pointer_reset(zocos::Vec2 pointer) {
+    return pointer.x == POINTER_RESET_COORDINATE && pointer.y == POINTER_RESET_COORDINATE;
+}
+
+bool is_double_click(unsigned int modifiers);
 
 // The caller owns the RGBA surface and keeps it alive until Director::shutdown.
 bool init_offscreen(zocos::Director& director, const zocos::PixelBuffer& buffer, zocos::Color4B background);

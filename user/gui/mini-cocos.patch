@@ -48,3 +48,37 @@
 -    renderer.addDrawSprite(world, _contentSize, texture, getOpacity(), sortKey);
 +    // Backgrounds must sort before the shared font atlas, independent of texture allocation order.
 +    renderer.addDrawSprite(world, _contentSize, texture, getOpacity());
+--- a/src/2d/ZCLabel.h
++++ b/src/2d/ZCLabel.h
+@@ -54,0 +55,3 @@
++    bool updateLayout();
++    void setRenderLayer(mstd::uint16_t layer) { _renderLayer = layer; }
++
+@@ -84,0 +88 @@
++    mstd::uint16_t _renderLayer = 0;
+--- a/src/2d/ZCLabel.cpp
++++ b/src/2d/ZCLabel.cpp
+@@ -282,10 +282,11 @@
+-void Label::draw(Renderer& renderer, const Mat4& world) {
++bool Label::updateLayout() {
+     if (_fontAtlas && _atlasVersion != _fontAtlas->getAtlasVersion()) {
+         _contentDirty = true;
+     }
+-    if (_contentDirty && !updateContent()) {
+-        return;
+-    }
+-    if (!_ready || !_fontAtlas) {
++    return (!_contentDirty || updateContent()) && _ready && _fontAtlas;
++}
++
++void Label::draw(Renderer& renderer, const Mat4& world) {
++    if (!updateLayout()) {
+         return;
+     }
+@@ -312,5 +313,5 @@
+             continue;
+         }
+-        const RenderSortKey sortKey = makeRenderSortKey(0, 0, texture.value);
++        const RenderSortKey sortKey = makeRenderSortKey(0, _renderLayer, texture.value);
+         renderer.addDrawQuads(world, texture, quads, 1.f, sortKey);
+     }

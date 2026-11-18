@@ -4,7 +4,22 @@
 #include "sched/sched.h"
 
 static_assert(sizeof(DisplayInfo) == 16 && sizeof(DisplayPresent) == 32 && sizeof(long) == 8 &&
-              sizeof(DisplayEvent) == 16);
+              sizeof(DisplayEvent) == 16 && sizeof(DisplayTimedEvent) == 24);
+
+namespace {
+
+template<typename Record>
+long read_event(Task* task, vfs::File* file, unsigned int request, uintptr_t argument) {
+    if (!vmm::user_range_valid(task->memory(), argument, sizeof(Record), true))
+        return static_cast<long>(Error::Invalid);
+    Record event{};
+    Error error = file->control(request, &event);
+    if (error != Error::None)
+        return static_cast<long>(error);
+    return static_cast<long>(vmm::copy_to_user(task->memory(), argument, &event, sizeof(event)));
+}
+
+}  // namespace
 
 long syscall::display_control(Task* task, vfs::File* file, unsigned int request, uintptr_t argument) {
     if (request == DISPLAY_GET_INFO) {
@@ -24,15 +39,10 @@ long syscall::display_control(Task* task, vfs::File* file, unsigned int request,
     }
     if (request == DISPLAY_RELEASE)
         return static_cast<long>(argument == 0 ? file->control(request, nullptr) : Error::Invalid);
-    if (request == DISPLAY_READ_EVENT) {
-        if (!vmm::user_range_valid(task->memory(), argument, sizeof(DisplayEvent), true))
-            return static_cast<long>(Error::Invalid);
-        DisplayEvent event{};
-        Error error = file->control(request, &event);
-        if (error != Error::None)
-            return static_cast<long>(error);
-        return static_cast<long>(vmm::copy_to_user(task->memory(), argument, &event, sizeof(event)));
-    }
+    if (request == DISPLAY_READ_EVENT)
+        return read_event<DisplayEvent>(task, file, request, argument);
+    if (request == DISPLAY_READ_TIMED_EVENT)
+        return read_event<DisplayTimedEvent>(task, file, request, argument);
     DisplayPresent rectangle{};
     Error error = vmm::copy_from_user(task->memory(), &rectangle, argument, sizeof(rectangle));
     if (error != Error::None)

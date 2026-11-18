@@ -81,10 +81,9 @@ public:
             return;
         const auto& event = input.event;
         if (event.type == DISPLAY_EVENT_RESET) {
-            if (left_down_) {
-                delegate_->onViewMouseButtonEvent(0, event.modifiers, false, -1.f, -1.f);
-                left_down_ = false;
-            }
+            // Cancel an active touch and let clients dismiss pointer-driven overlays.
+            delegate_->onViewMouseButtonEvent(0, event.modifiers, false, zonix_gui::POINTER_RESET_COORDINATE,
+                                              zonix_gui::POINTER_RESET_COORDINATE);
             return;
         }
         if (event.type == DISPLAY_EVENT_KEY) {
@@ -98,8 +97,6 @@ public:
             event.code <= DISPLAY_BUTTON_MIDDLE) {
             int button = static_cast<int>(event.code - DISPLAY_BUTTON_LEFT);
             bool down = event.value != DISPLAY_KEY_RELEASE;
-            if (button == 0)
-                left_down_ = down;
             delegate_->onViewMouseButtonEvent(button, event.modifiers, down, x, y);
         } else if (event.type == DISPLAY_EVENT_REL && (event.code == DISPLAY_REL_X || event.code == DISPLAY_REL_Y)) {
             delegate_->onViewMouseMoveEvent(x, y, has_mouse_ ? x - mouse_x_ : 0.f, has_mouse_ ? y - mouse_y_ : 0.f);
@@ -125,7 +122,6 @@ public:
 private:
     WindowChannel channel_;
     sys::vector<unsigned int> pixels_;
-    bool left_down_{};
     bool painted_{};
 
     PixelRect changed(const zocos::PixelBuffer& buffer) {
@@ -170,6 +166,10 @@ mstd::unique_ptr<RenderDevice> createDefaultRenderDevice(View& view) {
 
 
 namespace zonix_gui {
+
+bool is_double_click(unsigned int modifiers) {
+    return (modifiers & desktop_ipc::INPUT_MOD_DOUBLE_CLICK) != 0;
+}
 
 bool init_offscreen(zocos::Director& director, const zocos::PixelBuffer& buffer, zocos::Color4B background) {
     if (!director.init(buffer.width, buffer.height, "", mstd::make_unique<SoftwareView>(background)))

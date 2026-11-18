@@ -6,6 +6,7 @@
 #define DISPLAY_RELEASE    0x5703
 #define DISPLAY_PRESENT    0x5704
 #define DISPLAY_READ_EVENT 0x5705
+#define DISPLAY_READ_TIMED_EVENT 0x5706
 
 #define DISPLAY_ACQUIRE_EVENTS          1
 #define DISPLAY_ACQUIRE_KEYBOARD_CTRL_C 2
@@ -64,6 +65,13 @@ struct DisplayEvent {
     unsigned int code;
     int value;
     unsigned int modifiers;
+};
+
+/* The monotonic timestamp is recorded when the event is queued. Both read
+ * requests consume the same event stream. */
+struct DisplayTimedEvent {
+    struct DisplayEvent event;
+    unsigned long timestamp_ms;
 };
 
 #endif /* ZONIX_ABI_DISPLAY_H */

@@ -72,8 +72,14 @@ public:
             owner_pid_ = 0;
             return Error::None;
         }
-        if (request == DISPLAY_READ_EVENT)
-            return cons::read_display_event(this, *static_cast<DisplayEvent*>(value));
+        if (request == DISPLAY_READ_TIMED_EVENT)
+            return cons::read_display_event(this, *static_cast<DisplayTimedEvent*>(value));
+        if (request == DISPLAY_READ_EVENT) {
+            DisplayTimedEvent timed{};
+            TRY(cons::read_display_event(this, timed));
+            *static_cast<DisplayEvent*>(value) = timed.event;
+            return Error::None;
+        }
         if (request == DISPLAY_PRESENT)
             return present(*static_cast<const Blit*>(value));
         return Error::NotSupported;

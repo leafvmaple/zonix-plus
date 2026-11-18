@@ -1,34 +1,50 @@
 #include "../command.h"
+#include "../gui/controls/button.h"
+#include "../gui/controls/context_menu.h"
+#include "../gui/controls/icon_grid.h"
+#include "../gui/controls/toolbar.h"
 #include "../gui/platform.h"
 #include <2d/ZCLabel.h>
+#include <base/ZCAutoreleasePool.h>
 #include <base/ZCDirector.h>
 #include <base/ZCEventListener.h>
 #include <base/keyboard.h>
-#include <ui/UIButton.h>
+#include <sys/array.hpp>
 
 namespace {
 
+using zonix_gui::Button;
+using zonix_gui::IconGrid;
+using zonix_gui::control_style::Color;
+using zonix_gui::control_style::Palette;
+
 constexpr int WIDTH = 500;
 constexpr int HEIGHT = 344;
-constexpr int PAGE_SIZE = 14;
-constexpr float LABEL_SCALE = 0.65f;
-constexpr float ROW_HEIGHT = 18.f;
+// Contents between the navigation toolbar, shortcuts and status bar.
+constexpr zocos::Rect GRID_AREA{110.f, 36.f, WIDTH - 110.f, 263.f};
 
-class DirectoryRow final : public zocos::ui::Widget {
+zocos::Label* make_label(zocos::Director& director, const char* text, float scale) {
+    auto* label = zocos::Label::createWithTTF(director, text, zonix_gui::UI_FONT_PATH, 24.f);
+    if (label)
+        label->setScale(scale);
+    return label;
+}
+
+class Panels final : public zocos::Node {
 public:
-    static DirectoryRow* create(zocos::Label* label, int row) {
-        auto* widget = new (mstd::nothrow) DirectoryRow;
-        if (!widget)
-            return nullptr;
-        widget->init();
-        widget->autorelease();
-        widget->setAnchorPoint({0.f, 0.f});
-        widget->setContentSize({WIDTH - 24.f, ROW_HEIGHT});
-        widget->setPosition({12.f, HEIGHT - 61.f - (row + 1) * ROW_HEIGHT});
-        label->setPosition({4.f, 0.f});
-        widget->addChild(label);
-        return widget;
+    explicit Panels(zocos::Director& director) : palette_(director) {}
+
+    bool init() override { return Node::init() && palette_.init(); }
+
+    void draw(zocos::Renderer& renderer, const zocos::Mat4& world) override {
+        palette_.box(renderer, world, {0.f, 36.f, 109.f, 263.f}, Color::Sidebar);
+        palette_.box(renderer, world, {109.f, 36.f, 1.f, 263.f}, Color::Border);
+        palette_.box(renderer, world, {0.f, 0.f, WIDTH, 36.f}, Color::Toolbar);
+        palette_.box(renderer, world, {0.f, 36.f, WIDTH, 1.f}, Color::Border);
     }
+
+private:
+    Palette palette_;
 };
 
 class Browser {
@@ -38,19 +54,21 @@ public:
         long error = sys_stat(const_cast<char*>(zonix_gui::UI_FONT_PATH), &font);
         if (error < 0)
             return error;
-
         auto& director = zocos::Director::getInstance();
         if (!director.init(WIDTH, HEIGHT, "Files"))
             return SYS_ERROR_IO;
-
-        auto* scene = zocos::Scene::create();
-        if (scene && build_scene(director, *scene)) {
-            refresh_directory();
-            update_controls();
-            director.runWithScene(scene);
-            while (!done_ && director.mainLoop()) {}
-        } else {
-            error = SYS_ERROR_FULL;
+        {
+            zocos::AutoreleasePool startup("Files controls");
+            auto* scene = zocos::Scene::create();
+            if (scene && build_scene(director, *scene)) {
+                refresh_directory();
+                record_location();
+                update_controls();
+                director.runWithScene(scene);
+                while (!done_ && director.mainLoop()) {}
+            } else {
+                error = SYS_ERROR_FULL;
+            }
         }
         director.shutdown();
         return error;
@@ -61,95 +79,147 @@ private:
         DirectoryEntry item;
         long index;
     };
-    struct Row {
-        DirectoryRow* widget;
-        zocos::Label* label;
-    };
-    sys::array<Entry, PAGE_SIZE> page_{};
-    sys::array<Row, PAGE_SIZE> rows_{};
-    zocos::Label* path_label_{};
-    zocos::Label* status_label_{};
-    zocos::ui::Button* up_{};
+    static constexpr int HISTORY_SIZE = 16;
+    mstd::vector<Entry> page_;
+    IconGrid* grid_{};
+    sys::array<mstd::string, HISTORY_SIZE> history_{};
+    zonix_gui::Toolbar* toolbar_{};
+    zocos::Label* status_{};
+    zocos::Label* empty_{};
+    zocos::Label* page_label_{};
+    Button* back_{};
+    Button* forward_{};
+    Button* up_{};
+    Button* previous_{};
+    Button* next_{};
     char path_[PROCESS_MAX_PATH]{"/"};
     const char* message_{};
     long first_{};
-    int count_{};
-    int selected_{};
-    bool more_{};
+    long next_first_{};
+    int page_number_ = 1;
+    int history_count_{};
+    int history_index_ = -1;
     bool done_{};
 
-    static zocos::Label* label(zocos::Director& director, const char* text = "") {
-        auto* node = zocos::Label::createWithTTF(director, text, zonix_gui::UI_FONT_PATH, 24.f);
-        if (node) {
-            node->setAnchorPoint({0.f, 0.f});
-            node->setScale(LABEL_SCALE);
+    static constexpr const char* PLACES[]{"Root", "Home", "Apps"};
+    static constexpr const char* PATHS[]{"/", "/home", "/opt"};
+
+    using Action = mstd::function<void()>;
+
+    Action refresh_after(Action action) {
+        return [this, action = mstd::move(action)] {
+            action();
+            update_controls();
+        };
+    }
+
+    Button* add_button(zocos::Director& director, zocos::Scene& scene, const char* text, zocos::Rect area, Action action,
+                       Button::Alignment alignment = Button::Alignment::Center) {
+        auto* button = Button::create(director, text, refresh_after(mstd::move(action)));
+        if (button) {
+            button->layout({area.width, area.height}, alignment);
+            button->setPosition({area.x, HEIGHT - area.y - area.height});
+            scene.addChild(button);
         }
-        return node;
+        return button;
+    }
+
+    static zocos::Label* add_text(zocos::Director& director, zocos::Scene& scene, const char* text,
+                                  zocos::Vec2 position, float scale, float anchor_x = 0.f) {
+        auto* label = make_label(director, text, scale);
+        if (label) {
+            label->setAnchorPoint({anchor_x, 0.5f});
+            label->setPosition({position.x, HEIGHT - position.y});
+            scene.addChild(label);
+        }
+        return label;
     }
 
     bool build_scene(zocos::Director& director, zocos::Scene& scene) {
-        up_ = zocos::ui::Button::create(director, "Up");
-        path_label_ = label(director);
-        status_label_ = label(director);
-        auto* heading = label(director, "Name");
-        if (!up_ || !path_label_ || !status_label_ || !heading)
+        auto* panels = new (mstd::nothrow) Panels(director);
+        if (!panels || !panels->init()) {
+            delete panels;
             return false;
-        up_->setAnchorPoint({0.f, 0.f});
-        up_->setPosition({12.f, HEIGHT - 40.f});
-        up_->setContentSize({60.f / LABEL_SCALE, 28.f / LABEL_SCALE});
-        up_->setScale(LABEL_SCALE);
-        up_->addEventListener([this](zocos::ui::Widget&) {
-            parent();
+        }
+        panels->autorelease();
+        scene.addChild(panels);
+        toolbar_ = zonix_gui::Toolbar::create(director, WIDTH);
+        if (!toolbar_)
+            return false;
+        toolbar_->setPosition({0.f, HEIGHT - toolbar_->getContentSize().height});
+        scene.addChild(toolbar_);
+        back_ = toolbar_->add_button("<", refresh_after([this] { history_step(-1); }));
+        forward_ = toolbar_->add_button(">", refresh_after([this] { history_step(1); }));
+        up_ = toolbar_->add_button("Up", refresh_after([this] { parent(); }));
+        previous_ = add_button(director, scene, "<", {374.f, 314.f, 31.f, 24.f}, [this] { change_page(-1); });
+        next_ = add_button(director, scene, ">", {459.f, 314.f, 31.f, 24.f}, [this] { change_page(1); });
+        status_ = add_text(director, scene, "", {12.f, 326.f}, 0.59f);
+        page_label_ = add_text(director, scene, "", {432.f, 326.f}, 0.6f, 0.5f);
+        empty_ = add_text(director, scene, "Empty folder", {305.f, 172.f}, 0.71f, 0.5f);
+        if (!back_ || !forward_ || !up_ || !previous_ || !next_ || !status_ || !page_label_ ||
+            !empty_ || !add_text(director, scene, "Locations", {16.f, 65.f}, 0.61f))
+            return false;
+
+        for (int i = 0; i < 3; ++i) {
+            if (!add_button(
+                    director, scene, PLACES[i], {10.f, 81.f + i * 34.f, 88.f, 28.f}, [this, i] { navigate(PATHS[i]); },
+                    Button::Alignment::Left))
+                return false;
+        }
+
+        grid_ = IconGrid::create(director, {GRID_AREA.width, GRID_AREA.height}, [this](IconGrid::Interaction action) {
+            message_ = nullptr;
+            if (action == IconGrid::Interaction::Activate)
+                open_selected();
             update_controls();
         });
-        scene.addChild(up_);
-        path_label_->setPosition({86.f, HEIGHT - 34.f});
-        scene.addChild(path_label_);
-        heading->setPosition({16.f, HEIGHT - 60.f});
-        scene.addChild(heading);
-        status_label_->setPosition({16.f, 9.f});
-        scene.addChild(status_label_);
-        for (int i = 0; i < PAGE_SIZE; ++i) {
-            auto* name = label(director);
-            auto* widget = name ? DirectoryRow::create(name, i) : nullptr;
-            if (!widget)
-                return false;
-            rows_[i] = {widget, name};
-            widget->addEventListener([this, i](zocos::ui::Widget&) {
-                if (i >= count_)
-                    return;
-                selected_ = i;
-                message_ = nullptr;
-                open_selected();
-                update_controls();
-            });
-            scene.addChild(widget);
-        }
+        if (!grid_)
+            return false;
+        grid_->setPosition({GRID_AREA.x, GRID_AREA.y});
+        scene.addChild(grid_);
+        page_.reserve(grid_->capacity());
 
         auto* keys = zocos::EventListenerKeyboard::create([this](zocos::EventKeyboard& event) { handle_key(event); });
         if (!keys)
             return false;
         director.getEventDispatcher().addEventListenerWithNodePriority(keys, &scene);
-        return true;
+        return zonix_gui::ContextMenu::attach(director, scene, [this](zocos::Vec2 pointer) {
+            return grid_->select_at(pointer) ? context_items() : zonix_gui::ContextMenu::Items{};
+        });
+    }
+
+    zonix_gui::ContextMenu::Items context_items() {
+        message_ = nullptr;
+        update_controls();
+
+        zonix_gui::ContextMenu::Items items;
+        if (selected_folder())
+            items.push_back({"Open", refresh_after([this] { open_selected(); })});
+        if (!root())
+            items.push_back({"Go up", refresh_after([this] { parent(); })});
+        items.push_back({"Refresh", refresh_after([this] { refresh_directory(); })});
+        return items;
     }
 
     void handle_key(const zocos::EventKeyboard& event) {
-        if (!event.isPressed())
-            return;
         auto code = static_cast<unsigned int>(event.getKeyCode());
         int key = keyboard::KeyboardState::character(code, event.getModifiers());
         if (code == DISPLAY_KEY_Q || code == DISPLAY_KEY_ESCAPE || key == 3) {
             done_ = true;
             return;
         }
-        if (key == static_cast<int>(keyboard::Key::Up))
-            move_up();
-        else if (key == static_cast<int>(keyboard::Key::Down))
-            move_down();
-        else if (key == '\n' || key == static_cast<int>(keyboard::Key::Right))
+        if (key == '\n')
             open_selected();
-        else if (key == '\b' || key == static_cast<int>(keyboard::Key::Left))
+        else if (key == '\b')
             parent();
+        else if (key == static_cast<int>(keyboard::Key::Up))
+            move_selection(-grid_->columns());
+        else if (key == static_cast<int>(keyboard::Key::Down))
+            move_selection(grid_->columns());
+        else if (key == static_cast<int>(keyboard::Key::Left))
+            move_selection(-1);
+        else if (key == static_cast<int>(keyboard::Key::Right))
+            move_selection(1);
         else
             return;
         update_controls();
@@ -162,119 +232,152 @@ private:
     bool root() const { return path_[0] == '/' && path_[1] == 0; }
 
     void read_page() {
-        count_ = 0;
-        more_ = false;
+        page_.clear();
+        next_first_ = 0;
         for (long index = first_;; ++index) {
             DirectoryEntry entry{};
-            long ready = sys_readdir((char*)".", index, &entry);
-            if (ready <= 0) {
-                if (ready < 0)
-                    message_ = command_error_text(ready);
+            long result = sys_readdir((char*)".", index, &entry);
+            if (result <= 0) {
+                if (result < 0)
+                    message_ = command_error_text(result);
                 break;
             }
             if (dot_entry(entry))
                 continue;
-            if (count_ == PAGE_SIZE) {
-                more_ = true;
+            if (static_cast<int>(page_.size()) == grid_->capacity()) {
+                next_first_ = index;
                 break;
             }
-            page_[count_++] = {entry, index};
+            page_.push_back({entry, index});
         }
-        if (selected_ >= count_)
-            selected_ = count_ != 0 ? count_ - 1 : 0;
+        mstd::vector<IconGrid::Item> items;
+        items.reserve(page_.size());
+        for (const auto& entry : page_) {
+            auto icon = entry.item.type == FILE_TYPE_DIRECTORY ? IconGrid::Icon::Folder : IconGrid::Icon::File;
+            items.push_back({entry.item.name, icon});
+        }
+        grid_->set_items(items);
     }
 
     void refresh_directory() {
         message_ = nullptr;
         first_ = 0;
-        selected_ = 0;
+        page_number_ = 1;
         long result = sys_getcwd(path_, sizeof(path_));
         if (result < 0)
             message_ = command_error_text(result);
         read_page();
+        if (!page_.empty())
+            first_ = page_[0].index;
     }
 
-    void enter(char* name) {
-        long result = sys_chdir(name);
-        if (result < 0)
+    bool change_directory(const char* path) {
+        long result = sys_chdir(const_cast<char*>(path));
+        if (result < 0) {
             message_ = command_error_text(result);
-        else
-            refresh_directory();
+            return false;
+        }
+        refresh_directory();
+        return true;
+    }
+
+    void record_location() {
+        if (history_index_ >= 0 && history_[history_index_] == path_)
+            return;
+        if (history_index_ == HISTORY_SIZE - 1) {
+            for (int i = 1; i < HISTORY_SIZE; ++i)
+                history_[i - 1] = mstd::move(history_[i]);
+            --history_index_;
+        }
+        history_[++history_index_] = path_;
+        history_count_ = history_index_ + 1;
+    }
+
+    void navigate(const char* path) {
+        if (change_directory(path))
+            record_location();
+    }
+
+    void history_step(int delta) {
+        int target = history_index_ + delta;
+        if (target >= 0 && target < history_count_ && change_directory(history_[target].c_str()))
+            history_index_ = target;
     }
 
     void parent() {
         if (!root())
-            enter((char*)"..");
+            navigate("..");
+    }
+
+    bool selected_folder() const {
+        int selected = grid_->selection();
+        return selected != IconGrid::NO_ITEM && page_[selected].item.type == FILE_TYPE_DIRECTORY;
     }
 
     void open_selected() {
-        if (count_ == 0)
-            return;
-        auto& entry = page_[selected_].item;
-        if (entry.type == FILE_TYPE_DIRECTORY)
-            enter(entry.name);
-        else
-            message_ = "Select a directory to open";
+        if (selected_folder())
+            navigate(page_[grid_->selection()].item.name);
     }
 
-    void move_up() {
+    bool change_page(int delta) {
         message_ = nullptr;
-        if (selected_ > 0) {
-            --selected_;
-            return;
-        }
-        // Move the viewport back by one visible entry without caching the
-        // directory. Raw indices account for structural FAT entries.
-        for (long index = first_; index > 0;) {
-            --index;
-            DirectoryEntry entry{};
-            long ready = sys_readdir((char*)".", index, &entry);
-            if (ready < 0) {
-                message_ = command_error_text(ready);
-                return;
+        if (delta > 0 && next_first_ > 0) {
+            first_ = next_first_;
+            ++page_number_;
+        } else if (delta < 0 && page_number_ > 1) {
+            int remaining = grid_->capacity();
+            long index = first_;
+            while (index > 0 && remaining > 0) {
+                DirectoryEntry entry{};
+                long result = sys_readdir((char*)".", --index, &entry);
+                if (result < 0) {
+                    message_ = command_error_text(result);
+                    return false;
+                }
+                if (result > 0 && !dot_entry(entry))
+                    --remaining;
             }
-            if (ready != 0 && !dot_entry(entry)) {
-                first_ = index;
-                read_page();
-                return;
-            }
+            first_ = index;
+            --page_number_;
+        } else {
+            return false;
         }
+        read_page();
+        return true;
     }
 
-    void move_down() {
+    void move_selection(int delta) {
         message_ = nullptr;
-        if (selected_ + 1 < count_) {
-            ++selected_;
-        } else if (more_) {
-            first_ = page_[1].index;
-            read_page();
-        }
+        int selected = grid_->selection();
+        int target = selected == IconGrid::NO_ITEM ? 0 : selected + delta;
+        if (target >= static_cast<int>(page_.size()) && change_page(1))
+            target -= grid_->capacity();
+        else if (target < 0 && change_page(-1))
+            target += grid_->capacity();
+        grid_->select(page_.empty() ? IconGrid::NO_ITEM : mstd::clamp(target, 0, static_cast<int>(page_.size()) - 1));
     }
 
     void update_controls() {
         mstd::string path(path_);
-        constexpr unsigned int path_columns = 26;
-        path_label_->setString(path.size() > path_columns ? "..." + path.substr(path.size() - path_columns) : path);
-        for (int i = 0; i < PAGE_SIZE; ++i) {
-            auto& row = rows_[i];
-            row.widget->setVisible(i < count_);
-            if (i >= count_)
-                continue;
-            const auto& entry = page_[i].item;
-            mstd::string name(i == selected_ ? ">  " : "    ");
-            name += entry.name;
-            if (entry.type == FILE_TYPE_DIRECTORY)
-                name += "/";
-            row.label->setString(name);
-        }
+        constexpr unsigned int path_columns = 21;
+        toolbar_->set_text(path.size() > path_columns ? "..." + path.substr(path.size() - path_columns) : path);
+        back_->set_enabled(history_index_ > 0);
+        forward_->set_enabled(history_index_ + 1 < history_count_);
+        up_->set_enabled(!root());
+        previous_->set_enabled(page_number_ > 1);
+        next_->set_enabled(next_first_ > 0);
+        empty_->setVisible(page_.empty() && !message_);
+        page_label_->setString("Page " + mstd::to_string(page_number_));
+        int selected = grid_->selection();
         if (message_)
-            status_label_->setString(message_);
-        else if (count_ == 0)
-            status_label_->setString("Empty directory");
-        else if (more_)
-            status_label_->setString("Down for more    Enter opens    Backspace goes up");
-        else
-            status_label_->setString("Enter opens    Backspace goes up");
+            status_->setString(message_);
+        else if (selected != IconGrid::NO_ITEM) {
+            const auto& entry = page_[selected].item;
+            status_->setString(mstd::string(entry.name) +
+                               (selected_folder() ? "  ·  Folder" : "  ·  " + mstd::to_string(entry.size) + " B"));
+        } else {
+            status_->setString(mstd::to_string(page_.size()) + " shown");
+        }
     }
 };
 

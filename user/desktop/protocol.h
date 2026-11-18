@@ -6,6 +6,8 @@
 namespace desktop_ipc {
 
 inline constexpr int SURFACE_SIZE = 24;
+// Set by Desktop on the second left-button release of a double click.
+inline constexpr unsigned int INPUT_MOD_DOUBLE_CLICK = 1U << 16;
 
 struct Input {
     DisplayEvent event;

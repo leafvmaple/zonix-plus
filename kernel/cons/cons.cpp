@@ -8,6 +8,7 @@
 #include "lib/waitqueue.h"
 #include <sys/array.hpp>
 #include "sched/sched.h"
+#include "trap/trap.h"
 
 namespace {
 
@@ -145,7 +146,7 @@ public:
         ENSURE(display_events_ && owner == display_file_ && sched::current()->pid == display_owner_pid_, Error::Access);
         return events_read_ != events_write_;
     }
-    static Error read_display_event(const vfs::File* owner, DisplayEvent& event) {
+    static Error read_display_event(const vfs::File* owner, DisplayTimedEvent& event) {
         intr::Guard guard;
         Task* task = sched::current();
         while (true) {
@@ -297,11 +298,12 @@ public:
 private:
     static void queue_event(const DisplayEvent& event) {
         size_t next = (events_write_ + 1) % events_.size();
+        unsigned long timestamp_ms = trap::uptime_ms();
         if (next == events_read_) {
             events_read_ = events_write_;
-            events_[events_write_] = {DISPLAY_EVENT_RESET, 0, 0, event.modifiers};
+            events_[events_write_] = {{DISPLAY_EVENT_RESET, 0, 0, event.modifiers}, timestamp_ms};
         } else {
-            events_[events_write_] = event;
+            events_[events_write_] = {event, timestamp_ms};
         }
         if (events_read_ == events_write_)
             fd::Readiness::notify();
@@ -344,7 +346,7 @@ private:
         }
     }
     inline static keyboard::KeyboardState keyboard_{};
-    inline static sys::array<DisplayEvent, 64> events_{};
+    inline static sys::array<DisplayTimedEvent, 64> events_{};
     inline static size_t events_read_{};
     inline static size_t events_write_{};
     inline static WaitQueue events_ready_{};
@@ -396,7 +398,7 @@ Error set_raw(bool enabled) {
 Error acquire_display(vfs::File* owner, unsigned int flags) {
     return Console::acquire_display(owner, flags);
 }
-Error read_display_event(const vfs::File* owner, DisplayEvent& event) {
+Error read_display_event(const vfs::File* owner, DisplayTimedEvent& event) {
     return Console::read_display_event(owner, event);
 }
 Result<bool> display_event_ready(const vfs::File* owner) {

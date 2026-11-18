@@ -30,7 +30,7 @@ long syscall::ioctl(Task* task, long fd, long request, uintptr_t argument) {
     auto* entry = task->files().get(static_cast<int>(fd));
     if (!entry)
         return static_cast<long>(Error::Invalid);
-    if (request >= DISPLAY_GET_INFO && request <= DISPLAY_READ_EVENT)
+    if (request >= DISPLAY_GET_INFO && request <= DISPLAY_READ_TIMED_EVENT)
         return display_control(task, entry->file(), static_cast<unsigned int>(request), argument);
     if (request == TERMINAL_GET_SIZE) {
         if (!vmm::user_range_valid(task->memory(), argument, sizeof(TerminalSize), true))
