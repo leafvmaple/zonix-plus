@@ -30,6 +30,7 @@ long close(Task* task, int fd);
 long ioctl(Task* task, long fd, long request, uintptr_t argument);
 long display_control(Task* task, vfs::File* file, unsigned int request, uintptr_t argument);
 long pipe2(Task* task, uintptr_t output, long flags);
+long openpty(Task* task, uintptr_t output, uintptr_t input);
 long dup2(Task* task, long old_fd, long new_fd);
 long fcntl(Task* task, long fd, long command, long argument);
 // False means an unknown syscall number; result preserves the existing ABI.

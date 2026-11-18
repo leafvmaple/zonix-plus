@@ -1,0 +1,50 @@
+--- a/src/2d/ZCNode.h
++++ b/src/2d/ZCNode.h
+@@ -10,0 +11 @@
++class Sprite;
+@@ -19,0 +21 @@
++    virtual Sprite* asSprite() noexcept { return nullptr; }
+--- a/src/2d/ZCSprite.h
++++ b/src/2d/ZCSprite.h
+@@ -12,0 +13 @@
++    Sprite* asSprite() noexcept override { return this; }
+--- a/src/base/ZCActionInterval.cpp
++++ b/src/base/ZCActionInterval.cpp
+@@ -244 +244 @@
+-    auto* sprite = dynamic_cast<Sprite*>(_target);
++    auto* sprite = _target ? _target->asSprite() : nullptr;
+--- a/src/base/ZCFont.cpp
++++ b/src/base/ZCFont.cpp
+@@ -11,0 +12 @@
++        "/opt/fonts/UI.TTF",
+--- a/src/base/ZCFontAtlasCache.cpp
++++ b/src/base/ZCFontAtlasCache.cpp
+@@ -13,3 +13,4 @@
+-    char buf[32];
+-    mstd::snprintf(buf, sizeof(buf), "|%.2f", fontSize);
+-    return fontPath + buf;
++    mstd::uint32_t key{};
++    static_assert(sizeof(key) == sizeof(fontSize));
++    mstd::memcpy(&key, &fontSize, sizeof(key));
++    return fontPath + "|" + mstd::to_string(key);
+--- a/src/base/ZCDirector.h
++++ b/src/base/ZCDirector.h
+@@ -23 +23,2 @@
+-    bool init(int width, int height, const char* title);
++    bool init(int width, int height, const char* title,
++              mstd::unique_ptr<View> view = {});
+--- a/src/base/ZCDirector.cpp
++++ b/src/base/ZCDirector.cpp
+@@ -46 +46,4 @@
+-bool Director::init(int width, int height, const char* title) {
++bool Director::init(int width, int height, const char* title, mstd::unique_ptr<View> view) {
++    if (view) {
++        _view = mstd::move(view);
++    }
+--- a/src/ui/UIButton.cpp
++++ b/src/ui/UIButton.cpp
+@@ -131,2 +131,2 @@
+-    const RenderSortKey sortKey = makeRenderSortKey(0, 0, texture.value);
+-    renderer.addDrawSprite(world, _contentSize, texture, getOpacity(), sortKey);
++    // Backgrounds must sort before the shared font atlas, independent of texture allocation order.
++    renderer.addDrawSprite(world, _contentSize, texture, getOpacity());

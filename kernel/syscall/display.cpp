@@ -16,7 +16,8 @@ long syscall::display_control(Task* task, vfs::File* file, unsigned int request,
                                                       : error);
     }
     if (request == DISPLAY_ACQUIRE) {
-        if (argument != 0 && argument != DISPLAY_ACQUIRE_EVENTS)
+        if (argument != 0 && argument != DISPLAY_ACQUIRE_EVENTS &&
+            argument != (DISPLAY_ACQUIRE_EVENTS | DISPLAY_ACQUIRE_KEYBOARD_CTRL_C))
             return static_cast<long>(Error::Invalid);
         auto flags = static_cast<unsigned int>(argument);
         return static_cast<long>(file->control(request, &flags));

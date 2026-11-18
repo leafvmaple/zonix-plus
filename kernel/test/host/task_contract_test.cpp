@@ -4,6 +4,11 @@
 #include "lib/string.h"
 #include <asm/arch.h>
 
+// The fixture never binds a Task to a pseudo-terminal.
+void pty::Release::operator()(Session*) const noexcept {
+    assert(false);
+}
+
 extern "C" int vprintf(const char*, va_list);
 extern "C" void* aligned_alloc(size_t, size_t);
 extern "C" void free(void*);

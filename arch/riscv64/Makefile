@@ -84,7 +84,10 @@ KERNEL_EXTRA_OBJS := $(FONT_OBJ)
 KERNEL_LD_SCRIPT  := $(SCRIPTDIR)/kernel-riscv64.ld
 
 # ---------- top-level "all" prerequisites ----------
-ALL_PREREQS := $(BINDIR)/kernel $(BINDIR)/BOOTRISCV64.EFI $(BINDIR)/zonix-uefi.img $(BINDIR)/sdcard.img
+ALL_PREREQS := $(BINDIR)/kernel $(BINDIR)/BOOTRISCV64.EFI $(BINDIR)/zonix-uefi.img
+ifeq ($(TEST),1)
+ALL_PREREQS += $(BINDIR)/sdcard.img
+endif
 
 # ---------- UEFI disk image ----------
 $(BINDIR)/zonix-uefi.img: $(BINDIR)/BOOTRISCV64.EFI $(BINDIR)/kernel $(SCRIPTDIR)/create_uefi_image.sh | $$(dir $$@)

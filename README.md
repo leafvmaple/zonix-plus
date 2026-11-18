@@ -96,7 +96,6 @@ brew install llvm lld qemu nasm dosfstools mtools gptfdisk flex bison coreutils
 git submodule update --init --recursive
 make install-hooks
 make ARCH=x86 TEST=0 -j8
-make rootfs ARCH=x86 TEST=0
 make qemu ARCH=x86
 ```
 
@@ -154,7 +153,18 @@ are independent of the log threshold.
 
 ## Run
 
-Prepare the base rootfs with `make rootfs ARCH=<arch> TEST=0` before normal boot. Extra applications are optional: `make user-image ARCH=<arch>` creates `apps.img`; attach it with `USER_DISK=bin/<arch>/apps.img`. Boot-image builds depend on neither; see [Userspace](docs/USERSPACE.md).
+The default `make` builds the boot images, kernel and base `rootfs.img`. QEMU
+boots into the shell with those disks. Use `make rootfs ARCH=<arch> TEST=0` to
+update the base rootfs separately. An optional application disk can be attached
+with `USER_DISK`. The x86 Desktop suite has a dedicated build and install target.
+See [Userspace](docs/USERSPACE.md#%E5%8F%AF%E9%80%89-desktop) for the pinned
+mini-cocos revision and package contents.
+
+```bash
+make desktop-image ARCH=x86 MINICOCOS_DIR=../mini-cocos
+make qemu ARCH=x86 USER_DISK=bin/x86/desktop.img
+# Run desktop from the guest shell
+```
 
 ```bash
 # x86 UEFI + AHCI (default)

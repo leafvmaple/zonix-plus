@@ -222,6 +222,9 @@ endif
 .PHONY: all clean format lint compdb help FORCE check check-kernel-rules kernel-rule-config naming-boot-config naming-user-config cxx-standard install-hooks
 
 all: $(ALL_PREREQS)
+ifeq ($(TEST),0)
+all: $(BINDIR)/zonix-uefi.img rootfs
+endif
 .DEFAULT_GOAL := all
 
 # ==========================================================================
@@ -283,10 +286,11 @@ help:
 	@echo "Zonix OS build system  (ARCH=$(ARCH))"
 	@echo ""
 	@echo "Build:"
-	@echo "  make [all]           Build boot/kernel artifacts for current ARCH"
+	@echo "  make [all]           Build boot and kernel artifacts plus base rootfs (TEST=0)"
 	@echo "  make $(BINDIR)/kernel  Build kernel only"
 	@echo "  make rootfs          Install base userspace on the independent rootfs"
 	@echo "  make user-image      Install extra applications on optional apps.img"
+	@echo "  make desktop-image   Build the optional x86 Desktop suite on desktop.img"
 	@echo "  make user            Build applications with USER_CC (default: zcc)"
 	@echo "  make zcc-examples    Build compiler examples explicitly with zcc"
 	@echo "  make disasm          Generate disassembly listings (x86)"

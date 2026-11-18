@@ -8,6 +8,9 @@
 #include "lib/activity_gate.h"
 
 struct BlockDevice;
+namespace pty {
+class Session;
+}
 
 namespace vfs {
 
@@ -70,6 +73,8 @@ public:
     }
     virtual Error stat(Stat* st) = 0;
     virtual Error control(unsigned int, void*) { return Error::NotSupported; }
+    virtual Result<bool> read_ready() { return Error::NotSupported; }
+    virtual pty::Session* controlling_terminal() { return nullptr; }
     virtual Error truncate(size_t size) {
         static_cast<void>(size);
         return Error::NotSupported;
@@ -79,6 +84,7 @@ public:
     bool can_read() const { return (open_flags_ & O_ACCMODE) != O_WRONLY; }
     bool can_write() const { return (open_flags_ & O_ACCMODE) != O_RDONLY; }
     virtual bool is_stream() const { return false; }
+    virtual bool is_duplex() const { return false; }
     bool is_append() const { return (open_flags_ & O_APPEND) != 0; }
     Error begin_io(ActivityGuard& guard) const;
 

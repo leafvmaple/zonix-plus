@@ -811,3 +811,61 @@ Event readers sleep until there is data or a termination request, and recheck
 session ownership after wakeup. Release clears the queue and wakes readers.
 Overflow drops pending records and publishes a reset with current modifiers,
 so a lost release cannot leave a client permanently tracking a pressed key.
+
+## Desktop client IPC
+
+Each window owns a child PID, two parent pipe ends and its content buffers.
+The spawn path binds only that child's input and output to
+stdio. Desktop takes input from the display, so it reserves stdin with its
+diagnostic descriptor while idle. Spawn saves stdout, binds the input pipe,
+and drops the extra child input FD before allocating the output pipe. It
+then binds output, spawns the client, and restores both slots. Saved stdout
+and unused pipe ends carry CLOEXEC and are closed locally. This sequence
+fits five clients within the 16-descriptor table.
+The display description also carries CLOEXEC. A child cannot hold the
+foreground display session or keep another client's pipes open.
+
+Readiness checks and waiter registration share the same interrupt guard.
+Pipe writes to an empty buffer, last writer close, and display event changes
+notify waiting tasks. The compositor processes one read from each ready
+client before handling display input. Short reads stay in the staging buffer
+until a full frame or pixel packet arrives. Desktop input writes are
+nonblocking. The fixed-frame examples use a bounded queue and pixel clients
+use output backpressure.
+
+On EOF or a failed exchange, the compositor closes and reaps that client and
+drops its window. Normal compositor exit closes and reaps its clients.
+During abnormal compositor exit, kernel FD cleanup closes the pipes and
+restores the display session. Each client exits upon EOF or a failed write,
+and init owns orphan reaping.
+
+## Pseudo-terminal lifetime
+
+The master and slave Files and every attached Task hold move-only references to
+one session. The creator establishes a controller at normal spawn publication
+through the inherited slave stdin. Later redirects change file bindings without
+changing the Task's session. The session uses the common task termination and
+job membership machinery while owning its own foreground PIDs and wait queues.
+
+The last master File close or controller exit publishes hangup, wakes readers,
+writers and readiness waiters, and requests termination only for that session.
+Tasks release their references when reaped. The slave and master are duplex
+streams. Their queues synchronize transfers, so a sleeping read cannot hold an
+open-description lock across writes on the same slave.
+
+The graphical frontend owns the master FD and the controller child. Normal
+exit closes the master and waits for the shell. Abnormal exit closes the
+master via the FD table and init reaps adopted children. The Desktop only
+receives pixels or a character-grid snapshot and forwards focused input.
+
+### Pixel window messages
+
+The pixel client uses the existing private input pipe and a blocking output
+pipe. A 20-byte Size header declares the dimensions. Each UpdatePart or Update
+header specifies a rectangle followed by up to 960 packed XRGB8888 words.
+Desktop validates dimensions, bounds and payload capacity before copying each
+complete rectangle into the retained surface. It combines damage from
+UpdatePart messages and submits the accumulated rectangle when Update arrives.
+Window moves and focus changes use the retained surface. EOF, invalid packets
+and window close discard connection state, including pending damage. The next
+Size message starts with cleared pixels.

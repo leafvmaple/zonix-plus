@@ -1,9 +1,10 @@
 #include "cons/cons.h"
 #include "cons/terminal.h"
-#include "cons/keyboard.h"
+#include <base/keyboard.h>
 #include "drivers/fbcons.h"
 #include "drivers/display.h"
 #include "drivers/intr.h"
+#include "fs/readiness.h"
 #include "lib/waitqueue.h"
 #include <sys/array.hpp>
 #include "sched/sched.h"
@@ -71,7 +72,7 @@ public:
     static void key_event(uint16_t code, int value) {
         intr::Guard guard;
         int key = keyboard_.translate(code, value != DISPLAY_KEY_RELEASE);
-        if (key == 3)
+        if (key == 3 && !display_ctrl_keys_)
             push_input(3);
         else if (display_events_)
             queue_event({DISPLAY_EVENT_KEY, code, value, keyboard_.modifiers()});
@@ -85,21 +86,12 @@ public:
     }
 
     static void push_key(int key) {
-        if (key < static_cast<int>(cons::Key::Up)) {
+        if (key < static_cast<int>(keyboard::Key::Up)) {
             if (key >= 0)
                 push_input(static_cast<char>(key));
             return;
         }
-        const char* sequence{};
-        switch (static_cast<cons::Key>(key)) {
-            case cons::Key::Up: sequence = "\x1b[A"; break;
-            case cons::Key::Down: sequence = "\x1b[B"; break;
-            case cons::Key::Right: sequence = "\x1b[C"; break;
-            case cons::Key::Left: sequence = "\x1b[D"; break;
-            case cons::Key::Home: sequence = "\x1b[H"; break;
-            case cons::Key::End: sequence = "\x1b[F"; break;
-            case cons::Key::Delete: sequence = "\x1b[3~"; break;
-        }
+        const char* sequence = keyboard::sequence(key);
         if (!sequence)
             return;
         intr::Guard guard;
@@ -129,7 +121,7 @@ public:
         return Error::None;
     }
 
-    static Error acquire_display(vfs::File* owner, bool events) {
+    static Error acquire_display(vfs::File* owner, unsigned int flags) {
         intr::Guard guard;
         Task* task = sched::current();
         ENSURE(task && task != TaskManager::init_task() && task->memory() &&
@@ -140,21 +132,25 @@ public:
         ENSURE(!task->termination_requested(), Error::Interrupted);
         display_file_ = owner;
         display_owner_pid_ = task->pid;
-        display_events_ = events;
-        if (events) {
+        display_events_ = (flags & DISPLAY_ACQUIRE_EVENTS) != 0;
+        display_ctrl_keys_ = (flags & DISPLAY_ACQUIRE_KEYBOARD_CTRL_C) != 0;
+        if (display_events_) {
             read_ = write_;
             queue_event({DISPLAY_EVENT_RESET, 0, 0, keyboard_.modifiers()});
         }
         fbcons::suspend();
         return Error::None;
     }
+    static Result<bool> display_event_ready(const vfs::File* owner) {
+        ENSURE(display_events_ && owner == display_file_ && sched::current()->pid == display_owner_pid_, Error::Access);
+        return events_read_ != events_write_;
+    }
     static Error read_display_event(const vfs::File* owner, DisplayEvent& event) {
         intr::Guard guard;
         Task* task = sched::current();
         while (true) {
             ENSURE(!task->termination_requested(), Error::Interrupted);
-            ENSURE(display_events_ && owner == display_file_ && task->pid == display_owner_pid_, Error::Access);
-            if (events_read_ != events_write_) {
+            if (TRY(display_event_ready(owner))) {
                 event = events_[events_read_];
                 events_read_ = (events_read_ + 1) % events_.size();
                 return Error::None;
@@ -174,8 +170,10 @@ public:
         display_file_ = nullptr;
         display_owner_pid_ = 0;
         display_events_ = false;
+        display_ctrl_keys_ = false;
         events_read_ = events_write_;
         events_ready_.wakeup_all();
+        fd::Readiness::notify();
         fbcons::resume();
         restore_console();
     }
@@ -305,6 +303,8 @@ private:
         } else {
             events_[events_write_] = event;
         }
+        if (events_read_ == events_write_)
+            fd::Readiness::notify();
         events_write_ = next;
         events_ready_.wakeup_one();
     }
@@ -343,12 +343,13 @@ private:
                 putc(*c, false);
         }
     }
-    inline static cons::KeyboardState keyboard_{};
+    inline static keyboard::KeyboardState keyboard_{};
     inline static sys::array<DisplayEvent, 64> events_{};
     inline static size_t events_read_{};
     inline static size_t events_write_{};
     inline static WaitQueue events_ready_{};
     inline static bool display_events_{};
+    inline static bool display_ctrl_keys_{};
     inline static vfs::File* display_file_{};
     inline static int display_owner_pid_{};
     inline static sys::array<char, 1024> deferred_{};
@@ -392,11 +393,14 @@ void pointer_event(unsigned int type, unsigned int code, int value) {
 Error set_raw(bool enabled) {
     return Console::set_raw(enabled);
 }
-Error acquire_display(vfs::File* owner, bool events) {
-    return Console::acquire_display(owner, events);
+Error acquire_display(vfs::File* owner, unsigned int flags) {
+    return Console::acquire_display(owner, flags);
 }
 Error read_display_event(const vfs::File* owner, DisplayEvent& event) {
     return Console::read_display_event(owner, event);
+}
+Result<bool> display_event_ready(const vfs::File* owner) {
+    return Console::display_event_ready(owner);
 }
 void release_display(vfs::File* owner) {
     Console::release_display(owner);
@@ -411,13 +415,18 @@ TerminalSize screen_size() {
     return terminal::size();
 }
 Error prepare_spawn(Task* parent, Task* child, bool foreground) {
+    if (TRY(pty::prepare_spawn(parent, child, foreground)))
+        return Error::None;
     return Console::prepare_spawn(parent, child, foreground);
 }
 Error control_job(unsigned int action) {
     return Console::control_job(action);
 }
 void task_exited(Task* task) {
-    Console::task_exited(task);
+    if (task->pty_session())
+        pty::task_exited(task);
+    else
+        Console::task_exited(task);
 }
 char getc() {
     return Console::read_input().value_or(0);

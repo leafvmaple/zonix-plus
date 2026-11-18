@@ -5,6 +5,25 @@
 
 static_assert(sizeof(TerminalSize) == 8);
 
+long syscall::openpty(Task* task, uintptr_t output, uintptr_t input) {
+    if (!task || !vmm::user_range_valid(task->memory(), output, 2 * sizeof(int), true))
+        return static_cast<long>(Error::Invalid);
+    TerminalSize size{};
+    Error error = vmm::copy_from_user(task->memory(), &size, input, sizeof(size));
+    if (error != Error::None)
+        return static_cast<long>(error);
+    int ends[2];
+    error = pty::open(task, ends, size);
+    if (error != Error::None)
+        return static_cast<long>(error);
+    error = vmm::copy_to_user(task->memory(), output, ends, sizeof(ends));
+    if (error != Error::None) {
+        static_cast<void>(task->files().close(ends[0]));
+        static_cast<void>(task->files().close(ends[1]));
+    }
+    return static_cast<long>(error);
+}
+
 long syscall::ioctl(Task* task, long fd, long request, uintptr_t argument) {
     if (!task || fd < 0 || fd >= fd::MAX_FD)
         return static_cast<long>(Error::Invalid);

@@ -104,6 +104,13 @@ void TaskManager::interrupt_job(int owner) {
             static_cast<void>(request_termination(&task));
 }
 
+void TaskManager::interrupt_pty(const pty::Session* session, int except_pid) {
+    intr::Guard guard;
+    for (Task& task : proc_list_)
+        if (task.pty_session() == session && task.pid != except_pid)
+            static_cast<void>(request_termination(&task));
+}
+
 bool TaskManager::has_live_job(int owner) {
     for (Task& task : proc_list_)
         if (task.console_job() == owner && task.state() != TaskState::Zombie)

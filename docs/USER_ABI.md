@@ -51,11 +51,13 @@ SP -> argc                64 位
 | fstat | 108 | FD、`DescriptorStat*`；返回元数据和可比较的设备/文件身份 |
 | yield | 158 | 主动让出 CPU，返回 0 |
 | getcwd | 183 | 复制含 NUL 的当前目录；成功返回 0，容量不足返回 Full |
-| pipe2 | 331 | 创建匿名字节流的读/写 FD，flags 为 0 或 O_CLOEXEC；返回 0 或负 Error |
+| pipe2 | 331 | 创建匿名字节流的读/写 FD，flags 为 0 或 O_CLOEXEC / O_NONBLOCK 的组合；返回 0 或负 Error |
 | spawn | 400 | 相对/绝对 ELF 路径、argc、以 NULL 结束的 argv；返回新 PID |
 | shutdown | 401 | 复用有序关机；成功不返回，失败返回负 Error 并恢复存储访问 |
 | spawn_foreground | 402 | 与 spawn 相同参数，发布子进程前交接控制台；返回新 PID |
 | process_next | 403 | long 型 PID 游标、`ProcessInfo*`；1 表示一项，0 表示结束，负值表示错误 |
+| wait_readable | 404 | 等待指定 FD 位图中至少一项就绪，返回就绪子集或负 Error |
+| openpty | 405 | 创建伪终端 master/slave FD，复制调用者指定的终端尺寸 |
 
 进程、元数据、文件变更、同步和关机调用失败返回负的内核 `Error` 值，包括 NoMem=-2、Invalid=-3、NotFound=-4、Busy=-9、NoDevice=-10、NotSupported=-11、Full=-12、Access=-14、Interrupted=-15。它们不是 Linux 系统调用的兼容实现。`include/abi/process.h` 定义用户侧结构、常用错误和参数限制；结构中类型、长度和属性字段均为 32 位无符号整数。zcc 运行时的系统调用定义必须与内核完整一致，进程结构和文件标志也必须同步；ABI 检查不允许单方面新增调用。原有 `FileStat`（12 字节）、`DirectoryEntry`（44 字节）和旧 syscall 语义保持不变。
 
@@ -109,9 +111,19 @@ SP -> argc                64 位
 
 ## 匿名管道 ABI
 
-`sys_pipe2(int ends[2], int flags)`（331）创建读端 ends[0]、写端 ends[1]；flags 仅接受 0 或 O_CLOEXEC。先验证完整可写输出范围和两个空 FD 槽，再分配端点/描述，失败回收全部资源；无效 flags/地址返回 Invalid，FD 不足返回 Full，分配失败返回 NoMem。每个进程仍最多 16 个 FD。`fstat` 类型为 FILE_TYPE_PIPE=4，size/device/inode 为 0；不表示磁盘文件。
+`sys_pipe2(int ends[2], int flags)`（331）创建读端 ends[0]、写端 ends[1]；flags 接受 0 或 O_CLOEXEC / O_NONBLOCK 的组合。先验证完整可写输出范围和两个空 FD 槽，再分配端点/描述，失败回收全部资源；无效 flags/地址返回 Invalid，FD 不足返回 Full，分配失败返回 NoMem。每个进程仍最多 16 个 FD。`fstat` 类型为 FILE_TYPE_PIPE=4，size/device/inode 为 0；不表示磁盘文件。
 
 两个端点通过 zstl move-only owner 和领域释放器引用同一 4 KiB 环形缓冲；dup/spawn 共享打开描述，最后一个该方向的描述关闭后才关闭端点。管道不维护文件偏移，不参与存储冻结。读到已有数据即可短读返回，不为填满用户缓冲等待下一批；空缓冲在仍有写端时睡眠，否则返回 0。写满缓冲时睡眠，读端关闭唤醒写者并返回 I/O 错误，不产生 SIGPIPE。两端关闭均唤醒等待者；终止请求可打断等待。read/write 沿用旧 ABI：失败且未传输时返回 -1，已传输时可返回正的短计数；调用者负责循环。
+
+`O_NONBLOCK` 由 `pipe2` 设置在两个端点上，dup 和 spawn 保留该模式。空管道仍有写端时，非阻塞 read 立即返回 -1。非阻塞写入不等待空间，至多 4096 字节的单次写入要么全部进入环形缓冲，要么返回 -1；更大的调用沿用 I/O 循环的分段与短写语义。最后写端关闭且数据读完后，读返回 0。
+
+`sys_wait_readable(long mask)` 接收当前进程非零的 16 位 FD 位图，阻塞至至少一项读就绪，返回所有当前就绪项的位图。管道读端及伪终端 master 有数据或 EOF 时均就绪，取得事件模式的显示描述符有待取事件时就绪，随后用 `DISPLAY_READ_EVENT` 读取。空位、超出范围的位返回 Invalid，其他文件类型返回 NotSupported，无访问权限返回 Access，终止请求可中断等待。就绪是快照，不为共享 FD 预留数据；多个进程读同一端点时仍需处理竞争。
+
+## 最小伪终端 ABI
+
+`sys_openpty(int ends[2], TerminalSize* size)` 返回 0 或负 Error。size 指向调用者提供的行列数，行列各为 1～4096。ends[0] 是 master，ends[1] 是 slave，新 FD 都标记 CLOEXEC。两端支持双向字节流，slave 提供现有终端尺寸、原始输入和命令组调用；master 可等待输出或挂断。master 输入写入不阻塞，一个独立的字节 3 即使在输入队列满时也会处理。输出采用有界缓冲，slave 写入可阻塞，master 读取就绪数据或 EOF。
+
+创建者让第一个 shell 继承 slave stdin 后用普通 spawn 启动它，建立该伪终端的会话控制者。后代继承会话归属，即使重定向 stdio。会话独立维护前台进程和命令组。master 的单字节 Ctrl-C 按该会话的前台状态处理；仅当会话无前台命令或正在用原始模式时把字节交给读取者。最后关闭 master 或会话控制者退出会挂断，唤醒端点并终止该会话中的进程。所有关联引用释放后才销毁对象。此接口面向 Zonix shell，采用固定尺寸和现有终端命令集。
 
 ## FD 和资源
 
@@ -159,7 +171,7 @@ zcc 是独立 Git 子模块。修改该子模块时，后续提交必须先记�
 | request | argument / 结果 |
 | --- | --- |
 | `DISPLAY_GET_INFO` (0x5701) | 用户可写 `DisplayInfo*`；width/height/stride/format 各 uint32，共 16 字节 |
-| `DISPLAY_ACQUIRE` (0x5702) | 立即值 0 保留字符输入，或传 `DISPLAY_ACQUIRE_EVENTS` (1) 选择键鼠事件。取得前台独占显示会话，FD 必须可写 |
+| `DISPLAY_ACQUIRE` (0x5702) | 立即值 0 保留字符输入，或传 `DISPLAY_ACQUIRE_EVENTS` (1) 选择键鼠事件。可另加 `DISPLAY_ACQUIRE_KEYBOARD_CTRL_C` (2) 将键盘 Ctrl-C 交给 GUI。取得前台独占显示会话，FD 必须可写 |
 | `DISPLAY_RELEASE` (0x5703) | 立即值 0，归还当前 File 与 PID 持有的会话 |
 | `DISPLAY_PRESENT` (0x5704) | 用户 `DisplayPresent*`，提交一个矩形 |
 | `DISPLAY_READ_EVENT` (0x5705) | 用户可写 `DisplayEvent*`，阻塞读取一条键鼠事件，成功返回 0 |
@@ -185,6 +197,6 @@ syscall 边界先复制描述、检查会话和完整源地址跨度，再逐行
 
 modifiers 是处理完该事件后的 Shift、Ctrl、Alt、Meta 位掩码。左右同一修饰键独立维护，任一按住则聚合位有效。RESET 也携带此刻的修饰键快照。队列最多保留 63 条事件，溢出时丢弃未读事件和触发溢出的事件，放入一个 RESET。应用自行累加相对位移及限制指针边界。
 
-事件模式将硬件键盘与鼠标输入交给会话，终端字符读取返回 Access。Ctrl-C 仍由控制台处理，串口输入的 Ctrl-C 也可以终止前台程序（适用于有串口输入的架构）。其他串口字符在事件模式期间丢弃。释放会话清空事件和遗留字符，恢复现有 shell 字符流。字符模式始终沿用原有键盘映射和控制序列。
+事件模式将硬件键盘与鼠标输入交给会话，终端字符读取返回 Access。默认 Ctrl-C 由控制台处理。显示会话选用 `DISPLAY_ACQUIRE_KEYBOARD_CTRL_C` 后由 GUI 按焦点分派键盘 Ctrl-C。串口输入的 Ctrl-C 仍可终止物理前台程序（适用于有串口输入的架构）。其他串口字符在事件模式期间丢弃。释放会话清空事件和遗留字符，恢复现有 shell 字符流。字符模式始终沿用原有键盘映射和控制序列。
 
 x86 PS/2 提供相对移动及三键，滚轮由 aarch64/riscv64 的 VirtIO 鼠标提供。当前 ABI 面向一个前台座席，支持相对鼠标与常用键，不提供触摸、绝对坐标、设备热插拔或多键盘独立状态。

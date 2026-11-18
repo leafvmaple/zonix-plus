@@ -7,5 +7,5 @@ struct Ends {
     vfs::FileHandle read;
     vfs::FileHandle write;
 };
-Result<Ends> create();
+Result<Ends> create(bool nonblocking = false);
 }  // namespace pipe

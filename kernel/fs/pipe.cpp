@@ -1,5 +1,6 @@
 #include "pipe.h"
 #include "fs/fd.h"
+#include "fs/readiness.h"
 #include "drivers/intr.h"
 #include "lib/waitqueue.h"
 #include "sched/sched.h"
@@ -26,8 +27,11 @@ public:
         (writer ? writer_open_ : reader_open_) = false;
         readable_.wakeup_all();
         writable_.wakeup_all();
+        if (writer)
+            fd::Readiness::notify();
     }
-    Result<int> read(void* out, size_t size) {
+    bool read_ready() const { return count_ != 0 || !writer_open_; }
+    Result<int> read(void* out, size_t size, bool nonblocking) {
         while (true) {
             intr::Guard guard;
             ENSURE(!sched::current()->termination_requested(), Error::Interrupted);
@@ -44,19 +48,23 @@ public:
             }
             if (!writer_open_)
                 return 0;
+            ENSURE(!nonblocking, Error::Busy);
             readable_.sleep();
         }
     }
-    Result<int> write(const void* in, size_t size) {
+    Result<int> write(const void* in, size_t size, bool nonblocking) {
         while (true) {
             intr::Guard guard;
             ENSURE(!sched::current()->termination_requested(), Error::Interrupted);
             ENSURE(reader_open_, Error::Io);  // No SIGPIPE ABI: report a failed write.
+            ENSURE(!nonblocking || size <= bytes_.size() - count_, Error::Busy);
             if (count_ < bytes_.size()) {
                 size_t count = size < bytes_.size() - count_ ? size : bytes_.size() - count_;
                 const auto* bytes = static_cast<const uint8_t*>(in);
                 for (size_t i = 0; i < count; ++i)
                     bytes_[(read_ + count_ + i) % bytes_.size()] = bytes[i];
+                if (count_ == 0)
+                    fd::Readiness::notify();
                 count_ += count;
                 readable_.wakeup_all();
                 return static_cast<int>(count);
@@ -85,17 +93,21 @@ void ReleaseBuffer::operator()(Buffer* buffer) const noexcept {
 
 class Endpoint : public vfs::File {
 public:
-    Endpoint(BufferRef buffer, bool writer)
-        : File(writer ? O_WRONLY : O_RDONLY), buffer_(sys::move(buffer)), writer_(writer) {
+    Endpoint(BufferRef buffer, bool writer, bool nonblocking)
+        : File(writer ? O_WRONLY : O_RDONLY), buffer_(sys::move(buffer)), writer_(writer), nonblocking_(nonblocking) {
         buffer_->open(writer_);
     }
     ~Endpoint() override { buffer_->close(writer_); }
     bool is_stream() const override { return true; }
+    Result<bool> read_ready() override {
+        ENSURE(!writer_, Error::Access);
+        return buffer_->read_ready();
+    }
     Result<int> read(void* out, size_t size, size_t) override {
-        return writer_ ? Result<int>(Error::Access) : buffer_->read(out, size);
+        return writer_ ? Result<int>(Error::Access) : buffer_->read(out, size, nonblocking_);
     }
     Result<int> write(const void* in, size_t size, size_t) override {
-        return writer_ ? buffer_->write(in, size) : Result<int>(Error::Access);
+        return writer_ ? buffer_->write(in, size, nonblocking_) : Result<int>(Error::Access);
     }
     Error stat(vfs::Stat* st) override {
         st->set(vfs::NodeType::Pipe, 0, 0);
@@ -105,25 +117,26 @@ public:
 private:
     BufferRef buffer_;
     bool writer_;
+    bool nonblocking_;
 };
 }  // namespace
 
-Result<Ends> create() {
+Result<Ends> create(bool nonblocking) {
     BufferRef buffer(new (sys::nothrow) Buffer());
     ENSURE(buffer, Error::NoMem);
     Ends ends;
-    ends.read.reset(new (sys::nothrow) Endpoint(buffer->share(), false));
+    ends.read.reset(new (sys::nothrow) Endpoint(buffer->share(), false, nonblocking));
     ENSURE(ends.read, Error::NoMem);
-    ends.write.reset(new (sys::nothrow) Endpoint(buffer->share(), true));
+    ends.write.reset(new (sys::nothrow) Endpoint(buffer->share(), true, nonblocking));
     ENSURE(ends.write, Error::NoMem);
     return ends;
 }
 }  // namespace pipe
 
 namespace fd {
-Error Table::create_pipe(int (&ends)[2], bool close_on_exec) {
+Error Table::create_pipe(int (&ends)[2], bool close_on_exec, bool nonblocking) {
     ENSURE(size() <= MAX_FD - 2, Error::Full);
-    auto files = TRY(pipe::create());
+    auto files = TRY(pipe::create(nonblocking));
     int reader = TRY(alloc(sys::move(files.read), close_on_exec));
     auto writer = alloc(sys::move(files.write), close_on_exec);
     if (!writer.ok()) {

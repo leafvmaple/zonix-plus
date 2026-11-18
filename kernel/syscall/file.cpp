@@ -8,6 +8,10 @@ namespace {
 constexpr size_t SYSCALL_PATH_MAX = 128;
 enum class FileIo { Read, Write };
 
+struct UnlockFile {
+    void operator()(fd::OpenFile* file) const noexcept { file->unlock(); }
+};
+
 
 long sys_file_io(Task* cur, int fd, uintptr_t user_buf, size_t count, FileIo operation) {
     const bool to_user = operation == FileIo::Read;
@@ -25,10 +29,14 @@ long sys_file_io(Task* cur, int fd, uintptr_t user_buf, size_t count, FileIo ope
     if (entry->file()->begin_io(activity) != Error::None) {
         return -1;
     }
-    if (entry->lock_interruptible() != Error::None) {
-        return -1;
+    // Duplex streams synchronize their directions independently; a blocked
+    // terminal read must leave the same opened slave available to writers.
+    sys::unique_ptr<fd::OpenFile, UnlockFile> file_lock;
+    if (!entry->file()->is_duplex()) {
+        if (entry->lock_interruptible() != Error::None)
+            return -1;
+        file_lock.reset(entry);
     }
-    sys::lock_guard<fd::OpenFile> file_lock(*entry, sys::adopt_lock);
     if (!vmm::user_range_valid(cur->memory(), user_buf, count, to_user)) {
         return -1;
     }
@@ -94,11 +102,11 @@ long syscall::open(Task* cur, const char* user_path, int flags, int mode) {
 }
 
 long syscall::pipe2(Task* task, uintptr_t output, long flags) {
-    if (!task || (flags != 0 && flags != O_CLOEXEC) ||
+    if (!task || (flags & ~(O_CLOEXEC | O_NONBLOCK)) != 0 ||
         !vmm::user_range_valid(task->memory(), output, 2 * sizeof(int), true))
         return static_cast<long>(Error::Invalid);
     int ends[2];
-    Error error = task->files().create_pipe(ends, flags == O_CLOEXEC);
+    Error error = task->files().create_pipe(ends, (flags & O_CLOEXEC) != 0, (flags & O_NONBLOCK) != 0);
     if (error != Error::None)
         return static_cast<long>(error);
     error = vmm::copy_to_user(task->memory(), output, ends, sizeof(ends));

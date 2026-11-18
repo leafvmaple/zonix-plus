@@ -9,6 +9,7 @@
 #include "lib/result.h"
 #include "lib/kernel_buffer.h"
 #include "fs/fd.h"
+#include "cons/pty.h"
 #include "mm/vmm.h"
 #include "trap/trap.h"
 
@@ -61,6 +62,7 @@ private:
     MemoryDesc* borrowed_memory_{};
     bool termination_requested_{};
     int console_job_{};
+    pty::SessionRef pty_;
     volatile TaskState state_{};  // Process state
     fd::Table files_{};
     friend struct TaskAccess;
@@ -85,6 +87,11 @@ public:
     int time_slice{};                   // Remaining ticks in current quantum
     volatile int need_resched{};        // Set by timer ISR to request reschedule
 
+    pty::Session* pty_session() const { return pty_.get(); }
+    void set_pty_session(pty::SessionRef session) {
+        assert(state_ == TaskState::Uninit);
+        pty_ = sys::move(session);
+    }
     int console_job() const { return console_job_; }
     void set_console_job(int owner) {
         assert(state_ == TaskState::Uninit);
@@ -195,6 +202,7 @@ public:
     static Error terminate(int pid);
     static Error interrupt_console(int pid);
     static void interrupt_job(int owner);
+    static void interrupt_pty(const pty::Session* session, int except_pid = 0);
     static bool has_live_job(int owner);
     static Result<int> wait_ready(int pid, int* code_store);
     static int exit(int error_code);

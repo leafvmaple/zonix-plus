@@ -46,6 +46,7 @@ public:
         if (owner_pid_ != 0)
             cons::release_display(this);
     }
+    Result<bool> read_ready() override { return cons::display_event_ready(this); }
     Result<int> read(void*, size_t, size_t) override { return Error::NotSupported; }
     Result<int> write(const void*, size_t, size_t) override { return Error::NotSupported; }
     Error stat(vfs::Stat* st) override {
@@ -59,7 +60,7 @@ public:
         ENSURE(task && can_write(), Error::Access);
         if (request == DISPLAY_ACQUIRE) {
             ENSURE(!cons::owns_display(this), Error::Busy);
-            TRY(cons::acquire_display(this, *static_cast<const unsigned int*>(value) == DISPLAY_ACQUIRE_EVENTS));
+            TRY(cons::acquire_display(this, *static_cast<const unsigned int*>(value)));
             owner_pid_ = task->pid;
             return Error::None;
         }

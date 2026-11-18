@@ -2,6 +2,7 @@
 # Both share the existing startup, syscall wrappers, library and linker script.
 # Assembly register fixtures retain their dedicated entry points.
 BASE_PROGRAMS := init sh ls cat cp mkdir rm sync shutdown ps kill vi
+OPT_IN_PROGRAMS := gfxdemo desktop deskapp terminal
 USER_DIR := user
 USER_BINDIR := $(BINDIR)/user
 USER_OBJDIR := $(OBJDIR)/user
@@ -31,8 +32,10 @@ USER_CFLAGS := -g -O2 -Wall -Wextra -std=c11 -ffreestanding -nostdinc \
                $(USER_ARCH_CFLAGS) -Iinclude -I$(ZCC_DIR)/src/runtime
 USER_ASFLAGS := -g -nostdinc -ffreestanding
 USER_PROGRAMS := $(notdir $(patsubst %/,%,$(dir $(wildcard $(USER_DIR)/*/*.S $(USER_DIR)/*/*.c $(USER_DIR)/*/*.cpp))))
-USER_PROGRAMS := $(filter-out zcc,$(sort $(USER_PROGRAMS)))
-ifneq ($(ARCH),x86)
+USER_PROGRAMS := $(filter-out zcc minicoco gui files,$(sort $(USER_PROGRAMS)))
+ifeq ($(ARCH),x86)
+USER_PROGRAMS := $(filter-out desktop terminal,$(USER_PROGRAMS))
+else
 USER_PROGRAMS := $(filter-out ssetest ssepeer,$(USER_PROGRAMS))
 endif
 ifneq ($(TEST),1)
@@ -58,7 +61,7 @@ $(USER_COMPILER_STAMP): FORCE
 
 define user_program_template
 _UP_C_$(1) := $$(wildcard $(USER_DIR)/$(1)/*.c)
-_UP_CXX_$(1) := $$(wildcard $(USER_DIR)/$(1)/*.cpp)
+_UP_CXX_$(1) := $$(filter-out $(USER_DIR)/terminal/grid_renderer.cpp,$$(wildcard $(USER_DIR)/$(1)/*.cpp)) $$(if $$(filter desktop,$(1)),$(USER_DIR)/desktop/chrome/basic.cpp)
 _UP_ASM_$(1) := $$(wildcard $(USER_DIR)/$(1)/*.S)
 _UP_COMPILER_DEP_$(1) := $$(if $$(filter $(BASE_PROGRAMS) ssetest ssepeer,$(1)),,$(USER_COMPILER_STAMP) $(USER_COMPILER_CHANGED))
 ifneq ($$(and $$(filter-out $(BASE_PROGRAMS) ssetest ssepeer,$(1)),$$(filter zcc,$(USER_CC))),)
@@ -88,12 +91,17 @@ else
 	$(Q)$(LD) -nostdlib -T $(ZCC_SYSROOT)/linker.ld $$(_UP_OBJS_$(1)) -o $$@
 endif
 endif
-# The graphics demo is opt-in: request its ELF with USER_CC=clang.
-ifeq ($$(filter $(1),$(BASE_PROGRAMS) gfxdemo),)
+# Optional GUI applications are explicit ELF targets built with USER_CC=clang.
+ifeq ($$(filter $(1),$(BASE_PROGRAMS) $(OPT_IN_PROGRAMS)),)
 USER_ELFS += $(USER_BINDIR)/$(call uc,$(1)).ELF
 endif
 endef
 $(foreach p,$(USER_PROGRAMS),$(eval $(call user_program_template,$(p))))
+$(USER_OBJDIR)/desktop/font.S.o: user/desktop/font.S fonts/console.psf arch/$(ARCH)/Makefile
+	$(Q)$(MKDIR) $(@D)
+	$(Q)$(CC) $(USER_ASFLAGS) $(USER_ARCH_CFLAGS) $(DEPFLAGS) -c $< -o $@
+include user/gui/Makefile
+include user/minicoco/Makefile
 .PHONY: user rootfs user-image zcc-examples user-clean check-syscall-abi
 # Explicit installations; neither is a boot-image prerequisite.
 rootfs: $(foreach p,$(BASE_PROGRAMS),$(USER_BINDIR)/$(call uc,$(p)).ELF)
@@ -133,4 +141,4 @@ endif
 user: check-syscall-abi $(USER_ELFS)
 zcc-examples: check-syscall-abi $(ZCC_EXAMPLE_ELFS)
 
--include $(wildcard $(USER_OBJDIR)/*/*.d)
+-include $(wildcard $(USER_OBJDIR)/*/*.d $(USER_OBJDIR)/desktop/chrome/*.d)

@@ -1,30 +1,28 @@
 # 用户态启动与 shell
 
-正常启动（`TEST=0`）使用三个职责分明的产物：
+正常启动（`TEST=0`）使用引导盘和基础 rootfs，可按需接入一张应用盘。
 
 | 产物 | 内容与运行位置 | 是否必需 |
 | --- | --- | --- |
 | `zonix.img` / `zonix-uefi.img` | 引导和内核，不含任何用户 ELF | 必需 |
 | `rootfs.img` | `/sbin/init`、`/bin/sh`、基础命令和基础目录，挂载到 `/` | 必需 |
-| `apps.img` | 额外应用 `/bin/hello`，接入时挂载到 `/opt` | 可选 |
+| `apps.img` | 独立额外应用盘，接入时挂载到 `/opt` | 可选 |
+| `desktop.img` | x86 Desktop、Terminal、Files 和字体，作为应用盘挂载到 `/opt` | 可选 |
 
 内核查找包含 `/sbin/init` 的 FAT 文件系统作为基础 rootfs，不按“第一张可挂载盘”猜测根目录。随后加载 `/sbin/init` 为用户态 PID 1，由它启动 `/bin/sh`。init 等待并回收子进程，shell 退出或发生用户态异常后重新启动它。失去 init 属于致命错误，不能终止 PID 1。
 
-接入的额外文件系统包含 `/bin` 时可作为应用盘挂到 `/opt`；未接入时保留基础 rootfs 的空 `/opt` 目录，不影响 init、shell 或 `/bin` 中的程序。应用盘不提供基础 init/shell。init、shell 及基础命令使用 Clang 交叉编译；应用可选择 zcc、Clang 或兼容的交叉编译器，全部共用现有 ABI 和运行时。三者分别构建：
+接入的额外文件系统包含 `/bin` 时可作为应用盘挂到 `/opt`；未接入时保留基础 rootfs 的空 `/opt` 目录，不影响 init、shell 或 `/bin` 中的程序。应用盘不提供基础 init/shell。init、shell 及基础命令使用 Clang 交叉编译；应用可选择 zcc、Clang 或兼容的交叉编译器，全部共用现有 ABI 和运行时。默认构建包含引导、内核和基础 rootfs，可直接启动 CLI。
 
 ```sh
 # x86：只接基础 rootfs，进入 CLI，不接应用盘
 make ARCH=x86 TEST=0 -j8
-make ARCH=x86 TEST=0 rootfs
 make ARCH=x86 TEST=0 qemu       # UEFI；BIOS 使用 qemu-bios
 
 # aarch64 / riscv64：同样不需要应用盘
-make ARCH=aarch64 TEST=0 bin/aarch64/zonix-uefi.img -j8
-make ARCH=aarch64 TEST=0 rootfs
+make ARCH=aarch64 TEST=0 -j8
 make ARCH=aarch64 TEST=0 qemu
 
-make ARCH=riscv64 TEST=0 bin/riscv64/zonix-uefi.img -j8
-make ARCH=riscv64 TEST=0 rootfs
+make ARCH=riscv64 TEST=0 -j8
 make ARCH=riscv64 TEST=0 qemu
 
 # 额外应用是可选的，显式构建并接入
@@ -37,7 +35,7 @@ make ARCH=x86 TEST=0 user-image USER_CC=clang
 make ARCH=x86 TEST=0 zcc-examples
 ```
 
-启动镜像的规则不依赖 `rootfs`、`user-image` 或任何用户 ELF。`rootfs`/`user-image` 各自创建 64 MiB FAT32 镜像，随后分别更新 init/shell 或额外应用，保留已有其他文件；不要更新正在被 QEMU 使用的镜像。主机上的构建产物仍为 `user/INIT.ELF`、`user/SH.ELF`、`user/HELLO.ELF`，安装时映射到上述目录。
+启动镜像的规则仅依赖引导和内核。默认构建另行调用 `rootfs`，可用 `make rootfs` 单独更新基础系统。`rootfs`/`user-image` 各自创建 64 MiB FAT32 镜像，随后分别更新 init/shell 或额外应用，保留已有其他文件；不要更新正在被 QEMU 使用的镜像。主机上的构建产物仍为 `user/INIT.ELF`、`user/SH.ELF`、`user/HELLO.ELF`，安装时映射到上述目录。
 
 QEMU 默认只接引导盘和基础 rootfs，只有指定 `USER_DISK` 才接入应用盘。x86 的基础 rootfs 使用 AHCI/IDE；aarch64/riscv64 的引导盘通过 VirtIO 提供给固件，基础 rootfs 通过 SDHCI 提供给内核，不再需要正常启动的引导盘镜像副本。
 
@@ -220,3 +218,70 @@ make ARCH=x86 TEST=0 qemu USER_DISK=bin/x86/apps.img
 显示设备复用 UEFI 提供的 32 位 RGB/BGR 帧缓冲；用户态统一提交 `0x00RRGGBB` 像素，通过受控区域复制绘制，不映射物理内存。BIOS CGA 或没有可用帧缓冲时，设备返回 `NoDevice`，演示报告 device unavailable 后返回 shell。图形占用期间暂停文字绘制和光标，将控制台输出暂存 1 KiB，归还时显示并报告截断。
 
 x86 QEMU 使用 PS/2 键盘与三键相对鼠标。aarch64 和 riscv64 的 QEMU 配置使用 VirtIO 键盘/鼠标，并支持垂直滚轮切换色条。演示使用前台键鼠事件，shell 和 `vi` 继续使用原有字符输入。接口和权限见 [USER_ABI.md](USER_ABI.md#显示控制-abi)。
+
+## 可选 Desktop
+
+`desktop` 是从 shell 启动的可选用户态程序。x86 套件包含 Desktop、图形终端、Files 和界面字体，统一装到独立的 `desktop.img`。Desktop、Terminal 和 Files 静态链接同一套 mini-cocos 与 Zonix GUI 平台。先准备下文指定的 mini-cocos checkout。
+
+```sh
+make ARCH=x86 TEST=0 -j8
+make ARCH=x86 TEST=0 desktop-image MINICOCOS_DIR=../mini-cocos
+make ARCH=x86 TEST=0 qemu USER_DISK=bin/x86/desktop.img
+# 在 shell 中执行 desktop
+```
+
+构建套件时使用固定版本的字体及许可证，并完整更新套件镜像。用 `make qemu ARCH=x86` 启动时默认只接引导盘和基础 rootfs，无需 mini-cocos。Desktop 套件入口目前支持 x86，aarch64 和 riscv64 的基础窗口装饰版仍可通过独立 ELF 目标开发。
+
+按 F2 打开 Terminal，按 F4 打开 Files。单击窗口切换焦点，按住标题栏拖动，单击右上角 × 关闭，F12 退出 Desktop。安装示例客户端后，Desktop 会在启动时打开两个示例窗口，按 1 或 2 可重开。示例窗口的内容区支持鼠标和 Space，聚焦时 q/Esc 退出、Ctrl-C 终止前台 Desktop。另装 mini-cocos 渲染示例后按 F3 打开它。无可用帧缓冲时，Desktop 报告设备不可用并返回 shell。
+
+每个客户端有两条专用匿名管道。两个示例客户端通过 stdout 发送 24×24 XRGB8888 像素帧，Desktop 按窗口尺寸放大并合成，通过 stdin 发送聚焦窗口的键盘事件、内容区鼠标按下/释放和画布坐标。桌面处理指针移动和标题栏操作。双方每次只交换一条输入及其对应帧，桌面可等待输入和任一客户端的帧或 EOF。
+
+客户端异常退出只关闭它自己的窗口，剩余窗口仍可交互。Desktop 正常关闭时关闭管道并回收客户端，异常退出时内核恢复前台控制台并关闭父进程的管道端，客户端由此结束并交给 init 回收。
+
+### 图形终端
+
+在 Desktop 按 F2 打开或聚焦 Terminal 窗口。它在一个独立伪终端上启动基础 rootfs 的 `/bin/sh`。64×20 字符网格沿用现有 ASCII 字体、ANSI 光标和清屏语义，支持键入、光标移动、历史、滚屏、重定向和管道。x86 版在 Terminal 进程内把原有 PSF 字形转换为纹理。mini-cocos 批量绘制变化区域内的字形和光标，再通过与 Files 相同的管道发送局部像素矩形，Desktop 合成这些像素。通过 `desktop-image` 一起更新 Desktop 和 Terminal。aarch64 和 riscv64 版本仍通过管道发送字符网格。
+
+Terminal 聚焦时，键盘 Ctrl-C 交给这个伪终端，取消输入行或中断该终端的前台命令或管道，Desktop 与原来的物理 shell 保持运行。关闭窗口会话挂断，回收本会话中的 shell 和命令。F12 可以随时退出并回到物理 shell。串口 Ctrl-C 仍由物理控制台处理。
+
+当前布局使用 8×16 字形，需要至少 516×352 的显示区域。首版使用一个 Terminal 窗口及原有 ANSI 子集。
+
+### 文件浏览器
+
+Files 随 Desktop 套件安装，按 F4 打开。它使用 `Scene`、`Label`、`Button` 和列表条目的 `Widget` 绘制 500×344 内容区，键盘和鼠标通过引擎分发。
+
+Files 从启动 Desktop 时的目录开始，以 VFS 枚举顺序显示目录和普通文件，目录名带 `/`。方向键选中条目并滚动列表。Enter、右方向键或单击打开子目录。Backspace、左方向键或单击 Up 返回上一级，在根目录时保持当前位置。q/Esc 或标题栏 × 关闭窗口。浏览只改变 Files 进程自己的当前目录，普通文件只显示名称。
+
+### Zonix 用户态 GUI 平台
+
+`user/gui` 把 mini-cocos 的软件绘制、字体 VFS 和进程内分配接到现有用户态 ABI。Desktop、Files 和 Terminal 在各自进程内使用引擎。Desktop 用离屏后端把背景、标题和关闭按钮绘制到内存。合成器缓存这块画布，在重绘、遮挡和拖动时把它与客户端内容拼到显示缓冲。关闭按钮的命中使用与绘制相同的尺寸和位置，窗口的焦点、拖动、关闭和回收继续由 Desktop 处理。
+
+Files 用管道后端接收窗口坐标中的键鼠事件，mini-cocos 将事件分发给内容区控件。它的软件绘制结果按变化矩形经管道交给 Desktop。x86 Terminal 用同一软件渲染器绘制固定网格，PTY 负责终端输入输出和前台命令。Desktop 是显示会话的持有者，通过 `/dev/display` 读取键鼠事件并提交最终画面。当前两个后端均按事件重绘，暂无动画时钟。
+
+构建在对象目录展开固定版本源码，对副本应用 Zonix 的无 RTTI、字体、离屏视图和按钮绘制顺序兼容补丁。引擎和平台库使用项目的 `external/zstl` 静态链接到 GUI ELF。可选 GUI 软件及字体从应用盘安装，启动镜像和基础 rootfs 独立构建。x86 的 Desktop、Files 和 Terminal 共用分配器，链接时分别为各进程预留 6、8 和 1 MiB 堆。
+
+## mini-cocos 软件渲染示例
+
+`minicoco` 是可选的 x86 用户态应用。它使用 mini-cocos 的 `zocos_software` 软件渲染库，绘制带旋转变换的棋盘贴图，并通过 `/dev/display` 提交画面。方向键或鼠标移动贴图，Space 切换配色，左键按下高亮、释放恢复，q/Esc 退出到 shell。
+
+从 Zonix 仓库根目录运行以下命令。需要 CMake、Ninja 和现有 Clang/LLD 交叉工具链。示例已验证的 [mini-cocos 版本](https://github.com/leafvmaple/mini-cocos/tree/f58e97052de5a696ad7ed55b99700f265a5b331f) 如下：
+
+```sh
+git clone https://github.com/leafvmaple/mini-cocos.git ../mini-cocos
+git -C ../mini-cocos checkout --detach f58e97052de5a696ad7ed55b99700f265a5b331f
+make ARCH=x86 TEST=0 minicocos-demo MINICOCOS_DIR=../mini-cocos
+bash scripts/install_userspace_image.sh apps bin/x86/apps.img bin/x86/user/MINICOCO.ELF
+make ARCH=x86 TEST=0 rootfs
+make ARCH=x86 TEST=0 qemu USER_DISK=bin/x86/apps.img
+# 在 shell 中执行 minicoco
+```
+
+可通过 `MINICOCOS_DIR` 指向包含该版本的引擎 checkout。构建直接使用 Zonix 的 `external/zstl`，设置 `ZOCOS_FREESTANDING=ON`、`ZOCOS_USE_CRT=OFF`，关闭宿主、Lua 和引擎测试。示例调用软件渲染库并走现有用户态启动和 syscall 封装。320×240 的渲染缓冲由示例提供，贴图与绘制命令在初始化时使用有界内存，后续帧复用。
+
+应用只安装到可选应用盘。x86 UEFI 使用 32 位帧缓冲运行示例，BIOS 文本模式报告显示设备不可用后返回 shell。
+
+### 在 Desktop 窗口运行
+
+将 `MINICOCO.ELF` 另行安装到已构建的 `desktop.img` 应用盘。在 shell 运行 `desktop`，用 F2 打开 Terminal，用 F3 打开 mini-cocos。mini-cocos 声明 320×240 内容尺寸，Desktop 以原像素呈现。单击内容区切换焦点，移动鼠标或按方向键移动贴图。拖标题栏移动窗口，单击 × 或在窗口聚焦时按 q/Esc 关闭 mini-cocos。Terminal 仍可输入命令，F12 退出 Desktop。
+
+窗口客户端沿用两条匿名管道和已有 `Input` 记录。图像管道先发送一条尺寸记录，随后发送带坐标和尺寸的 XRGB8888 矩形。同一批更新可拆成多个像素包。Desktop 逐包写入窗口缓存，收到尾包后合并变化范围并分块提交。独立更新可以直接发送尾包。拖动时复用窗口缓存。更新应用盘时请一起安装新版 Desktop 和像素客户端。尺寸须适配当前屏幕并在 512×384 上限内，当前会话使用启动时声明的尺寸。使用说明中的裸 `minicoco` 命令仍可独立运行。

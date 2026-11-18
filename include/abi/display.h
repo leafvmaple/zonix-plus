@@ -1,4 +1,5 @@
-#pragma once
+#ifndef ZONIX_ABI_DISPLAY_H
+#define ZONIX_ABI_DISPLAY_H
 
 #define DISPLAY_GET_INFO   0x5701
 #define DISPLAY_ACQUIRE    0x5702
@@ -6,7 +7,8 @@
 #define DISPLAY_PRESENT    0x5704
 #define DISPLAY_READ_EVENT 0x5705
 
-#define DISPLAY_ACQUIRE_EVENTS 1
+#define DISPLAY_ACQUIRE_EVENTS          1
+#define DISPLAY_ACQUIRE_KEYBOARD_CTRL_C 2
 
 /* Pixels are 32-bit 0x00RRGGBB words; stride is in bytes, not pixels.
  * Device addresses and the native scanout layout are never exposed. */
@@ -63,3 +65,5 @@ struct DisplayEvent {
     int value;
     unsigned int modifiers;
 };
+
+#endif /* ZONIX_ABI_DISPLAY_H */
