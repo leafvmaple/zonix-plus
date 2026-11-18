@@ -2,7 +2,7 @@
 // Loaded by VBR at 0x7E00, runs in 32-bit protected mode
 // This bootloader:
 //   1. Reads FAT16/FAT32 filesystem from disk using ATA PIO ports
-//   2. Locates and loads KERNEL.SYS (ELF file) to 0x10000
+//   2. Locates and loads KERNEL.SYS (ELF file) to verified RAM at 16 MiB
 //   3. Parses ELF and loads segments to their proper locations
 //   4. Sets up 64-bit long mode (PAE, PML4 page tables, EFER, paging)
 //   5. Jumps to kernel entry point in 64-bit mode
@@ -35,7 +35,11 @@ static constexpr uint8_t ATA_CMD_READ_PIO = 0x20;  // Read with retry
 static constexpr uint8_t ATA_STATUS_BSY = 0x80;   // Busy
 static constexpr uint8_t ATA_STATUS_DRDY = 0x40;  // Drive ready
 
-static constexpr uint32_t KERNEL_ELF_ADDR = 0x10000;
+// Low-memory staging crosses the VGA/ROM hole once an ELF loadable section
+// reaches file offset 0x90000. Keep the complete source above kernel destinations.
+static constexpr uint32_t KERNEL_ELF_ADDR = 0x1000000;
+static constexpr uint32_t FAT_CLUSTER_MASK = 0x0FFFFFFF;
+static constexpr uint32_t FAT_END_OF_CHAIN = 0x0FFFFFF8;
 
 // =============================================================================
 // Memory layout for 32->64 bit transition structures (placed in low memory)
@@ -96,10 +100,23 @@ static int read_sectors(uint32_t lba, uint32_t count, uint8_t* buffer) {
     return 0;
 }
 
-static int load_elf_kernel(uint8_t* elf_buffer, BootInfo* bi) {
+static bool usable_ram(uint32_t base, uint64_t size) {
+    auto* entries = reinterpret_cast<const BootMemEntry*>(E820_MEM_DATA);
+    for (uint32_t i = 0; i < bi.mmap_count; ++i) {
+        const auto& entry = entries[i];
+        if (entry.type == BOOT_MEM_AVAILABLE && base >= entry.base_pa && size <= entry.size_bytes &&
+            base - entry.base_pa <= entry.size_bytes - size)
+            return true;
+    }
+    return false;
+}
+
+static int load_elf_kernel(uint8_t* elf_buffer, uint32_t file_size, BootInfo* bi) {
     auto* elf = reinterpret_cast<ElfHeader64*>(elf_buffer);
 
-    if (elf->e_magic != ELF_MAGIC) {
+    if (file_size < sizeof(ElfHeader64) || elf->e_magic != ELF_MAGIC || elf->e_phentsize != sizeof(ProgramHeader64) ||
+        elf->e_phoff > file_size ||
+        elf->e_phnum > (file_size - static_cast<uint32_t>(elf->e_phoff)) / sizeof(ProgramHeader64)) {
         return -1;
     }
 
@@ -116,6 +133,12 @@ static int load_elf_kernel(uint8_t* elf_buffer, BootInfo* bi) {
             continue;
         }
 
+        // Reject destinations that overlap the loader/source, exceed 32-bit
+        // physical addressing, or lie outside firmware-reported usable RAM.
+        if (ph->p_pa < 0x100000 || ph->p_pa >= KERNEL_ELF_ADDR || ph->p_memsz > KERNEL_ELF_ADDR - ph->p_pa ||
+            ph->p_filesz > ph->p_memsz || ph->p_offset > file_size || ph->p_filesz > file_size - ph->p_offset ||
+            !usable_ram(static_cast<uint32_t>(ph->p_pa), ph->p_memsz))
+            return -1;
         auto segment_pa = static_cast<uint32_t>(ph->p_pa);
         auto* dst = reinterpret_cast<uint8_t*>(segment_pa);
         auto* src = reinterpret_cast<uint8_t*>(elf) + static_cast<uint32_t>(ph->p_offset);
@@ -138,7 +161,7 @@ static int load_elf_kernel(uint8_t* elf_buffer, BootInfo* bi) {
     return 0;
 }
 
-static uint32_t fat_find_file(const char* filename, uint8_t* dir_buffer, uint32_t root_entries) {
+static uint32_t fat_find_file(const char* filename, uint8_t* dir_buffer, uint32_t root_entries, uint32_t* file_size) {
     auto* entry = reinterpret_cast<FatDirEntry*>(dir_buffer);
 
     for (uint32_t i = 0; i < root_entries; i++) {
@@ -150,13 +173,14 @@ static uint32_t fat_find_file(const char* filename, uint8_t* dir_buffer, uint32_
         }
         // Compare name (8 bytes) and ext (3 bytes) together as 11 bytes
         if (memcmp(&entry[i].name, filename, 11) == 0) {
+            *file_size = entry[i].file_size;
             return entry[i].cluster();
         }
     }
     return 0;  // Not found
 }
 
-static int fat_load_file(const char* filename, uint8_t* buffer) {
+static int fat_load_file(const char* filename, uint8_t* buffer, uint32_t* file_size) {
     if (bpb32->common.fat_size_16 != 0)
         return -1;
 
@@ -170,8 +194,13 @@ static int fat_load_file(const char* filename, uint8_t* buffer) {
         return -1;
     uint32_t root_entries = (sectors_per_cluster * SECT_SIZE) / 32;
 
-    uint32_t cluster = fat_find_file(filename, root_dir, root_entries);
-    if (cluster == 0)
+    uint32_t cluster = fat_find_file(filename, root_dir, root_entries, file_size);
+    if (cluster == 0 || *file_size == 0 || sectors_per_cluster == 0)
+        return -1;
+    uint32_t cluster_bytes = sectors_per_cluster * SECT_SIZE;
+    uint32_t clusters = *file_size / cluster_bytes + (*file_size % cluster_bytes != 0);
+    uint64_t bytes = static_cast<uint64_t>(clusters) * cluster_bytes;
+    if (bytes > 0xFFFFFFFFU - KERNEL_ELF_ADDR || !usable_ram(KERNEL_ELF_ADDR, bytes))
         return -1;
 
     auto* fat = reinterpret_cast<uint32_t*>(0x8C00);
@@ -179,17 +208,20 @@ static int fat_load_file(const char* filename, uint8_t* buffer) {
         return -1;
 
     uint8_t* dest = buffer;
-    while (cluster < 0x0FFFFFF8) {
+    while (clusters-- != 0) {
+        if (cluster < 2 || cluster >= FAT_END_OF_CHAIN ||
+            cluster >= bpb32->fat_size_32 * (SECT_SIZE / sizeof(uint32_t)))
+            return -1;
         uint32_t sector = data_start + (cluster - 2) * sectors_per_cluster;
 
         if (read_sectors(sector, sectors_per_cluster, dest) != 0)
             return -1;
 
         dest += sectors_per_cluster * SECT_SIZE;
-        cluster = fat[cluster];
+        cluster = fat[cluster] & FAT_CLUSTER_MASK;
     }
 
-    return 0;
+    return cluster >= FAT_END_OF_CHAIN ? 0 : -1;
 }
 
 static void build_page_tables() {
@@ -289,11 +321,12 @@ void bootmain(uint32_t boot_drive_param) {
 
     strcpy(bi.loader_name, "Zonix BIOS");
 
-    if (fat_load_file(KERNEL_FNAME, reinterpret_cast<uint8_t*>(KERNEL_ELF_ADDR)) != 0) {
+    uint32_t file_size{};
+    if (fat_load_file(KERNEL_FNAME, reinterpret_cast<uint8_t*>(KERNEL_ELF_ADDR), &file_size) != 0) {
         goto bad;
     }
 
-    if (load_elf_kernel(reinterpret_cast<uint8_t*>(KERNEL_ELF_ADDR), &bi) != 0) {
+    if (load_elf_kernel(reinterpret_cast<uint8_t*>(KERNEL_ELF_ADDR), file_size, &bi) != 0) {
         goto bad;
     }
 

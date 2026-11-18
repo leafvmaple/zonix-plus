@@ -772,3 +772,14 @@ for members, reaps its direct children and ends the group before prompting again
 Owner exit cancels members even if userspace cleanup is never reached; init owns
 orphan reaping. Shell pipe originals and stdio backups are CLOEXEC, selected dup2
 bindings are inherited, and all parent endpoint copies are closed on every path.
+
+## BIOS ELF staging
+
+The BIOS loader stages the complete ELF in firmware-reported usable RAM starting
+at 16 MiB. Directory file size bounds FAT traversal and the staging allocation;
+loadable segments must remain within the file and usable RAM below the staging
+area (physical 1–16 MiB). Source and destination cannot overlap. Invalid layouts
+stop before long-mode handoff. This avoids the VGA/ROM hole reached by the old
+0x10000 staging address when a loadable section extends past file offset 0x90000.
+After segment copies and handoff, staging bytes have no live owner and may be
+reused by the kernel allocator; no kernel object borrows the ELF source buffer.
