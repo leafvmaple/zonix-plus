@@ -18,6 +18,7 @@ A teaching operating system kernel targeting **x86_64**, **aarch64**, and **risc
 ### Process Management
 - **Preemptive Round-Robin Scheduler**: Priority-aware scheduling with per-tick timeslice decrement
 - **Kernel Threads**: `kernel_thread()` API with full context switch (callee-saved + CR3)
+- **Optional User Graphics**: `/dev/display` offers controlled framebuffer updates and foreground session recovery; an opt-in Clang `gfxdemo` lives on the application disk ([build and usage](docs/USERSPACE.md#可选图形演示-gfxdemo))
 - **User Programs**: Compiler-independent static ELF ABI with shared runtime; Clang-built base components and selectable zcc/Clang application builds on all three architectures; argc/argv, spawn/wait/kill and inherited shared file descriptions ([ABI contract](docs/USER_ABI.md))
 - **Process Hierarchy**: Parent-child links, zombie reaping, orphan reparenting to init
 - **Process Table**: Hash table (1024 buckets) for O(1) PID lookup

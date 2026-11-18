@@ -4,6 +4,9 @@
 #include "lib/result.h"
 
 struct Task;
+namespace vfs {
+class File;
+}
 
 namespace syscall {
 Error copy_string(Task* task, uintptr_t user, char* out, size_t capacity);
@@ -25,6 +28,7 @@ long read(Task* task, int fd, void* buf, size_t count);
 long write(Task* task, int fd, const char* buf, size_t count);
 long close(Task* task, int fd);
 long ioctl(Task* task, long fd, long request, uintptr_t argument);
+long display_control(Task* task, vfs::File* file, unsigned int request, uintptr_t argument);
 long pipe2(Task* task, uintptr_t output, long flags);
 long dup2(Task* task, long old_fd, long new_fd);
 long fcntl(Task* task, long fd, long command, long argument);

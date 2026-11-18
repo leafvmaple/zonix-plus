@@ -13,7 +13,7 @@ BASH = shutil.which("bash")
 @unittest.skipUnless(BASH, "bash is required for the ABI checker")
 class SyscallAbiTests(unittest.TestCase):
     def run_checker(self, root):
-        for name in ("process.h", "fcntl.h", "terminal.h"):
+        for name in ("process.h", "fcntl.h", "terminal.h", "display.h"):
             for directory in ("include/abi", "user/zcc/src/runtime"):
                 header = root / directory / name
                 header.parent.mkdir(parents=True, exist_ok=True)

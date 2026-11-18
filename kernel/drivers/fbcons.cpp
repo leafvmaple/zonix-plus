@@ -13,10 +13,8 @@
 #include <kernel/log.h>
 
 #include <base/types.h>
-#include <asm/page.h>
-#include <kernel/boot_info.h>
 #include <kernel/psf.h>
-#include "mm/vmm.h"
+#include "drivers/display.h"
 #include "lib/stdio.h"
 #include "lib/memory.h"
 #include "drivers/intr.h"
@@ -26,7 +24,6 @@
 extern "C" const uint8_t _binary_fonts_console_psf_start[];
 extern "C" const uint8_t _binary_fonts_console_psf_end[];
 
-extern struct BootInfo __kernel_boot_info;
 
 namespace fbcons {
 namespace {
@@ -85,6 +82,8 @@ public:
             return;
         }
 
+        if (suspended_)
+            return;
         if (cursor_visible_)
             erase_cursor();
 
@@ -129,7 +128,7 @@ public:
 
     static void tick() {
         intr::Guard guard;
-        if (!active_ || !cursor_enabled_)
+        if (!active_ || !cursor_enabled_ || suspended_)
             return;
         cursor_tick_++;
         if (cursor_tick_ >= CURSOR_BLINK_RATE) {
@@ -149,7 +148,7 @@ public:
     static TerminalSize size() { return {rows_, cols_}; }
     static void move_cursor(unsigned int row, unsigned int col) {
         intr::Guard guard;
-        if (!active_)
+        if (!active_ || suspended_)
             return;
         if (cursor_visible_)
             erase_cursor();
@@ -167,7 +166,7 @@ public:
     }
     static void clear() {
         intr::Guard guard;
-        if (!active_)
+        if (!active_ || suspended_)
             return;
         if (cursor_visible_)
             erase_cursor();
@@ -178,7 +177,7 @@ public:
     }
     static void erase_line(unsigned int mode) {
         intr::Guard guard;
-        if (!active_)
+        if (!active_ || suspended_)
             return;
         if (cursor_visible_)
             erase_cursor();
@@ -192,7 +191,7 @@ public:
     }
     static void set_cursor_visible(bool visible) {
         intr::Guard guard;
-        if (!active_)
+        if (!active_ || suspended_)
             return;
         if (cursor_visible_)
             erase_cursor();
@@ -203,7 +202,19 @@ public:
             draw_cursor();
     }
 
+    static void suspend() {
+        intr::Guard guard;
+        if (cursor_visible_)
+            erase_cursor();
+        suspended_ = true;
+    }
+    static void resume() {
+        intr::Guard guard;
+        suspended_ = false;
+    }
+
 private:
+    inline static bool suspended_{};
     inline static psf::Font font_{};
     inline static int font_width_ = 8;
     inline static int font_height_ = 16;
@@ -241,7 +252,7 @@ private:
     inline static sys::array<uint32_t, 16> cursor_pixels_{};
 
     static void draw_cursor() {
-        if (!active_ || !cursor_enabled_)
+        if (!active_ || !cursor_enabled_ || suspended_)
             return;
         cursor_visible_ = true;
         uint32_t x0 = cur_x_ * font_width_;
@@ -257,7 +268,7 @@ private:
     }
 
     static void erase_cursor() {
-        if (!active_)
+        if (!active_ || suspended_)
             return;
         cursor_visible_ = false;
         uint32_t x0 = cur_x_ * font_width_;
@@ -333,36 +344,22 @@ void set_cursor_visible(bool visible) {
     Screen::set_cursor_visible(visible);
 }
 
+void suspend() {
+    Screen::suspend();
+}
+void resume() {
+    Screen::resume();
+}
+
 void late_init() {
-    struct BootInfo* bi = &::__kernel_boot_info;
-
-    klog::debug("fbcons: type=%d addr=0x%lx w=%d h=%d pitch=%d bpp=%d\n", bi->framebuffer_type,
-                static_cast<unsigned long>(bi->framebuffer_pa), bi->framebuffer_width, bi->framebuffer_height,
-                bi->framebuffer_pitch, bi->framebuffer_bpp);
-
-    if (bi->framebuffer_type != 1 || bi->framebuffer_pa == 0) {
-        klog::debug("fbcons: no framebuffer available\n");
+    auto fb = display::surface();
+    if (!fb.pixels)
         return;
-    }
-
-    uint64_t fb_phys = bi->framebuffer_pa;
-    uint32_t fb_size = bi->framebuffer_pitch * bi->framebuffer_height;
-
-    uintptr_t fb_va = vmm::mmio_map(static_cast<uintptr_t>(fb_phys), fb_size, VM_WRITE | VM_NOCACHE);
-    if (fb_va == 0) {
-        klog::error("fbcons: mmio_map failed for phys 0x%lx size 0x%x\n", static_cast<unsigned long>(fb_phys), fb_size);
-        return;
-    }
-
-    klog::debug("fbcons: phys 0x%lx -> virt 0x%lx (%dx%d)\n", static_cast<unsigned long>(fb_phys),
-                static_cast<unsigned long>(fb_va), bi->framebuffer_width, bi->framebuffer_height);
-
-    init(fb_va, bi->framebuffer_width, bi->framebuffer_height, bi->framebuffer_pitch, bi->framebuffer_bpp);
-    if (is_active()) {
-        klog::info("console: framebuffer %dx%d\n", bi->framebuffer_width, bi->framebuffer_height);
-    } else {
+    init(reinterpret_cast<uintptr_t>(fb.pixels), fb.width, fb.height, fb.stride, 32);
+    if (is_active())
+        klog::info("console: framebuffer %dx%d\n", fb.width, fb.height);
+    else
         klog::warn("console: framebuffer initialization failed; using architecture console\n");
-    }
 }
 
 }  // namespace fbcons

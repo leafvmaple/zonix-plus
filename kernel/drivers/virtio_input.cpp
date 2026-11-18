@@ -1,9 +1,9 @@
-#include "virtio_kbd.h"
+#include "virtio_input.h"
 #include <kernel/log.h>
 #include "virtio/pci_transport.h"
 #include "virtio/split_queue.h"
 #include "cons/cons.h"
-#include "cons/keyboard.h"
+#include <abi/display.h>
 #include "drivers/intr.h"
 #include "lib/stdio.h"
 #include <asm/arch.h>
@@ -17,6 +17,7 @@ namespace {
 constexpr uint16_t VIRTIO_VENDOR = 0x1AF4;
 constexpr uint16_t VIRTIO_INPUT_DEV = 0x1052;
 constexpr uint16_t EV_KEY = 1;
+constexpr uint16_t EV_REL = 2;
 
 struct InputEvent {
     uint16_t type;
@@ -27,8 +28,10 @@ static_assert(sizeof(InputEvent) == 8);
 
 // Input policy owns its event buffers and interprets completed events. PCI
 // discovery/negotiation and ring layout live in the transport and queue layers.
-class Keyboard {
+class Device {
 public:
+    bool available() const { return state_ == State::Uninitialized; }
+
     Error start(const pci::DeviceInfo& device) {
         ENSURE(state_ == State::Uninitialized, Error::Busy);
         pci::CommandGuard command(device, pci::CMD_MEMORY_SPACE | pci::CMD_BUS_MASTER);
@@ -49,8 +52,7 @@ public:
         command.commit();
         arch_irq_enable_line(irq_);
         notification_.notify();
-        klog::info("input: VirtIO keyboard ready\n");
-        klog::debug("virtio_kbd: ready, eventq=%d, IRQ=%d\n", queue_.size(), irq_);
+        klog::info("input: VirtIO device ready (eventq=%d, IRQ=%d)\n", queue_.size(), irq_);
         return Error::None;
     }
 
@@ -73,12 +75,7 @@ public:
                 break;
             }
             const InputEvent input = events_[event.id];
-            if (input.type == EV_KEY && input.value <= 2) {
-                int c = keyboard_.translate(input.code, input.value != 0);
-                if (c >= 0) {
-                    cons::push_key(c);
-                }
-            }
+            dispatch(input);
             if (queue_.submit(static_cast<uint16_t>(event.id)) != Error::None) {
                 fail();
                 break;
@@ -94,6 +91,20 @@ public:
 private:
     enum class State { Uninitialized, Ready, Quarantined };
     static constexpr uint16_t MAX_QUEUE_SIZE = 64;
+
+    static void dispatch(const InputEvent& input) {
+        if (input.type == EV_KEY && input.value <= DISPLAY_KEY_REPEAT) {
+            if (input.code >= DISPLAY_BUTTON_LEFT && input.code <= DISPLAY_BUTTON_MIDDLE) {
+                if (input.value != DISPLAY_KEY_REPEAT)
+                    cons::pointer_event(DISPLAY_EVENT_BUTTON, input.code, static_cast<int>(input.value));
+            } else if (input.code < 256) {
+                cons::key_event(input.code, static_cast<int>(input.value));
+            }
+        } else if (input.type == EV_REL &&
+                   (input.code == DISPLAY_REL_X || input.code == DISPLAY_REL_Y || input.code == DISPLAY_REL_WHEEL)) {
+            cons::pointer_event(DISPLAY_EVENT_REL, input.code, static_cast<int32_t>(input.value));
+        }
+    }
 
     Error prepare(const pci::DeviceInfo& device) {
         TRY(transport_.initialize(device));
@@ -131,19 +142,17 @@ private:
         transport_.release();
         irq_ = -1;
         state_ = State::Uninitialized;
-        keyboard_ = cons::KeyboardState{};
         return Error::None;
     }
 
     void fail() {
-        klog::error("virtio_kbd: invalid event queue, stopping device\n");
+        klog::error("virtio_input: invalid event queue, stopping device\n");
         Error error = stop();
         if (error != Error::None) {
-            klog::error("virtio_kbd: reset failed (%s), DMA resources retained\n", error_str(error));
+            klog::error("virtio_input: reset failed (%s), DMA resources retained\n", error_str(error));
         }
     }
 
-    cons::KeyboardState keyboard_{};
     virtio::PciTransport transport_{};
     virtio::SplitQueue queue_{};
     virtio::QueueNotification notification_{};
@@ -157,23 +166,32 @@ public:
     static int init();
     static Error probe(const pci::DeviceInfo* device, const pci::DriverId*) {
         ENSURE(device);
-        return keyboard_.start(*device);
+        for (auto& input : devices_) {
+            if (input.available())
+                return input.start(*device);
+        }
+        return Error::Full;
     }
-    static void intr() { keyboard_.intr(); }
-    static int irq() { return keyboard_.irq(); }
+    static void intr(unsigned int irq) {
+        for (auto& input : devices_) {
+            if (input.irq() >= 0 && static_cast<unsigned int>(input.irq()) == irq) {
+                input.intr();
+            }
+        }
+    }
 
 private:
-    inline static Keyboard keyboard_{};
+    inline static sys::array<Device, 2> devices_{};
     inline static bool registered_{};
 };
 
-const pci::DriverId VIRTIO_KBD_IDS[] = {
+const pci::DriverId VIRTIO_INPUT_IDS[] = {
     {VIRTIO_VENDOR, VIRTIO_INPUT_DEV, pci::ANY_CLASS, pci::ANY_CLASS, pci::ANY_CLASS},
 };
-const pci::Driver VIRTIO_KBD_DRIVER = {
-    "virtio_kbd",
-    VIRTIO_KBD_IDS,
-    static_cast<int>(sys::size(VIRTIO_KBD_IDS)),
+const pci::Driver VIRTIO_INPUT_DRIVER = {
+    "virtio_input",
+    VIRTIO_INPUT_IDS,
+    static_cast<int>(sys::size(VIRTIO_INPUT_IDS)),
     Manager::probe,
 };
 
@@ -181,7 +199,7 @@ int Manager::init() {
     if (registered_) {
         return 0;
     }
-    if (pci::register_driver(&VIRTIO_KBD_DRIVER) != Error::None) {
+    if (pci::register_driver(&VIRTIO_INPUT_DRIVER) != Error::None) {
         return -1;
     }
     registered_ = true;
@@ -190,14 +208,11 @@ int Manager::init() {
 
 }  // namespace
 
-namespace virtio_kbd {
+namespace virtio_input {
 int init() {
     return Manager::init();
 }
-void intr() {
-    Manager::intr();
+void intr(unsigned int irq) {
+    Manager::intr(irq);
 }
-int irq() {
-    return Manager::irq();
-}
-}  // namespace virtio_kbd
+}  // namespace virtio_input

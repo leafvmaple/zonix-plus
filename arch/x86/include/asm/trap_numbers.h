@@ -6,6 +6,7 @@
 #define IRQ_KBD    1
 #define IRQ_SLAVE  2 /* Cascade (PIC2 connected here) */
 #define IRQ_RTC    8
+#define IRQ_MOUSE  12
 #define IRQ_IDE1   14
 #define IRQ_IDE2   15
 #define IRQ_COUNT  16
@@ -40,6 +41,7 @@ inline constexpr int TRAP_VECTOR_SYSCALL = T_SYSCALL;
 
 inline constexpr int TRAP_VECTOR_IRQ_TIMER = IRQ_OFFSET + IRQ_TIMER;
 inline constexpr int TRAP_VECTOR_IRQ_KBD = IRQ_OFFSET + IRQ_KBD;
+inline constexpr int TRAP_VECTOR_IRQ_MOUSE = IRQ_OFFSET + IRQ_MOUSE;
 inline constexpr int TRAP_VECTOR_IRQ_IDE1 = IRQ_OFFSET + IRQ_IDE1;
 inline constexpr int TRAP_VECTOR_IRQ_IDE2 = IRQ_OFFSET + IRQ_IDE2;
 

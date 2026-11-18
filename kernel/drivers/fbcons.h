@@ -16,5 +16,7 @@ void move_column(unsigned int col);
 void clear();
 void erase_line(unsigned int mode);
 void set_cursor_visible(bool visible);
+void suspend();
+void resume();
 
 }  // namespace fbcons

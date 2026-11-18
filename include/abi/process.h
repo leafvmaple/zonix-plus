@@ -30,6 +30,7 @@ struct ProcessInfo {
 #define SYS_ERROR_EXISTS        (-6)
 #define SYS_ERROR_NOT_EMPTY     (-7)
 #define SYS_ERROR_BUSY          (-9)
+#define SYS_ERROR_NO_DEVICE     (-10)
 #define SYS_ERROR_NOT_SUPPORTED (-11)
 #define SYS_ERROR_INVALID       (-3)
 #define SYS_ERROR_NOT_FOUND     (-4)

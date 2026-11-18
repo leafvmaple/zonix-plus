@@ -1,6 +1,7 @@
 #pragma once
 
 #include <base/types.h>
+#include <abi/display.h>
 
 namespace cons {
 
@@ -10,12 +11,22 @@ enum class Key : int { Up = 256, Down, Right, Left, Home, End, Delete };
 // backends normalize extended keys and pass both press and release events.
 class KeyboardState {
 public:
+    unsigned int modifiers() const {
+        return ((left_shift_ || right_shift_) ? DISPLAY_MOD_SHIFT : 0) |
+               ((left_ctrl_ || right_ctrl_) ? DISPLAY_MOD_CTRL : 0) |
+               ((left_alt_ || right_alt_) ? DISPLAY_MOD_ALT : 0) | ((left_meta_ || right_meta_) ? DISPLAY_MOD_META : 0);
+    }
+
     int translate(uint16_t code, bool pressed) {
         switch (code) {
             case 42: left_shift_ = pressed; return -1;
             case 54: right_shift_ = pressed; return -1;
             case 29: left_ctrl_ = pressed; return -1;
             case 97: right_ctrl_ = pressed; return -1;
+            case 56: left_alt_ = pressed; return -1;
+            case 100: right_alt_ = pressed; return -1;
+            case 125: left_meta_ = pressed; return -1;
+            case 126: right_meta_ = pressed; return -1;
             default: break;
         }
         if (pressed) {
@@ -76,6 +87,10 @@ private:
     bool right_shift_{};
     bool left_ctrl_{};
     bool right_ctrl_{};
+    bool left_alt_{};
+    bool right_alt_{};
+    bool left_meta_{};
+    bool right_meta_{};
 };
 
 }  // namespace cons

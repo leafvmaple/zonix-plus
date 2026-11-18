@@ -42,7 +42,7 @@ SP -> argc                64 位
 | sync | 36 | 同步已挂载文件系统及其设备缓存；成功返回 0，失败返回负 Error |
 | kill | 37 | 单用户权限下可终止普通用户进程，init/内核任务受保护；成功返回 0 |
 | mkdir / rmdir | 39 / 40 | 创建目录 / 删除空目录；相对和绝对路径，成功返回 0 |
-| ioctl | 54 | 通用 FD 控制；当前支持终端尺寸查询与前台原始输入租约 |
+| ioctl | 54 | 通用 FD 控制；支持终端尺寸、前台原始输入/命令组与受控显示会话 |
 | fcntl | 55 | 当前仅支持 `F_DUPFD_CLOEXEC`：从指定最小 FD 起复制，结果在新程序启动时关闭 |
 | dup2 | 63 | 将旧 FD 复制到指定目标，返回目标 FD；无效参数返回负 Error |
 | readdir | 89 | 相对/绝对目录路径、从零开始的索引、`DirectoryEntry*`；1 表示一项，0 表示结束 |
@@ -57,7 +57,7 @@ SP -> argc                64 位
 | spawn_foreground | 402 | 与 spawn 相同参数，发布子进程前交接控制台；返回新 PID |
 | process_next | 403 | long 型 PID 游标、`ProcessInfo*`；1 表示一项，0 表示结束，负值表示错误 |
 
-进程、元数据、文件变更、同步和关机调用失败返回负的内核 `Error` 值，包括 NoMem=-2、Invalid=-3、NotFound=-4、Busy=-9、NotSupported=-11、Full=-12、Access=-14、Interrupted=-15。它们不是 Linux 系统调用的兼容实现。`include/abi/process.h` 定义用户侧结构、常用错误和参数限制；结构中类型、长度和属性字段均为 32 位无符号整数。zcc 运行时的系统调用定义必须与内核完整一致，进程结构和文件标志也必须同步；ABI 检查不允许单方面新增调用。原有 `FileStat`（12 字节）、`DirectoryEntry`（44 字节）和旧 syscall 语义保持不变。
+进程、元数据、文件变更、同步和关机调用失败返回负的内核 `Error` 值，包括 NoMem=-2、Invalid=-3、NotFound=-4、Busy=-9、NoDevice=-10、NotSupported=-11、Full=-12、Access=-14、Interrupted=-15。它们不是 Linux 系统调用的兼容实现。`include/abi/process.h` 定义用户侧结构、常用错误和参数限制；结构中类型、长度和属性字段均为 32 位无符号整数。zcc 运行时的系统调用定义必须与内核完整一致，进程结构和文件标志也必须同步；ABI 检查不允许单方面新增调用。原有 `FileStat`（12 字节）、`DirectoryEntry`（44 字节）和旧 syscall 语义保持不变。
 
 `DescriptorStat` 为 32 字节：type/size/attrs/reserved 各 32 位，随后 device/inode 各 64 位；reserved 固定为零。device/inode 非零时，可在句柄存活期间比较文件身份；零表示后端不提供身份。它们不是跨重启持久 ID。FAT 使用目录项位置作为文件标识，VFS 使用已注册块设备编号作为设备标识，不暴露内核地址。
 
@@ -123,7 +123,7 @@ SP -> argc                64 位
 
 控制台 CR/CRLF 在公共入口统一为 LF，跨前台交接保持同一转换状态。其余行编辑和 EOF 仍由 CLI 读取策略解释，不是内核完整 TTY 行规程。共用 `printf` 处理短写、返回实际字符数，并在写入失败时返回 -1，调用者可据此报告重定向输出失败。
 
-exit 先关闭本进程全部 FD，再发布 zombie 状态；wait 在进程离开 CPU 后释放内核栈、用户地址空间及任务。孤儿交给现有 init 回收。路径可使用相对/绝对形式，进程拥有独立当前目录，spawn 继承目录值；目录枚举不承诺在并发目录修改时保持快照。用户态 init/shell 与 stdin/stdout 重定向已实现，管道仍待完成。
+exit 先关闭本进程全部 FD，再发布 zombie 状态；wait 在进程离开 CPU 后释放内核栈、用户地址空间及任务。孤儿交给现有 init 回收。路径可使用相对/绝对形式，进程拥有独立当前目录，spawn 继承目录值；目录枚举不承诺在并发目录修改时保持快照。用户态 init/shell、stdin/stdout 重定向与匿名管道已实现。
 
 ## 构建与定向验证
 
@@ -151,3 +151,40 @@ python3 scripts/test_lifecycle_qemu.py riscv64
 zcc 沿用 LLVM 工具做预处理、目标指令生成和汇编，并沿用 Clang 编译底层运行时库；选择 zcc 的程序，其 C 解析和 IR 生成实际经过 zcc，不在失败时静默回退到 Clang。当前补齐了本阶段所需的 64 位 long、指针、数组、函数声明、简单结构体和类型转换，仍是 C 子集，不能宣称兼容完整 C。
 
 zcc 是独立 Git 子模块。修改该子模块时，后续提交必须先记录子模块改动，再更新主仓库 gitlink；本地检查及 pre-commit 的隔离快照都使用对应运行时头文件，不能只提交父仓库而遗漏 zcc 源码。
+
+## 显示控制 ABI
+
+`include/abi/display.h` 与运行时副本同步，通过现有 `sys_ioctl` 控制 `/dev/display`：
+
+| request | argument / 结果 |
+| --- | --- |
+| `DISPLAY_GET_INFO` (0x5701) | 用户可写 `DisplayInfo*`；width/height/stride/format 各 uint32，共 16 字节 |
+| `DISPLAY_ACQUIRE` (0x5702) | 立即值 0 保留字符输入，或传 `DISPLAY_ACQUIRE_EVENTS` (1) 选择键鼠事件。取得前台独占显示会话，FD 必须可写 |
+| `DISPLAY_RELEASE` (0x5703) | 立即值 0，归还当前 File 与 PID 持有的会话 |
+| `DISPLAY_PRESENT` (0x5704) | 用户 `DisplayPresent*`，提交一个矩形 |
+| `DISPLAY_READ_EVENT` (0x5705) | 用户可写 `DisplayEvent*`，阻塞读取一条键鼠事件，成功返回 0 |
+
+`DisplayPresent` 固定 32 字节：x/y/width/height/stride/reserved 各 uint32，随后 pixels 为 64 位用户地址（long，与现有 syscall 地址参数一致）。reserved 必须为 0，宽高非零且整个矩形位于当前分辨率内，源 stride 不小于 width×4，单位为字节。像素为 `DISPLAY_FORMAT_XRGB8888`，每字 0x00RRGGBB；Info.stride 是用户紧密缓冲区每行字节数 width×4，不是硬件扫描行 pitch。内核适配固件 RGB/BGR 排列，不暴露设备地址或映射接口。
+
+syscall 边界先复制描述、检查会话和完整源地址跨度，再逐行复制到内核所有的紧密快照，成功后才提交设备；非法指针、矩形、stride、保留位均拒绝，不绘制部分输入。分配失败返回 NoMem；复制和绘制检查终止请求，返回 Interrupted 时可能已绘制部分合法矩形。接口不保证垂直同步或扫描输出原子性，不提供模式/尺寸切换。
+
+只允许当前前台普通用户任务取得会话；init、内核任务和后台任务返回 Access。原始终端租约、前台命令组与显示会话互斥，冲突返回 Busy。无受支持的帧缓冲返回 NoDevice=-10；普通文件不支持该协议。查询不要求会话，提交和归还同时要求当前 PID 与取得会话的打开 File 匹配，继承 FD 不转移权限。dup 共享同一 File，最后关闭释放会话；另一次 open 不能代替拥有者释放。拥有者退出或交接前台即归还，即使子进程还保留旧 File，旧句柄也不能释放之后取得的新会话。
+
+占用期间所有控制台文字输出进入既有 1 KiB 缓冲，超限标记截断；帧缓冲文字绘制、滚屏及定时光标暂停。正常释放、最后关闭、前台交接、拥有者退出或 panic 恢复控制台，丢弃应用残留输入并显示暂存输出。Ctrl-C 沿用安全终止流程，不由 IRQ 关闭 FD。
+
+### 前台键鼠事件
+
+`DisplayEvent` 固定 16 字节，由 type、code、value、modifiers 四个 32 位字段组成，value 为有符号整数。事件只交给以 `DISPLAY_ACQUIRE_EVENTS` 取得会话的 File 与 PID。缺少对应会话返回 Access，输出地址无效返回 Invalid，终止请求可中断阻塞读取。
+
+| type | code 与 value |
+| --- | --- |
+| `DISPLAY_EVENT_KEY` | 常用键使用 Linux evdev 键码，0 释放、1 按下、2 重复（后端上报时）。PS/2 重复扫描码以按下交付 |
+| `DISPLAY_EVENT_BUTTON` | 左、右、中键各有独立 code，0 释放、1 按下 |
+| `DISPLAY_EVENT_REL` | X、Y 或垂直滚轮，value 为有符号增量。X 向右、Y 向下、滚轮向上为正 |
+| `DISPLAY_EVENT_RESET` | code 和 value 为 0。会话开始或队列溢出时通知应用清除已记录的按键和按钮状态 |
+
+modifiers 是处理完该事件后的 Shift、Ctrl、Alt、Meta 位掩码。左右同一修饰键独立维护，任一按住则聚合位有效。RESET 也携带此刻的修饰键快照。队列最多保留 63 条事件，溢出时丢弃未读事件和触发溢出的事件，放入一个 RESET。应用自行累加相对位移及限制指针边界。
+
+事件模式将硬件键盘与鼠标输入交给会话，终端字符读取返回 Access。Ctrl-C 仍由控制台处理，串口输入的 Ctrl-C 也可以终止前台程序（适用于有串口输入的架构）。其他串口字符在事件模式期间丢弃。释放会话清空事件和遗留字符，恢复现有 shell 字符流。字符模式始终沿用原有键盘映射和控制序列。
+
+x86 PS/2 提供相对移动及三键，滚轮由 aarch64/riscv64 的 VirtIO 鼠标提供。当前 ABI 面向一个前台座席，支持相对鼠标与常用键，不提供触摸、绝对坐标、设备热插拔或多键盘独立状态。

@@ -2,6 +2,7 @@
 #include "cons/terminal.h"
 #include "cons/keyboard.h"
 #include "drivers/fbcons.h"
+#include "drivers/display.h"
 #include "drivers/intr.h"
 #include "lib/waitqueue.h"
 #include <sys/array.hpp>
@@ -14,7 +15,7 @@ public:
     static void putc(int c, bool from_file) {
         intr::Guard guard;
         Task* task = sched::current();
-        if (raw_owner_pid_ != 0 && (!from_file || !task || task->pid != raw_owner_pid_)) {
+        if (display_file_ || (raw_owner_pid_ != 0 && (!from_file || !task || task->pid != raw_owner_pid_))) {
             if (deferred_count_ < deferred_.size())
                 deferred_[deferred_count_++] = static_cast<char>(c);
             else
@@ -27,11 +28,14 @@ public:
 
     static void emergency_restore() {
         intr::Guard guard;
+        release_display(display_file_);
         release_raw();
     }
 
     static void push_input(char c) {
         intr::Guard guard;
+        if (display_events_ && c != 3)
+            return;
         // Normalize the console stream once, including across reader handoff.
         // Otherwise a serial CRLF can leave LF for the newly spawned reader.
         if (c == '\n' && skip_lf_) {
@@ -62,6 +66,22 @@ public:
         input_[write_] = c;
         write_ = next;
         waitq_.wakeup_one();
+    }
+
+    static void key_event(uint16_t code, int value) {
+        intr::Guard guard;
+        int key = keyboard_.translate(code, value != DISPLAY_KEY_RELEASE);
+        if (key == 3)
+            push_input(3);
+        else if (display_events_)
+            queue_event({DISPLAY_EVENT_KEY, code, value, keyboard_.modifiers()});
+        else
+            push_key(key);
+    }
+    static void pointer_event(unsigned int type, unsigned int code, int value) {
+        intr::Guard guard;
+        if (display_events_)
+            queue_event({type, code, value, keyboard_.modifiers()});
     }
 
     static void push_key(int key) {
@@ -97,6 +117,7 @@ public:
         ENSURE(task && is_foreground(task) && task != TaskManager::init_task() && task->memory() &&
                    task->memory() != &vmm::Manager::kernel_mm(),
                Error::Access);
+        ENSURE(!display_file_, Error::Busy);
         if (enabled) {
             ENSURE(raw_owner_pid_ == 0 || raw_owner_pid_ == task->pid, Error::Busy);
             raw_owner_pid_ = task->pid;
@@ -108,6 +129,57 @@ public:
         return Error::None;
     }
 
+    static Error acquire_display(vfs::File* owner, bool events) {
+        intr::Guard guard;
+        Task* task = sched::current();
+        ENSURE(task && task != TaskManager::init_task() && task->memory() &&
+                   task->memory() != &vmm::Manager::kernel_mm() && task->pid == foreground_pid_,
+               Error::Access);
+        ENSURE(!display_file_ && raw_owner_pid_ == 0 && job_owner_pid_ == 0, Error::Busy);
+        ENSURE(fbcons::is_active(), Error::NoDevice);
+        ENSURE(!task->termination_requested(), Error::Interrupted);
+        display_file_ = owner;
+        display_owner_pid_ = task->pid;
+        display_events_ = events;
+        if (events) {
+            read_ = write_;
+            queue_event({DISPLAY_EVENT_RESET, 0, 0, keyboard_.modifiers()});
+        }
+        fbcons::suspend();
+        return Error::None;
+    }
+    static Error read_display_event(const vfs::File* owner, DisplayEvent& event) {
+        intr::Guard guard;
+        Task* task = sched::current();
+        while (true) {
+            ENSURE(!task->termination_requested(), Error::Interrupted);
+            ENSURE(display_events_ && owner == display_file_ && task->pid == display_owner_pid_, Error::Access);
+            if (events_read_ != events_write_) {
+                event = events_[events_read_];
+                events_read_ = (events_read_ + 1) % events_.size();
+                return Error::None;
+            }
+            events_ready_.sleep();
+        }
+    }
+
+    static bool owns_display(const vfs::File* owner) {
+        intr::Guard guard;
+        return owner && owner == display_file_;
+    }
+    static void release_display(vfs::File* owner) {
+        intr::Guard guard;
+        if (!owner || display_file_ != owner)
+            return;
+        display_file_ = nullptr;
+        display_owner_pid_ = 0;
+        display_events_ = false;
+        events_read_ = events_write_;
+        events_ready_.wakeup_all();
+        fbcons::resume();
+        restore_console();
+    }
+
     static Result<char> read_input() {
         while (true) {
             // Keep checking the buffer and registering the waiter atomic.
@@ -117,7 +189,7 @@ public:
             ENSURE(!task || (job_owner_pid_ == 0 && foreground_pid_ == 0) ||
                        (is_foreground(task) && task->pid != job_owner_pid_),
                    Error::Access);
-            ENSURE(!task || raw_owner_pid_ == 0 || task->pid == raw_owner_pid_, Error::Access);
+            ENSURE(!display_events_ && (!task || raw_owner_pid_ == 0 || task->pid == raw_owner_pid_), Error::Access);
             if (read_ != write_) {
                 char c = input_[read_];
                 read_ = (read_ + 1) % input_.size();
@@ -135,7 +207,7 @@ public:
         intr::Guard guard;
         if (action == TERMINAL_JOB_BEGIN) {
             ENSURE(task->pid == foreground_pid_, Error::Access);
-            ENSURE(job_owner_pid_ == 0 && raw_owner_pid_ == 0, Error::Busy);
+            ENSURE(job_owner_pid_ == 0 && raw_owner_pid_ == 0 && !display_file_, Error::Busy);
             TRY(check_interrupt(task));
             job_owner_pid_ = task->pid;
             job_cancelled_ = false;
@@ -196,11 +268,15 @@ public:
             controller_pid_ = child->pid;
         if (raw_owner_pid_ == parent->pid)
             release_raw();
+        if (display_owner_pid_ == parent->pid)
+            release_display(display_file_);
         foreground_pid_ = child->pid;
         return Error::None;
     }
 
     static void task_exited(Task* task) {
+        if (task->pid == display_owner_pid_)
+            release_display(display_file_);
         if (task->pid == job_owner_pid_) {
             TaskManager::interrupt_job(job_owner_pid_);
             job_owner_pid_ = 0;
@@ -221,6 +297,18 @@ public:
     }
 
 private:
+    static void queue_event(const DisplayEvent& event) {
+        size_t next = (events_write_ + 1) % events_.size();
+        if (next == events_read_) {
+            events_read_ = events_write_;
+            events_[events_write_] = {DISPLAY_EVENT_RESET, 0, 0, event.modifiers};
+        } else {
+            events_[events_write_] = event;
+        }
+        events_write_ = next;
+        events_ready_.wakeup_one();
+    }
+
     static bool is_foreground(Task* task) {
         return task->pid == foreground_pid_ || (job_owner_pid_ != 0 && task->console_job() == job_owner_pid_);
     }
@@ -237,21 +325,32 @@ private:
     static void release_raw() {
         if (raw_owner_pid_ != 0) {
             raw_owner_pid_ = 0;
-            waitq_.wakeup_all();
-            read_ = write_;  // Application keystrokes must not become shell commands.
-            skip_lf_ = false;
-            terminal::restore();
-            size_t count = deferred_count_;
-            deferred_count_ = 0;
-            for (size_t i = 0; i < count; ++i)
-                putc(deferred_[i], false);
-            if (deferred_overflow_) {
-                deferred_overflow_ = false;
-                for (const char* c = "[console output truncated]\n"; *c; ++c)
-                    putc(*c, false);
-            }
+            restore_console();
         }
     }
+    static void restore_console() {
+        waitq_.wakeup_all();
+        read_ = write_;  // Application keystrokes must not become shell commands.
+        skip_lf_ = false;
+        terminal::restore();
+        size_t count = deferred_count_;
+        deferred_count_ = 0;
+        for (size_t i = 0; i < count; ++i)
+            putc(deferred_[i], false);
+        if (deferred_overflow_) {
+            deferred_overflow_ = false;
+            for (const char* c = "[console output truncated]\n"; *c; ++c)
+                putc(*c, false);
+        }
+    }
+    inline static cons::KeyboardState keyboard_{};
+    inline static sys::array<DisplayEvent, 64> events_{};
+    inline static size_t events_read_{};
+    inline static size_t events_write_{};
+    inline static WaitQueue events_ready_{};
+    inline static bool display_events_{};
+    inline static vfs::File* display_file_{};
+    inline static int display_owner_pid_{};
     inline static sys::array<char, 1024> deferred_{};
     inline static size_t deferred_count_{};
     inline static bool deferred_overflow_{};
@@ -277,17 +376,33 @@ int init() {
     return arch_init();
 }
 int late_init() {
+    int result = display::init();
     fbcons::late_init();
-    return 0;
+    return result;
 }
 void push_input(char c) {
     Console::push_input(c);
 }
-void push_key(int key) {
-    Console::push_key(key);
+void key_event(uint16_t code, int value) {
+    Console::key_event(code, value);
+}
+void pointer_event(unsigned int type, unsigned int code, int value) {
+    Console::pointer_event(type, code, value);
 }
 Error set_raw(bool enabled) {
     return Console::set_raw(enabled);
+}
+Error acquire_display(vfs::File* owner, bool events) {
+    return Console::acquire_display(owner, events);
+}
+Error read_display_event(const vfs::File* owner, DisplayEvent& event) {
+    return Console::read_display_event(owner, event);
+}
+void release_display(vfs::File* owner) {
+    Console::release_display(owner);
+}
+bool owns_display(const vfs::File* owner) {
+    return Console::owns_display(owner);
 }
 void emergency_restore() {
     Console::emergency_restore();

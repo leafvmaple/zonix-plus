@@ -16,6 +16,8 @@ struct BootMemEntry {
     uint32_t type;       // Memory type (BOOT_MEM_*)
 } __attribute__((packed));
 
+enum class FramebufferFormat : uint8_t { Unknown = 0, Xrgb8888 = 1, Xbgr8888 = 2 };
+
 struct BootInfo {
     uint32_t magic;                  // Must be BOOT_INFO_MAGIC
 
@@ -39,6 +41,8 @@ struct BootInfo {
     uint32_t framebuffer_pitch;
     uint8_t  framebuffer_bpp;
     uint8_t  framebuffer_type;       // 0=text, 1=rgb
+
+    FramebufferFormat framebuffer_format;
 
     char     loader_name[32];        // "Zonix BIOS" or "Zonix UEFI"
 } __attribute__((packed));

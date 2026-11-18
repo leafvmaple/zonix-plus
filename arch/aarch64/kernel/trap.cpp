@@ -15,7 +15,7 @@
 #include "drivers/gic.h"
 #include "drivers/pl011.h"
 #include "drivers/timer.h"
-#include "drivers/virtio_kbd.h"
+#include "drivers/virtio_input.h"
 
 namespace {
 
@@ -68,10 +68,8 @@ bool arch_try_handle_irq(TrapFrame* tf) {
     } else if (intid == TRAP_INTID_UART) {
         pl011::intr();
         gic::send_eoi(iar);
-    } else if (intid == static_cast<uint32_t>(virtio_kbd::irq())) {
-        virtio_kbd::intr();
-        gic::send_eoi(iar);
     } else if (intid != TRAP_INTID_SPURIOUS) {
+        virtio_input::intr(intid);
         gic::send_eoi(iar);
     }
 

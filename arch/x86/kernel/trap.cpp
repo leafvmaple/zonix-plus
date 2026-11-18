@@ -92,7 +92,8 @@ bool arch_try_handle_irq(TrapFrame* tf) {
 
     switch (tf->trapno) {
         case TRAP_VECTOR_IRQ_TIMER: trap::handle_timer_tick(); break;
-        case TRAP_VECTOR_IRQ_KBD: i8042::intr(); break;
+        case TRAP_VECTOR_IRQ_KBD:
+        case TRAP_VECTOR_IRQ_MOUSE: i8042::intr(); break;
         case TRAP_VECTOR_IRQ_IDE1: IdeManager::interrupt_handler(0); break;
         case TRAP_VECTOR_IRQ_IDE2: IdeManager::interrupt_handler(1); break;
         default: break;

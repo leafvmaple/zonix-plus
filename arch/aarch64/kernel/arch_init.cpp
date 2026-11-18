@@ -10,7 +10,7 @@
 
 #include "drivers/gic.h"
 #include "drivers/timer.h"
-#include "drivers/virtio_kbd.h"
+#include "drivers/virtio_input.h"
 #include "lib/stdio.h"
 
 // Exception vector table (defined in trapentry.S)
@@ -32,7 +32,7 @@ const InitStep ARCH_STEPS[] = {
 };
 
 const InitStep PCI_STEPS[] = {
-    {"virtio_kbd", virtio_kbd::init, false},
+    {"virtio_input", virtio_input::init, false},
 };
 
 }  // namespace

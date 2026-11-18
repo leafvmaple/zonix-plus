@@ -783,3 +783,31 @@ stop before long-mode handoff. This avoids the VGA/ROM hole reached by the old
 0x10000 staging address when a loadable section extends past file offset 0x90000.
 After segment copies and handoff, staging bytes have no live owner and may be
 reused by the kernel allocator; no kernel object borrows the ELF source buffer.
+
+## Display mapping and session lifetime
+
+The display Screen owns the boot framebuffer's `vmm::MmioRegion`; fbcons borrows
+its kernel-only Surface. Neither Files nor userspace own or map device memory.
+The syscall validates userspace descriptors and source spans, then owns a packed
+`KernelBuffer` snapshot until the checked device upload returns. Copy failure,
+allocation failure and interruption unwind that temporary owner normally.
+
+A display session is identified by the opened File and owning PID. Duplication
+shares that File; inheritance does not transfer admission rights. Last-close
+releases the matching session. Task exit releases it before zombie publication,
+even if a child retains the File. Foreground handoff and emergency restoration
+also revoke it; stale File destruction cannot revoke a later owner's session.
+The console owns the borrowed File token only for that checked lifetime.
+
+Restoration resumes fbcons, resets terminal/input state and drains the existing
+fixed-size output buffer; it does not free the display mapping or allocate a
+new buffer. IRQ Ctrl-C only requests safe termination; FD destruction and buffer
+cleanup occur after the interrupted syscall unwinds. Raw terminal sessions,
+foreground command groups and graphics sessions use one console admission policy.
+
+The console owns the fixed event queue for the foreground display session.
+Input IRQs update modifier state and enqueue records without allocating.
+Event readers sleep until there is data or a termination request, and recheck
+session ownership after wakeup. Release clears the queue and wakes readers.
+Overflow drops pending records and publishes a reset with current modifiers,
+so a lost release cannot leave a client permanently tracking a pressed key.

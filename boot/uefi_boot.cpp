@@ -251,6 +251,15 @@ static void uefi_get_graphics_info(EFI_BOOT_SERVICES* boot_services, struct Boot
         return;
     }
 
+    auto pixel_format = gop->Mode->Info->PixelFormat;
+    if (pixel_format == PixelBlueGreenRedReserved8BitPerColor)
+        boot_info->framebuffer_format = FramebufferFormat::Xrgb8888;
+    else if (pixel_format == PixelRedGreenBlueReserved8BitPerColor)
+        boot_info->framebuffer_format = FramebufferFormat::Xbgr8888;
+    else {
+        boot_info->framebuffer_pa = 0;
+        return;
+    }
     boot_info->framebuffer_pa = gop->Mode->FrameBufferBase;
     boot_info->framebuffer_width = gop->Mode->Info->HorizontalResolution;
     boot_info->framebuffer_height = gop->Mode->Info->VerticalResolution;

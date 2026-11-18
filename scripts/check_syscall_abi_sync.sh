@@ -49,7 +49,7 @@ fi
 
 
 # The standalone runtime carries the same process/file structures and flags.
-for header in process.h fcntl.h terminal.h; do
+for header in process.h fcntl.h terminal.h display.h; do
     runtime="user/zcc/src/runtime/$header"
     if [[ ! -f "$runtime" ]] || ! cmp -s "include/abi/$header" "$runtime"; then
         echo "ERROR: ABI mismatch: include/abi/$header and $runtime must match" >&2

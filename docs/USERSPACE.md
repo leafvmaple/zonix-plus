@@ -202,3 +202,21 @@ P1-2 的基础 CLI 功能已实现；本地验收与当前提交状态见 [TODO.
 - 共享运行时 `sys_getcwd(buffer, capacity)`：复制含 NUL 的路径，成功返回 0；缓冲区过小返回 `SYS_ERROR_FULL`，无效用户内存返回错误。
 
 syscall 编号在 `include/abi/syscall.h` 定义并与 zcc 运行时同步，三架构入口只实现各自 ABI 的调用桩。
+
+## 可选图形演示 gfxdemo
+
+`gfxdemo` 是独立的 Clang C++ 用户应用，使用同一套 ABI、zstl 和运行时；不安装到基础 rootfs，不属于普通 `user` 目标，也不是启动镜像的依赖。显式构建并安装到应用盘：
+
+```sh
+# ARCH 同样支持 aarch64 / riscv64；先按前文准备引导盘和基础 rootfs
+make ARCH=x86 TEST=0 USER_CC=clang bin/x86/user/GFXDEMO.ELF
+bash scripts/install_userspace_image.sh apps bin/x86/apps.img bin/x86/user/GFXDEMO.ELF
+make ARCH=x86 TEST=0 qemu USER_DISK=bin/x86/apps.img
+# shell 内执行 gfxdemo，或 /opt/bin/gfxdemo
+```
+
+程序查询 `/dev/display` 并取得前台显示会话，绘制白边、RGB 色条和棋盘。移动鼠标显示方形指针，按住任一鼠标键变为紫色，按住 Shift 变为黄色。Space 重绘切换色条，q/Esc 正常退出，Ctrl-C 请求终止；退出、故障或 kill 后恢复文字控制台，可再次启动。不接应用盘仍正常进入 shell。
+
+显示设备复用 UEFI 提供的 32 位 RGB/BGR 帧缓冲；用户态统一提交 `0x00RRGGBB` 像素，通过受控区域复制绘制，不映射物理内存。BIOS CGA 或没有可用帧缓冲时，设备返回 `NoDevice`，演示报告 device unavailable 后返回 shell。图形占用期间暂停文字绘制和光标，将控制台输出暂存 1 KiB，归还时显示并报告截断。
+
+x86 QEMU 使用 PS/2 键盘与三键相对鼠标。aarch64 和 riscv64 的 QEMU 配置使用 VirtIO 键盘/鼠标，并支持垂直滚轮切换色条。演示使用前台键鼠事件，shell 和 `vi` 继续使用原有字符输入。接口和权限见 [USER_ABI.md](USER_ABI.md#显示控制-abi)。

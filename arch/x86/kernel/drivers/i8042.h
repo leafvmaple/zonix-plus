@@ -6,7 +6,6 @@
 namespace i8042 {
 
 int init();
-int getc();
 void intr();
 
 

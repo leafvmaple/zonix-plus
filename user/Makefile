@@ -44,7 +44,7 @@ zcc_fat_name = $(shell echo 'Z$(1)' | tr '[:lower:]' '[:upper:]' | tr -d '_' | h
 $(ZCC_COMPILER): $(ZCC_SOURCES) $(ZCC_DIR)/makefile
 	$(Q)$(MAKE) -C $(ZCC_DIR) all
 
-$(ZCC_RUNTIME_STAMP): $(ZCC_RUNTIME_SOURCES) include/abi/syscall.h include/abi/process.h include/abi/fcntl.h include/abi/terminal.h
+$(ZCC_RUNTIME_STAMP): $(ZCC_RUNTIME_SOURCES) include/abi/syscall.h include/abi/process.h include/abi/fcntl.h include/abi/terminal.h include/abi/display.h
 	$(Q)$(MAKE) -C $(ZCC_DIR)/src/runtime $(ZCC_LIBARCH) ABI_DIR=$(abspath include/abi)
 	$(Q)touch $@
 
@@ -88,7 +88,8 @@ else
 	$(Q)$(LD) -nostdlib -T $(ZCC_SYSROOT)/linker.ld $$(_UP_OBJS_$(1)) -o $$@
 endif
 endif
-ifeq ($$(filter $(1),$(BASE_PROGRAMS)),)
+# The graphics demo is opt-in: request its ELF with USER_CC=clang.
+ifeq ($$(filter $(1),$(BASE_PROGRAMS) gfxdemo),)
 USER_ELFS += $(USER_BINDIR)/$(call uc,$(1)).ELF
 endif
 endef

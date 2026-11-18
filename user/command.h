@@ -24,6 +24,7 @@ static inline const char* command_error_text(long error) {
         case SYS_ERROR_NOT_FOUND: return "not found";
         case SYS_ERROR_EXISTS: return "already exists";
         case SYS_ERROR_NOT_EMPTY: return "directory not empty";
+        case SYS_ERROR_NO_DEVICE: return "device unavailable";
         case SYS_ERROR_BUSY: return "resource busy";
         case SYS_ERROR_ACCESS: return "permission denied";
         case SYS_ERROR_NOT_SUPPORTED: return "operation not supported";

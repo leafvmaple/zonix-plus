@@ -10,7 +10,7 @@
 #include "drivers/plic.h"
 #include "drivers/timer.h"
 #include "drivers/uart16550.h"
-#include "drivers/virtio_kbd.h"
+#include "drivers/virtio_input.h"
 #include "lib/stdio.h"
 
 /* kernel_trap_vec / user_trap_vec are in trapentry.S */
@@ -41,7 +41,7 @@ const InitStep ARCH_STEPS[] = {
 };
 
 const InitStep PCI_STEPS[] = {
-    {"virtio_kbd", virtio_kbd::init, false},
+    {"virtio_input", virtio_input::init, false},
 };
 constexpr size_t PCI_STEPS_COUNT = sys::size(PCI_STEPS);
 
