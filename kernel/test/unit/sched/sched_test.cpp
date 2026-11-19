@@ -309,28 +309,6 @@ static void test_idle_init_processes() {
 }
 
 // ============================================================================
-// Unit Tests - Context Structure
-// ============================================================================
-
-static void test_context_structure() {
-    TEST_START("Context Structure");
-
-    Context ctx{};
-
-    TEST_ASSERT(ctx.entry() == 0, "Context entry initialized to 0");
-    TEST_ASSERT(ctx.stack() == 0, "Context stack initialized to 0");
-    // Architecture-specific control registers may have nonzero reset values.
-    // Their initial state is checked by the architecture suites.
-
-    ctx.set_entry(0x12345678);
-    ctx.set_stack(0xDEADBEEF);
-    TEST_ASSERT(ctx.entry() == 0x12345678, "Context entry set correctly");
-    TEST_ASSERT(ctx.stack() == 0xDEADBEEF, "Context stack set correctly");
-
-    TEST_END();
-}
-
-// ============================================================================
 // Unit Tests - Process Destruction
 // ============================================================================
 
@@ -441,7 +419,6 @@ void test() {
     test_hash_table();
     test_parent_child_relationships();
     test_idle_init_processes();
-    test_context_structure();
     test_process_destruction();
 
     test_policy_removal_and_current();

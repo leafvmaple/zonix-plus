@@ -79,12 +79,14 @@ static void test_alloc_multiple() {
 static void test_alloc_free_reuse() {
     TEST_START("PMM alloc-free-alloc reuse");
 
+    const size_t free_before = pmm::free_page_count();
     Page* p1 = pmm::alloc_pages(1);
     TEST_ASSERT(p1 != nullptr, "First allocation succeeds");
 
     if (p1) {
-        uintptr_t pa1 = pmm::page_to_phys(p1);
+        TEST_ASSERT(pmm::free_page_count() == free_before - 1, "Allocation takes one page from the free count");
         pmm::free_pages(p1, 1);
+        TEST_ASSERT(pmm::free_page_count() == free_before, "Freeing returns the page to the free count");
 
         Page* p2 = pmm::alloc_pages(1);
         TEST_ASSERT(p2 != nullptr, "Second allocation after free succeeds");
@@ -93,38 +95,48 @@ static void test_alloc_free_reuse() {
             pmm::free_pages(p2, 1);
         }
     }
+    TEST_ASSERT(pmm::free_page_count() == free_before, "Repeated allocation leaks no pages");
 
     TEST_END();
 }
 
 // ============================================================================
-// Page content read/write
+// Direct mapping of allocated pages
 // ============================================================================
 
-static void test_page_readwrite() {
-    TEST_START("PMM page content read/write");
+// Touches both ends of a page through its kernel address.
+static bool page_is_writable(Page* page) {
+    auto* bytes = static_cast<volatile uint8_t*>(pmm::page_to_kva(page));
+    bytes[0] = 0x5A;
+    bytes[PG_SIZE - 1] = 0xA5;
+    return bytes[0] == 0x5A && bytes[PG_SIZE - 1] == 0xA5;
+}
 
-    Page* page = pmm::alloc_pages(1);
-    TEST_ASSERT(page != nullptr, "Allocation succeeds");
+static void test_direct_mapping() {
+    TEST_START("PMM pages are writable through the kernel direct mapping");
 
-    if (page) {
-        auto* kva = static_cast<uint8_t*>(pmm::page_to_kva(page));
-
-        for (int i = 0; i < PG_SIZE; i++) {
-            kva[i] = static_cast<uint8_t>(i & 0xFF);
-        }
-
-        bool match = true;
-        for (int i = 0; i < PG_SIZE; i++) {
-            if (kva[i] != static_cast<uint8_t>(i & 0xFF)) {
-                match = false;
-                break;
-            }
-        }
-        TEST_ASSERT(match, "Written data reads back correctly");
-
-        pmm::free_pages(page, 1);
+    // The allocator must only hand out memory the boot page tables map. A page
+    // outside the mapping faults in the kernel and panics, so the run is taken
+    // as large as possible to reach the top of managed memory, where a short
+    // mapping would show first.
+    intr::Guard guard;
+    const size_t free_before = pmm::free_page_count();
+    size_t count = free_before;
+    Page* run = nullptr;
+    while (count > 0 && (run = pmm::alloc_pages(count)) == nullptr) {
+        count /= 2;
     }
+    TEST_ASSERT(run != nullptr, "Allocated the largest available run");
+
+    if (run) {
+        Page* last = run + (count - 1);
+        TEST_ASSERT(pmm::page_to_phys(last) - pmm::page_to_phys(run) == (count - 1) * PG_SIZE,
+                    "The run is physically contiguous");
+        TEST_ASSERT(page_is_writable(run), "Lowest page of the run reads back what was written");
+        TEST_ASSERT(page_is_writable(last), "Highest page of the run reads back what was written");
+        pmm::free_pages(run, count);
+    }
+    TEST_ASSERT(pmm::free_page_count() == free_before, "The run is returned in full");
 
     TEST_END();
 }
@@ -271,7 +283,7 @@ void test() {
     test_alloc_free_single();
     test_alloc_multiple();
     test_alloc_free_reuse();
-    test_page_readwrite();
+    test_direct_mapping();
     test_kmalloc_kfree();
     test_stress_alloc();
     test_mmio_table_cleanup();

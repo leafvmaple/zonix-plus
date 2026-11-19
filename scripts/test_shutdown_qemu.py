@@ -31,7 +31,7 @@ def copy_image(source, directory):
 
 def mtools(image, offset, *arguments):
     subprocess.run(
-        ["mcopy", "-o", "-i", f"{image}@@{offset}", *map(str, arguments)],
+        ["mcopy", "-o", "-n", "-i", f"{image}@@{offset}", *map(str, arguments)],
         check=True, capture_output=True,
     )
 

@@ -277,10 +277,12 @@ void test_paths(VfsFixture& fixture) {
         fixture.mount_point = point;
         assert(vfs::mount(point, nullptr, "contract") == Error::None);
     }
-    fixture.expected_path = "";
     constexpr const char* directories[] = {"/", "/dev", "/dev///", "/mnt", "/mnt///"};
-    for (const char* path : directories)
-        assert(vfs::stat(path, &st) == Error::Timeout);
+    for (const char* path : directories) {
+        st = {};
+        assert(vfs::stat(path, &st) == Error::None);
+        assert(st.type == vfs::NodeType::Directory);
+    }
     fixture.expected_path = "file";
     constexpr const char* files[] = {"/file", "file", "/dev/file", "/mnt/file", "/mnt///file"};
     for (const char* path : files)
@@ -381,6 +383,13 @@ Task* current() {
     return nullptr;
 }
 }  // namespace sched
+// The fixture has no block devices for sync to flush.
+int BlockManager::device_count() {
+    return 0;
+}
+BlockDevice* BlockManager::find_device(int) {
+    return nullptr;
+}
 void Spinlock::lock() {
     assert(!locked_);
     locked_ = true;

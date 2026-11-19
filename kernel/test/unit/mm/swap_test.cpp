@@ -138,7 +138,3 @@ void run_swap_tests() {
 
     cprintf("========================================\n\n");
 }
-
-void swap_test_command() {
-    run_swap_tests();
-}

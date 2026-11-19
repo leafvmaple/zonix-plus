@@ -59,6 +59,10 @@ namespace fs_test {
 void test();
 }
 
+namespace pipe_test {
+void test();
+}
+
 namespace lifecycle_test {
 void test();
 bool run_e2e();
@@ -105,6 +109,7 @@ static const TestSuite SUITES[] = {
     {"P0-1 file I/O", file_io_test::test},
     {"P0-2 storage sync", storage_sync_test::test},
     {"File System", fs_test::test},
+    {"Pipes", pipe_test::test},
     {"Shell", shell_test::test},
     {"Exec (E2E)", exec_test::test},
     {"P1-1 user lifecycle", lifecycle_test::test},

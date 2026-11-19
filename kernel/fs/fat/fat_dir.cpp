@@ -1051,16 +1051,19 @@ Error FatInfo::rmdir(const char* relpath) {
     auto scratch = TRY(KernelBuffer::alloc(BlockDevice::BLOCK_SIZE_BYTES));
     uint8_t* sector_buf = scratch.data();
     bool empty = true;
+    // Entries after the end marker are stale and do not belong to the directory.
+    bool ended = false;
 
     ClusterChain chain(*this, dir_cluster);
     uint32_t cluster{};
-    while (empty && (cluster = TRY(chain.next())) != 0) {
+    while (empty && !ended && (cluster = TRY(chain.next())) != 0) {
         uint32_t base_sector = cluster_to_sector(cluster);
-        for (uint32_t i = 0; i < sectors_per_cluster_ && empty; i++) {
+        for (uint32_t i = 0; i < sectors_per_cluster_ && empty && !ended; i++) {
             TRY(dev_->read(partition_start_lba_ + base_sector + i, sector_buf, 1));
             auto* dir_entries = reinterpret_cast<FatDirEntry*>(sector_buf);
             for (uint32_t j = 0; j < bytes_per_sector_ / 32; j++) {
                 if (dir_entries[j].is_end()) {
+                    ended = true;
                     break;
                 }
                 if (!dir_entries[j].is_valid()) {

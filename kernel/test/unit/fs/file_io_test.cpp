@@ -568,6 +568,37 @@ long invoke(int nr, uintptr_t arg0, uintptr_t arg1, uintptr_t arg2) {
     return static_cast<long>(tf->syscall_return());
 }
 
+void test_rmdir_after_terminator() {
+    TEST_START("P0-1: rmdir ignores stale entries after the end marker");
+    Volume volume(2);
+    TEST_ASSERT(volume.ready(), "Mounted two-sector cluster volume");
+    if (!volume.ready()) {
+        TEST_END();
+        return;
+    }
+    TEST_ASSERT(vfs::mkdir("/mnt/OLD") == Error::None, "Created an empty directory");
+    uint32_t cluster{};
+    auto* root = reinterpret_cast<FatDirEntry*>(volume.image.cluster_data(2));
+    for (int i = 0; i < 16; ++i) {
+        if (memcmp(root[i].name, "OLD     ", 8) == 0 && root[i].is_directory()) {
+            cluster = root[i].cluster();
+        }
+    }
+    TEST_ASSERT(cluster > 2, "Found the directory's cluster");
+    if (cluster > 2) {
+        // A reused cluster can still hold an old entry in the sector after the marker.
+        auto* ghost = reinterpret_cast<FatDirEntry*>(volume.image.cluster_data(cluster) + 512);
+        *ghost = {};
+        memcpy(ghost->name, "GHOST   ", 8);
+        memcpy(ghost->ext, "TXT", 3);
+        ghost->attr = FAT_ATTR_ARCHIVE;
+        vfs::Stat st{};
+        TEST_ASSERT(vfs::rmdir("/mnt/OLD") == Error::None && vfs::stat("/mnt/OLD", &st) == Error::NotFound,
+                    "Directory with only stale entries is removed");
+    }
+    TEST_END();
+}
+
 void test_append_syscall_boundary() {
     TEST_START("P0-1: multi-page append reaches backend as one operation");
     MemoryDesc mm;
@@ -871,6 +902,7 @@ void test() {
     test_tail_and_mirror_failures();
     test_truncate_cleanup_and_unmount();
     test_directory_terminator();
+    test_rmdir_after_terminator();
     test_append_syscall_boundary();
     test_syscall_contract();
     test_concurrent_append();

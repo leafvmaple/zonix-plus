@@ -99,6 +99,19 @@ int user_exception_worker(void*) {
     return 99;
 }
 
+void test_timer_clock() {
+    TEST_START("Timer interrupts advance the clock");
+    const uint64_t start = trap::Clock::ticks();
+    // The timer fires 100 times a second. The bound only keeps a dead timer from hanging the suite.
+    for (uint64_t spin = 0; spin < 400'000'000ULL && trap::Clock::ticks() == start; ++spin) {
+        arch_spin_hint();
+    }
+    const uint64_t now = trap::Clock::ticks();
+    TEST_ASSERT(now > start, "Tick count increases while interrupts are enabled");
+    TEST_ASSERT(trap::uptime_ms() >= now * trap::Clock::TICK_MS, "Uptime follows the tick count");
+    TEST_END();
+}
+
 void test_user_exception() {
     TEST_START("Unhandled user exception terminates only its task");
     auto child = sched::kernel_thread(user_exception_worker, nullptr);
@@ -148,6 +161,7 @@ void test() {
     TEST_END();
     test_multiple_wakeups(false);
     test_multiple_wakeups(true);
+    test_timer_clock();
     test_user_exception();
     TEST_SUMMARY("Synchronization");
 }

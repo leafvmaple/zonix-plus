@@ -154,6 +154,14 @@ void close(File* file) {
 }
 }  // namespace vfs
 
+// The fixture has no console session to hand to a child or release.
+namespace cons {
+Error prepare_spawn(Task*, Task*, bool) {
+    return Error::None;
+}
+void task_exited(Task*) {}
+}  // namespace cons
+
 namespace intr {
 Guard::Guard() {
     TaskFixture::active().enter_guard();

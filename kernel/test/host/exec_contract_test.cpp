@@ -207,6 +207,11 @@ void operator delete(void* ptr, size_t) noexcept {
     kfree(ptr);
 }
 
+// The fixture never binds a Task to a pseudo-terminal.
+void pty::Release::operator()(Session*) const noexcept {
+    assert(false);
+}
+
 namespace pmm {
 Page* alloc_and_map_page(pde_t*, uintptr_t va, uint32_t perm) {
     return ExecFixture::current().map(va, perm);

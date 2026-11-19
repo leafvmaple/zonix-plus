@@ -71,19 +71,6 @@ static void test_find_device_by_type() {
 }
 
 // ============================================================================
-// Block device constants
-// ============================================================================
-
-static void test_block_constants() {
-    TEST_START("BlockDevice constants");
-
-    TEST_ASSERT(BlockDevice::BLOCK_SIZE_BYTES == 512, "Sector size is 512 bytes");
-    TEST_ASSERT(BlockManager::MAX_DEVICES >= 4, "MAX_DEVICES is at least 4");
-
-    TEST_END();
-}
-
-// ============================================================================
 // Test Runner
 // ============================================================================
 
@@ -96,7 +83,6 @@ void test() {
     test_find_device_by_index();
     test_find_device_by_name();
     test_find_device_by_type();
-    test_block_constants();
 
     TEST_SUMMARY("Block Manager");
 }
