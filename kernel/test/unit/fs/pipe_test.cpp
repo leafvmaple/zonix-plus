@@ -1,7 +1,12 @@
 #include "test/test_defs.h"
+#include "fs/fd.h"
 #include "fs/pipe.h"
+#include "fs/readiness.h"
 #include "lib/memory.h"
 #include "mm/heap.h"
+#include "sched/sched.h"
+
+#include <sys/inplace_vector.hpp>
 
 static int tests_passed = 0;
 static int tests_failed = 0;
@@ -109,6 +114,41 @@ void test_closed_ends() {
     TEST_END();
 }
 
+// Programs with many pipes, such as Desktop, need descriptors past the first
+// sixteen, and their readiness must be reported at the documented bits.
+void test_readiness_of_high_descriptors() {
+    TEST_START("Readiness reports the read and write ends of a pipe on high descriptors");
+    Task* task = sched::current();
+    auto& files = task->files();
+    sys::inplace_vector<int, fd::MAX_FD> opened;
+    int ends[2]{-1, -1};
+    bool created = true;
+    while (created && ends[0] < 16) {
+        created = files.create_pipe(ends, false, true) == Error::None;
+        if (created) {
+            assert(opened.try_push_back(ends[0]));
+            assert(opened.try_push_back(ends[1]));
+        }
+    }
+    TEST_ASSERT(created && ends[0] >= 16 && ends[1] < fd::MAX_FD, "A pipe was created on descriptors past sixteen");
+    if (created) {
+        const uint64_t reader = uint64_t{1} << ends[0];
+        const uint64_t writer = uint64_t{1} << ends[1];
+        auto ready = fd::Readiness::wait(task, reader, 0, writer);
+        TEST_ASSERT(ready.ok() && ready.value() == writer << fd::MAX_FD,
+                    "An empty pipe is ready for writing only, above the read set");
+        TEST_ASSERT(files.close(ends[1]) == Error::None, "Closed the write end");
+        opened.pop_back();
+        ready = fd::Readiness::wait(task, reader, 0);
+        TEST_ASSERT(ready.ok() && ready.value() == reader, "The read end is ready once the writer is gone");
+    }
+    auto outside = fd::Readiness::wait(task, uintptr_t{1} << fd::MAX_FD, 0);
+    TEST_ASSERT(!outside.ok() && outside.error() == Error::Invalid, "A bit past the table is rejected");
+    for (int fd : opened)
+        static_cast<void>(files.close(fd));
+    TEST_END();
+}
+
 }  // namespace
 
 namespace pipe_test {
@@ -118,6 +158,7 @@ void test() {
     test_transfer();
     test_capacity();
     test_closed_ends();
+    test_readiness_of_high_descriptors();
     TEST_SUMMARY("Pipes");
 }
 

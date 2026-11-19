@@ -9,7 +9,9 @@ namespace fd {
 
 class Readiness {
 public:
-    static Result<unsigned int> wait(Task* task, uintptr_t read_mask, int timeout_ms = -1, uintptr_t write_mask = 0);
+    // Returns the read-ready descriptors as a bit set, with the write-ready
+    // set MAX_FD bits above it.
+    static Result<uint64_t> wait(Task* task, uintptr_t read_mask, int timeout_ms = -1, uintptr_t write_mask = 0);
     static void notify();
     static void tick();
 

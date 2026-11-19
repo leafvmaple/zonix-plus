@@ -7,7 +7,11 @@
 
 namespace fd {
 
-inline constexpr int MAX_FD = 16;
+// Descriptors per process. sys_wait_io returns the read-ready set in the low
+// MAX_FD bits and the write-ready set in the next MAX_FD bits of a
+// non-negative long, so twice this number must stay below 63.
+inline constexpr int MAX_FD = 24;
+static_assert(2 * MAX_FD < 63);
 enum class ForkPolicy : uint8_t { Reset = 0, Share = 1, Spawn = 2 };
 
 class OpenFile;

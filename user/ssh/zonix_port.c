@@ -10,7 +10,7 @@
 #include <poll.h>
 #include <unistd.h>
 
-#define FD_MASK_BITS   16
+#define FD_MASK_BITS   24
 #define IO_WRITE_BYTES 1024
 
 int errno;

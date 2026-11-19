@@ -126,11 +126,11 @@ FAT 可按已有 VFAT 长名枚举、查找和修改文件内容。`DirectoryEnt
 
 `O_NONBLOCK` 由 `pipe2` 设置在两个端点上。`sys_fcntl(fd, F_SETFL, flags)` 接受 `0` 或 `O_NONBLOCK`，修改一个管道端点后续读写的模式，dup 和 spawn 共享该模式。其他文件类型返回 NotSupported。空管道仍有写端时，非阻塞 read 立即返回 -1。非阻塞写入不等待空间，至多 4096 字节的单次写入要么全部进入环形缓冲，要么返回 -1；更大的调用沿用 I/O 循环的分段与短写语义。最后写端关闭且数据读完后，读返回 0。
 
-`sys_wait_readable(long mask)` 接收当前进程非零的 16 位 FD 位图，阻塞至至少一项读就绪，返回所有当前就绪项的位图。管道读端及伪终端 master 有数据或 EOF 时均就绪，取得事件模式的显示描述符有待取事件时就绪，随后用 `DISPLAY_READ_EVENT` 读取。空位、超出范围的位返回 Invalid，其他文件类型返回 NotSupported，无访问权限返回 Access，终止请求可中断等待。就绪是快照，不为共享 FD 预留数据；多个进程读同一端点时仍需处理竞争。
+每个进程最多 24 个描述符。`sys_wait_readable(long mask)` 接收当前进程非零的 24 位 FD 位图，阻塞至至少一项读就绪，返回所有当前就绪项的位图。管道读端及伪终端 master 有数据或 EOF 时均就绪，取得事件模式的显示描述符有待取事件时就绪，随后用 `DISPLAY_READ_EVENT` 读取。空位、超出范围的位返回 Invalid，其他文件类型返回 NotSupported，无访问权限返回 Access，终止请求可中断等待。就绪是快照，不为共享 FD 预留数据；多个进程读同一端点时仍需处理竞争。
 
 `sys_wait_readable_for(long mask, long timeout_ms)` 采用相同的 FD 位图，超时返回 0。超时取 0～2147483647 毫秒，传 0 检查当前状态后立即返回。`sys_uptime_ms()` 返回启动后的单调毫秒数，精度取决于内核定时器。
 
-`sys_wait_io(long read_mask, long write_mask, long timeout_ms)` 可在同一次调用中等待两个 16 位位图。返回值低 16 位为读就绪，高 16 位为写就绪。任一位图可为空，合并后至少需要一个 FD。管道写端和 PTY master 在可以写入至少一个字节或对端关闭时报告写就绪。就绪只反映当前状态，调用者仍需处理短写、竞争和关闭。
+`sys_wait_io(long read_mask, long write_mask, long timeout_ms)` 可在同一次调用中等待两个 24 位位图。返回值第 0～23 位为读就绪，第 24～47 位为写就绪。任一位图可为空，合并后至少需要一个 FD。管道写端和 PTY master 在可以写入至少一个字节或对端关闭时报告写就绪。就绪只反映当前状态，调用者仍需处理短写、竞争和关闭。
 
 ## 原始以太网设备
 
@@ -156,7 +156,7 @@ x86 探测到受支持的现代 VirtIO PCI 网卡后提供 `/dev/net0`，一次�
 
 0/1/2 为 stdin/stdout/stderr，初始内核启动任务连接 `/dev/console`。spawn 保留未标记 close-on-exec 的父进程 FD 编号；每个 FD 持有一个可移动的 `OpenFileRef` 引用（zstl `unique_ptr` 加领域释放器），共享同一打开文件描述及偏移。跨进程 I/O 持有描述的互斥锁；独立 open 的偏移彼此独立。close 只释放本进程引用，最后一个引用关闭 VFS 文件。
 
-`O_CLOEXEC`（02000000）属于 FD 槽而非共享打开描述，`fd::Table::open` 消费它后再调用 VFS。`sys_fcntl(fd, F_DUPFD_CLOEXEC, minimum)` 返回不小于 minimum 的最小空槽，复制句柄并标记 close-on-exec；FD 或 minimum 不在 [0,16) 时 Invalid，无空槽时 Full。`sys_dup2(old, new)` 先验证源/目标，失败不改变目标；old==new 时保留原标记，否则替换目标并清除其 close-on-exec 标记。两者共享打开描述和偏移，均不重新打开文件。
+`O_CLOEXEC`（02000000）属于 FD 槽而非共享打开描述，`fd::Table::open` 消费它后再调用 VFS。`sys_fcntl(fd, F_DUPFD_CLOEXEC, minimum)` 返回不小于 minimum 的最小空槽，复制句柄并标记 close-on-exec；FD 或 minimum 不在 [0,24) 时 Invalid，无空槽时 Full。`sys_dup2(old, new)` 先验证源/目标，失败不改变目标；old==new 时保留原标记，否则替换目标并清除其 close-on-exec 标记。两者共享打开描述和偏移，均不重新打开文件。
 
 `ForkPolicy::Share` 保留所有 FD 及标记，`ForkPolicy::Spawn` 仅保留未标记 FD，`Reset` 清空。两个用户态 spawn 接口共用 Spawn 策略，过滤仅影响新进程；父进程的 FD 保持有效。dup2 先取得新引用再释放旧目标，最后关闭在引用计数中断保护之外执行。新 syscall 和 flags 已同步到共用运行时。
 
