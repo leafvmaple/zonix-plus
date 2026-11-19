@@ -19,19 +19,33 @@ using zonix_gui::Button;
 using zonix_gui::Dialog;
 using zonix_gui::IconGrid;
 using zonix_gui::control_style::Color;
+using zonix_gui::control_style::Glyph;
 using zonix_gui::control_style::Palette;
+using zonix_gui::control_style::place_label;
 
-constexpr int WIDTH = 500;
-constexpr int HEIGHT = 344;
-// Contents between the navigation toolbar, shortcuts and status bar.
-constexpr zocos::Rect GRID_AREA{110.f, 36.f, WIDTH - 110.f, 263.f};
-
-zocos::Label* make_label(zocos::Director& director, const char* text, float scale) {
-    auto* label = zocos::Label::createWithTTF(director, text, zonix_gui::UI_FONT_PATH, 24.f);
-    if (label)
-        label->setScale(scale);
-    return label;
-}
+// The window has the same size as the Terminal. Layout rectangles use a
+// top-left origin, like the window, unless noted otherwise.
+constexpr int WIDTH = 512;
+constexpr int HEIGHT = 320;
+constexpr float TOOLBAR_HEIGHT = zonix_gui::Toolbar::HEIGHT;
+constexpr float STATUS_HEIGHT = 28.f;
+constexpr float STATUS_TOP = HEIGHT - STATUS_HEIGHT;
+constexpr float STATUS_CENTER = STATUS_TOP + STATUS_HEIGHT / 2.f;
+// The last column of the sidebar is the divider.
+constexpr float SIDEBAR_WIDTH = 120.f;
+constexpr float BODY_HEIGHT = STATUS_TOP - TOOLBAR_HEIGHT;
+constexpr float MARGIN = 8.f;
+// Sidebar text lines up with the labels of the location buttons.
+constexpr float SIDEBAR_TEXT_X = MARGIN + zonix_gui::control_style::TEXT_INSET;
+constexpr float PLACES_TOP = TOOLBAR_HEIGHT + 32.f;
+constexpr float PLACE_PITCH = 30.f;
+constexpr zocos::Size PAGER_BUTTON{24.f, 20.f};
+constexpr float PAGE_LABEL_WIDTH = 64.f;
+constexpr float NEXT_X = WIDTH - MARGIN - PAGER_BUTTON.width;
+constexpr float PREVIOUS_X = NEXT_X - PAGE_LABEL_WIDTH - PAGER_BUTTON.width;
+constexpr float STATUS_TEXT_X = 12.f;
+// Contents between the toolbar, shortcuts and status bar, with a bottom-left origin.
+constexpr zocos::Rect GRID_AREA{SIDEBAR_WIDTH, STATUS_HEIGHT, WIDTH - SIDEBAR_WIDTH, BODY_HEIGHT};
 
 class Panels final : public zocos::Node {
 public:
@@ -40,10 +54,10 @@ public:
     bool init() override { return Node::init() && palette_.init(); }
 
     void draw(zocos::Renderer& renderer, const zocos::Mat4& world) override {
-        palette_.box(renderer, world, {0.f, 36.f, 109.f, 263.f}, Color::Sidebar);
-        palette_.box(renderer, world, {109.f, 36.f, 1.f, 263.f}, Color::Border);
-        palette_.box(renderer, world, {0.f, 0.f, WIDTH, 36.f}, Color::Toolbar);
-        palette_.box(renderer, world, {0.f, 36.f, WIDTH, 1.f}, Color::Border);
+        palette_.box(renderer, world, {0.f, STATUS_HEIGHT, SIDEBAR_WIDTH - 1.f, BODY_HEIGHT}, Color::Sidebar);
+        palette_.box(renderer, world, {SIDEBAR_WIDTH - 1.f, STATUS_HEIGHT, 1.f, BODY_HEIGHT}, Color::Divider);
+        palette_.box(renderer, world, {0.f, 0.f, WIDTH, STATUS_HEIGHT}, Color::Panel);
+        palette_.box(renderer, world, {0.f, STATUS_HEIGHT - 1.f, WIDTH, 1.f}, Color::Divider);
     }
 
 private:
@@ -100,6 +114,7 @@ private:
     Button* back_{};
     Button* forward_{};
     Button* up_{};
+    sys::array<Button*, 3> places_{};
     Button* previous_{};
     Button* next_{};
     char path_[PROCESS_MAX_PATH]{"/"};
@@ -123,9 +138,11 @@ private:
         };
     }
 
-    Button* add_button(zocos::Director& director, zocos::Scene& scene, const char* text, zocos::Rect area, Action action,
+    // The content is a label or a glyph.
+    template <typename Content>
+    Button* add_button(zocos::Director& director, zocos::Scene& scene, Content content, zocos::Rect area, Action action,
                        Button::Alignment alignment = Button::Alignment::Center) {
-        auto* button = Button::create(director, text, refresh_after(mstd::move(action)));
+        auto* button = Button::create(director, content, refresh_after(mstd::move(action)));
         if (button) {
             button->layout({area.width, area.height}, alignment);
             button->setPosition({area.x, HEIGHT - area.y - area.height});
@@ -134,12 +151,13 @@ private:
         return button;
     }
 
+    // The position is the left edge or centre of the text and the middle of its line.
     static zocos::Label* add_text(zocos::Director& director, zocos::Scene& scene, const char* text,
-                                  zocos::Vec2 position, float scale, float anchor_x = 0.f) {
-        auto* label = make_label(director, text, scale);
+                                  zocos::Vec2 position, float align, float opacity) {
+        auto* label = zonix_gui::control_style::make_label(director, text);
         if (label) {
-            label->setAnchorPoint({anchor_x, 0.5f});
-            label->setPosition({position.x, HEIGHT - position.y});
+            place_label(*label, position.x, HEIGHT - position.y, align);
+            label->setOpacity(opacity);
             scene.addChild(label);
         }
         return label;
@@ -156,25 +174,37 @@ private:
         toolbar_ = zonix_gui::Toolbar::create(director, WIDTH);
         if (!toolbar_)
             return false;
-        toolbar_->setPosition({0.f, HEIGHT - toolbar_->getContentSize().height});
+        toolbar_->setPosition({0.f, HEIGHT - TOOLBAR_HEIGHT});
         scene.addChild(toolbar_);
-        back_ = toolbar_->add_button("<", refresh_after([this] { history_step(-1); }));
-        forward_ = toolbar_->add_button(">", refresh_after([this] { history_step(1); }));
-        up_ = toolbar_->add_button("Up", refresh_after([this] { parent(); }));
-        previous_ = add_button(director, scene, "<", {374.f, 314.f, 31.f, 24.f}, [this] { change_page(-1); });
-        next_ = add_button(director, scene, ">", {459.f, 314.f, 31.f, 24.f}, [this] { change_page(1); });
-        status_ = add_text(director, scene, "", {12.f, 326.f}, 0.59f);
-        page_label_ = add_text(director, scene, "", {432.f, 326.f}, 0.6f, 0.5f);
-        empty_ = add_text(director, scene, "Empty folder", {305.f, 172.f}, 0.71f, 0.5f);
-        if (!back_ || !forward_ || !up_ || !previous_ || !next_ || !status_ || !page_label_ ||
-            !empty_ || !add_text(director, scene, "Locations", {16.f, 65.f}, 0.61f))
+        back_ = toolbar_->add_button(Glyph::Back, refresh_after([this] { history_step(-1); }));
+        forward_ = toolbar_->add_button(Glyph::Forward, refresh_after([this] { history_step(1); }));
+        up_ = toolbar_->add_button(Glyph::Up, refresh_after([this] { parent(); }));
+
+        using zonix_gui::control_style::SECONDARY_OPACITY;
+        constexpr float pager_top = STATUS_TOP + (STATUS_HEIGHT - PAGER_BUTTON.height) / 2.f;
+        previous_ = add_button(director, scene, Glyph::Back,
+                               {PREVIOUS_X, pager_top, PAGER_BUTTON.width, PAGER_BUTTON.height},
+                               [this] { change_page(-1); });
+        next_ = add_button(director, scene, Glyph::Forward,
+                           {NEXT_X, pager_top, PAGER_BUTTON.width, PAGER_BUTTON.height}, [this] { change_page(1); });
+        status_ = add_text(director, scene, "", {STATUS_TEXT_X, STATUS_CENTER}, 0.f, 0.85f);
+        page_label_ = add_text(director, scene, "", {NEXT_X - PAGE_LABEL_WIDTH / 2.f, STATUS_CENTER}, 0.5f, 0.85f);
+        empty_ = add_text(director, scene, "Empty folder",
+                          {SIDEBAR_WIDTH + (WIDTH - SIDEBAR_WIDTH) / 2.f, TOOLBAR_HEIGHT + BODY_HEIGHT / 2.f}, 0.5f,
+                          SECONDARY_OPACITY);
+        if (!back_ || !forward_ || !up_ || !previous_ || !next_ || !status_ || !page_label_ || !empty_ ||
+            !add_text(director, scene, "Locations", {SIDEBAR_TEXT_X, TOOLBAR_HEIGHT + 18.f}, 0.f, SECONDARY_OPACITY))
             return false;
 
         for (int i = 0; i < 3; ++i) {
-            if (!add_button(
-                    director, scene, PLACES[i], {10.f, 81.f + i * 34.f, 88.f, 28.f}, [this, i] { navigate(PATHS[i]); },
-                    Button::Alignment::Left))
+            places_[i] = add_button(
+                director, scene, PLACES[i],
+                {MARGIN, PLACES_TOP + i * PLACE_PITCH, SIDEBAR_WIDTH - 2.f * MARGIN,
+                 zonix_gui::control_style::CONTROL_HEIGHT},
+                [this, i] { navigate(PATHS[i]); }, Button::Alignment::Left);
+            if (!places_[i])
                 return false;
+            places_[i]->set_style(Button::Style::Flat);
         }
 
         grid_ = IconGrid::create(director, {GRID_AREA.width, GRID_AREA.height}, [this](IconGrid::Interaction action) {
@@ -449,8 +479,10 @@ private:
 
     void update_controls() {
         mstd::string path(path_);
-        constexpr unsigned int path_columns = 21;
+        constexpr unsigned int path_columns = 48;
         toolbar_->set_text(path.size() > path_columns ? "..." + path.substr(path.size() - path_columns) : path);
+        for (int i = 0; i < 3; ++i)
+            places_[i]->set_selected(path == PATHS[i]);
         back_->set_enabled(history_index_ > 0);
         forward_->set_enabled(history_index_ + 1 < history_count_);
         up_->set_enabled(!root());
@@ -458,6 +490,7 @@ private:
         next_->set_enabled(next_first_ > 0);
         empty_->setVisible(page_.empty() && !message_);
         page_label_->setString("Page " + mstd::to_string(page_number_));
+        place_label(*page_label_, NEXT_X - PAGE_LABEL_WIDTH / 2.f, STATUS_HEIGHT / 2.f, 0.5f, PAGE_LABEL_WIDTH);
         int selected = grid_->selection();
         if (message_)
             status_->setString(message_);
@@ -468,6 +501,8 @@ private:
         } else {
             status_->setString(mstd::to_string(page_.size()) + " shown");
         }
+        // Long messages shrink instead of running under the pager.
+        place_label(*status_, STATUS_TEXT_X, STATUS_HEIGHT / 2.f, 0.f, PREVIOUS_X - 2.f * STATUS_TEXT_X);
     }
 };
 

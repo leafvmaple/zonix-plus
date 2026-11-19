@@ -1,5 +1,6 @@
 #include "../command.h"
 #include "chrome.h"
+#include "../gui/theme.h"
 #include <kernel/psf.h>
 #include <sys/array.hpp>
 
@@ -13,6 +14,7 @@ using namespace desktop_ipc;
 using desktop_chrome::CLOSE_SIZE;
 using desktop_chrome::LABEL_COLOR;
 using desktop_chrome::TITLE_HEIGHT;
+namespace theme = zonix_gui::theme;
 
 struct Point {
     int x;
@@ -28,6 +30,33 @@ struct Rect {
         return point.x >= origin.x && point.x < static_cast<long>(origin.x) + width && point.y >= origin.y &&
                point.y < static_cast<long>(origin.y) + height;
     }
+};
+
+// Coverage of the pixels in a rounded corner, indexed by their distance from
+// the two edges that meet there.
+template <int RADIUS>
+struct CornerMask {
+    unsigned char alpha[RADIUS][RADIUS];
+
+    constexpr CornerMask() : alpha{} {
+        // Sample positions are in eighths of a pixel, from the circle's centre.
+        constexpr int samples = 4;
+        constexpr int reach = RADIUS * 8;
+        for (int y = 0; y < RADIUS; ++y) {
+            for (int x = 0; x < RADIUS; ++x) {
+                int inside = 0;
+                for (int sample = 0; sample < samples * samples; ++sample) {
+                    int dx = reach - (x * 8 + sample % samples * 2 + 1);
+                    int dy = reach - (y * 8 + sample / samples * 2 + 1);
+                    if (dx * dx + dy * dy <= reach * reach)
+                        ++inside;
+                }
+                alpha[y][x] = static_cast<unsigned char>(inside * 255 / (samples * samples));
+            }
+        }
+    }
+
+    constexpr int at(int x, int y) const { return x < RADIUS && y < RADIUS ? alpha[y][x] : 255; }
 };
 
 struct Window {
@@ -111,11 +140,26 @@ private:
     static constexpr int NO_WINDOW = -1;
     static constexpr unsigned long DOUBLE_CLICK_MS = 400;
     static constexpr int CLICK_DISTANCE = 5;
-    static constexpr int CURSOR_SIZE = 11;
     static constexpr int TILE_SIZE = 64;
-    static constexpr unsigned int FOCUSED_BORDER = 0x72CFCC;
-    static constexpr unsigned int UNFOCUSED_BORDER = 0x536777;
-    static constexpr unsigned int TERMINAL_BACKGROUND = 0x111D29;
+    static constexpr int CORNER_RADIUS = 6;
+    static constexpr CornerMask<CORNER_RADIUS> OUTER_CORNER{};
+    static constexpr CornerMask<CORNER_RADIUS - 1> INNER_CORNER{};
+    // The shadow is the window's outline moved down and faded over the blur distance.
+    static constexpr int SHADOW_OFFSET = 4;
+    static constexpr int SHADOW_BLUR = 12;
+    static constexpr int SHADOW_MARGIN = SHADOW_BLUR + SHADOW_OFFSET;
+    static constexpr int SHADOW_FOCUSED = 128;
+    static constexpr int SHADOW_UNFOCUSED = 72;
+    // How far an unfocused title bar moves towards theme::TITLE_INACTIVE, out of 255.
+    static constexpr int INACTIVE_TITLE = 120;
+    static constexpr int CURSOR_WIDTH = 12;
+    static constexpr int CURSOR_HEIGHT = 19;
+    // 'X' is the pointer's outline and '.' its fill. The hot spot is the top-left pixel.
+    static constexpr const char* CURSOR[CURSOR_HEIGHT] = {
+        "X           ", "XX          ", "X.X         ", "X..X        ", "X...X       ",
+        "X....X      ", "X.....X     ", "X......X    ", "X.......X   ", "X........X  ",
+        "X.........X ", "X......XXXXX", "X...X..X    ", "X..XX..X    ", "X.X  X..X   ",
+        "XX   X..X   ", "X     X..X  ", "      X..X  ", "       XX   "};
     inline static sys::array<unsigned int, TILE_SIZE * TILE_SIZE> pixels_{};
     inline static sys::array<PixelSurface, WINDOW_COUNT - FIRST_PIXEL_WINDOW> surfaces_{};
 
@@ -161,8 +205,43 @@ private:
         return value > limit ? limit : static_cast<int>(value);
     }
 
-    Rect cursor_rect() const {
-        return {{pointer_.x - CURSOR_SIZE / 2, pointer_.y - CURSOR_SIZE / 2}, CURSOR_SIZE, CURSOR_SIZE};
+    Rect cursor_rect() const { return {pointer_, CURSOR_WIDTH, CURSOR_HEIGHT}; }
+
+    // The area a window paints, including its shadow.
+    static Rect bounds(const Rect& window) {
+        if (window.width == 0)
+            return window;
+        return {{window.origin.x - SHADOW_MARGIN, window.origin.y - SHADOW_MARGIN},
+                window.width + 2 * SHADOW_MARGIN,
+                window.height + 2 * SHADOW_MARGIN};
+    }
+
+    // Blends towards `to` by `amount` out of 255.
+    static unsigned int mix(unsigned int from, unsigned int to, int amount) {
+        unsigned int weight = static_cast<unsigned int>(amount + (amount >> 7));
+        unsigned int red_blue = (((from & 0xFF00FF) * (256 - weight) + (to & 0xFF00FF) * weight) >> 8) & 0xFF00FF;
+        unsigned int green = (((from & 0x00FF00) * (256 - weight) + (to & 0x00FF00) * weight) >> 8) & 0x00FF00;
+        return red_blue | green;
+    }
+
+    // Shadow darkness out of 255 at a point outside the window or in its corner gaps.
+    static int shadow(const Rect& window, Point point, int strength) {
+        int left = window.origin.x;
+        int right = left + window.width - 1;
+        int top = window.origin.y + SHADOW_OFFSET;
+        int bottom = top + window.height - 1;
+        int dx = point.x < left ? left - point.x : (point.x > right ? point.x - right : 0);
+        int dy = point.y < top ? top - point.y : (point.y > bottom ? point.y - bottom : 0);
+        if (dx >= SHADOW_BLUR || dy >= SHADOW_BLUR)
+            return 0;
+        int square = dx * dx + dy * dy;
+        int distance = 0;
+        while ((distance + 1) * (distance + 1) <= square)
+            ++distance;
+        if (distance >= SHADOW_BLUR)
+            return 0;
+        int fade = SHADOW_BLUR - distance;
+        return strength * fade * fade / (SHADOW_BLUR * SHADOW_BLUR);
     }
 
     static Rect close_rect(const Rect& window) {
@@ -245,7 +324,7 @@ private:
 
     long focus(int index, int previous, unsigned int modifiers) {
         if (index == previous)
-            return repaint(windows_[index].rect);
+            return repaint(bounds(windows_[index].rect));
         last_click_ = {};
         left_click_ = false;
         for (int slot = 0; slot < WINDOW_COUNT; ++slot) {
@@ -260,8 +339,8 @@ private:
         }
         long error = send(previous, {DISPLAY_EVENT_RESET, 0, 0, modifiers});
         if (error == 0 && previous != NO_WINDOW && windows_[previous].open())
-            error = repaint(windows_[previous].rect);
-        return error < 0 ? error : repaint(windows_[index].rect);
+            error = repaint(bounds(windows_[previous].rect));
+        return error < 0 ? error : repaint(bounds(windows_[index].rect));
     }
 
     long close_window(int index) {
@@ -283,11 +362,11 @@ private:
         }
         int next = top_window();
         if (focused && next != NO_WINDOW) {
-            long error = repaint(windows_[next].rect);
+            long error = repaint(bounds(windows_[next].rect));
             if (error < 0)
                 return error;
         }
-        return repaint(old);
+        return repaint(bounds(old));
     }
 
     long handle(const DisplayTimedEvent& input) {
@@ -383,9 +462,9 @@ private:
             Rect old_window = window;
             window.origin = {clamp(pointer_.x - drag_offset_.x, screen_.width - window.width),
                              clamp(pointer_.y - drag_offset_.y, screen_.height - window.height)};
-            long error = repaint(old_window);
+            long error = repaint(bounds(old_window));
             if (error == 0)
-                error = repaint(window);
+                error = repaint(bounds(window));
             if (error < 0)
                 return error;
         } else if (int top = top_window(); top > TERMINAL_WINDOW && in_body(windows_[top].rect, pointer_)) {
@@ -398,26 +477,84 @@ private:
     }
 
     unsigned int color(Point point) const {
-        Rect cursor = cursor_rect();
-        if (cursor.contains(point) && (point.x == pointer_.x || point.y == pointer_.y))
-            return LABEL_COLOR;
-        int index = window_at(point);
-        if (index == NO_WINDOW)
-            return chrome_.background();
-        Rect window = windows_[index].rect;
+        if (cursor_rect().contains(point)) {
+            char mark = CURSOR[point.y - pointer_.y][point.x - pointer_.x];
+            if (mark == 'X')
+                return theme::CURSOR_OUTLINE;
+            if (mark == '.')
+                return theme::TEXT;
+        }
+        return compose(point, 0, top_window());
+    }
+
+    // The colour of the windows from `slot` down in the stacking order, over the background.
+    unsigned int compose(Point point, int slot, int top) const {
+        for (; slot < WINDOW_COUNT; ++slot) {
+            int index = order_[slot];
+            const Rect& window = windows_[index].rect;
+            if (!windows_[index].open() || window.width == 0)
+                continue;
+            bool focused = index == top;
+            int strength = focused ? SHADOW_FOCUSED : SHADOW_UNFOCUSED;
+            if (!window.contains(point)) {
+                int shade = shadow(window, point, strength);
+                if (shade != 0)
+                    return mix(compose(point, slot + 1, top), 0, shade);
+                continue;
+            }
+            unsigned int border = focused ? theme::WINDOW_BORDER_FOCUSED : theme::WINDOW_BORDER;
+            int x = point.x - window.origin.x;
+            int y = point.y - window.origin.y;
+            int edge_x = x < window.width - 1 - x ? x : window.width - 1 - x;
+            int edge_y = y < window.height - 1 - y ? y : window.height - 1 - y;
+            bool on_border = edge_x == 0 || edge_y == 0;
+            if (edge_x >= CORNER_RADIUS || edge_y >= CORNER_RADIUS)
+                return on_border ? border : interior(index, point, focused);
+
+            // The border follows the corner one pixel inside the outline.
+            int outer = OUTER_CORNER.at(edge_x, edge_y);
+            int inner = on_border ? 0 : INNER_CORNER.at(edge_x - 1, edge_y - 1);
+            unsigned int pixel = inner == 0 ? border : mix(border, interior(index, point, focused), inner);
+            if (outer == 255)
+                return pixel;
+            unsigned int below = mix(compose(point, slot + 1, top), 0, shadow(window, point, strength));
+            return mix(below, pixel, outer);
+        }
+        return background(point);
+    }
+
+    // A window's own pixel inside its border.
+    unsigned int interior(int index, Point point, bool focused) const {
+        const Rect& window = windows_[index].rect;
         int x = point.x - window.origin.x;
         int y = point.y - window.origin.y;
-        if (x < 2 || y < 2 || x >= window.width - 2 || y >= window.height - 2)
-            return index == top_window() ? FOCUSED_BORDER : UNFOCUSED_BORDER;
-        if (y >= TITLE_HEIGHT) {
-            if (is_text_window(index))
-                return text_color(index, x - 2, y - TITLE_HEIGHT);
-            if (is_pixel_window(index))
-                return surface(index).pixel(x - 2, y - TITLE_HEIGHT);
-            Point sample = surface_point(window, point);
-            return windows_[index].client.frame()[sample.y * desktop_ipc::SURFACE_SIZE + sample.x];
+        if (y < TITLE_HEIGHT) {
+            unsigned int pixel = chrome_.title_pixel(index, window.width, x, y);
+            return focused ? pixel : mix(pixel, theme::TITLE_INACTIVE, INACTIVE_TITLE);
         }
-        return chrome_.title_pixel(index, window.width, x, y);
+        if (x < 2 || x >= window.width - 2 || y >= window.height - 2)
+            return theme::WINDOW_BACKGROUND;
+        if (is_text_window(index))
+            return text_color(index, x - 2, y - TITLE_HEIGHT);
+        if (is_pixel_window(index))
+            return surface(index).pixel(x - 2, y - TITLE_HEIGHT);
+        Point sample = surface_point(window, point);
+        return windows_[index].client.frame()[sample.y * desktop_ipc::SURFACE_SIZE + sample.x];
+    }
+
+    // A vertical gradient, dithered so its steps do not show as bands.
+    unsigned int background(Point point) const {
+        static constexpr unsigned char dither[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
+        int threshold = dither[point.y & 3][point.x & 3] * 16 + 8;
+        int span = screen_.height > 1 ? screen_.height - 1 : 1;
+        unsigned int pixel = 0;
+        for (int shift = 16; shift >= 0; shift -= 8) {
+            int from = static_cast<int>((theme::DESKTOP_TOP >> shift) & 0xFF);
+            int to = static_cast<int>((theme::DESKTOP_BOTTOM >> shift) & 0xFF);
+            int level = from * 256 + (to - from) * 256 * point.y / span;
+            pixel |= static_cast<unsigned int>((level + threshold) >> 8) << shift;
+        }
+        return pixel;
     }
 
     long receive_pixels(int index) {
@@ -439,7 +576,7 @@ private:
                 }
                 window.rect = {{clamp(x, screen_.width - width), clamp(y, screen_.height - height)}, width, height};
                 long error = chrome_.configure(index, width);
-                return error < 0 ? error : repaint(window.rect);
+                return error < 0 ? error : repaint(bounds(window.rect));
             }
             case PixelSurface::Result::Updated: {
                 auto dirty = pixels.damage();
@@ -468,9 +605,9 @@ private:
         int col = x / GLYPH_WIDTH;
         if (data[CURSOR_VISIBLE] && row == data[CURSOR_ROW] && col == data[CURSOR_COL] &&
             y % GLYPH_HEIGHT >= GLYPH_HEIGHT - 2)
-            return FOCUSED_BORDER;
+            return theme::ACCENT;
         auto* glyph = psf::glyph(&font_, data[row * TERMINAL_COLS + col]);
-        return (glyph[y % GLYPH_HEIGHT] & (0x80U >> (x % GLYPH_WIDTH))) != 0 ? LABEL_COLOR : TERMINAL_BACKGROUND;
+        return (glyph[y % GLYPH_HEIGHT] & (0x80U >> (x % GLYPH_WIDTH))) != 0 ? LABEL_COLOR : theme::WINDOW_BACKGROUND;
     }
 
     long repaint_client(int index) {

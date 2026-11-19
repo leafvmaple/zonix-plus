@@ -8,13 +8,16 @@
 namespace zonix_gui {
 namespace {
 
-constexpr float CELL_WIDTH = 114.f;
-constexpr float CELL_HEIGHT = 77.f;
-constexpr float COLUMN_GAP = 10.f;
-constexpr float ROW_GAP = 7.f;
-constexpr float INSET_X = 12.f;
-constexpr float INSET_Y = 9.f;
-constexpr float LABEL_SCALE = 0.59f;
+constexpr float CELL_WIDTH = 88.f;
+constexpr float CELL_HEIGHT = 76.f;
+constexpr float COLUMN_GAP = 8.f;
+constexpr float ROW_GAP = 4.f;
+constexpr float INSET_X = 8.f;
+constexpr float INSET_Y = 8.f;
+// Within a cell, measured from its bottom edge.
+constexpr float LABEL_Y = 18.f;
+constexpr float LABEL_MARGIN = 4.f;
+constexpr float ICON_BOTTOM = 36.f;
 
 using control_style::Color;
 using MouseButton = zocos::EventMouse::MouseButton;
@@ -53,9 +56,6 @@ public:
         tile->autorelease();
         tile->setAnchorPoint({0.f, 0.f});
         tile->setContentSize({CELL_WIDTH, CELL_HEIGHT});
-        label->setScale(LABEL_SCALE);
-        label->setAnchorPoint({0.5f, 0.5f});
-        label->setPosition({CELL_WIDTH / 2.f, 16.f});
         tile->addChild(label);
         return tile;
     }
@@ -63,7 +63,7 @@ public:
     void set_item(const Item& item) {
         icon_ = item.icon;
         label_.setString(display_name(item.name));
-        label_.updateLayout();
+        control_style::place_label(label_, CELL_WIDTH / 2.f, LABEL_Y, 0.5f, CELL_WIDTH - 2.f * LABEL_MARGIN);
     }
 
     void set_selected(bool selected) { selected_ = selected; }
@@ -78,21 +78,25 @@ private:
     void draw(zocos::Renderer& renderer, const zocos::Mat4& world) override {
         const auto& palette = grid_.palette_;
         if (selected_ || isPressed())
-            palette.button(renderer, world, getContentSize(), isPressed() ? Color::Pressed : Color::Selected);
+            palette.frame(renderer, world, {0.f, 0.f, CELL_WIDTH, CELL_HEIGHT}, control_style::PANEL_RADIUS,
+                          isPressed() ? Color::Pressed : Color::Selected,
+                          isPressed() ? Color::Border : Color::SelectedBorder);
 
-        auto box = [&](zocos::Rect area, Color color) {
-            palette.box(renderer, world, area, color);
+        auto shape = [&](zocos::Rect area, float radius, Color color) {
+            palette.round_box(renderer, world, area, radius, color);
         };
-        constexpr float middle = CELL_WIDTH / 2.f;
         if (icon_ == Icon::Folder) {
-            box({middle - 15.f, 38.f, 29.f, 23.f}, Color::FolderShade);
-            box({middle - 15.f, 60.f, 13.f, 4.f}, Color::FolderShade);
-            box({middle - 16.f, 36.f, 32.f, 21.f}, Color::Folder);
+            constexpr float left = (CELL_WIDTH - 32.f) / 2.f;
+            shape({left, ICON_BOTTOM + 16.f, 14.f, 10.f}, 3.f, Color::FolderTab);
+            shape({left, ICON_BOTTOM, 32.f, 22.f}, 3.f, Color::FolderShade);
+            shape({left, ICON_BOTTOM, 32.f, 18.f}, 3.f, Color::Folder);
         } else {
-            box({middle - 12.f, 35.f, 24.f, 29.f}, Color::File);
-            box({middle + 5.f, 58.f, 7.f, 6.f}, Color::FileShade);
-            box({middle - 7.f, 49.f, 14.f, 2.f}, Color::FileShade);
-            box({middle - 7.f, 43.f, 11.f, 2.f}, Color::FileShade);
+            constexpr float left = (CELL_WIDTH - 24.f) / 2.f;
+            shape({left, ICON_BOTTOM - 2.f, 24.f, 30.f}, 3.f, Color::File);
+            shape({left + 16.f, ICON_BOTTOM + 20.f, 8.f, 8.f}, 3.f, Color::FileFold);
+            shape({left + 5.f, ICON_BOTTOM + 14.f, 9.f, 2.f}, 0.f, Color::FileShade);
+            shape({left + 5.f, ICON_BOTTOM + 9.f, 14.f, 2.f}, 0.f, Color::FileShade);
+            shape({left + 5.f, ICON_BOTTOM + 4.f, 14.f, 2.f}, 0.f, Color::FileShade);
         }
     }
 

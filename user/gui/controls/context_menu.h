@@ -33,6 +33,7 @@ private:
     void mouse_down(const zocos::EventMouse& event);
     void mouse_up(const zocos::EventMouse& event);
     void open(zocos::Vec2 pointer);
+    void draw(zocos::Renderer& renderer, const zocos::Mat4& world) override;
 
     zocos::Director& director_;
     ItemProvider items_at_;

@@ -1,4 +1,5 @@
 #include "platform.h"
+#include "theme.h"
 #include "window_channel.h"
 #include "../command.h"
 #include <base/ZCDirector.h>
@@ -60,7 +61,8 @@ private:
 class WindowView final : public SoftwareView {
 public:
     explicit WindowView(mstd::function<void(int)> on_edit_error = {})
-        : SoftwareView({18, 29, 43, 255}), on_edit_error_(mstd::move(on_edit_error)) {}
+        : SoftwareView(zonix_gui::opaque_color(zonix_gui::theme::WINDOW_BACKGROUND)),
+          on_edit_error_(mstd::move(on_edit_error)) {}
 
     bool init(int width, int height, const char* title) override {
         if (!SoftwareView::init(width, height, title) || WindowChannel::open(width, height) < 0)

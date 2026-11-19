@@ -1,4 +1,5 @@
 #include "../../command.h"
+#include "../../gui/controls/style.h"
 #include "../../gui/platform.h"
 #include "../chrome.h"
 
@@ -6,75 +7,84 @@
 #include <base/ZCAutoreleasePool.h>
 #include <base/ZCDirector.h>
 #include <sys/vector.hpp>
-#include <ui/UIButton.h>
 
 namespace desktop_chrome {
 
 namespace {
 
 using desktop_ipc::WINDOW_COUNT;
+using zonix_gui::control_style::Color;
+using zonix_gui::control_style::Glyph;
+using zonix_gui::control_style::Palette;
 
 constexpr int STRIP_ROWS = WINDOW_COUNT * TITLE_HEIGHT;
-constexpr int BUFFER_HEIGHT = STRIP_ROWS + 1;
-constexpr zocos::Color4B DESKTOP_BACKGROUND{23, 38, 53, 255};
-constexpr unsigned char TITLE_BACKGROUND[]{38, 61, 81, 255};
+constexpr float CLOSE_RADIUS = 5.f;
+// Space kept between the title and the close button.
+constexpr int LABEL_GAP = 8;
+constexpr int HIDDEN = -1;
 constexpr const char* TITLES[]{"Example A", "Example B", "Terminal", "mini-cocos", "Files", "Text Editor"};
 constexpr const char* SHORT_TITLES[]{"A", "B", "Term", "Cocos", "Files", "Editor"};
 static_assert(sizeof(TITLES) / sizeof(*TITLES) == WINDOW_COUNT);
 
-class TitleBands final : public zocos::Node {
-public:
-    explicit TitleBands(zocos::RenderDevice& device) : device_(device) {}
-    ~TitleBands() override {
-        if (texture_.isValid())
-            device_.destroyTexture(texture_);
-    }
+// All strips share one scene and font atlas, with the first window's strip at
+// the top of the buffer. The renderer's clear colour is the title background.
+constexpr float strip_bottom(int index) {
+    return static_cast<float>(STRIP_ROWS - (index + 1) * TITLE_HEIGHT);
+}
 
-    static TitleBands* create(zocos::RenderDevice& device, int width) {
-        auto* bands = new (mstd::nothrow) TitleBands(device);
-        if (!bands)
+// The divider under each title and the close buttons.
+class Decorations final : public zocos::Node {
+public:
+    static Decorations* create(zocos::Director& director, int width) {
+        auto* decorations = new (mstd::nothrow) Decorations(director, width);
+        if (!decorations)
             return nullptr;
-        if (!bands->init() || !bands->paint(width)) {
-            delete bands;
+        if (!decorations->init() || !decorations->palette_.init()) {
+            delete decorations;
             return nullptr;
         }
-        bands->autorelease();
-        return bands;
+        decorations->autorelease();
+        decorations->setAnchorPoint({0.f, 0.f});
+        return decorations;
     }
 
+    // `left` is the button's left edge in the strip, or HIDDEN.
+    void set_close(int index, int left) { close_left_[index] = left; }
+
     void draw(zocos::Renderer& renderer, const zocos::Mat4& world) override {
-        renderer.addDrawSprite(world, getContentSize(), texture_, 1.f);
+        for (int index = 0; index < WINDOW_COUNT; ++index) {
+            float bottom = strip_bottom(index);
+            palette_.box(renderer, world, {0.f, bottom, width_, 1.f}, Color::TitleDivider);
+            if (close_left_[index] == HIDDEN)
+                continue;
+            zocos::Rect button{static_cast<float>(close_left_[index]),
+                               bottom + TITLE_HEIGHT - CLOSE_TOP - CLOSE_SIZE, CLOSE_SIZE, CLOSE_SIZE};
+            palette_.round_box(renderer, world, button, CLOSE_RADIUS, Color::Danger);
+            palette_.glyph(renderer, world, button, Glyph::Close, Color::Text);
+        }
     }
 
 private:
-    zocos::RenderDevice& device_;
-    zocos::TextureHandle texture_{};
-
-    bool paint(int width) {
-        texture_ = device_.createTexture({1, 1, zocos::TextureFormat::RGBA8Unorm, {TITLE_BACKGROUND}});
-        setAnchorPoint({0.f, 0.f});
-        setContentSize({static_cast<float>(width), static_cast<float>(STRIP_ROWS)});
-        setPosition({0.f, 1.f});
-        return texture_.isValid();
+    Decorations(zocos::Director& director, int width) : palette_(director), width_(static_cast<float>(width)) {
+        for (auto& left : close_left_)
+            left = HIDDEN;
     }
-};
 
-// All strips share one scene and font atlas. The last buffer row is the
-// renderer's clear color and supplies the solid desktop background.
-constexpr float strip_bottom(int index) {
-    return static_cast<float>(BUFFER_HEIGHT - (index + 1) * TITLE_HEIGHT);
-}
+    Palette palette_;
+    float width_;
+    sys::array<int, WINDOW_COUNT> close_left_{};
+};
 
 }  // namespace
 
 struct Chrome::Scene {
     struct Title {
         zocos::Label* label{};
-        zocos::ui::Button* close{};
         int width{};
     };
 
     sys::array<Title, WINDOW_COUNT> titles;
+    Decorations* decorations{};
     sys::vector<unsigned char> rgba;
     int width{};
     zocos::Director* director{};
@@ -92,34 +102,24 @@ struct Chrome::Scene {
         if (width > 32768)
             return false;
         auto stride = static_cast<mstd::size_t>(width) * 4;
-        rgba.resize(stride * BUFFER_HEIGHT);
+        rgba.resize(stride * STRIP_ROWS);
         auto& engine = zocos::Director::getInstance();
-        if (!zonix_gui::init_offscreen(engine, {rgba.data(), width, BUFFER_HEIGHT, stride, rgba.size()},
-                                       DESKTOP_BACKGROUND))
+        if (!zonix_gui::init_offscreen(engine, {rgba.data(), width, STRIP_ROWS, stride, rgba.size()},
+                                       zonix_gui::opaque_color(zonix_gui::theme::TITLE_BACKGROUND)))
             return false;
         director = &engine;
 
         zocos::AutoreleasePool nodes("desktop chrome");
         auto* scene = zocos::Scene::create();
-        auto* bands = TitleBands::create(*engine.getRenderDevice(), width);
-        if (!scene || !bands)
+        decorations = Decorations::create(engine, width);
+        if (!scene || !decorations)
             return false;
-        scene->addChild(bands);
+        scene->addChild(decorations);
         for (int index = 0; index < WINDOW_COUNT; ++index) {
-            float bottom = strip_bottom(index);
             auto& title = titles[index];
-            title.close = zocos::ui::Button::create(engine, "×");
-            title.label = zocos::Label::createWithTTF(engine, "", zonix_gui::UI_FONT_PATH, 24.f);
-            if (!title.close || !title.label)
+            title.label = zonix_gui::control_style::make_label(engine, "");
+            if (!title.label)
                 return false;
-            constexpr float button_scale = 0.7f;
-            title.close->setAnchorPoint({0.f, 0.f});
-            title.close->setContentSize({CLOSE_SIZE / button_scale, CLOSE_SIZE / button_scale});
-            title.close->setScale(button_scale);
-            title.label->setAnchorPoint({0.f, 0.f});
-            title.label->setPosition({11.f, bottom + 5.f});
-            title.label->setScale(0.72f);
-            scene->addChild(title.close);
             scene->addChild(title.label);
             position(index, widths[index]);
         }
@@ -130,11 +130,14 @@ struct Chrome::Scene {
     void position(int index, int title_width) {
         auto& title = titles[index];
         title.width = title_width;
-        title.label->setVisible(title_width >= 48);
-        title.close->setVisible(title_width > 9);
-        title.label->setString(title_width >= 124 ? TITLES[index] : SHORT_TITLES[index]);
-        title.close->setPosition(
-            {static_cast<float>(close_left(title_width)), strip_bottom(index) + TITLE_HEIGHT - CLOSE_TOP - CLOSE_SIZE});
+        const int close = close_left(title_width);
+        const int room = close - LABEL_GAP - TITLE_INSET;
+        decorations->set_close(index, close >= CLOSE_MARGIN ? close : HIDDEN);
+        title.label->setVisible(room >= 24);
+        title.label->setString(title_width >= 132 ? TITLES[index] : SHORT_TITLES[index]);
+        if (room >= 24)
+            zonix_gui::control_style::place_label(*title.label, TITLE_INSET, strip_bottom(index) + TITLE_HEIGHT / 2.f,
+                                                  0.f, static_cast<float>(room));
     }
 
     unsigned int pixel(int x, int y) const {
@@ -167,10 +170,6 @@ long Chrome::configure(int index, int width) {
         return 0;
     scene_->position(index, width);
     return scene_->director->mainLoop() ? 0 : SYS_ERROR_IO;
-}
-
-unsigned int Chrome::background() const {
-    return scene_->pixel(0, STRIP_ROWS);
 }
 
 unsigned int Chrome::title_pixel(int index, int, int x, int y) const {

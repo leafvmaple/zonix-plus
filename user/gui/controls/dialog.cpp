@@ -8,14 +8,19 @@ namespace zonix_gui {
 namespace {
 
 constexpr int LAYER = 2;
-constexpr float WIDTH = 340.f;
+constexpr float WIDTH = 320.f;
 constexpr float HEIGHT = 160.f;
+constexpr float RADIUS = 8.f;
 constexpr float INSET = 16.f;
-
-void set_text(zocos::Label& label, const mstd::string& text) {
-    label.setString(text);
-    label.updateLayout();
-}
+// Vertical positions are measured from the bottom of the panel.
+constexpr float TITLE_Y = 134.f;
+constexpr float FIELD_BOTTOM = 76.f;
+constexpr float FIELD_HEIGHT = 32.f;
+constexpr float FIELD_INSET = 10.f;
+constexpr float VALUE_Y = FIELD_BOTTOM + FIELD_HEIGHT / 2.f;
+constexpr float ERROR_Y = 60.f;
+constexpr float BUTTON_WIDTH = 80.f;
+constexpr float BUTTON_GAP = 8.f;
 
 }  // namespace
 
@@ -33,37 +38,39 @@ bool Dialog::build(zocos::Director& director) {
     setAnchorPoint({0.f, 0.f});
     setContentSize(
         {static_cast<float>(director.getFramebufferWidth()), static_cast<float>(director.getFramebufferHeight())});
-    panel_ = {(getContentSize().width - WIDTH) / 2.f, (getContentSize().height - HEIGHT) / 2.f};
+    panel_ = {static_cast<float>(static_cast<int>((getContentSize().width - WIDTH) / 2.f)),
+              static_cast<float>(static_cast<int>((getContentSize().height - HEIGHT) / 2.f))};
     setLocalZOrder(LAYER);
     setVisible(false);
 
-    auto label_at = [&](float y) {
+    auto add_label = [&] {
         auto* label = control_style::make_label(director, "");
         if (label) {
-            label->setAnchorPoint({0.f, 0.5f});
-            label->setPosition({panel_.x + INSET, panel_.y + y});
             label->setRenderLayer(LAYER);
             addChild(label);
         }
         return label;
     };
-    title_ = label_at(134.f);
-    value_ = label_at(96.f);
-    error_ = label_at(59.f);
+    title_ = add_label();
+    value_ = add_label();
+    error_ = add_label();
 
-    auto button_at = [&](const char* label, float x, Button::Action action) {
+    auto button_at = [&](const char* label, float x, Button::Style style, Button::Action action) {
         auto* button = Button::create(director, label, mstd::move(action));
         if (button) {
-            button->layout({80.f, 29.f});
-            button->setPosition({panel_.x + x, panel_.y + 15.f});
+            button->set_style(style);
+            button->layout({BUTTON_WIDTH, control_style::CONTROL_HEIGHT});
+            button->setPosition({panel_.x + x, panel_.y + INSET});
             button->set_render_layer(LAYER);
             addChild(button);
         }
         return button;
     };
-    ok_ = button_at("OK", 244.f, [this] { accept(); });
-    delete_ = button_at("Delete", 244.f, [this] { accept(); });
-    auto* cancel = button_at("Cancel", 154.f, [this] { close(); });
+    constexpr float accept_x = WIDTH - INSET - BUTTON_WIDTH;
+    ok_ = button_at("OK", accept_x, Button::Style::Accent, [this] { accept(); });
+    delete_ = button_at("Delete", accept_x, Button::Style::Danger, [this] { accept(); });
+    auto* cancel = button_at("Cancel", accept_x - BUTTON_GAP - BUTTON_WIDTH, Button::Style::Raised,
+                             [this] { close(); });
     auto* keys = zocos::EventListenerKeyboard::create([this](zocos::EventKeyboard& event) { key_pressed(event); });
     auto* mouse = zocos::EventListenerMouse::create();
     if (!title_ || !value_ || !error_ || !ok_ || !delete_ || !cancel || !keys || !mouse)
@@ -77,12 +84,18 @@ bool Dialog::build(zocos::Director& director) {
     auto& dispatcher = director.getEventDispatcher();
     dispatcher.addEventListenerWithNodePriority(keys, this);
     dispatcher.addEventListenerWithNodePriority(mouse, this);
+    error_->setOpacity(0.85f);
     return true;
 }
 
+void Dialog::write(zocos::Label& label, const mstd::string& text, float inset, float y) {
+    label.setString(text);
+    control_style::place_label(label, panel_.x + inset, panel_.y + y, 0.f, WIDTH - 2.f * inset);
+}
+
 void Dialog::show(const char* title, Submit submit) {
-    set_text(*title_, title);
-    set_text(*error_, "");
+    write(*title_, title, INSET, TITLE_Y);
+    write(*error_, "", INSET, ERROR_Y);
     submit_ = mstd::move(submit);
     ok_->setVisible(limit_ != 0);
     delete_->setVisible(limit_ == 0);
@@ -102,7 +115,7 @@ void Dialog::confirm(const char* title, const mstd::string& target, Submit submi
     input_.clear();
     limit_ = 0;
     show(title, mstd::move(submit));
-    set_text(*value_, target);
+    write(*value_, target, INSET, VALUE_Y);
 }
 
 void Dialog::close() {
@@ -112,7 +125,7 @@ void Dialog::close() {
 
 void Dialog::accept() {
     if (const char* error = submit_(input_))
-        set_text(*error_, error);
+        write(*error_, error, INSET, ERROR_Y);
     else
         close();
 }
@@ -165,22 +178,26 @@ void Dialog::edit(int key) {
     } else {
         return;
     }
-    set_text(*error_, "");
+    write(*error_, "", INSET, ERROR_Y);
     update_input();
 }
 
 void Dialog::update_input() {
-    set_text(*value_, select_all_ ? input_ : input_.substr(0, cursor_) + "|" + input_.substr(cursor_));
+    write(*value_, select_all_ ? input_ : input_.substr(0, cursor_) + "|" + input_.substr(cursor_),
+          INSET + FIELD_INSET, VALUE_Y);
 }
 
 void Dialog::draw(zocos::Renderer& renderer, const zocos::Mat4& world) {
     using control_style::Color;
     auto order = zocos::makeRenderSortKey(0, LAYER, 0);
-    palette_.box(renderer, world, {panel_.x, panel_.y, WIDTH, HEIGHT}, Color::Border, order);
-    palette_.box(renderer, world, {panel_.x + 1.f, panel_.y + 1.f, WIDTH - 2.f, HEIGHT - 2.f}, Color::Toolbar, order);
+    const auto size = getContentSize();
+    palette_.box(renderer, world, {0.f, 0.f, size.width, size.height}, Color::Scrim, order);
+    palette_.round_box(renderer, world, {panel_.x, panel_.y - 4.f, WIDTH, HEIGHT}, RADIUS, Color::Shadow, order);
+    palette_.frame(renderer, world, {panel_.x, panel_.y, WIDTH, HEIGHT}, RADIUS, Color::Panel, Color::Border, order);
     if (limit_ != 0) {
-        palette_.box(renderer, world, {panel_.x + INSET - 5.f, panel_.y + 81.f, WIDTH - 2.f * INSET + 10.f, 30.f},
-                     select_all_ ? Color::Selected : Color::Sidebar, order);
+        palette_.frame(renderer, world, {panel_.x + INSET, panel_.y + FIELD_BOTTOM, WIDTH - 2.f * INSET, FIELD_HEIGHT},
+                       control_style::CONTROL_RADIUS, select_all_ ? Color::Selected : Color::Field,
+                       select_all_ ? Color::SelectedBorder : Color::Divider, order);
     }
 }
 

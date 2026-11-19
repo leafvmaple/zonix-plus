@@ -10,9 +10,11 @@ namespace zonix_gui {
 namespace {
 
 constexpr int OVERLAY_LAYER = 1;
-constexpr float MIN_WIDTH = 126.f;
+constexpr float MIN_WIDTH = 136.f;
 constexpr float ROW_HEIGHT = 26.f;
-constexpr float INSET = 12.f;
+// Space between the menu edge and its rows.
+constexpr float PADDING = 4.f;
+constexpr float INSET = 10.f;
 using MouseButton = zocos::EventMouse::MouseButton;
 using control_style::Color;
 using control_style::Palette;
@@ -31,27 +33,26 @@ public:
         row->init();
         row->autorelease();
         row->setAnchorPoint({0.f, 0.f});
-        label->setAnchorPoint({0.f, 0.5f});
-        label->setPosition({INSET, ROW_HEIGHT / 2.f});
         label->setRenderLayer(OVERLAY_LAYER);
         row->label_ = label;
         row->addChild(label);
         return row;
     }
 
-    float preferred_width() const { return label_->getContentSize().width * control_style::LABEL_SCALE + 2 * INSET; }
+    float preferred_width() const { return label_->getContentSize().width + 2.f * (INSET + PADDING); }
 
-    void layout(float width, float y) {
+    void layout(float menu_width, float y) {
+        float width = menu_width - 2.f * PADDING;
         setContentSize({width, ROW_HEIGHT});
-        setPosition({0.f, y});
-        float available = width - 2 * INSET;
-        float text_width = label_->getContentSize().width;
-        label_->setScale(mstd::min(control_style::LABEL_SCALE, available / mstd::max(text_width, 1.f)));
+        setPosition({PADDING, y});
+        control_style::place_label(*label_, INSET, ROW_HEIGHT / 2.f, 0.f, mstd::max(1.f, width - 2.f * INSET));
     }
 
     void draw(zocos::Renderer& renderer, const zocos::Mat4& world) override {
-        palette_.button(renderer, world, getContentSize(), isPressed() ? Color::Pressed : Color::Button,
-                        zocos::makeRenderSortKey(0, OVERLAY_LAYER, 0));
+        if (isPressed())
+            palette_.round_box(renderer, world, {0.f, 0.f, getContentSize().width, ROW_HEIGHT},
+                               control_style::CONTROL_RADIUS, Color::Pressed,
+                               zocos::makeRenderSortKey(0, OVERLAY_LAYER, 0));
     }
 
 protected:
@@ -141,10 +142,10 @@ void ContextMenu::open(zocos::Vec2 pointer) {
     setVisible(false);
     removeAllChildren();
     auto items = items_at_(pointer);
-    float height = items.size() * ROW_HEIGHT;
+    float height = items.size() * ROW_HEIGHT + 2.f * PADDING;
     float window_width = static_cast<float>(director_.getFramebufferWidth());
     float window_height = static_cast<float>(director_.getFramebufferHeight());
-    if (items.empty() || height > window_height || window_width <= 2 * INSET)
+    if (items.empty() || height > window_height || window_width <= 2.f * (INSET + PADDING))
         return;
 
     mstd::vector<MenuRow*> rows;
@@ -162,16 +163,27 @@ void ContextMenu::open(zocos::Vec2 pointer) {
     }
 
     width = mstd::min(width, window_width);
-    float y = height;
+    float y = height - PADDING;
     for (MenuRow* row : rows) {
         y -= ROW_HEIGHT;
         row->layout(width, y);
         addChild(row);
     }
     setContentSize({width, height});
-    setPosition({mstd::clamp(pointer.x, 0.f, window_width - width),
-                 mstd::clamp(pointer.y + 1.f - height, 0.f, window_height - height)});
+    // Whole pixels keep the rounded corners and the text sharp.
+    setPosition({static_cast<float>(static_cast<int>(mstd::clamp(pointer.x, 0.f, window_width - width))),
+                 static_cast<float>(static_cast<int>(mstd::clamp(pointer.y + 1.f - height, 0.f,
+                                                                  window_height - height)))});
     setVisible(true);
+}
+
+void ContextMenu::draw(zocos::Renderer& renderer, const zocos::Mat4& world) {
+    const auto size = getContentSize();
+    const auto order = zocos::makeRenderSortKey(0, OVERLAY_LAYER, 0);
+    palette_.round_box(renderer, world, {2.f, -3.f, size.width, size.height}, control_style::PANEL_RADIUS,
+                       Color::Shadow, order);
+    palette_.frame(renderer, world, {0.f, 0.f, size.width, size.height}, control_style::PANEL_RADIUS, Color::Panel,
+                   Color::Border, order);
 }
 
 }  // namespace zonix_gui

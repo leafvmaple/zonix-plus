@@ -1,19 +1,25 @@
 #pragma once
 
 #include "client.h"
+#include "../gui/theme.h"
 #include <sys/memory.hpp>
 
 namespace desktop_chrome {
 
 inline constexpr int TITLE_HEIGHT = 30;
-inline constexpr int CLOSE_SIZE = 16;
-inline constexpr int CLOSE_TOP = 7;
-inline constexpr int LABEL_COLOR = 0xF1F5F9;
+inline constexpr int TITLE_INSET = 12;
+// The close button keeps the same distance from the top, bottom and right of the title bar.
+inline constexpr int CLOSE_SIZE = 18;
+inline constexpr int CLOSE_MARGIN = (TITLE_HEIGHT - CLOSE_SIZE) / 2;
+inline constexpr int CLOSE_TOP = CLOSE_MARGIN;
+inline constexpr int LABEL_COLOR = zonix_gui::theme::TEXT;
 
 inline int close_left(int width) {
-    return width - CLOSE_SIZE - 7;
+    return width - CLOSE_SIZE - CLOSE_MARGIN;
 }
 
+// Draws each window's title bar. The compositor adds the border, rounds the
+// corners and dims unfocused windows.
 class Chrome {
 public:
     Chrome();
@@ -21,7 +27,6 @@ public:
 
     long init(int screen_width, const sys::array<int, desktop_ipc::WINDOW_COUNT>& widths);
     long configure(int index, int width);
-    unsigned int background() const;
     unsigned int title_pixel(int index, int width, int x, int y) const;
 
 private:

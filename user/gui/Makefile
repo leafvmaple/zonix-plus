@@ -35,7 +35,7 @@ $(MINICOCOS_LIB): FORCE $(MINICOCOS_SOURCE)/.prepared
 		-DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY -DCMAKE_BUILD_TYPE=Release \
 		-DCMAKE_C_COMPILER="$(firstword $(CC))" -DCMAKE_CXX_COMPILER="$(firstword $(CXX))" \
 		-DCMAKE_C_COMPILER_TARGET=x86_64-none-elf -DCMAKE_CXX_COMPILER_TARGET=x86_64-none-elf \
-		-DCMAKE_AR="$(LLVM_BIN)llvm-ar" -DCMAKE_RANLIB="$(LLVM_BIN)llvm-ranlib" \
+		-DCMAKE_AR="$$(command -v $(LLVM_BIN)llvm-ar)" -DCMAKE_RANLIB="$$(command -v $(LLVM_BIN)llvm-ranlib)" \
 		-DCMAKE_CXX_FLAGS="$(MINICOCOS_TARGET_FLAGS) -isystem$$($(firstword $(CXX)) -print-resource-dir)/include" \
 		-DZSTL_DIR="$(abspath external/zstl)" \
 		-DZOCOS_FREESTANDING=ON -DZOCOS_USE_CRT=OFF -DZOCOS_BUILD_HOST=OFF \

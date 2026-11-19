@@ -1,5 +1,7 @@
 #include "../command.h"
 #include "grid_renderer.h"
+#include "../gui/platform.h"
+#include "../gui/theme.h"
 #include <kernel/psf.h>
 
 extern "C" const unsigned char terminal_font[];
@@ -14,9 +16,9 @@ constexpr int ATLAS_ROWS = 6;
 constexpr int ATLAS_WIDTH = ATLAS_COLS * GLYPH_WIDTH;
 constexpr int ATLAS_HEIGHT = ATLAS_ROWS * GLYPH_HEIGHT;
 constexpr int CURSOR_GLYPH = ATLAS_ROWS * ATLAS_COLS - 1;
-constexpr zocos::Color4B TEXT_COLOR{241, 245, 249, 255};
-constexpr zocos::Color4B CURSOR_COLOR{114, 207, 204, 255};
-constexpr zocos::Color4B BACKGROUND{17, 29, 41, 255};
+constexpr zocos::Color4B TEXT_COLOR = zonix_gui::opaque_color(zonix_gui::theme::TEXT);
+constexpr zocos::Color4B CURSOR_COLOR = zonix_gui::opaque_color(zonix_gui::theme::ACCENT);
+constexpr zocos::Color4B BACKGROUND = zonix_gui::opaque_color(zonix_gui::theme::WINDOW_BACKGROUND);
 static_assert(FIRST_GLYPH + CURSOR_GLYPH == '~' + 1);
 
 void add_glyph(zocos::RenderCommand& batch, int glyph, int x, int y, int height, zocos::Color4B color) {

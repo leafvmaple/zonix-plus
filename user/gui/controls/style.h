@@ -1,6 +1,7 @@
 #pragma once
 
 #include <base/ZCRenderer.h>
+#include <sys/array.hpp>
 
 namespace zocos {
 class Director;
@@ -9,23 +10,55 @@ class Label;
 
 namespace zonix_gui::control_style {
 
-inline constexpr float LABEL_SCALE = 0.66f;
+// Every label is rasterised at this size and drawn unscaled, so glyph texels
+// map to whole pixels. One size also keeps each process on one font atlas.
+inline constexpr float FONT_SIZE = 16.f;
+inline constexpr float CONTROL_HEIGHT = 28.f;
+inline constexpr float CONTROL_RADIUS = 4.f;
+inline constexpr float PANEL_RADIUS = 6.f;
+inline constexpr float TEXT_INSET = 12.f;
+inline constexpr float GLYPH_SIZE = 12.f;
+inline constexpr float SECONDARY_OPACITY = 0.62f;
+inline constexpr float DISABLED_OPACITY = 0.38f;
 
 enum class Color {
+    Window,
+    Panel,
+    Sidebar,
     Border,
-    Button,
+    Divider,
+    Control,
     Pressed,
     Disabled,
-    Toolbar,
-    Sidebar,
+    Field,
     Selected,
+    SelectedBorder,
+    Accent,
+    AccentPressed,
+    Danger,
+    DangerPressed,
+    Text,
+    TextDisabled,
+    Title,
+    TitleDivider,
     Folder,
     FolderShade,
+    FolderTab,
     File,
-    FileShade
+    FileShade,
+    FileFold,
+    Shadow,
+    Scrim
 };
 
+enum class Glyph { Close, Back, Forward, Up };
+
 zocos::Label* make_label(zocos::Director& director, const mstd::string& text);
+
+// Positions a single-line label on whole pixels. `x` is the left edge, centre
+// or right edge for an `align` of 0, 0.5 or 1, and `center_y` is the middle of
+// the line. A positive `max_width` shrinks text that would not fit.
+void place_label(zocos::Label& label, float x, float center_y, float align, float max_width = 0.f);
 
 class Palette {
 public:
@@ -35,14 +68,29 @@ public:
     Palette& operator=(const Palette&) = delete;
 
     bool init();
+    // Areas use whole-pixel node coordinates with a bottom-left origin.
     void box(zocos::Renderer& renderer, const zocos::Mat4& world, zocos::Rect area, Color color,
              zocos::RenderSortKey order = 0) const;
+    void round_box(zocos::Renderer& renderer, const zocos::Mat4& world, zocos::Rect area, float radius, Color color,
+                   zocos::RenderSortKey order = 0) const;
+    // A rounded box with a one-pixel border.
+    void frame(zocos::Renderer& renderer, const zocos::Mat4& world, zocos::Rect area, float radius, Color fill,
+               Color border, zocos::RenderSortKey order = 0) const;
     void button(zocos::Renderer& renderer, const zocos::Mat4& world, zocos::Size size, Color color,
                 zocos::RenderSortKey order = 0) const;
+    // Draws a GLYPH_SIZE square symbol centred in the area.
+    void glyph(zocos::Renderer& renderer, const zocos::Mat4& world, zocos::Rect area, Glyph symbol, Color color,
+               zocos::RenderSortKey order = 0) const;
 
 private:
+    static constexpr int MAX_RADIUS = 8;
+    static constexpr int GLYPH_COUNT = static_cast<int>(Glyph::Up) + 1;
+
     zocos::Director& director_;
-    zocos::TextureHandle texture_{};
+    zocos::TextureHandle solid_{};
+    // discs_[r - 1] is an antialiased disc of radius r in a 2r square.
+    sys::array<zocos::TextureHandle, MAX_RADIUS> discs_{};
+    sys::array<zocos::TextureHandle, GLYPH_COUNT> glyphs_{};
 };
 
 }  // namespace zonix_gui::control_style

@@ -20,6 +20,8 @@ public:
 private:
     explicit Dialog(zocos::Director& director) : palette_(director) {}
     bool build(zocos::Director& director);
+    // Sets a label's text `inset` pixels from the panel's left edge, centred on `y`.
+    void write(zocos::Label& label, const mstd::string& text, float inset, float y);
     void show(const char* title, Submit submit);
     void close();
     void accept();

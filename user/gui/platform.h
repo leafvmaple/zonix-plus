@@ -22,6 +22,12 @@ mstd::unique_ptr<zocos::View> make_window_view(mstd::function<void(int)> on_edit
 // The caller owns the RGBA surface and keeps it alive until Director::shutdown.
 bool init_offscreen(zocos::Director& director, const zocos::PixelBuffer& buffer, zocos::Color4B background);
 
+// An opaque engine colour from an XRGB8888 theme value.
+inline constexpr zocos::Color4B opaque_color(unsigned int xrgb) {
+    return {static_cast<unsigned char>(xrgb >> 16), static_cast<unsigned char>(xrgb >> 8),
+            static_cast<unsigned char>(xrgb), 255};
+}
+
 inline unsigned int xrgb(const unsigned char* rgba) {
     return (static_cast<unsigned int>(rgba[0]) << 16) | (static_cast<unsigned int>(rgba[1]) << 8) | rgba[2];
 }
