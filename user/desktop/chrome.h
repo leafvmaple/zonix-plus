@@ -22,11 +22,15 @@ public:
     Chrome();
     ~Chrome();
 
-    long init(int screen_width, const sys::array<int, desktop_ipc::WINDOW_COUNT>& widths);
-    long configure(int index, int width);
-    unsigned int title_pixel(int index, int width, int x, int y) const;
+    // `max_width` is the widest title bar a window can have.
+    long init(int max_width);
+    // Draws the title of a program in a window slot of the given width.
+    long configure(int slot, int app, int width);
+    unsigned int title_pixel(int slot, int width, int x, int y) const;
 
 private:
+    // The program each slot's title was last drawn for.
+    sys::array<int, desktop_ipc::MAX_WINDOWS> apps_{};
     struct Scene;
     struct SceneDeleter {
         void operator()(Scene* scene) const noexcept;

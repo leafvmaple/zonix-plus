@@ -6,7 +6,7 @@
 namespace desktop {
 
 using desktop_chrome::TITLE_HEIGHT;
-using desktop_ipc::WINDOW_COUNT;
+using desktop_ipc::MAX_WINDOWS;
 
 struct Point {
     int x;
@@ -29,18 +29,30 @@ struct Rect {
 inline constexpr int FRAME = 2;
 inline constexpr int NO_WINDOW = -1;
 
+// One slot of the window pool. A slot is free while its client is not running.
 struct Window {
     Rect rect{};
     desktop_ipc::Client client;
+    // The program running in the window. Meaningful while it is open.
+    int app = desktop_ipc::NO_APP;
+    // The file an editor window was opened for.
+    desktop_ipc::EditPath path{};
+    // How many windows of the same program were open when this one started.
+    // Later windows of a program are placed further down and to the right.
+    int step{};
     // The client was asked to close and has had no input since.
     bool close_requested{};
+
     bool open() const { return client.alive(); }
+    const desktop_ipc::AppSpec& spec() const { return desktop_ipc::APPS[app]; }
+    desktop_ipc::Protocol protocol() const { return spec().protocol; }
 };
 
-using Windows = sys::array<Window, WINDOW_COUNT>;
-// Window indices from front to back.
-using Order = sys::array<int, WINDOW_COUNT>;
-using Surfaces = sys::array<desktop_ipc::PixelSurface, WINDOW_COUNT - desktop_ipc::FIRST_PIXEL_WINDOW>;
+using Windows = sys::array<Window, MAX_WINDOWS>;
+// Window slots from front to back.
+using Order = sys::array<int, MAX_WINDOWS>;
+// The surface of each slot, used while a pixel client runs in it.
+using Surfaces = sys::array<desktop_ipc::PixelSurface, MAX_WINDOWS>;
 
 inline int clamp(long value, int limit) {
     if (value < 0)

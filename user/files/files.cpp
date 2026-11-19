@@ -74,7 +74,7 @@ public:
             return error;
         auto& director = zocos::Director::getInstance();
         auto view = zonix_gui::make_window_view([this](int error) {
-            message_ = error == SYS_ERROR_BUSY ? "Close the current editor first" : command_error_text(error);
+            message_ = error == SYS_ERROR_BUSY ? "Close a window first" : command_error_text(error);
             update_controls();
         });
         if (!director.init(WIDTH, HEIGHT, "Files", mstd::move(view)))

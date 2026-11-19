@@ -1,6 +1,7 @@
 #include "../command.h"
 #include "compositor.h"
 #include <kernel/psf.h>
+#include <sys/algorithm.hpp>
 #include <sys/array.hpp>
 
 #ifndef ZONIX_PIXEL_TERMINAL
@@ -22,27 +23,27 @@ public:
           screen_{{0, 0}, width, height},
           pointer_{width / 2, height / 2},
           compositor_({windows_, order_, surfaces_, chrome_, pointer_, screen_, font}) {
-        windows_[0].rect = {{width / 8, height / 5}, width / 5 * 2, height / 2};
-        windows_[1].rect = {{width / 3, height / 3}, width / 5 * 2, height / 2};
-        constexpr int terminal_width = outer_width(TERMINAL_WIDTH);
-        constexpr int terminal_height = outer_height(TERMINAL_HEIGHT);
-        if (is_text_window(TERMINAL_WINDOW))
-            windows_[TERMINAL_WINDOW].rect = {
-                {(width - terminal_width) / 2, (height - terminal_height) / 2}, terminal_width, terminal_height};
-        terminal_fits_ = width >= terminal_width && height >= terminal_height;
+        terminal_fits_ = width >= TERMINAL_OUTER_WIDTH && height >= TERMINAL_OUTER_HEIGHT;
+        for (int slot = 0; slot < MAX_WINDOWS; ++slot)
+            order_[slot] = slot;
+    }
+
+    ~Desktop() {
+        for (auto& window : windows_)
+            window.client.stop();
     }
 
     long run() {
-        sys::array<int, WINDOW_COUNT> widths{};
-        for (int index = 0; index < WINDOW_COUNT; ++index)
-            widths[index] = windows_[index].rect.width;
-        long error = chrome_.init(screen_.width, widths);
+        // Frame windows scale with the screen. The others have fixed sizes.
+        int widest = sys::max(example_rect(APP_EXAMPLE_A).width, outer_width(static_cast<int>(PIXEL_MAX_WIDTH)));
+        long error = chrome_.init(sys::min(screen_.width, sys::max(widest, TERMINAL_OUTER_WIDTH)));
         if (error < 0)
             return error;
         FileStat example{};
-        if (sys_stat(const_cast<char*>(WINDOWS[0].program), &example) == 0 && example.type == FILE_TYPE_FILE) {
-            start_client(0);
-            start_client(1);
+        if (sys_stat(const_cast<char*>(APPS[APP_EXAMPLE_A].program), &example) == 0 &&
+            example.type == FILE_TYPE_FILE) {
+            open_at_front(APP_EXAMPLE_A);
+            open_at_front(APP_EXAMPLE_B);
         }
         error = repaint(screen_);
         const unsigned int display_mask = 1U << fd_;
@@ -53,11 +54,11 @@ public:
             long ready = sys_wait_readable(mask);
             if (ready < 0)
                 return ready;
-            for (int index = 0; index < WINDOW_COUNT && error == 0; ++index) {
+            for (int index = 0; index < MAX_WINDOWS && error == 0; ++index) {
                 auto& window = windows_[index];
                 if ((static_cast<unsigned long>(ready) & window.client.mask()) == 0)
                     continue;
-                if (is_pixel_window(index))
+                if (has_pixels(index))
                     error = receive_pixels(index);
                 else
                     error = window.client.receive_frame() ? repaint_client(index) : close_window(index);
@@ -70,7 +71,7 @@ public:
                 break;
             const auto& event = input.event;
             if (event.type == DISPLAY_EVENT_KEY && event.value == DISPLAY_KEY_PRESS) {
-                bool client_shortcuts = top_window() >= TERMINAL_WINDOW;
+                bool client_shortcuts = is_application(top_window());
                 if (event.code == KEY_F12 ||
                     (!client_shortcuts && (event.code == DISPLAY_KEY_ESCAPE || event.code == DISPLAY_KEY_Q)))
                     return 0;
@@ -91,18 +92,31 @@ private:
     // Margins for a window placed at the right edge or in the top-left corner.
     static constexpr Point RIGHT_MARGIN{24, 56};
     static constexpr Point CORNER_MARGIN{16, 16};
+    // Each further window of a program moves this far down and to the right,
+    // starting over after CASCADE_STEPS windows.
+    static constexpr int CASCADE_OFFSET = 26;
+    static constexpr int CASCADE_STEPS = 6;
+    static constexpr int TERMINAL_OUTER_WIDTH = outer_width(TERMINAL_WIDTH);
+    static constexpr int TERMINAL_OUTER_HEIGHT = outer_height(TERMINAL_HEIGHT);
     inline static sys::array<unsigned int, TILE_SIZE * TILE_SIZE> pixels_{};
+    // The window pool is too large for the stack.
+    inline static Windows windows_{};
     inline static Surfaces surfaces_{};
 
-    static PixelSurface& surface(int index) { return surfaces_[index - FIRST_PIXEL_WINDOW]; }
+    static PixelSurface& surface(int index) { return surfaces_[index]; }
+    static bool has_pixels(int index) { return windows_[index].protocol() == Protocol::Pixels; }
+    // Application windows take the whole keyboard. The example windows leave
+    // Desktop its own keys.
+    static bool is_application(int index) {
+        return index != NO_WINDOW && windows_[index].protocol() != Protocol::Frame;
+    }
 
     int fd_;
     desktop_chrome::Chrome chrome_;
     Rect screen_;
-    Windows windows_;
     Point pointer_;
     Point drag_offset_{};
-    Order order_{{1, 0, TERMINAL_WINDOW, PIXEL_WINDOW, FILE_WINDOW, EDITOR_WINDOW}};
+    Order order_{};
     Compositor compositor_;
     bool terminal_fits_{};
     int drag_ = NO_WINDOW;
@@ -148,66 +162,86 @@ private:
         return NO_WINDOW;
     }
 
-    // The window a key opens, or NO_WINDOW.
-    static int window_for_key(unsigned int code) {
-        for (int index = 0; index < WINDOW_COUNT; ++index)
-            if (WINDOWS[index].key != 0 && WINDOWS[index].key == code)
+    // The program a key opens, or NO_APP.
+    static int app_for_key(unsigned int code) {
+        for (int app = 0; app < APP_COUNT; ++app)
+            if (APPS[app].key != 0 && APPS[app].key == code)
+                return app;
+        return NO_APP;
+    }
+
+    // The frontmost window of a program, or NO_WINDOW.
+    int front_window(int app) const {
+        for (int index : order_)
+            if (windows_[index].open() && windows_[index].app == app)
                 return index;
         return NO_WINDOW;
     }
 
-    void start_client(int index) {
-        long error = windows_[index].client.start(index);
-        if (error < 0)
-            command_error("desktop", WINDOWS[index].program, error);
+    Point cascade(int step) const {
+        int offset = step % CASCADE_STEPS * CASCADE_OFFSET;
+        return {offset, offset};
     }
 
-    long edit_text(const char* path) {
-        if (!is_pixel_window(TERMINAL_WINDOW) || !terminal_fits_)
+    Rect example_rect(int app) const {
+        int width = screen_.width / 5 * 2;
+        int height = screen_.height / 2;
+        return app == APP_EXAMPLE_A ? Rect{{screen_.width / 8, screen_.height / 5}, width, height}
+                                    : Rect{{screen_.width / 3, screen_.height / 3}, width, height};
+    }
+
+    // Where a window whose size Desktop decides appears. Pixel windows are
+    // placed when their client reports a size.
+    Rect fixed_rect(int app, int step) const {
+        if (APPS[app].protocol == Protocol::Frame)
+            return example_rect(app);
+        Point shift = cascade(step);
+        return {{clamp((screen_.width - TERMINAL_OUTER_WIDTH) / 2 + shift.x, screen_.width - TERMINAL_OUTER_WIDTH),
+                 clamp((screen_.height - TERMINAL_OUTER_HEIGHT) / 2 + shift.y, screen_.height - TERMINAL_OUTER_HEIGHT)},
+                TERMINAL_OUTER_WIDTH,
+                TERMINAL_OUTER_HEIGHT};
+    }
+
+    // Starts a program in a free slot, with `path` as its argument if given.
+    // Returns the slot, SYS_ERROR_BUSY when every slot is taken, or another
+    // negative error.
+    long open(int app, const char* path = nullptr) {
+        const auto& spec = APPS[app];
+        if ((app == APP_TERMINAL || app == APP_EDITOR) && !terminal_fits_)
             return SYS_ERROR_NOT_SUPPORTED;
-        auto& editor = windows_[EDITOR_WINDOW];
-        if (editor.open())
+        int slot = NO_WINDOW;
+        int siblings = 0;
+        for (int index = MAX_WINDOWS - 1; index >= 0; --index) {
+            if (!windows_[index].open())
+                slot = index;
+            else if (windows_[index].app == app)
+                ++siblings;
+        }
+        if (slot == NO_WINDOW)
             return SYS_ERROR_BUSY;
-        FileStat st{};
-        long error = sys_stat(const_cast<char*>(path), &st);
+        auto& window = windows_[slot];
+        long error = window.client.start(spec, path);
         if (error < 0)
             return error;
-        if (st.type != FILE_TYPE_FILE)
-            return SYS_ERROR_INVALID;
-        return editor.client.start(EDITOR_WINDOW, path);
+        window.app = app;
+        window.step = siblings;
+        window.close_requested = false;
+        window.path = {};
+        if (path)
+            memcpy(window.path.data(), path, strlen(const_cast<char*>(path)) + 1);
+        if (spec.protocol != Protocol::Pixels) {
+            window.rect = fixed_rect(app, siblings);
+            if (chrome_.configure(slot, app, window.rect.width) < 0) {
+                close_window(slot);
+                return SYS_ERROR_IO;
+            }
+        }
+        return slot;
     }
 
-    long send(int index, const DisplayEvent& event) {
-        if (index == NO_WINDOW || !windows_[index].open())
-            return 0;
-        auto& window = windows_[index];
-        if (is_pixel_window(index) && !surface(index).configured())
-            return 0;
-        // The client is responding to the user again, so the next close
-        // request is a new one.
-        if (event.type == DISPLAY_EVENT_KEY || event.type == DISPLAY_EVENT_BUTTON)
-            window.close_requested = false;
-        Point origin = client_origin(window.rect);
-        Point point = is_pixel_window(index) ? Point{pointer_.x - origin.x, pointer_.y - origin.y}
-                                             : surface_point(window.rect, pointer_);
-        return window.client.send({event, point.x, point.y}) ? 0 : close_window(index);
-    }
-
-    long show(int index, unsigned int modifiers) {
-        if (index == TERMINAL_WINDOW && !terminal_fits_)
-            return 0;
-        int previous = top_window();
-        if (!windows_[index].open())
-            start_client(index);
-        return windows_[index].open() ? focus(index, previous, modifiers) : 0;
-    }
-
-    long focus(int index, int previous, unsigned int modifiers) {
-        if (index == previous)
-            return repaint(bounds(windows_[index].rect));
-        last_click_ = {};
-        left_click_ = false;
-        for (int slot = 0; slot < WINDOW_COUNT; ++slot) {
+    // Puts a slot at the front of the stacking order.
+    void raise(int index) {
+        for (int slot = 0; slot < MAX_WINDOWS; ++slot) {
             if (order_[slot] != index)
                 continue;
             while (slot > 0) {
@@ -217,6 +251,75 @@ private:
             order_[0] = index;
             break;
         }
+    }
+
+    void open_at_front(int app) {
+        long slot = open(app);
+        if (slot < 0)
+            command_error("desktop", APPS[app].program, slot);
+        else
+            raise(static_cast<int>(slot));
+    }
+
+    // Opens a file in an editor window, or finds the window that already
+    // shows it. Returns the slot or a negative error.
+    long edit_text(const char* path) {
+        if (TERMINAL_PROTOCOL != Protocol::Pixels)
+            return SYS_ERROR_NOT_SUPPORTED;
+        for (int index = 0; index < MAX_WINDOWS; ++index) {
+            auto& window = windows_[index];
+            if (window.open() && window.app == APP_EDITOR &&
+                strcmp(window.path.data(), const_cast<char*>(path)) == 0)
+                return index;
+        }
+        FileStat st{};
+        long error = sys_stat(const_cast<char*>(path), &st);
+        if (error < 0)
+            return error;
+        if (st.type != FILE_TYPE_FILE)
+            return SYS_ERROR_INVALID;
+        return open(APP_EDITOR, path);
+    }
+
+    long send(int index, const DisplayEvent& event) {
+        if (index == NO_WINDOW || !windows_[index].open())
+            return 0;
+        auto& window = windows_[index];
+        if (has_pixels(index) && !surface(index).configured())
+            return 0;
+        // The client is responding to the user again, so the next close
+        // request is a new one.
+        if (event.type == DISPLAY_EVENT_KEY || event.type == DISPLAY_EVENT_BUTTON)
+            window.close_requested = false;
+        Point origin = client_origin(window.rect);
+        Point point = has_pixels(index) ? Point{pointer_.x - origin.x, pointer_.y - origin.y}
+                                        : surface_point(window.rect, pointer_);
+        return window.client.send({event, point.x, point.y}) ? 0 : close_window(index);
+    }
+
+    // Focuses the front window of a program. Opens one when there is none, or
+    // another when Shift is held and the program allows several.
+    long show(int app, unsigned int modifiers) {
+        int previous = top_window();
+        int index = front_window(app);
+        bool another = APPS[app].multiple && (modifiers & DISPLAY_MOD_SHIFT) != 0;
+        if (index == NO_WINDOW || another) {
+            long slot = open(app);
+            if (slot < 0) {
+                command_error("desktop", APPS[app].program, slot);
+                return 0;
+            }
+            index = static_cast<int>(slot);
+        }
+        return focus(index, previous, modifiers);
+    }
+
+    long focus(int index, int previous, unsigned int modifiers) {
+        if (index == previous)
+            return repaint(bounds(windows_[index].rect));
+        last_click_ = {};
+        left_click_ = false;
+        raise(index);
         long error = send(previous, {DISPLAY_EVENT_RESET, 0, 0, modifiers});
         if (error == 0 && previous != NO_WINDOW && windows_[previous].open())
             error = repaint(bounds(windows_[previous].rect));
@@ -227,7 +330,7 @@ private:
     // exit by itself.
     long request_close(int index) {
         auto& window = windows_[index];
-        if (!WINDOWS[index].asks_before_closing || window.close_requested || !surface(index).configured())
+        if (!window.spec().asks_before_closing || window.close_requested || !surface(index).configured())
             return close_window(index);
         long error = focus(index, top_window(), 0);
         if (error < 0)
@@ -242,10 +345,8 @@ private:
         Rect old = window.rect;
         window.client.stop();
         window.close_requested = false;
-        if (is_pixel_window(index)) {
-            surface(index).reset();
-            window.rect = {};
-        }
+        surface(index).reset();
+        window.rect = {};
         if (drag_ == index)
             drag_ = NO_WINDOW;
         if (last_click_.window == index)
@@ -266,15 +367,15 @@ private:
     long handle(const DisplayTimedEvent& input) {
         const auto& event = input.event;
         if (event.type == DISPLAY_EVENT_KEY) {
-            int shortcut = window_for_key(event.code);
+            int shortcut = app_for_key(event.code);
             // Application windows open from anywhere. The example windows' keys
             // belong to the focused application while one has the keyboard.
-            if (shortcut >= TERMINAL_WINDOW)
+            if (shortcut != NO_APP && APPS[shortcut].protocol != Protocol::Frame)
                 return event.value == DISPLAY_KEY_PRESS ? show(shortcut, event.modifiers) : 0;
             int top = top_window();
-            if (top >= TERMINAL_WINDOW)
+            if (is_application(top))
                 return send(top, event);
-            if (shortcut != NO_WINDOW)
+            if (shortcut != NO_APP)
                 return event.value == DISPLAY_KEY_PRESS ? show(shortcut, event.modifiers) : 0;
             if (event.code == DISPLAY_KEY_ESCAPE || event.code == DISPLAY_KEY_Q)
                 return 0;
@@ -286,7 +387,7 @@ private:
             left_click_ = false;
             for (auto& target : button_targets_)
                 target = NO_WINDOW;
-            for (int index = 0; index < WINDOW_COUNT; ++index) {
+            for (int index = 0; index < MAX_WINDOWS; ++index) {
                 long error = send(index, event);
                 if (error < 0)
                     return error;
@@ -359,7 +460,8 @@ private:
                 error = repaint(bounds(window));
             if (error < 0)
                 return error;
-        } else if (int top = top_window(); top > TERMINAL_WINDOW && in_body(windows_[top].rect, pointer_)) {
+        } else if (int top = top_window();
+                   top != NO_WINDOW && windows_[top].spec().pointer_motion && in_body(windows_[top].rect, pointer_)) {
             long error = send(top, event);
             if (error < 0)
                 return error;
@@ -371,12 +473,16 @@ private:
     // Where a pixel window of the given outer size first appears.
     Point place(int index, int width, int height) const {
         Point origin = CORNER_MARGIN;
-        switch (WINDOWS[index].placement) {
+        switch (windows_[index].spec().placement) {
             case Placement::Center: origin = {(screen_.width - width) / 2, (screen_.height - height) / 2}; break;
             case Placement::Right: origin = {screen_.width - width - RIGHT_MARGIN.x, RIGHT_MARGIN.y}; break;
             case Placement::Corner: break;
         }
-        return {clamp(origin.x, screen_.width - width), clamp(origin.y, screen_.height - height)};
+        // Windows on the right edge step leftwards so they stay on the screen.
+        Point shift = cascade(windows_[index].step);
+        if (windows_[index].spec().placement == Placement::Right)
+            shift.x = -shift.x;
+        return {clamp(origin.x + shift.x, screen_.width - width), clamp(origin.y + shift.y, screen_.height - height)};
     }
 
     long receive_pixels(int index) {
@@ -389,7 +495,7 @@ private:
                 int width = outer_width(static_cast<int>(pixels.width()));
                 int height = outer_height(static_cast<int>(pixels.height()));
                 window.rect = {place(index, width, height), width, height};
-                long error = chrome_.configure(index, width);
+                long error = chrome_.configure(index, window.app, width);
                 return error < 0 ? error : repaint(bounds(window.rect));
             }
             case PixelSurface::Result::Updated: {
@@ -400,13 +506,13 @@ private:
                                 static_cast<int>(dirty.height)});
             }
             case PixelSurface::Result::EditText: {
-                if (index != FILE_WINDOW)
+                if (window.app != APP_FILES)
                     return close_window(index);
                 int previous = top_window();
-                long error = edit_text(pixels.edit_path());
-                if (error < 0)
-                    return send(index, {INPUT_EDIT_ERROR, 0, static_cast<int>(error), 0});
-                return focus(EDITOR_WINDOW, previous, 0);
+                long editor = edit_text(pixels.edit_path());
+                if (editor < 0)
+                    return send(index, {INPUT_EDIT_ERROR, 0, static_cast<int>(editor), 0});
+                return focus(static_cast<int>(editor), previous, 0);
             }
             case PixelSurface::Result::Closed: return close_window(index);
         }
@@ -415,7 +521,7 @@ private:
 
     long repaint_client(int index) {
         const auto& window = windows_[index];
-        if (!is_text_window(index))
+        if (window.protocol() != Protocol::Text)
             return repaint(window.rect);
         const auto& dirty = window.client.damage();
         if (dirty.empty())

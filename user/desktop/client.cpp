@@ -5,15 +5,10 @@
 
 namespace desktop_ipc {
 
-Client::~Client() {
-    stop();
-}
-
-long Client::start(int index, const char* edit_path) {
-    index_ = index;
-    const auto& spec = WINDOWS[index];
+long Client::start(const AppSpec& spec, const char* argument_override) {
+    protocol_ = spec.protocol;
     auto* path = const_cast<char*>(spec.program);
-    auto* argument = const_cast<char*>(index == EDITOR_WINDOW ? edit_path : spec.argument);
+    auto* argument = const_cast<char*>(argument_override ? argument_override : spec.argument);
     char* argv[] = {path, argument, nullptr};
 
     // Desktop reads input from its display FD. Keep descriptor 0 occupied
@@ -38,7 +33,7 @@ long Client::start(int index, const char* edit_path) {
 
     // The extra copy of the child input is already closed. At most four
     // temporary slots are needed when launching another window.
-    error = sys_pipe2(ends, index >= TERMINAL_WINDOW ? O_CLOEXEC : O_CLOEXEC | O_NONBLOCK);
+    error = sys_pipe2(ends, protocol_ != Protocol::Frame ? O_CLOEXEC : O_CLOEXEC | O_NONBLOCK);
     if (error < 0) {
         sys_dup2(STDERR_FD, STDIN_FD);
         return error;
@@ -77,8 +72,7 @@ void Client::stop() {
     pid_ = 0;
     used_ = head_ = count_ = 0;
     waiting_ = false;
-    if (!is_pixel_window(index_))
-        buffers().frame = {};
+    frame_ = {};
 }
 
 unsigned int Client::mask() const {
@@ -86,19 +80,18 @@ unsigned int Client::mask() const {
 }
 
 bool Client::receive_frame() {
-    if (!waiting_ && !is_text_window(index_))
+    if (!waiting_ && protocol_ != Protocol::Text)
         return false;  // Unsolicited frame after initialization.
     damage_ = {};
-    auto& state = buffers();
-    auto* bytes = reinterpret_cast<char*>(state.pending.data());
+    auto* bytes = reinterpret_cast<char*>(pending_.data());
     long count = sys_read(output_fd_, bytes + used_, sizeof(Frame) - used_);
     if (count <= 0)
         return false;
     used_ += static_cast<unsigned int>(count);
     if (used_ == sizeof(Frame)) {
-        if (is_text_window(index_))
-            damage_ = compare_text(state.frame, state.pending);
-        state.frame = state.pending;
+        if (protocol_ == Protocol::Text)
+            damage_ = compare_text(frame_, pending_);
+        frame_ = pending_;
         used_ = 0;
         waiting_ = false;
     }
@@ -108,7 +101,7 @@ bool Client::receive_frame() {
 bool Client::send(const Input& input) {
     // Stream clients send updates independently of input. Blocking output
     // applies backpressure to the client while Desktop input stays nonblocking.
-    if (index_ >= TERMINAL_WINDOW)
+    if (protocol_ != Protocol::Frame)
         return sys_write(input_fd_, const_cast<Input*>(&input), sizeof(Input)) == sizeof(Input);
     if (count_ == QUEUE_SIZE) {
         head_ = 0;

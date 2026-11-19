@@ -5,7 +5,7 @@ namespace desktop_chrome {
 namespace {
 namespace theme = zonix_gui::theme;
 
-// One 5x7 letter per window, drawn at twice its size.
+// One 5x7 letter per program, drawn at twice its size.
 constexpr unsigned int LABELS[][7] = {{14, 17, 17, 31, 17, 17, 17}, {30, 17, 17, 30, 17, 17, 30},
                                       {31, 4, 4, 4, 4, 4, 4},       {17, 27, 21, 21, 17, 17, 17},
                                       {31, 16, 16, 30, 16, 16, 16}, {31, 16, 16, 30, 16, 16, 31}};
@@ -22,15 +22,17 @@ void Chrome::SceneDeleter::operator()(Scene*) const noexcept {}
 Chrome::Chrome() = default;
 Chrome::~Chrome() = default;
 
-long Chrome::init(int, const sys::array<int, desktop_ipc::WINDOW_COUNT>&) {
+long Chrome::init(int) {
     return 0;
 }
 
-long Chrome::configure(int, int) {
+long Chrome::configure(int slot, int app, int) {
+    apps_[slot] = app;
     return 0;
 }
 
-unsigned int Chrome::title_pixel(int index, int width, int x, int y) const {
+unsigned int Chrome::title_pixel(int slot, int width, int x, int y) const {
+    int index = apps_[slot];
     // The close button is a disc, measured in half pixels from its centre.
     int cx = 2 * (x - CLOSE_LEFT) + 1 - CLOSE_SIZE;
     int cy = 2 * (y - CLOSE_TOP) + 1 - CLOSE_SIZE;

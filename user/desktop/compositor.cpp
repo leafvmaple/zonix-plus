@@ -100,7 +100,7 @@ unsigned int Compositor::color(Point point) const {
 
 // The colour of the windows from `slot` down in the stacking order, over the background.
 unsigned int Compositor::compose(Point point, int slot, int top) const {
-    for (; slot < WINDOW_COUNT; ++slot) {
+    for (; slot < MAX_WINDOWS; ++slot) {
         int index = scene_.order[slot];
         const Rect& window = scene_.windows[index].rect;
         if (!scene_.windows[index].open() || window.width == 0)
@@ -145,10 +145,11 @@ unsigned int Compositor::interior(int index, Point point, bool focused) const {
     }
     if (x < FRAME || x >= window.width - FRAME || y >= window.height - FRAME)
         return theme::WINDOW_BACKGROUND;
-    if (is_text_window(index))
+    auto protocol = scene_.windows[index].protocol();
+    if (protocol == Protocol::Text)
         return text_color(index, x - FRAME, y - TITLE_HEIGHT);
-    if (is_pixel_window(index))
-        return scene_.surfaces[index - FIRST_PIXEL_WINDOW].pixel(x - FRAME, y - TITLE_HEIGHT);
+    if (protocol == Protocol::Pixels)
+        return scene_.surfaces[index].pixel(x - FRAME, y - TITLE_HEIGHT);
     Point sample = surface_point(window, point);
     return scene_.windows[index].client.frame()[sample.y * SURFACE_SIZE + sample.x];
 }
