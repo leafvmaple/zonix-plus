@@ -29,5 +29,8 @@
 /* PCI ECAM: not yet supported — set to 0 to skip PCI init */
 #define BOARD_PCI_ECAM_PHYS 0UL
 
+/* No real-time clock driver for this board yet */
+#define BOARD_RTC_PHYS 0UL
+
 /* PCI ECAM size */
 #define BOARD_PCI_ECAM_SIZE 0UL

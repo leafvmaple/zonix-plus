@@ -26,6 +26,9 @@
 /* Timer frequency in Hz (QEMU virt = 10 MHz) */
 #define BOARD_TIMER_FREQ_HZ 10000000ULL
 
+/* Goldfish real-time clock physical base */
+#define BOARD_RTC_PHYS 0x00101000UL
+
 /* PCI ECAM configuration space physical base */
 #define BOARD_PCI_ECAM_PHYS 0x30000000UL
 

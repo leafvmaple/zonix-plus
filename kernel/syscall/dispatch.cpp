@@ -4,6 +4,7 @@
 #include <abi/syscall.h>
 #include <kernel/power.h>
 #include "fs/vfs.h"
+#include "drivers/wall_clock.h"
 #include "fs/readiness.h"
 #include "trap/trap.h"
 
@@ -58,6 +59,11 @@ bool dispatch(Task* task, long nr, uintptr_t arg0, uintptr_t arg1, uintptr_t arg
             return true;
         case NR_IOCTL: result = ioctl(task, static_cast<long>(arg0), static_cast<long>(arg1), arg2); return true;
         case NR_UPTIME_MS: result = static_cast<long>(trap::uptime_ms()); return true;
+        case NR_REALTIME: {
+            auto now = WallClock::now();
+            result = now.ok() ? static_cast<long>(now.value()) : static_cast<long>(now.error());
+            return true;
+        }
         case NR_GETRANDOM: result = getrandom(task, arg0, static_cast<long>(arg1), arg2); return true;
         case NR_WAIT_READABLE:
         case NR_WAIT_READABLE_FOR: {

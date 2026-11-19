@@ -3,6 +3,7 @@
 #include "lib/semaphore.h"
 #include "lib/mutex.h"
 #include "drivers/intr.h"
+#include "drivers/wall_clock.h"
 #include "trap/trap.h"
 
 static int tests_passed = 0;
@@ -112,6 +113,20 @@ void test_timer_clock() {
     TEST_END();
 }
 
+// Every supported QEMU machine has a battery-backed clock that follows the
+// host, so a time before this test was written means the driver misread it.
+void test_wall_clock() {
+    TEST_START("The wall clock gives the time of day");
+    auto first = WallClock::now();
+    TEST_ASSERT(first.ok() && first.value() > WallClock::from_civil(2026, 1, 1, 0, 0, 0) &&
+                    first.value() < WallClock::from_civil(2200, 1, 1, 0, 0, 0),
+                "The platform clock reads a plausible date");
+    auto second = WallClock::now();
+    TEST_ASSERT(second.ok() && second.value() >= first.value() && second.value() - first.value() < 60,
+                "The time does not go backwards between two readings");
+    TEST_END();
+}
+
 void test_user_exception() {
     TEST_START("Unhandled user exception terminates only its task");
     auto child = sched::kernel_thread(user_exception_worker, nullptr);
@@ -162,6 +177,7 @@ void test() {
     test_multiple_wakeups(false);
     test_multiple_wakeups(true);
     test_timer_clock();
+    test_wall_clock();
     test_user_exception();
     TEST_SUMMARY("Synchronization");
 }

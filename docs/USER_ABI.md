@@ -60,6 +60,7 @@ SP -> argc                64 位
 | wait_readable | 404 | 等待指定 FD 位图中至少一项就绪，返回就绪子集或负 Error |
 | openpty | 405 | 创建伪终端 master/slave FD，复制调用者指定的终端尺寸 |
 | uptime_ms | 406 | 返回本次启动以来的单调时间，单位毫秒 |
+| realtime | 410 | 返回 1970-01-01 00:00:00 UTC 以来的秒数，平台没有时钟时返回 NoDevice |
 | wait_readable_for | 407 | 按 FD 位图等待读就绪，超时返回 0 |
 | getrandom | 408 | 读取系统随机字节，每次最多 256 字节，返回实际字节数或负 Error |
 | wait_io | 409 | 同时等待 FD 的读就绪和写就绪，超时返回 0 |
@@ -128,7 +129,7 @@ FAT 可按已有 VFAT 长名枚举、查找和修改文件内容。`DirectoryEnt
 
 每个进程最多 24 个描述符。`sys_wait_readable(long mask)` 接收当前进程非零的 24 位 FD 位图，阻塞至至少一项读就绪，返回所有当前就绪项的位图。管道读端及伪终端 master 有数据或 EOF 时均就绪，取得事件模式的显示描述符有待取事件时就绪，随后用 `DISPLAY_READ_EVENT` 读取。空位、超出范围的位返回 Invalid，其他文件类型返回 NotSupported，无访问权限返回 Access，终止请求可中断等待。就绪是快照，不为共享 FD 预留数据；多个进程读同一端点时仍需处理竞争。
 
-`sys_wait_readable_for(long mask, long timeout_ms)` 采用相同的 FD 位图，超时返回 0。超时取 0～2147483647 毫秒，传 0 检查当前状态后立即返回。`sys_uptime_ms()` 返回启动后的单调毫秒数，精度取决于内核定时器。
+`sys_wait_readable_for(long mask, long timeout_ms)` 采用相同的 FD 位图，超时返回 0。超时取 0～2147483647 毫秒，传 0 检查当前状态后立即返回。`sys_uptime_ms()` 返回启动后的单调毫秒数，精度取决于内核定时器。`sys_realtime()` 返回当前时间，为 UTC 的 Unix 秒数，不含时区。内核在第一次调用时读取一次平台的后备时钟（x86 的 CMOS 时钟、QEMU virt 上 aarch64 的 PL031 和 riscv64 的 Goldfish RTC），之后按开机时长推算，因此不会跟随之后对硬件时钟的修改；没有时钟的平台返回 NoDevice。x86 的 CMOS 时钟只有两位年份，按 20xx 解释，并假定它保存的是 UTC。
 
 `sys_wait_io(long read_mask, long write_mask, long timeout_ms)` 可在同一次调用中等待两个 24 位位图。返回值第 0～23 位为读就绪，第 24～47 位为写就绪。任一位图可为空，合并后至少需要一个 FD。管道写端和 PTY master 在可以写入至少一个字节或对端关闭时报告写就绪。就绪只反映当前状态，调用者仍需处理短写、竞争和关闭。
 

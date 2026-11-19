@@ -126,6 +126,9 @@ const InitStep* arch_early_steps(size_t* count);
 const InitStep* arch_pci_steps(size_t* count);
 /* Describes the running task's kernel stack; a floor of zero means its extent is unknown. */
 void arch_set_kernel_stack(uintptr_t kernel_stack_top_va, uintptr_t kernel_stack_floor_va);
+/* Reads the platform's battery-backed clock as seconds since 1970-01-01 UTC.
+ * Returns false on a platform without one. */
+bool arch_read_wall_clock(uint64_t* seconds);
 void arch_irq_eoi(int irq);
 void arch_irq_enable_line(int irq);                     /* enable IRQ line in interrupt controller */
 int arch_pci_intx_to_irq(uint8_t dev, uint8_t int_pin); /* PCI INTx → platform IRQ */
