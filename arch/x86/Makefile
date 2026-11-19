@@ -34,21 +34,7 @@ DASM    := ndisasm
 QEMU    := qemu-system-x86_64
 
 # ---------- kernel source directories ----------
-KSRCDIR := kernel              \
-           arch/x86/kernel     \
-           arch/x86/kernel/drivers \
-           kernel/debug        \
-           kernel/cons         \
-           kernel/cons/cmd     \
-           kernel/trap         \
-           kernel/drivers      \
-           kernel/block        \
-           kernel/sched        \
-           kernel/mm           \
-           kernel/fs           \
-           kernel/fs/fat       \
-           kernel/exec         \
-           kernel/sync
+KSRCDIR := arch/x86/kernel arch/x86/kernel/drivers
 
 # ---------- embedded console font (PSF -> ELF .rodata) ----------
 FONT_PSF := fonts/console.psf

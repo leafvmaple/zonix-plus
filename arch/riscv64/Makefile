@@ -42,21 +42,7 @@ LDFLAGS := -m elf64lriscv -nostdlib --defsym KERNEL_PHYS=$(BOARD_KERNEL_PHYS)
 QEMU    := qemu-system-riscv64
 
 # ---------- kernel source directories ----------
-KSRCDIR := kernel                \
-           arch/riscv64/kernel   \
-           arch/riscv64/kernel/drivers \
-           kernel/debug          \
-           kernel/cons           \
-           kernel/cons/cmd       \
-           kernel/trap           \
-           kernel/sched          \
-           kernel/mm             \
-           kernel/sync           \
-           kernel/block          \
-           kernel/fs             \
-           kernel/fs/fat         \
-           kernel/exec           \
-           kernel/drivers
+KSRCDIR := arch/riscv64/kernel arch/riscv64/kernel/drivers
 
 # ---------- embedded console font (PSF -> ELF .rodata via .incbin) ----------
 # objcopy creates an ELF without the RISC-V FP-ABI attribute, causing a linker

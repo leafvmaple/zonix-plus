@@ -66,7 +66,11 @@ ifeq ($(wildcard arch/$(ARCH)/Makefile),)
   $(error Unsupported ARCH=$(ARCH). Available: $(patsubst arch/%/Makefile,%,$(wildcard arch/*/Makefile)))
 endif
 include arch/$(ARCH)/Makefile
-KSRCDIR += kernel/syscall kernel/drivers/virtio
+# Shared kernel sources; each architecture's Makefile lists only its own
+# directories. Objects are sorted before linking, so this order does not matter.
+KSRCDIR += kernel kernel/debug kernel/cons kernel/cons/cmd kernel/trap \
+           kernel/drivers kernel/drivers/virtio kernel/block kernel/sched \
+           kernel/mm kernel/fs kernel/fs/fat kernel/exec kernel/sync kernel/syscall
 
 ifeq ($(TEST),1)
 	KSRCDIR += arch/$(ARCH)/test kernel/test \

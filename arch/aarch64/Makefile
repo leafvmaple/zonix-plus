@@ -21,21 +21,7 @@ LDFLAGS := -m aarch64elf -nostdlib
 QEMU    := qemu-system-aarch64
 
 # ---------- kernel source directories ----------
-KSRCDIR := kernel              \
-           arch/aarch64/kernel \
-           arch/aarch64/kernel/drivers \
-           kernel/debug        \
-           kernel/cons         \
-           kernel/cons/cmd     \
-		   kernel/trap         \
-           kernel/sched        \
-           kernel/mm           \
-           kernel/sync         \
-           kernel/block        \
-           kernel/fs           \
-		   kernel/fs/fat       \
-           kernel/exec         \
-           kernel/drivers
+KSRCDIR := arch/aarch64/kernel arch/aarch64/kernel/drivers
 
 # ---------- embedded console font (PSF -> ELF .rodata) ----------
 FONT_PSF := fonts/console.psf
