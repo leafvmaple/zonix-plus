@@ -11,6 +11,7 @@
 #include "lib/stdio.h"
 
 #include <asm/arch.h>
+#include <asm/overflow_stack.h>
 #include <asm/trap_numbers.h>
 #include <asm/trapframe.h>
 
@@ -140,3 +141,12 @@ void arch_post_dispatch(TrapFrame* tf) {
 }
 
 }  // namespace trap
+
+// Entered from the trap entry on the overflow stack when the interrupted
+// kernel stack had no room for a trap frame.
+extern "C" [[noreturn]] void kernel_stack_overflow(TrapFrame* tf) {
+    // The panic path runs on the overflow stack, which lies outside any task's stack.
+    OverflowStack::set_floor(0);
+    tf->print();
+    trap::stack_overflow();
+}

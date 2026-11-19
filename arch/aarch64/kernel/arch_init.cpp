@@ -4,6 +4,7 @@
  */
 
 #include <asm/arch.h>
+#include <asm/overflow_stack.h>
 #include <asm/trapframe.h>
 #include <asm/memlayout.h>
 #include <kernel/boot_info.h>
@@ -53,9 +54,11 @@ const InitStep* arch_pci_steps(size_t* count) {
 }
 
 
-void arch_set_kernel_stack(uintptr_t) {
+void arch_set_kernel_stack(uintptr_t, uintptr_t kernel_stack_floor_va) {
     // AArch64 EL1 uses SP_EL1 implicitly; no TSS equivalent needed.
     // SP_EL0 is saved/restored by trap entry/exit.
+    // The trap entry compares SP_EL1 with the floor of this stack.
+    OverflowStack::set_floor(kernel_stack_floor_va);
 }
 
 void arch_irq_eoi(int irq) {

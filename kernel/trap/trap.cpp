@@ -48,8 +48,13 @@ int handle_page_fault(TrapFrame* tf, uint32_t err, uintptr_t fault_va) {
 void check_stack_overflow(uintptr_t address) {
     Task* current = sched::current();
     if (current && current->stack_guard_contains(address)) {
-        PANIC("kernel stack overflow in task %d (%s)", current->pid, current->name());
+        stack_overflow();
     }
+}
+
+void stack_overflow() {
+    Task* current = sched::current();
+    PANIC("kernel stack overflow in task %d (%s)", current ? current->pid : -1, current ? current->name() : "");
 }
 
 bool handle_syscall(TrapFrame* tf) {

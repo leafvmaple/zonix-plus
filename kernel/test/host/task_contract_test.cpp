@@ -191,7 +191,7 @@ void free_user_pgdir(pde_t* root) {
 }  // namespace pmm
 
 void arch_fixup_fork_tf(TrapFrame*, uintptr_t) {}
-void arch_set_kernel_stack(uintptr_t) {
+void arch_set_kernel_stack(uintptr_t, uintptr_t) {
     assert(false);
 }
 extern "C" void forkret() {

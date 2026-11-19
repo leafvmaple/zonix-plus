@@ -40,31 +40,14 @@
  */
 
 #include <asm/trapframe.h>  /* TF_* offsets, TF_SIZE */
+#include <asm/overflow_stack.h>
 
 /* ================================================================
- * kernel_trap_vec — trap handler while executing in S-mode.
- *
- * On entry:
- *   sp    = valid kernel stack pointer (unchanged)
- *   sscratch = 0 (sentinel)
- *   All x1-x31 have their original kernel values.
- *
- * We temporarily park the original sp in sscratch so that the
- * frame allocation does not destroy it, then save it into TF_SP.
- *
- * NOTE: We save x5 (t0) BEFORE using t0 for any CSR operations,
- *       because after `sd x5, TF_T0(sp)` the slot is occupied and
- *       we can freely reuse the t0 register.
+ * Macro: fill the TrapFrame at sp for a trap taken in S-mode.
+ * On entry sscratch holds the interrupted sp; every other register
+ * still has its interrupted value.
  * ================================================================ */
-.section .text
-.align 2
-.globl kernel_trap_vec
-.type  kernel_trap_vec, @function
-kernel_trap_vec:
-    /* Park original sp in sscratch (interrupts are off on trap entry) */
-    csrw  sscratch, sp
-    addi  sp, sp, -TF_SIZE
-
+.macro SAVE_KERNEL_FRAME
     /* Save x5 (t0) FIRST so we can freely use t0 as a scratch register */
     sd    x5,  TF_T0(sp)
 
@@ -116,12 +99,42 @@ kernel_trap_vec:
     csrr  t0, sstatus; sd t0, TF_SSTATUS(sp)
     csrr  t0, scause;  sd t0, TF_SCAUSE(sp)
     csrr  t0, stval;   sd t0, TF_STVAL(sp)
+.endm
+
+.section .text
+.align 2
+.globl kernel_trap_vec
+.type  kernel_trap_vec, @function
+kernel_trap_vec:
+    /* A frame that would reach below the floor of the current kernel
+     * stack is built on the overflow stack instead. sscratch is the
+     * only free scratch; a floor of zero never matches. */
+    csrw  sscratch, t0
+    la    t0, __kernel_stack_floor
+    ld    t0, 0(t0)
+    addi  t0, t0, TF_SIZE
+    bltu  sp, t0, 1f
+    csrr  t0, sscratch
+
+    /* Park original sp in sscratch (interrupts are off on trap entry) */
+    csrw  sscratch, sp
+    addi  sp, sp, -TF_SIZE
+    SAVE_KERNEL_FRAME
 
     /* call trap_dispatch(TrapFrame* tf) */
     mv    a0, sp
     call  trap_dispatch
 
     j     trapret
+
+1:  /* Kernel stack exhausted: report it from the overflow stack. */
+    csrr  t0, sscratch
+    csrw  sscratch, sp
+    la    sp, __overflow_stack + OVERFLOW_STACK_SIZE - TF_SIZE
+    SAVE_KERNEL_FRAME
+    mv    a0, sp
+    call  kernel_stack_overflow
+2:  j     2b
 
 /* ================================================================
  * user_trap_vec — trap handler while executing in U-mode.

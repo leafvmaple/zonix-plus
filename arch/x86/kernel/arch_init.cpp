@@ -85,7 +85,7 @@ const InitStep* arch_pci_steps(size_t* count) {
 // Runtime arch helpers
 // ============================================================================
 
-void arch_set_kernel_stack(uintptr_t kernel_stack_top_va) {
+void arch_set_kernel_stack(uintptr_t kernel_stack_top_va, uintptr_t) {
     tss::set_rsp0(kernel_stack_top_va);
 }
 

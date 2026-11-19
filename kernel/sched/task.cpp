@@ -19,7 +19,7 @@ void Task::run() {
             arch_load_page_table_root(next_root_pa);
         }
 
-        arch_set_kernel_stack(kernel_stack() + KSTACK_SIZE);
+        arch_set_kernel_stack(kernel_stack() + KSTACK_SIZE, kernel_stack_.base());
 
         switch_to(&(prev->context_), &(context_));
     }

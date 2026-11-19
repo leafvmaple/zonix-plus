@@ -30,7 +30,7 @@ struct TrapFrame;
 void arch_setup_user_tf(TrapFrame*, uintptr_t entry, uintptr_t stack);
 void arch_setup_kthread_tf(TrapFrame*, uintptr_t entry, uintptr_t fn, uintptr_t arg);
 void arch_fixup_fork_tf(TrapFrame*, uintptr_t stack);
-void arch_set_kernel_stack(uintptr_t stack);
+void arch_set_kernel_stack(uintptr_t stack, uintptr_t floor);
 inline void arch_load_page_table_root(uintptr_t) {
     __builtin_trap();
 }

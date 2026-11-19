@@ -1,5 +1,6 @@
 #include <sys/iterator.hpp>
 #include <asm/arch.h>
+#include <asm/overflow_stack.h>
 #include <asm/trapframe.h>
 #include <asm/trap_numbers.h>
 #include <asm/cpu.h>
@@ -61,8 +62,10 @@ const InitStep* arch_pci_steps(size_t* count) {
     return PCI_STEPS;
 }
 
-void arch_set_kernel_stack(uintptr_t kernel_stack_top_va) {
+void arch_set_kernel_stack(uintptr_t kernel_stack_top_va, uintptr_t kernel_stack_floor_va) {
     __asm__ volatile("csrw sscratch, %0" : : "r"(kernel_stack_top_va) : "memory");
+    // The kernel trap entry compares sp with the floor of this stack.
+    OverflowStack::set_floor(kernel_stack_floor_va);
 }
 
 void arch_irq_eoi(int irq) {

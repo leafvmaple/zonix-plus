@@ -1,4 +1,5 @@
 #include <asm/trapframe.h>
+#include <asm/overflow_stack.h>
 
 /**
  * @file trapentry.S
@@ -76,6 +77,49 @@
 .endm
 
 /* ================================================================
+ * Macro: vector slot for a trap taken from the kernel.
+ *
+ * A frame that would reach below the floor of the current kernel
+ * stack is built on the overflow stack instead. TPIDR_EL1 is unused
+ * by the kernel and serves as the scratch register; a floor of zero
+ * never matches. The save itself does not fit in the 128-byte slot
+ * alongside the check, so it continues out of line.
+ * ================================================================ */
+.macro KERNEL_VECTOR name
+    msr  tpidr_el1, x0
+    adrp x0, __kernel_stack_floor
+    ldr  x0, [x0, :lo12:__kernel_stack_floor]
+    add  x0, x0, #ARM64_TRAP_FRAME_SIZE
+    cmp  sp, x0         /* the interrupted flags are already in SPSR_EL1 */
+    b.lo kernel_overflow_\name
+    mrs  x0, tpidr_el1
+    b    kernel_trap_\name
+.endm
+
+/* ================================================================
+ * Macro: out-of-line bodies of one kernel vector
+ * ================================================================ */
+.macro KERNEL_TRAP name, vector
+kernel_trap_\name:
+    SAVE_ALL \vector
+    mov  x0, sp
+    bl   trap_dispatch
+    b    trapret
+
+kernel_overflow_\name:
+    /* Kernel stack exhausted: report it from the overflow stack. */
+    adrp x0, __overflow_stack
+    add  x0, x0, :lo12:__overflow_stack
+    add  x0, x0, #OVERFLOW_STACK_SIZE
+    mov  sp, x0
+    mrs  x0, tpidr_el1
+    SAVE_ALL \vector
+    mov  x0, sp
+    bl   kernel_stack_overflow
+    b    .
+.endm
+
+/* ================================================================
  * Exception vector table — must be 2KB aligned
  * Each entry is exactly 128 bytes (0x80).
  * ================================================================ */
@@ -115,31 +159,19 @@ _vectors:
 
 /* ---- Group 1: Current EL with SP_ELx (kernel traps) ---- */
 /* 0x200: Synchronous */
-    SAVE_ALL ARM64_TRAP_VECTOR_SYNC
-    mov  x0, sp
-    bl   trap_dispatch
-    b    trapret
+    KERNEL_VECTOR sync
 .org _vectors + 5 * 0x80
 
 /* 0x280: IRQ */
-    SAVE_ALL ARM64_TRAP_VECTOR_IRQ
-    mov  x0, sp
-    bl   trap_dispatch
-    b    trapret
+    KERNEL_VECTOR irq
 .org _vectors + 6 * 0x80
 
 /* 0x300: FIQ */
-    SAVE_ALL ARM64_TRAP_VECTOR_FIQ
-    mov  x0, sp
-    bl   trap_dispatch
-    b    trapret
+    KERNEL_VECTOR fiq
 .org _vectors + 7 * 0x80
 
 /* 0x380: SError */
-    SAVE_ALL ARM64_TRAP_VECTOR_SERROR
-    mov  x0, sp
-    bl   trap_dispatch
-    b    trapret
+    KERNEL_VECTOR serror
 .org _vectors + 8 * 0x80
 
 /* ---- Group 2: Lower EL, AArch64 (user-mode traps) ---- */
@@ -201,4 +233,9 @@ _vectors:
 .org _vectors + 16 * 0x80
 
 .size _vectors, . - _vectors
+
+    KERNEL_TRAP sync,   ARM64_TRAP_VECTOR_SYNC
+    KERNEL_TRAP irq,    ARM64_TRAP_VECTOR_IRQ
+    KERNEL_TRAP fiq,    ARM64_TRAP_VECTOR_FIQ
+    KERNEL_TRAP serror, ARM64_TRAP_VECTOR_SERROR
 .section .note.GNU-stack,"",@progbits

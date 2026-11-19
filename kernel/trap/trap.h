@@ -32,6 +32,9 @@ int handle_page_fault(TrapFrame* tf, uint32_t err, uintptr_t fault_addr);
 // Panics with the task's identity if a kernel fault at `address` hit the guard
 // page below the current task's stack. Returns for any other address.
 void check_stack_overflow(uintptr_t address);
+// Panics with the current task's identity. Architectures whose trap entry
+// detects an exhausted kernel stack call this from their overflow stack.
+[[noreturn]] void stack_overflow();
 bool handle_syscall(TrapFrame* tf);
 
 // Architecture hook points implemented in arch/<arch>/kernel/trap.cpp.
