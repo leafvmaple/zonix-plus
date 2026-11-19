@@ -183,6 +183,10 @@ private:
         auto& window = windows_[index];
         if (is_pixel_window(index) && !surface(index).configured())
             return 0;
+        // The client is responding to the user again, so the next close
+        // request is a new one.
+        if (event.type == DISPLAY_EVENT_KEY || event.type == DISPLAY_EVENT_BUTTON)
+            window.close_requested = false;
         Point origin = client_origin(window.rect);
         Point point = is_pixel_window(index) ? Point{pointer_.x - origin.x, pointer_.y - origin.y}
                                              : surface_point(window.rect, pointer_);
@@ -219,11 +223,25 @@ private:
         return error < 0 ? error : repaint(bounds(windows_[index].rect));
     }
 
+    // The close button. A client that asks before closing gets one chance to
+    // exit by itself.
+    long request_close(int index) {
+        auto& window = windows_[index];
+        if (!WINDOWS[index].asks_before_closing || window.close_requested || !surface(index).configured())
+            return close_window(index);
+        long error = focus(index, top_window(), 0);
+        if (error < 0)
+            return error;
+        window.close_requested = true;
+        return send(index, {INPUT_CLOSE_REQUEST, 0, 0, 0});
+    }
+
     long close_window(int index) {
         auto& window = windows_[index];
         bool focused = index == top_window();
         Rect old = window.rect;
         window.client.stop();
+        window.close_requested = false;
         if (is_pixel_window(index)) {
             surface(index).reset();
             window.rect = {};
@@ -305,7 +323,7 @@ private:
             return send(top_window(), reset);
         const auto& rect = windows_[index].rect;
         if (left && close_rect(rect).contains(pointer_))
-            return close_window(index);
+            return request_close(index);
         long error = focus(index, top_window(), event.modifiers);
         if (error < 0)
             return error;

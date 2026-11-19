@@ -8,7 +8,7 @@ MINICOCOS_REVISION := f58e97052de5a696ad7ed55b99700f265a5b331f
 MINICOCOS_SOURCE := $(GUI_OBJDIR)/source
 MINICOCOS_ENGINE := $(GUI_OBJDIR)/engine
 MINICOCOS_CORE := $(MINICOCOS_ENGINE)/libzocos_core.a
-GUI_OBJECTS := $(addprefix $(GUI_OBJDIR)/,math_x86.cpp.o window_channel.cpp.o window_view.cpp.o file_utils.cpp.o \
+GUI_OBJECTS := $(addprefix $(GUI_OBJDIR)/,math_x86.cpp.o window_channel.cpp.o window_view.cpp.o file_utils.cpp.o mono_font.cpp.o \
                                         controls/style.cpp.o controls/button.cpp.o controls/toolbar.cpp.o \
                                         controls/context_menu.cpp.o controls/icon_grid.cpp.o controls/dialog.cpp.o)
 ZONIX_GUI := $(GUI_OBJDIR)/libzonix_gui.a
@@ -56,6 +56,7 @@ $(ZONIX_GUI): $(GUI_OBJECTS) user/gui/Makefile
 
 $(GUI_OBJDIR)/desktop_runtime.cpp.o: GUI_HEAP_MIB := 6
 $(GUI_OBJDIR)/files_runtime.cpp.o: GUI_HEAP_MIB := 8
+$(GUI_OBJDIR)/editor_runtime.cpp.o: GUI_HEAP_MIB := 6
 $(GUI_OBJDIR)/terminal_runtime.cpp.o: GUI_HEAP_MIB := 1
 
 $(GUI_OBJDIR)/%_runtime.cpp.o: user/gui/runtime.cpp $(MINICOCOS_LIB) $(ZCC_RUNTIME_STAMP) user/gui/Makefile
@@ -65,6 +66,11 @@ $(GUI_OBJDIR)/%_runtime.cpp.o: user/gui/runtime.cpp $(MINICOCOS_LIB) $(ZCC_RUNTI
 DESKTOP_OBJECTS := $(addprefix $(USER_OBJDIR)/desktop/,client.cpp.o compositor.cpp.o desktop.cpp.o pixel_surface.cpp.o \
                                                     chrome/mini_cocos.cpp.o)
 TERMINAL_OBJECTS := $(addprefix $(USER_OBJDIR)/terminal/,terminal.cpp.o grid_renderer.cpp.o) $(USER_OBJDIR)/desktop/font.S.o
+EDITOR_OBJECTS := $(USER_OBJDIR)/editor/editor.cpp.o $(USER_OBJDIR)/desktop/font.S.o
+
+$(USER_OBJDIR)/editor/%.cpp.o: user/editor/%.cpp $(MINICOCOS_CORE) $(ZCC_RUNTIME_STAMP) user/gui/Makefile
+	$(Q)$(MKDIR) $(@D)
+	$(Q)$(CXX) $(MINICOCOS_CXXFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(USER_OBJDIR)/files/%.cpp.o: user/files/%.cpp $(MINICOCOS_CORE) $(ZCC_RUNTIME_STAMP) user/gui/Makefile
 	$(Q)$(MKDIR) $(@D)
@@ -81,12 +87,13 @@ $(USER_OBJDIR)/terminal/%.cpp.o: user/terminal/%.cpp $(MINICOCOS_CORE) $(ZCC_RUN
 $(USER_BINDIR)/FILES.ELF: $(USER_OBJDIR)/files/files.cpp.o $(GUI_OBJDIR)/files_runtime.cpp.o
 $(USER_BINDIR)/DESKTOP.ELF: $(DESKTOP_OBJECTS) $(GUI_OBJDIR)/desktop_runtime.cpp.o
 $(USER_BINDIR)/TERMINAL.ELF: $(TERMINAL_OBJECTS) $(GUI_OBJDIR)/terminal_runtime.cpp.o
-$(USER_BINDIR)/FILES.ELF $(USER_BINDIR)/DESKTOP.ELF $(USER_BINDIR)/TERMINAL.ELF: $(GUI_LIBRARIES) $(ZCC_RUNTIME_STAMP) | $(USER_BINDIR) check-syscall-abi
+$(USER_BINDIR)/EDITOR.ELF: $(EDITOR_OBJECTS) $(GUI_OBJDIR)/editor_runtime.cpp.o
+$(USER_BINDIR)/FILES.ELF $(USER_BINDIR)/DESKTOP.ELF $(USER_BINDIR)/TERMINAL.ELF $(USER_BINDIR)/EDITOR.ELF: $(GUI_LIBRARIES) $(ZCC_RUNTIME_STAMP) | $(USER_BINDIR) check-syscall-abi
 	@echo "  LINK    $@ (Zonix mini-cocos GUI)"
 	$(Q)$(LD) -nostdlib --no-relax --gc-sections --strip-debug -T $(ZCC_SYSROOT)/linker.ld $(ZCC_SYSROOT)/crt0.o \
 		$(filter %.o,$^) --start-group $(GUI_LIBRARIES) $(ZCC_SYSROOT)/libzccrt.a --end-group -o $@
 
-DESKTOP_SUITE_ELFS := $(addprefix $(USER_BINDIR)/,DESKTOP.ELF TERMINAL.ELF FILES.ELF)
+DESKTOP_SUITE_ELFS := $(addprefix $(USER_BINDIR)/,DESKTOP.ELF TERMINAL.ELF FILES.ELF EDITOR.ELF)
 desktop-image: $(BINDIR)/desktop.img
 
 $(BINDIR)/desktop.img: $(DESKTOP_SUITE_ELFS) $(MINICOCOS_SOURCE)/.prepared scripts/install_userspace_image.sh user/gui/Makefile

@@ -60,9 +60,10 @@ private:
 
 class WindowView final : public SoftwareView {
 public:
-    explicit WindowView(mstd::function<void(int)> on_edit_error = {})
+    explicit WindowView(mstd::function<void(int)> on_edit_error = {}, mstd::function<void()> on_close_request = {})
         : SoftwareView(zonix_gui::opaque_color(zonix_gui::theme::WINDOW_BACKGROUND)),
-          on_edit_error_(mstd::move(on_edit_error)) {}
+          on_edit_error_(mstd::move(on_edit_error)),
+          on_close_request_(mstd::move(on_close_request)) {}
 
     bool init(int width, int height, const char* title) override {
         if (!SoftwareView::init(width, height, title) || WindowChannel::open(width, height) < 0)
@@ -86,6 +87,11 @@ public:
         if (event.type == desktop_ipc::INPUT_EDIT_ERROR) {
             if (on_edit_error_)
                 on_edit_error_(event.value);
+            return;
+        }
+        if (event.type == desktop_ipc::INPUT_CLOSE_REQUEST) {
+            if (on_close_request_)
+                on_close_request_();
             return;
         }
         if (event.type == DISPLAY_EVENT_RESET) {
@@ -129,6 +135,7 @@ public:
 
 private:
     mstd::function<void(int)> on_edit_error_;
+    mstd::function<void()> on_close_request_;
     WindowChannel channel_;
     sys::vector<unsigned int> pixels_;
     bool painted_{};
@@ -176,8 +183,9 @@ mstd::unique_ptr<RenderDevice> createDefaultRenderDevice(View& view) {
 
 namespace zonix_gui {
 
-mstd::unique_ptr<zocos::View> make_window_view(mstd::function<void(int)> on_edit_error) {
-    return mstd::make_unique<WindowView>(mstd::move(on_edit_error));
+mstd::unique_ptr<zocos::View> make_window_view(mstd::function<void(int)> on_edit_error,
+                                               mstd::function<void()> on_close_request) {
+    return mstd::make_unique<WindowView>(mstd::move(on_edit_error), mstd::move(on_close_request));
 }
 
 bool is_double_click(unsigned int modifiers) {

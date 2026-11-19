@@ -238,6 +238,7 @@ private:
                 items.push_back({"Delete", [this, entry] { delete_item(entry); }});
             }
         }
+        items.push_back({"New file", [this] { new_file(); }});
         items.push_back({"New folder", [this] { new_folder(); }});
         if (!dir_.at_root())
             items.push_back({"Go up", refresh_after([this] { parent(); })});
@@ -261,6 +262,18 @@ private:
         refresh_directory();
         update_controls();
         return nullptr;
+    }
+
+    // Creates an empty file. An existing name is reported, not replaced.
+    void new_file() {
+        dialog_->prompt("New file", "", NAME_INPUT_LIMIT, [this](const mstd::string& name) {
+            if (!is_leaf_name(name))
+                return "Enter a single file name";
+            long fd = sys_open(const_cast<char*>(name.c_str()), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC);
+            if (fd == SYS_ERROR_INVALID)
+                return "Use a valid ASCII name of up to 31 characters";
+            return finish_mutation(fd < 0 ? fd : sys_close(static_cast<int>(fd)));
+        });
     }
 
     void new_folder() {

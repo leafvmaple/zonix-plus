@@ -32,7 +32,7 @@ USER_CFLAGS := -g -O2 -Wall -Wextra -std=c11 -ffreestanding -nostdinc \
                $(USER_ARCH_CFLAGS) -Iinclude -I$(ZCC_DIR)/src/runtime
 USER_ASFLAGS := -g -nostdinc -ffreestanding
 USER_PROGRAMS := $(notdir $(patsubst %/,%,$(dir $(wildcard $(USER_DIR)/*/*.S $(USER_DIR)/*/*.c $(USER_DIR)/*/*.cpp))))
-USER_PROGRAMS := $(filter-out zcc minicoco gui files net crypto ssh,$(sort $(USER_PROGRAMS)))
+USER_PROGRAMS := $(filter-out zcc minicoco gui files editor net crypto ssh,$(sort $(USER_PROGRAMS)))
 ifeq ($(ARCH),x86)
 USER_PROGRAMS := $(filter-out desktop terminal,$(USER_PROGRAMS))
 else

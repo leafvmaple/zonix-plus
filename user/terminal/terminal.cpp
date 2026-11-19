@@ -138,7 +138,7 @@ void send_key(int fd, const DisplayEvent& event) {
     }
 }
 
-long run(int master, long& pid, bool editing) {
+long run(int master) {
     Grid grid;
     unsigned int tty_bit = 1U << master;
     unsigned int input_bit = 1U << STDIN_FD;
@@ -157,32 +157,14 @@ long run(int master, long& pid, bool editing) {
                 return 0;
             if (got != sizeof(input))
                 return SYS_ERROR_IO;
-            if (tty_bit != 0) {
-                send_key(master, input.event);
-            } else if (input.event.type == DISPLAY_EVENT_KEY && input.event.value == DISPLAY_KEY_PRESS &&
-                       keyboard::KeyboardState::character(input.event.code, input.event.modifiers) == '\n') {
-                return 0;
-            }
+            send_key(master, input.event);
         }
         if ((ready & tty_bit) != 0) {
             char output[1024];
             long got = sys_read(master, output, sizeof(output));
-            if (got < 0 || (got == 0 && !editing))
+            if (got <= 0)
                 return got;
-            if (got == 0) {
-                int status = 0;
-                long waited = sys_wait(static_cast<int>(pid), &status);
-                if (waited < 0)
-                    return waited;
-                pid = 0;
-                if (status == 0)
-                    return 0;
-                tty_bit = 0;
-                constexpr char prompt[] = "\r\nPress Enter to close";
-                grid.feed(prompt, sizeof(prompt) - 1);
-            } else {
-                grid.feed(output, static_cast<unsigned int>(got));
-            }
+            grid.feed(output, static_cast<unsigned int>(got));
             error = renderer.publish(grid.frame());
         }
     }
@@ -191,20 +173,17 @@ long run(int master, long& pid, bool editing) {
 
 }  // namespace
 
-extern "C" int main(int argc, char** argv) {
-    if (argc < 1 || argc > 2 || (argc == 2 && argv[1][0] != '/'))
-        return command_usage("Usage: terminal [/absolute/text-path]\n");
-    bool editing = argc == 2;
+extern "C" int main(int argc, char**) {
+    if (argc != 1)
+        return command_usage("Usage: terminal\n");
     char shell[] = "/bin/sh";
-    char editor[] = "/bin/vi";
-    char* args[]{editing ? editor : shell, editing ? argv[1] : nullptr, nullptr};
+    char* args[]{shell, nullptr};
     int master = -1;
-    long pid = open_session({TERMINAL_ROWS, TERMINAL_COLS}, argc, args, master);
+    long pid = open_session({TERMINAL_ROWS, TERMINAL_COLS}, 1, args, master);
     if (pid < 0)
-        return command_error("terminal", args[0], pid);
-    long error = run(master, pid, editing);
+        return command_error("terminal", shell, pid);
+    long error = run(master);
     sys_close(master);
-    if (pid > 0)
-        sys_wait(static_cast<int>(pid), nullptr);
+    sys_wait(static_cast<int>(pid), nullptr);
     return error < 0 ? command_error("terminal", "PTY", error) : 0;
 }

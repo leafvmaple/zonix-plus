@@ -69,11 +69,12 @@ bool Dialog::build(zocos::Director& director) {
     constexpr float accept_x = WIDTH - INSET - BUTTON_WIDTH;
     ok_ = button_at("OK", accept_x, Button::Style::Accent, [this] { accept(); });
     delete_ = button_at("Delete", accept_x, Button::Style::Danger, [this] { accept(); });
+    discard_ = button_at("Discard", accept_x, Button::Style::Danger, [this] { accept(); });
     auto* cancel = button_at("Cancel", accept_x - BUTTON_GAP - BUTTON_WIDTH, Button::Style::Raised,
                              [this] { close(); });
     auto* keys = zocos::EventListenerKeyboard::create([this](zocos::EventKeyboard& event) { key_pressed(event); });
     auto* mouse = zocos::EventListenerMouse::create();
-    if (!title_ || !value_ || !error_ || !ok_ || !delete_ || !cancel || !keys || !mouse)
+    if (!title_ || !value_ || !error_ || !ok_ || !delete_ || !discard_ || !cancel || !keys || !mouse)
         return false;
     auto block_menu = [this](zocos::EventMouse& event) {
         if (isVisible())
@@ -98,7 +99,8 @@ void Dialog::show(const char* title, Submit submit) {
     write(*error_, "", INSET, ERROR_Y);
     submit_ = mstd::move(submit);
     ok_->setVisible(limit_ != 0);
-    delete_->setVisible(limit_ == 0);
+    delete_->setVisible(limit_ == 0 && danger_ == Danger::Delete);
+    discard_->setVisible(limit_ == 0 && danger_ == Danger::Discard);
     setVisible(true);
 }
 
@@ -111,9 +113,10 @@ void Dialog::prompt(const char* title, const mstd::string& initial, mstd::size_t
     update_input();
 }
 
-void Dialog::confirm(const char* title, const mstd::string& target, Submit submit) {
+void Dialog::confirm(const char* title, const mstd::string& target, Submit submit, Danger danger) {
     input_.clear();
     limit_ = 0;
+    danger_ = danger;
     show(title, mstd::move(submit));
     write(*value_, target, INSET, VALUE_Y);
 }

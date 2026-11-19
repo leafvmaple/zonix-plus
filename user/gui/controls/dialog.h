@@ -15,7 +15,9 @@ public:
 
     static Dialog* create(zocos::Director& director);
     void prompt(const char* title, const mstd::string& initial, mstd::size_t limit, Submit submit);
-    void confirm(const char* title, const mstd::string& target, Submit submit);
+    // What the button that confirms a destructive action says.
+    enum class Danger { Delete, Discard };
+    void confirm(const char* title, const mstd::string& target, Submit submit, Danger danger = Danger::Delete);
 
 private:
     explicit Dialog(zocos::Director& director) : palette_(director) {}
@@ -38,6 +40,8 @@ private:
     zocos::Label* error_{};
     Button* ok_{};
     Button* delete_{};
+    Button* discard_{};
+    Danger danger_ = Danger::Delete;
     Submit submit_;
     mstd::string input_;
     mstd::size_t cursor_{};

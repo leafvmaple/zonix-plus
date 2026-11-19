@@ -32,6 +32,8 @@ inline constexpr int NO_WINDOW = -1;
 struct Window {
     Rect rect{};
     desktop_ipc::Client client;
+    // The client was asked to close and has had no input since.
+    bool close_requested{};
     bool open() const { return client.alive(); }
 };
 

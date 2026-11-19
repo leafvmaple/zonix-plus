@@ -10,6 +10,9 @@ inline constexpr int SURFACE_SIZE = 24;
 inline constexpr unsigned int INPUT_MOD_DOUBLE_CLICK = 1U << 16;
 // Desktop-only event. The value is a negative error from an edit request.
 inline constexpr unsigned int INPUT_EDIT_ERROR = 0x10000;
+// Desktop-only event. The user asked to close a window whose client decides
+// when to exit, so it can first ask about unsaved work.
+inline constexpr unsigned int INPUT_CLOSE_REQUEST = 0x10001;
 
 struct Input {
     DisplayEvent event;

@@ -43,6 +43,9 @@ struct WindowSpec {
     const char* argument;  // Passed to the program, or null. The editor passes the file instead.
     Placement placement;
     unsigned int key;  // Opens or focuses the window, or 0.
+    // The client is asked to close and exits by itself, so it can keep
+    // unsaved work. A second request closes the window regardless.
+    bool asks_before_closing = false;
 };
 
 inline constexpr WindowSpec WINDOWS[WINDOW_COUNT] = {
@@ -51,7 +54,7 @@ inline constexpr WindowSpec WINDOWS[WINDOW_COUNT] = {
     {"Terminal", "Term", "/opt/bin/terminal", nullptr, Placement::Center, KEY_F2},
     {"mini-cocos", "Cocos", "/opt/bin/minicoco", "--window", Placement::Corner, KEY_F3},
     {"Files", "Files", "/opt/bin/files", "--window", Placement::Right, KEY_F4},
-    {"Text Editor", "Editor", "/opt/bin/terminal", nullptr, Placement::Center, 0},
+    {"Text Editor", "Editor", "/opt/bin/editor", nullptr, Placement::Center, 0, true},
 };
 
 class Client {
