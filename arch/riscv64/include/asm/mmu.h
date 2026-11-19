@@ -9,11 +9,8 @@
 #include "page.h"
 
 /* Walk constants */
-inline constexpr int ADDR_BITS = 39;
 inline constexpr int ENTRY_SHIFT = 9;
 inline constexpr int ENTRY_NUM = 1 << ENTRY_SHIFT; /* 512 */
 
-/*
- * virt_to_phys / phys_to_virt are defined in page.h so that both
- * assembly-safe headers and C++ code can use them from one place.
- */
+// virt_to_phys, phys_to_virt and iterate_pages are shared by all architectures.
+#include <kernel/address.h>

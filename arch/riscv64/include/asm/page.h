@@ -100,19 +100,6 @@ inline constexpr uintptr_t USER_SPACE_TOP = 0x0000004000000000ULL;
 inline constexpr uintptr_t USER_STACK_TOP = USER_SPACE_TOP - 2 * PG_SIZE;
 inline constexpr size_t USER_STACK_SIZE = 4 * PG_SIZE;
 
-static inline int pml4_index(uintptr_t va) {
-    return (va >> 30) & 0x1FF;
-} /* VPN[2] */
-static inline int pdpt_index(uintptr_t va) {
-    return (va >> 21) & 0x1FF;
-} /* VPN[1] */
-static inline int pd_index(uintptr_t va) {
-    return (va >> 12) & 0x1FF;
-} /* VPN[0] */
-static inline int pt_index(uintptr_t va) {
-    return (va >> 12) & 0x1FF;
-} /* alias   */
-
 static inline uintptr_t pte_addr(uintptr_t pte) {
     return PTE_ADDR(pte);
 }
@@ -170,40 +157,5 @@ static inline uint32_t merge_user_page_perm(uintptr_t entry, uint32_t perm) {
                           pte_executable(entry) || (perm & VM_NOEXEC) == 0);
 }
 
-/* pde_addr: extract PA from a non-leaf PTE (same as pte_addr) */
-inline constexpr uintptr_t pde_addr(uintptr_t pde) {
-    return PTE_ADDR(pde);
-}
-
-inline constexpr uintptr_t pg_off(uintptr_t va) {
-    return va & PG_MASK;
-}
-
-inline constexpr uintptr_t virt_to_phys(uintptr_t kva) {
-    return kva - KERNEL_BASE;
-}
-
-template<typename T>
-inline uintptr_t virt_to_phys(T* kva) {
-    return reinterpret_cast<uintptr_t>(kva) - KERNEL_BASE;
-}
-
-template<typename T = void>
-inline T* phys_to_virt(uintptr_t pa) {
-    return reinterpret_cast<T*>(pa + KERNEL_BASE);
-}
-
-template<typename Callback>
-inline void iterate_pages(uintptr_t va, size_t size, Callback&& func) {
-    while (size > 0) {
-        size_t offset = va & PG_MASK;
-        size_t chunk = PG_SIZE - offset;
-        if (chunk > size)
-            chunk = size;
-        func(va, chunk);
-        va += chunk;
-        size -= chunk;
-    }
-}
 
 #endif /* !__ASSEMBLY__ */

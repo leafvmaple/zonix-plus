@@ -4,18 +4,34 @@
 #include <asm/drivers/i8259.h>
 #include <base/types.h>
 
+namespace {
+
+// The interrupt mask last written to the two controllers.
+class Mask {
+public:
+    static uint16_t value() { return value_; }
+
+    static void set(uint16_t mask) {
+        value_ = mask;
+        arch_port_write8(PIC1_IMR, mask);
+        arch_port_write8(PIC2_IMR, mask >> 8);
+    }
+
+private:
+    // Every line starts masked.
+    inline static uint16_t value_ = 0xFFFF;
+};
+
+}  // namespace
+
 namespace i8259 {
-// Initial IRQ mask has interrupt 2 enabled (for slave 8259A).
-static uint16_t irq_mask = 0xFFFF;
 
 void setmask(uint16_t mask) {
-    irq_mask = mask;
-    arch_port_write8(PIC1_IMR, mask);
-    arch_port_write8(PIC2_IMR, mask >> 8);
+    Mask::set(mask);
 }
 
 void enable(unsigned int irq) {
-    setmask(irq_mask & ~(1 << irq));
+    Mask::set(Mask::value() & ~(1 << irq));
 }
 
 void send_eoi(unsigned int irq) {
@@ -50,10 +66,9 @@ int init() {
     arch_port_write8(PIC1_IMR, ICW4_8086);
     arch_port_write8(PIC2_IMR, ICW4_8086);
 
-    // Restore current irq_mask to hardware (preserves IRQs already
+    // Restore the current mask to hardware (preserves IRQs already
     // enabled by earlier init code, e.g. kbd::init() before us)
-    arch_port_write8(PIC1_IMR, irq_mask & 0xFF);
-    arch_port_write8(PIC2_IMR, (irq_mask >> 8) & 0xFF);
+    Mask::set(Mask::value());
 
     // Ensure cascade (slave PIC) is enabled
     enable(IRQ_SLAVE);

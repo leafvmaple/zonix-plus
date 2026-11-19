@@ -9,27 +9,8 @@
 
 namespace cmd {
 
-namespace {
-
-const char* mounted_device{};
-int mount_is_active{};
-
-}  // namespace
-
-const char* mnt_device() {
-    return mounted_device;
-}
-
-int mnt_mounted() {
-    return mount_is_active;
-}
-
-void set_mnt_device(const char* name) {
-    mounted_device = name;
-}
-
-void set_mnt_mounted(int val) {
-    mount_is_active = val;
+bool mnt_mounted() {
+    return vfs::is_mounted("/mnt");
 }
 
 int build_path(const char* filename, int use_mnt, char* out, size_t out_size) {
@@ -84,8 +65,8 @@ static void cmd_dd(int argc, char** argv) {
 }
 
 static void cmd_mount(int argc, char** argv) {
-    if (mount_is_active || vfs::is_mounted("/mnt")) {
-        const char* mounted = mounted_device ? mounted_device : vfs::mounted_device("/mnt");
+    if (mnt_mounted()) {
+        const char* mounted = vfs::mounted_device("/mnt");
         cprintf("Device already mounted at /mnt: %s\n", mounted ? mounted : "(unknown)");
         cprintf("Use 'umount' to unmount first\n");
         return;
@@ -115,8 +96,6 @@ static void cmd_mount(int argc, char** argv) {
     cprintf("Mounting %s at /mnt...\n", dev->name);
 
     if (vfs::mount("/mnt", dev, "fat") == Error::None) {
-        mounted_device = dev->name;
-        mount_is_active = 1;
         cprintf("Successfully mounted %s at /mnt\n", dev->name);
     } else {
         cprintf("Failed to mount file system\n");
@@ -128,21 +107,18 @@ static void cmd_umount(int argc, char** argv) {
     static_cast<void>(argc);
     static_cast<void>(argv);
 
-    if (!mount_is_active || !vfs::is_mounted("/mnt")) {
+    // The device name belongs to the mount, so report it before unmounting.
+    const char* mounted = vfs::mounted_device("/mnt");
+    if (!mounted) {
         cprintf("Nothing mounted at /mnt\n");
-        mount_is_active = 0;
-        mounted_device = nullptr;
         return;
     }
 
+    cprintf("Unmounting %s from /mnt...\n", mounted);
     if (vfs::umount("/mnt") != Error::None) {
         cprintf("Failed to unmount /mnt\n");
         return;
     }
-
-    cprintf("Unmounting %s from /mnt...\n", mounted_device);
-    mounted_device = nullptr;
-    mount_is_active = 0;
     cprintf("Successfully unmounted /mnt\n");
 }
 
@@ -163,9 +139,9 @@ static void cmd_info(int argc, char** argv) {
     cprintf("  Mount Point: /\n");
     vfs::print_mount_info("/");
 
-    if (mount_is_active) {
+    if (const char* mounted = vfs::mounted_device("/mnt")) {
         cprintf("\n/mnt Information:\n");
-        cprintf("  Device: %s\n", mounted_device);
+        cprintf("  Device: %s\n", mounted);
         cprintf("  Mount Point: /mnt\n");
         vfs::print_mount_info("/mnt");
     }

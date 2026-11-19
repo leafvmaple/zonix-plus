@@ -8,11 +8,18 @@
 
 #define COM1_PORT 0x3F8
 
-static bool uart_present = false;
+namespace {
 
-namespace uart8250 {
+class Com1 {
+public:
+    static int probe();
+    static void put(int c);
 
-int init() {
+private:
+    inline static bool present_{};
+};
+
+int Com1::probe() {
     // Scratch register test: verify UART is present
     arch_port_write8(COM1_PORT + 7, 0xA5);
     if (arch_port_read8(COM1_PORT + 7) != 0xA5) {
@@ -38,12 +45,12 @@ int init() {
 
     // Disable loopback, set normal operation (OUT1+OUT2+RTS+DTR)
     arch_port_write8(COM1_PORT + 4, 0x0F);
-    uart_present = true;
+    present_ = true;
     return 0;
 }
 
-void putc(int c) {
-    if (!uart_present)
+void Com1::put(int c) {
+    if (!present_)
         return;
     // Wait for transmit buffer to be empty (bit 5 of LSR)
     if (c == '\n') {
@@ -52,6 +59,18 @@ void putc(int c) {
     }
     while ((arch_port_read8(COM1_PORT + 5) & 0x20) == 0) {}
     arch_port_write8(COM1_PORT, c);
+}
+
+}  // namespace
+
+namespace uart8250 {
+
+int init() {
+    return Com1::probe();
+}
+
+void putc(int c) {
+    Com1::put(c);
 }
 
 }  // namespace uart8250

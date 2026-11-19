@@ -40,8 +40,6 @@ static inline uint64_t sbi_set_timer(uint64_t stime) {
 
 namespace timer {
 
-volatile int64_t ticks = 0;
-
 uint64_t now() {
     uint64_t t;
     __asm__ volatile("csrr %0, time" : "=r"(t));

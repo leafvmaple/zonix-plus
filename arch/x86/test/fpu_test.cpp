@@ -2,11 +2,11 @@
 #include <asm/fpu.h>
 #include "block/blk.h"
 #include "drivers/intr.h"
-#include "drivers/i8253.h"
 #include "exec/exec.h"
 #include "fs/vfs.h"
 #include "sched/sched.h"
 #include "test/test_defs.h"
+#include "trap/trap.h"
 
 namespace arch_trap_test {
 
@@ -44,7 +44,7 @@ void test_sse() {
     if (mounted == Error::None) {
         // The peers can finish while the parent is preempted, even before wait.
         // Record the timer baseline before publishing either runnable child.
-        const auto start_ticks = timer::ticks;
+        const auto start_ticks = trap::Clock::ticks();
         auto first = exec::exec("/mnt/SSETEST.ELF");
         auto second = exec::exec("/mnt/SSEPEER.ELF");
         {
@@ -71,7 +71,7 @@ void test_sse() {
                             "User SSE/SSE2 arithmetic and XMM/x87/MXCSR survive IRQs and syscalls");
             }
         }
-        TEST_ASSERT(timer::ticks - start_ticks >= 4, "User register checks span multiple timer quanta");
+        TEST_ASSERT(trap::Clock::ticks() - start_ticks >= 4, "User register checks span multiple timer quanta");
         TEST_ASSERT(vfs::umount("/mnt") == Error::None, "Released SSE test mount");
     }
     TEST_END();

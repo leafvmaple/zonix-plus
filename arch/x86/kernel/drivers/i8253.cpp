@@ -38,12 +38,6 @@ constexpr uint8_t bcd_to_bin(uint8_t val) {
 
 }  // namespace
 
-namespace timer {
-
-volatile int64_t ticks = 0;
-
-}  // namespace timer
-
 namespace i8253 {
 
 int init() {

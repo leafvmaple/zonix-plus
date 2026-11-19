@@ -19,20 +19,31 @@
 // GDT lives in head.S (each slot is 8 bytes = uint64_t)
 extern uint64_t __gdt[];
 
-// The single, static TSS for this CPU.
-static TssDesc task_state_segment;
+namespace {
+
+// The single TSS for this CPU.
+class Tss {
+public:
+    static TssDesc& segment() { return segment_; }
+
+private:
+    inline static TssDesc segment_{};
+};
+
+}  // namespace
 
 namespace tss {
 
 int init() {
-    memset(&task_state_segment, 0, sizeof(task_state_segment));
+    auto& segment = Tss::segment();
+    memset(&segment, 0, sizeof(segment));
 
     // I/O permission bitmap offset — point past the end of the TSS
     // so that all ports are trapped (no direct user I/O).
-    task_state_segment.iopb_offset = sizeof(TssDesc);
+    segment.iopb_offset = sizeof(TssDesc);
 
     // --- Build the 16-byte TSS descriptor in GDT slots 5 and 6 ---
-    uintptr_t base = reinterpret_cast<uintptr_t>(&task_state_segment);
+    uintptr_t base = reinterpret_cast<uintptr_t>(&segment);
     uint32_t limit = sizeof(TssDesc) - 1;
 
     set_tss(__gdt, SEG_TSS, base, limit);
@@ -47,7 +58,7 @@ int init() {
 }
 
 void set_rsp0(uintptr_t rsp0) {
-    task_state_segment.rsp0 = rsp0;
+    Tss::segment().rsp0 = rsp0;
 }
 
 }  // namespace tss

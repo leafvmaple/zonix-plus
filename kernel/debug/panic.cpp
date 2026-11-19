@@ -5,24 +5,36 @@
 #include "assert.h"
 #include "cons/cons.h"
 
-static int is_panic = 0;
+namespace {
+
+class Panic {
+public:
+    // True the first time only; a panic raised while reporting one is not reported.
+    static bool enter() {
+        bool first = !active_;
+        active_ = true;
+        return first;
+    }
+
+private:
+    inline static bool active_{};
+};
+
+}  // namespace
 
 void panic_at(const char* file, int line, const char* fmt, ...) {
-    if (is_panic) {
-        goto panic_dead;
+    if (Panic::enter()) {
+        cons::emergency_restore();
+
+        va_list ap;
+        va_start(ap, fmt);
+        cprintf("kernel panic at %s:%d:\n    ", file, line);
+        vcprintf(fmt, ap);
+        cprintf("\n");
+
+        va_end(ap);
     }
-    is_panic = 1;
-    cons::emergency_restore();
 
-    va_list ap;
-    va_start(ap, fmt);
-    cprintf("kernel panic at %s:%d:\n    ", file, line);
-    vcprintf(fmt, ap);
-    cprintf("\n");
-
-    va_end(ap);
-
-panic_dead:
     intr::disable();
     while (true) {
         ;

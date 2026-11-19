@@ -7,11 +7,8 @@ namespace cmd {
 
 constexpr size_t PATH_BUF_SIZE = 128;
 
-// Mount state shared across command files.
-const char* mnt_device();
-int mnt_mounted();
-void set_mnt_device(const char* name);
-void set_mnt_mounted(int val);
+// The VFS owns the /mnt mount state.
+bool mnt_mounted();
 
 int build_path(const char* filename, int use_mnt, char* out, size_t out_size);
 

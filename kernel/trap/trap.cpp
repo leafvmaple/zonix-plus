@@ -14,19 +14,14 @@
 #include "debug/assert.h"
 #include <abi/process.h>
 
-namespace timer {
-extern volatile int64_t ticks;
-}
-
 namespace trap {
 
 uint64_t uptime_ms() {
-    constexpr unsigned int tick_ms = 10;  // The hardware backends tick at 100 Hz.
-    return static_cast<uint64_t>(timer::ticks) * tick_ms;
+    return Clock::ticks() * Clock::TICK_MS;
 }
 
 void handle_timer_tick() {
-    timer::ticks = timer::ticks + 1;
+    Clock::ticks_ = Clock::ticks_ + 1;
     sched::tick();
     fbcons::tick();
     virtio_net::tick();

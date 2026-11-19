@@ -13,6 +13,21 @@ inline constexpr uint32_t PAGE_FAULT_EXECUTE = 1U << 4;
 
 void handle_timer_tick();
 uint64_t uptime_ms();
+
+// Counts timer interrupts since boot.
+class Clock {
+public:
+    // The hardware backends tick at 100 Hz.
+    static constexpr unsigned int TICK_MS = 10;
+
+    static uint64_t ticks() { return ticks_; }
+
+private:
+    friend void handle_timer_tick();
+
+    inline static volatile uint64_t ticks_{};
+};
+
 int handle_page_fault(TrapFrame* tf, uint32_t err, uintptr_t fault_addr);
 bool handle_syscall(TrapFrame* tf);
 

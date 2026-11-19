@@ -24,42 +24,8 @@
 inline constexpr uintptr_t pte_addr(uintptr_t pte) {
     return pte & PTE_ADDR_MASK;
 }
-inline constexpr uintptr_t pde_addr(uintptr_t pde) {
-    return pte_addr(pde);
-}
 
-inline constexpr uintptr_t pg_off(uintptr_t va) {
-    return va & PG_MASK;
-}
-
-inline constexpr uintptr_t virt_to_phys(uintptr_t kva) {
-    return kva - KERNEL_BASE;
-}
-
-template<typename T>
-inline uintptr_t virt_to_phys(T* kva) {
-    return reinterpret_cast<uintptr_t>(kva) - KERNEL_BASE;
-}
-
-template<typename T = void>
-inline T* phys_to_virt(uintptr_t pa) {
-    return reinterpret_cast<T*>(pa + KERNEL_BASE);
-}
-
-template<typename Callback>
-inline void iterate_pages(uintptr_t va, size_t size, Callback&& func) {
-    while (size > 0) {
-        size_t offset = va & PG_MASK;
-        size_t chunk = PG_SIZE - offset;
-        if (chunk > size) {
-            chunk = size;
-        }
-
-        func(va, chunk);
-
-        va += chunk;
-        size -= chunk;
-    }
-}
+// virt_to_phys, phys_to_virt and iterate_pages are shared by all architectures.
+#include <kernel/address.h>
 
 #endif /* !__ASSEMBLY__ */
