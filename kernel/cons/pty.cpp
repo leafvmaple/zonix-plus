@@ -1,4 +1,5 @@
 #include "pty.h"
+#include "cons/job_control.h"
 #include "drivers/intr.h"
 #include "fs/readiness.h"
 #include "sched/sched.h"
@@ -71,10 +72,10 @@ public:
         if (parent->pty_session() != this) {
             ENSURE(parent->pid == owner_pid_ && controller_pid_ == 0 && !foreground, Error::Access);
             controller_pid_ = foreground_pid_ = child->pid;
-        } else if (parent->console_job() != 0 || (foreground && job_owner_pid_ != 0)) {
-            ENSURE(parent->console_job() == job_owner_pid_ || parent->pid == job_owner_pid_, Error::Access);
-            ENSURE(!job_cancelled_, Error::Interrupted);
-            child->set_console_job(job_owner_pid_);
+        } else if (parent->console_job() != 0 || (foreground && job_.active())) {
+            ENSURE(parent->console_job() == job_.owner() || parent->pid == job_.owner(), Error::Access);
+            ENSURE(!job_.cancelled(), Error::Interrupted);
+            child->set_console_job(job_.owner());
         } else if (foreground) {
             ENSURE(parent->pid == foreground_pid_, Error::Access);
             TRY(check_interrupt());
@@ -91,13 +92,7 @@ public:
             hangup(task->pid);
             return;
         }
-        if (task->pid == job_owner_pid_) {
-            TaskManager::interrupt_job(job_owner_pid_);
-            job_owner_pid_ = 0;
-            job_cancelled_ = job_interrupted_ = false;
-        }
-        if (task->console_job() != 0)
-            job_done_.wakeup_all();
+        job_.task_exited(task);
         if (task->pid == raw_owner_pid_)
             release_raw();
         if (task->pid == foreground_pid_) {
@@ -113,7 +108,7 @@ public:
         closed_ = true;
         input_ready_.wakeup_all();
         output_space_.wakeup_all();
-        job_done_.wakeup_all();
+        job_.wake();
         fd::Readiness::notify();
         TaskManager::interrupt_pty(this, except_pid);
     }
@@ -136,27 +131,18 @@ public:
         ENSURE(!closed_ && task->pty_session() == this, Error::Access);
         if (action == TERMINAL_JOB_BEGIN) {
             ENSURE(task->pid == foreground_pid_, Error::Access);
-            ENSURE(job_owner_pid_ == 0 && raw_owner_pid_ == 0, Error::Busy);
+            ENSURE(!job_.active() && raw_owner_pid_ == 0, Error::Busy);
             TRY(check_interrupt());
-            job_owner_pid_ = task->pid;
-            job_cancelled_ = job_interrupted_ = false;
+            job_.begin(task->pid);
             return Error::None;
         }
-        ENSURE(job_owner_pid_ == task->pid, Error::Access);
+        ENSURE(job_.owner() == task->pid, Error::Access);
         if (action == TERMINAL_JOB_CANCEL) {
-            job_cancelled_ = true;
-            TaskManager::interrupt_job(job_owner_pid_);
+            job_.cancel();
             return Error::None;
         }
         ENSURE(action == TERMINAL_JOB_END, Error::Invalid);
-        while (TaskManager::has_live_job(job_owner_pid_)) {
-            ENSURE(!closed_ && !task->termination_requested(), Error::Interrupted);
-            job_done_.sleep();
-        }
-        bool interrupted = job_interrupted_;
-        job_owner_pid_ = 0;
-        job_cancelled_ = job_interrupted_ = false;
-        return interrupted ? Error::Interrupted : Error::None;
+        return job_.end([this, task] { return closed_ || task->termination_requested(); });
     }
 
     Result<int> read_input(void* buffer, size_t count) {
@@ -166,7 +152,7 @@ public:
             ENSURE(!task->termination_requested(), Error::Interrupted);
             if (closed_)
                 return 0;
-            ENSURE(task->pty_session() == this && is_foreground(task) && task->pid != job_owner_pid_ &&
+            ENSURE(task->pty_session() == this && is_foreground(task) && task->pid != job_.owner() &&
                        (raw_owner_pid_ == 0 || raw_owner_pid_ == task->pid),
                    Error::Access);
             if (input_.size() != 0) {
@@ -188,9 +174,8 @@ public:
         if (count == 1 && bytes[0] == 3) {
             input_.clear();
             fd::Readiness::notify();
-            if (job_owner_pid_ != 0 && raw_owner_pid_ == 0) {
-                job_cancelled_ = job_interrupted_ = true;
-                TaskManager::interrupt_job(job_owner_pid_);
+            if (job_.active() && raw_owner_pid_ == 0) {
+                job_.interrupt();
                 return 1;
             }
             if (foreground_pid_ != controller_pid_ && raw_owner_pid_ != foreground_pid_) {
@@ -242,19 +227,16 @@ private:
     TerminalSize size_;
     int controller_pid_{};
     int foreground_pid_{};
-    int job_owner_pid_{};
     int raw_owner_pid_{};
     bool closed_{};
-    bool job_cancelled_{};
-    bool job_interrupted_{};
+    JobControl job_;
     Bytes<256> input_;
     Bytes<4096> output_;
     WaitQueue input_ready_;
     WaitQueue output_space_;
-    WaitQueue job_done_;
 
     bool is_foreground(const Task* task) const {
-        return task->pid == foreground_pid_ || (job_owner_pid_ != 0 && task->console_job() == job_owner_pid_);
+        return task->pid == foreground_pid_ || job_.includes(task);
     }
     Error check_interrupt() {
         if (!input_.has(3))

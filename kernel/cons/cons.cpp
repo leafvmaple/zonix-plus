@@ -1,4 +1,5 @@
 #include "cons/cons.h"
+#include "cons/job_control.h"
 #include "cons/terminal.h"
 #include <base/keyboard.h>
 #include "drivers/fbcons.h"
@@ -50,10 +51,8 @@ public:
         if (c == 3) {
             // Discard pending input on interruption, even when the ring is full.
             read_ = write_;
-            if (job_owner_pid_ != 0 && raw_owner_pid_ == 0) {
-                job_cancelled_ = true;
-                job_interrupted_ = true;
-                TaskManager::interrupt_job(job_owner_pid_);
+            if (job_.active() && raw_owner_pid_ == 0) {
+                job_.interrupt();
                 return;
             }
             if (foreground_pid_ != 0 && foreground_pid_ != controller_pid_ && raw_owner_pid_ != foreground_pid_) {
@@ -128,7 +127,7 @@ public:
         ENSURE(task && task != TaskManager::init_task() && task->memory() &&
                    task->memory() != &vmm::Manager::kernel_mm() && task->pid == foreground_pid_,
                Error::Access);
-        ENSURE(!display_file_ && raw_owner_pid_ == 0 && job_owner_pid_ == 0, Error::Busy);
+        ENSURE(!display_file_ && raw_owner_pid_ == 0 && !job_.active(), Error::Busy);
         ENSURE(fbcons::is_active(), Error::NoDevice);
         ENSURE(!task->termination_requested(), Error::Interrupted);
         display_file_ = owner;
@@ -185,8 +184,8 @@ public:
             intr::Guard guard;
             Task* task = sched::current();
             ENSURE(!task || !task->termination_requested(), Error::Interrupted);
-            ENSURE(!task || (job_owner_pid_ == 0 && foreground_pid_ == 0) ||
-                       (is_foreground(task) && task->pid != job_owner_pid_),
+            ENSURE(!task || (!job_.active() && foreground_pid_ == 0) ||
+                       (is_foreground(task) && task->pid != job_.owner()),
                    Error::Access);
             ENSURE(!display_events_ && (!task || raw_owner_pid_ == 0 || task->pid == raw_owner_pid_), Error::Access);
             if (read_ != write_) {
@@ -206,45 +205,34 @@ public:
         intr::Guard guard;
         if (action == TERMINAL_JOB_BEGIN) {
             ENSURE(task->pid == foreground_pid_, Error::Access);
-            ENSURE(job_owner_pid_ == 0 && raw_owner_pid_ == 0 && !display_file_, Error::Busy);
+            ENSURE(!job_.active() && raw_owner_pid_ == 0 && !display_file_, Error::Busy);
             TRY(check_interrupt(task));
-            job_owner_pid_ = task->pid;
-            job_cancelled_ = false;
-            job_interrupted_ = false;
+            job_.begin(task->pid);
             return Error::None;
         }
-        ENSURE(job_owner_pid_ == task->pid, Error::Access);
+        ENSURE(job_.owner() == task->pid, Error::Access);
         if (action == TERMINAL_JOB_CANCEL) {
-            job_cancelled_ = true;
-            TaskManager::interrupt_job(job_owner_pid_);
+            job_.cancel();
             return Error::None;
         }
         ENSURE(action == TERMINAL_JOB_END, Error::Invalid);
-        while (TaskManager::has_live_job(job_owner_pid_)) {
-            ENSURE(!task->termination_requested(), Error::Interrupted);
-            job_done_.sleep();
-        }
-        bool interrupted = job_interrupted_;
-        job_owner_pid_ = 0;
-        job_cancelled_ = false;
-        job_interrupted_ = false;
-        return interrupted ? Error::Interrupted : Error::None;
+        return job_.end([task] { return task->termination_requested(); });
     }
 
     static Error prepare_spawn(Task* parent, Task* child, bool foreground) {
         if (parent && parent->console_job() != 0) {
-            ENSURE(parent->console_job() == job_owner_pid_, Error::Access);
-            ENSURE(!parent->termination_requested() && !job_cancelled_, Error::Interrupted);
-            child->set_console_job(job_owner_pid_);
+            ENSURE(parent->console_job() == job_.owner(), Error::Access);
+            ENSURE(!parent->termination_requested() && !job_.cancelled(), Error::Interrupted);
+            child->set_console_job(job_.owner());
             return Error::None;
         }
         if (!foreground)
             return Error::None;
         ENSURE(parent && child, Error::Invalid);
-        if (job_owner_pid_ != 0) {
-            ENSURE(parent->pid == job_owner_pid_, Error::Access);
-            ENSURE(!parent->termination_requested() && !job_cancelled_, Error::Interrupted);
-            child->set_console_job(job_owner_pid_);
+        if (job_.active()) {
+            ENSURE(parent->pid == job_.owner(), Error::Access);
+            ENSURE(!parent->termination_requested() && !job_.cancelled(), Error::Interrupted);
+            child->set_console_job(job_.owner());
             return Error::None;
         }
         return handoff(parent, child);
@@ -276,14 +264,7 @@ public:
     static void task_exited(Task* task) {
         if (task->pid == display_owner_pid_)
             release_display(display_file_);
-        if (task->pid == job_owner_pid_) {
-            TaskManager::interrupt_job(job_owner_pid_);
-            job_owner_pid_ = 0;
-            job_cancelled_ = false;
-            job_interrupted_ = false;
-        }
-        if (task->console_job() != 0)
-            job_done_.wakeup_all();
+        job_.task_exited(task);
         if (task->pid == raw_owner_pid_)
             release_raw();
         if (task->pid == controller_pid_) {
@@ -312,7 +293,7 @@ private:
     }
 
     static bool is_foreground(Task* task) {
-        return task->pid == foreground_pid_ || (job_owner_pid_ != 0 && task->console_job() == job_owner_pid_);
+        return task->pid == foreground_pid_ || job_.includes(task);
     }
     static Error check_interrupt(Task* task) {
         ENSURE(!task->termination_requested(), Error::Interrupted);
@@ -357,10 +338,7 @@ private:
     inline static sys::array<char, 1024> deferred_{};
     inline static size_t deferred_count_{};
     inline static bool deferred_overflow_{};
-    inline static int job_owner_pid_{};
-    inline static bool job_cancelled_{};
-    inline static bool job_interrupted_{};
-    inline static WaitQueue job_done_{};
+    inline static JobControl job_{};
     inline static int raw_owner_pid_{};
     inline static bool skip_lf_{};
     inline static int controller_pid_{};
