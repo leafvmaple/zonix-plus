@@ -112,6 +112,30 @@ void test_cancel_blocked_input() {
                 "User termination cannot kill a kernel task");
     TEST_END();
 }
+void test_pty_job_control() {
+    TEST_START("P1-1: pseudo-terminal data path and foreground job control");
+    auto args = arguments("pty");
+    TEST_ASSERT(args.ok(), "Prepared pseudo-terminal driver arguments");
+    if (!args.ok()) {
+        TEST_END();
+        return;
+    }
+    const size_t before_pages = pmm::free_page_count();
+    const int before_tasks = TaskManager::process_count();
+    auto driver = exec::spawn(PROGRAM, *args.value());
+    TEST_ASSERT(driver.ok(), "Started the pseudo-terminal driver");
+    if (driver.ok()) {
+        int code = -1;
+        auto waited = sched::wait(driver.value(), &code);
+        if (code != 0)
+            cprintf("P1-1 pty: driver exit code %d\n", code);
+        TEST_ASSERT(waited.ok() && code == 0,
+                    "Output, resize, Ctrl-C, cancel, input delivery and hangup behave in user mode");
+    }
+    TEST_ASSERT(TaskManager::process_count() == before_tasks, "The session leaves no tasks behind");
+    TEST_ASSERT(pmm::free_page_count() == before_pages, "The session and its tasks return all pages");
+    TEST_END();
+}
 }  // namespace
 
 namespace lifecycle_test {
@@ -119,6 +143,7 @@ void test() {
     tests_passed = tests_failed = 0;
     test_user_lifecycle();
     test_cancel_blocked_input();
+    test_pty_job_control();
     TEST_SUMMARY("P1-1 user lifecycle");
 }
 bool run_e2e() {

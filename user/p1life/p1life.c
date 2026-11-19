@@ -31,11 +31,160 @@ int child(char* mode) {
     return 91;
 }
 
+/* Runs as the shell of a pseudo-terminal session, with the terminal as its
+ * standard streams. Each step that goes wrong has its own exit code. A single
+ * letter written to the terminal tells the driver what to do next. */
+int pty_shell(char* self) {
+    char c;
+    int status = 0;
+    char* reader[3] = {self, "read", 0};
+    long pid;
+
+    /* The driver interrupts this job with Ctrl-C. */
+    if (sys_ioctl(STDERR_FD, TERMINAL_JOB, TERMINAL_JOB_BEGIN) != 0)
+        return 60;
+    if (sys_read(STDIN_FD, &c, 1) >= 0)
+        return 61; /* The owner must not take the job's input. */
+    pid = sys_spawn_foreground(self, 2, reader);
+    if (pid <= 0 || sys_write(STDOUT_FD, "R", 1) != 1)
+        return 62;
+    if (sys_wait((int)pid, &status) != pid || status != PROCESS_STATUS_KILLED)
+        return 63;
+    if (sys_ioctl(STDERR_FD, TERMINAL_JOB, TERMINAL_JOB_END) != SYS_ERROR_INTERRUPTED)
+        return 64;
+
+    /* The shell cancels this job itself, which is not reported as an interrupt. */
+    if (sys_ioctl(STDERR_FD, TERMINAL_JOB, TERMINAL_JOB_BEGIN) != 0)
+        return 65;
+    pid = sys_spawn_foreground(self, 2, reader);
+    if (pid <= 0)
+        return 66;
+    if (sys_ioctl(STDERR_FD, TERMINAL_JOB, TERMINAL_JOB_CANCEL) != 0)
+        return 67;
+    if (sys_spawn_foreground(self, 2, reader) != SYS_ERROR_INTERRUPTED)
+        return 68; /* A cancelled job accepts no more tasks. */
+    if (sys_wait((int)pid, &status) != pid || status != PROCESS_STATUS_KILLED)
+        return 69;
+    if (sys_ioctl(STDERR_FD, TERMINAL_JOB, TERMINAL_JOB_END) != 0)
+        return 70;
+
+    /* The job's task reads the byte the driver types. */
+    if (sys_ioctl(STDERR_FD, TERMINAL_JOB, TERMINAL_JOB_BEGIN) != 0)
+        return 71;
+    pid = sys_spawn_foreground(self, 2, reader);
+    if (pid <= 0 || sys_write(STDOUT_FD, "D", 1) != 1)
+        return 72;
+    if (sys_wait((int)pid, &status) != pid || status != 1)
+        return 73;
+    if (sys_ioctl(STDERR_FD, TERMINAL_JOB, TERMINAL_JOB_END) != 0)
+        return 74;
+    if (sys_write(STDOUT_FD, "E", 1) != 1)
+        return 75;
+
+    /* Closing the master ends the session and this task with it. */
+    sys_read(STDIN_FD, &c, 1);
+    return 76;
+}
+
+/* Returns the next byte the session wrote, or -1 once the session has ended. */
+int pty_next(int master) {
+    char c;
+    long mask = 1;
+    for (int i = 0; i < master; i = i + 1)
+        mask = mask * 2;
+    for (;;) {
+        long count = sys_read(master, &c, 1);
+        if (count == 1)
+            return c;
+        if (count == 0 || sys_wait_readable(mask) < 0)
+            return -1;
+    }
+}
+
+/* Opens a pseudo-terminal, checks its data path and drives a shell through
+ * the three ways a foreground job ends. */
+int pty_driver(char* self) {
+    struct TerminalSize size;
+    int ends[2];
+    char data[8];
+    int status = 0;
+    size.rows = 24;
+    size.cols = 80;
+    if (!check(sys_openpty(ends, &size) == 0, "open pseudo-terminal"))
+        return 1;
+    int master = ends[0];
+    int slave = ends[1];
+    if (!check(sys_write(slave, "out", 3) == 3 && sys_read(master, data, 8) == 3 && !memcmp(data, "out", 3),
+               "slave output reaches the master"))
+        return 1;
+    if (!check(sys_read(master, data, 1) < 0, "empty master read does not block"))
+        return 1;
+    size.rows = 0;
+    size.cols = 0;
+    if (!check(sys_ioctl(slave, TERMINAL_GET_SIZE, (long)&size) == 0 && size.rows == 24 && size.cols == 80,
+               "slave reports the size it was opened with"))
+        return 1;
+    size.rows = 30;
+    size.cols = 100;
+    if (!check(sys_ioctl(master, TERMINAL_SET_SIZE, (long)&size) == 0, "master resizes the terminal"))
+        return 1;
+    size.rows = 0;
+    if (!check(sys_ioctl(master, TERMINAL_SET_SIZE, (long)&size) < 0 &&
+                   sys_ioctl(slave, TERMINAL_GET_SIZE, (long)&size) == 0 && size.rows == 30 && size.cols == 100,
+               "invalid size is rejected and the last size kept"))
+        return 1;
+    if (!check(sys_read(slave, data, 1) < 0, "a task outside the session cannot read its input"))
+        return 1;
+    if (!check(sys_ioctl(STDERR_FD, TERMINAL_JOB, TERMINAL_JOB_BEGIN) == SYS_ERROR_ACCESS,
+               "a background task cannot start a console job"))
+        return 1;
+
+    /* The shell gets the terminal as its standard streams. */
+    int in = (int)sys_fcntl(STDIN_FD, F_DUPFD_CLOEXEC, 0);
+    int out = (int)sys_fcntl(STDOUT_FD, F_DUPFD_CLOEXEC, 0);
+    int err = (int)sys_fcntl(STDERR_FD, F_DUPFD_CLOEXEC, 0);
+    char* shell_args[3] = {self, "pty-shell", 0};
+    long shell = -1;
+    if (in >= 0 && out >= 0 && err >= 0 && sys_dup2(slave, STDIN_FD) >= 0 && sys_dup2(slave, STDOUT_FD) >= 0 &&
+        sys_dup2(slave, STDERR_FD) >= 0)
+        shell = sys_spawn(self, 2, shell_args);
+    int restored = sys_dup2(in, STDIN_FD) >= 0 && sys_dup2(out, STDOUT_FD) >= 0 && sys_dup2(err, STDERR_FD) >= 0;
+    sys_close(in);
+    sys_close(out);
+    sys_close(err);
+    if (!check(restored && shell > 0, "start a shell on the pseudo-terminal"))
+        return 1;
+
+    int passed = check(pty_next(master) == 'R', "shell starts a foreground job");
+    data[0] = 3;
+    passed = passed && check(sys_write(master, data, 1) == 1, "master accepts Ctrl-C");
+    passed = passed && check(pty_next(master) == 'D', "Ctrl-C interrupts the job and a cancelled job ends quietly");
+    data[0] = 'x';
+    passed = passed && check(sys_write(master, data, 1) == 1, "master accepts input");
+    passed = passed && check(pty_next(master) == 'E', "input reaches the job's task");
+    sys_close(master);
+    long waited = sys_wait((int)shell, &status);
+    if (!passed) {
+        /* The shell's exit code names the step that failed. */
+        if (waited == shell)
+            return status;
+        return 1;
+    }
+    if (!check(waited == shell && status == PROCESS_STATUS_KILLED, "closing the master ends the session"))
+        return 1;
+    sys_close(slave);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     char* self = "/mnt/P1LIFE.ELF";
     if (argc == 0)
         return 19;
     if (argc > 1) {
+        if (!strcmp(argv[1], "pty"))
+            return pty_driver(self);
+        if (!strcmp(argv[1], "pty-shell"))
+            return pty_shell(self);
         if (!strcmp(argv[1], "child")) {
             if (argc == 4 && !strcmp(argv[0], "custom argv0") && !strcmp(argv[2], "two words") &&
                 !strcmp(argv[3], "") && argv[4] == 0)
