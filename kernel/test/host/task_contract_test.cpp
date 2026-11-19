@@ -78,7 +78,7 @@ public:
         assert(TaskManager::process_count() == 1 && guards_ == 0 && live_ == 8);
         assert(task.memory() == &vmm::Manager::kernel_mm());
         assert(TaskManager::find_process(task.pid) == &task && !parent_.child_list.empty());
-        stack_ = reinterpret_cast<void*>(task.kernel_stack());
+        stack_ = reinterpret_cast<void*>(task.kernel_stack() - PG_SIZE);
     }
     void check_reaped(bool user_memory) {
         assert(live_ == 0 && closed_ == 3 && guards_ == 0 && stack_freed_);
@@ -128,6 +128,19 @@ void* kmalloc(size_t size) {
 }
 void kfree(void* ptr) {
     TaskFixture::active().deallocate(ptr);
+}
+
+// The fixture has no kernel page table, so the guard page stays mapped.
+Result<KernelStack> KernelStack::alloc() {
+    auto block = reinterpret_cast<uintptr_t>(kmalloc(SIZE + PG_SIZE));
+    ENSURE(block != 0, Error::NoMem);
+    return KernelStack(block);
+}
+void KernelStack::release() {
+    if (block_ != 0) {
+        kfree(reinterpret_cast<void*>(block_));
+        block_ = 0;
+    }
 }
 void* operator new(size_t size, const sys::nothrow_t&) noexcept {
     return kmalloc(size ? size : 1);

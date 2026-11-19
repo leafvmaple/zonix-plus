@@ -124,7 +124,11 @@ void arch_on_syscall_entry(TrapFrame* tf) {
 }
 
 void arch_on_unhandled(TrapFrame* tf) {
-    static_cast<void>(tf);
+    if (tf->trapno == T_DBLFLT) {
+        // Running off the stack faults on a push, which cannot be delivered on
+        // that same stack. CR2 still holds the address the push touched.
+        check_stack_overflow(rcr2());
+    }
 }
 
 void arch_post_dispatch(TrapFrame* tf) {

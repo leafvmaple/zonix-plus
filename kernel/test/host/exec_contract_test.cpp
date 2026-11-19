@@ -197,6 +197,19 @@ void* kmalloc(size_t size) {
 void kfree(void* ptr) {
     ExecFixture::current().deallocate(ptr);
 }
+
+// The fixture has no kernel page table, so the guard page stays mapped.
+Result<KernelStack> KernelStack::alloc() {
+    auto block = reinterpret_cast<uintptr_t>(kmalloc(SIZE + PG_SIZE));
+    ENSURE(block != 0, Error::NoMem);
+    return KernelStack(block);
+}
+void KernelStack::release() {
+    if (block_ != 0) {
+        kfree(reinterpret_cast<void*>(block_));
+        block_ = 0;
+    }
+}
 void* operator new(size_t size, const sys::nothrow_t&) noexcept {
     return kmalloc(size);
 }

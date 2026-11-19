@@ -228,6 +228,11 @@ P0-2 shutdown/reboot regressions run on temporary disk copies after building
 `python3 scripts/test_shutdown_qemu.py x86 --boot uefi`, or the same script with
 `aarch64` / `riscv64`. Logs remain under `obj/<arch>/shutdown-<boot>/`.
 
+Every kernel stack has an unmapped guard page below it. `python3
+scripts/test_stack_guard_qemu.py <arch> [--boot bios|uefi]` boots a `TEST=1` image
+with a thread that recurses off its stack and expects the kernel to stop with a
+`kernel stack overflow` panic naming the task.
+
 ### Debug & Test
 | Command | Description |
 |---------|-------------|

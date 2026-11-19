@@ -220,11 +220,17 @@ python3 scripts/test_shutdown_qemu.py x86 --boot bios --unsupported
 python3 scripts/test_shutdown_qemu.py x86 --boot uefi
 python3 scripts/test_shutdown_qemu.py aarch64
 python3 scripts/test_shutdown_qemu.py riscv64
+python3 scripts/test_stack_guard_qemu.py x86 --boot bios
+python3 scripts/test_stack_guard_qemu.py x86 --boot uefi
+python3 scripts/test_stack_guard_qemu.py aarch64
+python3 scripts/test_stack_guard_qemu.py riscv64
 make ARCH=x86 TEST=0 && python3 scripts/test_console_qemu.py x86
 make ARCH=aarch64 TEST=0 && python3 scripts/test_console_qemu.py aarch64
 make ARCH=riscv64 TEST=0 && python3 scripts/test_console_qemu.py riscv64
 ```
 
+The shutdown and stack-guard checks need the `TEST=1` images, so run them
+before the console checks rebuild with `TEST=0`.
 The console checks boot the production system with its real init and shell, so
 they also leave the tree built with `TEST=0`. Report which of these ran and
 their results.

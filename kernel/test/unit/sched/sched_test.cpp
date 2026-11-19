@@ -1,5 +1,6 @@
 #include "sched/sched.h"
 #include "mm/vmm.h"
+#include "mm/page_table.h"
 #include "drivers/intr.h"
 #include "lib/stdio.h"
 #include "lib/memory.h"
@@ -309,6 +310,38 @@ static void test_idle_init_processes() {
 }
 
 // ============================================================================
+// Unit Tests - Kernel Stack Guard
+// ============================================================================
+
+static bool kernel_page_mapped(uintptr_t address) {
+    pte_t* entry = pmm::get_pte(vmm::Manager::kernel_pgdir(), address, false);
+    return entry && pte_present(*entry);
+}
+
+static void test_kernel_stack_guard() {
+    TEST_START("Kernel stack guard page");
+
+    const size_t free_before = pmm::free_page_count();
+    Task* task = new Task();
+    TEST_ASSERT(task->setup_kernel_stack() == Error::None, "Allocated a kernel stack");
+    const uintptr_t stack = TaskAccess::kernel_stack(task);
+    const uintptr_t guard = stack - PG_SIZE;
+
+    TEST_ASSERT(!kernel_page_mapped(guard), "The page below the stack is unmapped");
+    TEST_ASSERT(kernel_page_mapped(stack) && kernel_page_mapped(stack + Task::KSTACK_SIZE - PG_SIZE),
+                "The stack itself stays mapped");
+    TEST_ASSERT(task->stack_guard_contains(guard) && task->stack_guard_contains(stack - 1) &&
+                    !task->stack_guard_contains(stack) && !task->stack_guard_contains(guard - 1),
+                "Only that page is reported as the guard");
+
+    delete task;
+    TEST_ASSERT(kernel_page_mapped(guard), "Releasing the stack maps the page again");
+    TEST_ASSERT(pmm::free_page_count() == free_before, "The stack and its guard return to the allocator");
+
+    TEST_END();
+}
+
+// ============================================================================
 // Unit Tests - Process Destruction
 // ============================================================================
 
@@ -419,6 +452,7 @@ void test() {
     test_hash_table();
     test_parent_child_relationships();
     test_idle_init_processes();
+    test_kernel_stack_guard();
     test_process_destruction();
 
     test_policy_removal_and_current();

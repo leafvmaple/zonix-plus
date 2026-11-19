@@ -7,7 +7,7 @@
 #include <sys/intrusive_list.hpp>
 #include <sys/array.hpp>
 #include "lib/result.h"
-#include "lib/kernel_buffer.h"
+#include "sched/kernel_stack.h"
 #include "fs/fd.h"
 #include "cons/pty.h"
 #include "mm/vmm.h"
@@ -42,9 +42,8 @@ struct ProcessInfo;
 // Process control block - modeling Linux's task_struct
 struct Task {
     // One page was too small: starting a program from a pipeline on aarch64
-    // ran past it into the neighbouring page. Stacks have no guard page, so an
-    // overflow is silent; keep generous headroom.
-    static constexpr size_t KSTACK_SIZE = 16384;
+    // ran past it. KernelStack puts a guard page below, so an overflow faults.
+    static constexpr size_t KSTACK_SIZE = KernelStack::SIZE;
 
     Task() = default;
     ~Task();
@@ -59,7 +58,7 @@ private:
     char cwd_[128]{"/"};
     char name_[32]{};            // Process name
     Context context_{};          // Process context for switching
-    KernelBuffer kernel_stack_;  // Owned dynamic stack
+    KernelStack kernel_stack_;   // Owned dynamic stack
     uintptr_t boot_stack_{};     // Borrowed permanent boot stack
     sys::unique_ptr<MemoryDesc> owned_memory_;
     MemoryDesc* borrowed_memory_{};
@@ -107,6 +106,7 @@ public:
     void mark_running();
     void mark_zombie(int code);
     void set_name(const char* name);
+    [[nodiscard]] const char* name() const { return name_; }
     const char* cwd() const { return cwd_; }
     void set_cwd(const char* path);
     [[nodiscard]] TaskState state() const { return state_; }
@@ -120,8 +120,10 @@ public:
     // Only an unpublished or non-running child may receive a prepared address space.
     void adopt_memory(sys::unique_ptr<MemoryDesc> memory);
     [[nodiscard]] uintptr_t kernel_stack() const {
-        return kernel_stack_.empty() ? boot_stack_ : reinterpret_cast<uintptr_t>(kernel_stack_.data());
+        return kernel_stack_.empty() ? boot_stack_ : kernel_stack_.base();
     }
+    // Whether the address is in the unmapped page below this task's stack.
+    [[nodiscard]] bool stack_guard_contains(uintptr_t address) const { return kernel_stack_.guards(address); }
     void copy_thread(uintptr_t stack_pointer, TrapFrame* src_tf);
     void setup_user_thread(uintptr_t entry, uintptr_t stack);
     Error setup_kernel_stack();
@@ -241,7 +243,7 @@ inline Task::~Task() {
     assert(this != Scheduler::current());
     assert(!list_node.is_linked() && !hash_node.is_linked() && !child_node.is_linked() && child_list.empty());
     files_.close_all();
-    kernel_stack_ = KernelBuffer{};
+    kernel_stack_ = KernelStack{};
     // owned_memory_ releases the address space after files and stack; borrows are untouched.
 }
 

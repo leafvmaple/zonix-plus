@@ -122,6 +122,9 @@ jobs:
       - name: Verify shutdown and reboot persistence
         run: python3 scripts/test_shutdown_qemu.py x86 --boot bios --unsupported
 
+      - name: Verify the kernel stack guard page
+        run: python3 scripts/test_stack_guard_qemu.py x86 --boot bios
+
   # ======================================================================
   # Job 5: Unit tests in QEMU (UEFI boot)
   # ======================================================================
@@ -155,6 +158,9 @@ jobs:
 
       - name: Verify shutdown and reboot persistence
         run: python3 scripts/test_shutdown_qemu.py x86 --boot uefi
+
+      - name: Verify the kernel stack guard page
+        run: python3 scripts/test_stack_guard_qemu.py x86 --boot uefi
 
       - name: Verify console job control on the production system
         run: |
@@ -194,6 +200,9 @@ jobs:
 
       - name: Verify shutdown and reboot persistence
         run: python3 scripts/test_shutdown_qemu.py aarch64
+
+      - name: Verify the kernel stack guard page
+        run: python3 scripts/test_stack_guard_qemu.py aarch64
 
       - name: Verify console job control on the production system
         run: |
@@ -256,6 +265,9 @@ jobs:
 
       - name: Verify shutdown and reboot persistence
         run: python3 scripts/test_shutdown_qemu.py riscv64
+
+      - name: Verify the kernel stack guard page
+        run: python3 scripts/test_stack_guard_qemu.py riscv64
 
       - name: Verify console job control on the production system
         run: |

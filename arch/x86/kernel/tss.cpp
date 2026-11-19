@@ -25,9 +25,12 @@ namespace {
 class Tss {
 public:
     static TssDesc& segment() { return segment_; }
+    static uintptr_t fault_stack_top() { return reinterpret_cast<uintptr_t>(fault_stack_) + sizeof(fault_stack_); }
 
 private:
     inline static TssDesc segment_{};
+    // A double fault means the current stack is unusable, so it runs here.
+    alignas(16) inline static uint8_t fault_stack_[8192]{};
 };
 
 }  // namespace
@@ -41,6 +44,8 @@ int init() {
     // I/O permission bitmap offset — point past the end of the TSS
     // so that all ports are trapped (no direct user I/O).
     segment.iopb_offset = sizeof(TssDesc);
+    static_assert(tss::FAULT_IST == 1);
+    segment.ist1 = Tss::fault_stack_top();
 
     // --- Build the 16-byte TSS descriptor in GDT slots 5 and 6 ---
     uintptr_t base = reinterpret_cast<uintptr_t>(&segment);

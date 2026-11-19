@@ -117,46 +117,57 @@ def boot(command, directory, log, expected, recovery=False):
             print(diagnostic.strip(), flush=True)
 
 
-def run(arch, mode, unsupported):
+def prepare(arch, mode, directory):
+    """Copies the TEST=1 images into `directory`.
+
+    Returns the QEMU command, the image the kernel boots from, every image
+    whose root directory the guest can see, and the offset of the FAT volume
+    inside those images.
+    """
     build = Path(os.environ.get("BINDIR", ROOT / "bin" / arch))
+    offset = 512 if mode == "bios" else 1024 * 1024
+    system = copy_image(build / ("zonix.img" if mode == "bios" else "zonix-uefi.img"), directory)
+    command = [f"qemu-system-{'x86_64' if arch == 'x86' else arch}"]
+    roots = [system]
+    if arch == "x86":
+        command += ["-m", "128M" if mode == "bios" else "256M"]
+        if mode == "bios":
+            command += ["-drive", f"file={system},format=raw,cache=writeback,if=ide,index=0",
+                        "-device", "ahci,id=ahci0"]
+        else:
+            combined = directory / "firmware.fd"
+            subprocess.run(["bash", str(ROOT / "scripts/qemu_firmware.sh"),
+                            "x86-bios", firmware("x86"), str(combined)], check=True)
+            command += ["-bios", str(combined), "-device", "ahci,id=ahci0", "-drive",
+                        f"file={system},format=raw,cache=writeback,if=none,id=sys",
+                        "-device", "ide-hd,bus=ahci0.0,drive=sys,bootindex=0"]
+        if (build / "userdata.img").exists():
+            data = copy_image(build / "userdata.img", directory)
+            command += ["-drive", f"file={data},format=raw,cache=writeback,if=none,id=data0",
+                        "-device", "ide-hd,bus=ahci0.1,drive=data0"]
+    else:
+        card = copy_image(build / "sdcard.img", directory)
+        roots.append(card)
+        command += ["-M", "virt", "-cpu", "cortex-a72" if arch == "aarch64" else "rv64", "-m", "256M"]
+        if arch == "aarch64":
+            command += ["-bios", firmware(arch)]
+        else:
+            variables = copy_image(Path(firmware("riscv64-vars")), directory)
+            command += ["-drive", f"if=pflash,format=raw,unit=0,file={firmware(arch)},readonly=on",
+                        "-drive", f"if=pflash,format=raw,unit=1,file={variables}"]
+        command += ["-drive", f"file={system},format=raw,cache=writeback,if=none,id=sys",
+                    "-device", "virtio-blk-pci,drive=sys", "-drive",
+                    f"file={card},format=raw,cache=writeback,if=none,id=sdcard",
+                    "-device", "sdhci-pci", "-device", "sd-card,drive=sdcard"]
+    return command, system, roots, offset
+
+
+def run(arch, mode, unsupported):
     logs = ROOT / "obj" / arch / f"shutdown-{mode}"
     logs.mkdir(parents=True, exist_ok=True)
-    offset = 512 if mode == "bios" else 1024 * 1024
     with tempfile.TemporaryDirectory(prefix="zxp02-", dir="/tmp") as temporary:
         directory = Path(temporary)
-        system = copy_image(build / ("zonix.img" if mode == "bios" else "zonix-uefi.img"), directory)
-        command = [f"qemu-system-{'x86_64' if arch == 'x86' else arch}"]
-        roots = [system]
-        if arch == "x86":
-            command += ["-m", "128M" if mode == "bios" else "256M"]
-            if mode == "bios":
-                command += ["-drive", f"file={system},format=raw,cache=writeback,if=ide,index=0",
-                            "-device", "ahci,id=ahci0"]
-            else:
-                combined = directory / "firmware.fd"
-                subprocess.run(["bash", str(ROOT / "scripts/qemu_firmware.sh"),
-                                "x86-bios", firmware("x86"), str(combined)], check=True)
-                command += ["-bios", str(combined), "-device", "ahci,id=ahci0", "-drive",
-                            f"file={system},format=raw,cache=writeback,if=none,id=sys",
-                            "-device", "ide-hd,bus=ahci0.0,drive=sys,bootindex=0"]
-            if (build / "userdata.img").exists():
-                data = copy_image(build / "userdata.img", directory)
-                command += ["-drive", f"file={data},format=raw,cache=writeback,if=none,id=data0",
-                            "-device", "ide-hd,bus=ahci0.1,drive=data0"]
-        else:
-            card = copy_image(build / "sdcard.img", directory)
-            roots.append(card)
-            command += ["-M", "virt", "-cpu", "cortex-a72" if arch == "aarch64" else "rv64", "-m", "256M"]
-            if arch == "aarch64":
-                command += ["-bios", firmware(arch)]
-            else:
-                variables = copy_image(Path(firmware("riscv64-vars")), directory)
-                command += ["-drive", f"if=pflash,format=raw,unit=0,file={firmware(arch)},readonly=on",
-                            "-drive", f"if=pflash,format=raw,unit=1,file={variables}"]
-            command += ["-drive", f"file={system},format=raw,cache=writeback,if=none,id=sys",
-                        "-device", "virtio-blk-pci,drive=sys", "-drive",
-                        f"file={card},format=raw,cache=writeback,if=none,id=sdcard",
-                        "-device", "sdhci-pci", "-device", "sd-card,drive=sdcard"]
+        command, system, roots, offset = prepare(arch, mode, directory)
         marker = directory / "mode"
         for phase in ("write", "verify"):
             marker.write_text(phase)

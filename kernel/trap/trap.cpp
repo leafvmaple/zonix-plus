@@ -45,6 +45,13 @@ int handle_page_fault(TrapFrame* tf, uint32_t err, uintptr_t fault_va) {
     return vmm::pg_fault(current->memory(), err, fault_va);
 }
 
+void check_stack_overflow(uintptr_t address) {
+    Task* current = sched::current();
+    if (current && current->stack_guard_contains(address)) {
+        PANIC("kernel stack overflow in task %d (%s)", current->pid, current->name());
+    }
+}
+
 bool handle_syscall(TrapFrame* tf) {
     if (!tf) {
         return false;
@@ -74,6 +81,7 @@ extern "C" void trap_dispatch(TrapFrame* tf) {
             if (err & 4) {
                 sched::exit(-1);
             }
+            trap::check_stack_overflow(fault_va);
             PANIC("unrecoverable kernel page fault at 0x%lx", fault_va);
         }
         trap::arch_post_dispatch(tf);

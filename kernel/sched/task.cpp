@@ -85,7 +85,7 @@ void Task::setup_user_thread(uintptr_t entry, uintptr_t stack) {
 
 Error Task::setup_kernel_stack() {
     ENSURE(kernel_stack_.empty() && boot_stack_ == 0, Error::Busy);
-    kernel_stack_ = TRY(KernelBuffer::alloc(KSTACK_SIZE));
+    kernel_stack_ = TRY(KernelStack::alloc());
     return Error::None;
 }
 
