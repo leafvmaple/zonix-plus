@@ -79,8 +79,7 @@ private:
         const auto& palette = grid_.palette_;
         if (selected_ || isPressed())
             palette.frame(renderer, world, {0.f, 0.f, CELL_WIDTH, CELL_HEIGHT}, control_style::PANEL_RADIUS,
-                          isPressed() ? Color::Pressed : Color::Selected,
-                          isPressed() ? Color::Border : Color::SelectedBorder);
+                          isPressed() ? Color::Pressed : Color::Control, Color::Border);
 
         auto shape = [&](zocos::Rect area, float radius, Color color) {
             palette.round_box(renderer, world, area, radius, color);

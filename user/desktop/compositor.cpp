@@ -26,15 +26,15 @@ struct CornerMask {
     constexpr int at(int x, int y) const { return x < RADIUS && y < RADIUS ? alpha[y][x] : 255; }
 };
 
-constexpr int CORNER_RADIUS = 6;
+constexpr int CORNER_RADIUS = 10;
 constexpr CornerMask<CORNER_RADIUS> OUTER_CORNER{};
 constexpr CornerMask<CORNER_RADIUS - 1> INNER_CORNER{};
 // The shadow is the window's outline moved down and faded over the blur distance.
-constexpr int SHADOW_OFFSET = 4;
-constexpr int SHADOW_BLUR = 12;
+constexpr int SHADOW_OFFSET = 8;
+constexpr int SHADOW_BLUR = 28;
 constexpr int SHADOW_MARGIN = SHADOW_BLUR + SHADOW_OFFSET;
-constexpr int SHADOW_FOCUSED = 128;
-constexpr int SHADOW_UNFOCUSED = 72;
+constexpr int SHADOW_FOCUSED = 132;
+constexpr int SHADOW_UNFOCUSED = 64;
 // How far an unfocused title bar moves towards theme::TITLE_INACTIVE, out of 255.
 constexpr int INACTIVE_TITLE = 120;
 constexpr int CURSOR_WIDTH = 12;

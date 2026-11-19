@@ -12,7 +12,6 @@ constexpr unsigned int LABELS[][7] = {{14, 17, 17, 31, 17, 17, 17}, {30, 17, 17,
 constexpr int LABEL_WIDTH = 10;
 constexpr int LABEL_HEIGHT = 14;
 constexpr int LABEL_TOP = (TITLE_HEIGHT - LABEL_HEIGHT) / 2;
-constexpr int CROSS_INSET = 5;
 }  // namespace
 
 struct Chrome::Scene {};
@@ -32,21 +31,16 @@ long Chrome::configure(int, int) {
 }
 
 unsigned int Chrome::title_pixel(int index, int width, int x, int y) const {
-    int cx = x - close_left(width);
-    int cy = y - CLOSE_TOP;
-    if (cx >= 0 && cx < CLOSE_SIZE && cy >= 0 && cy < CLOSE_SIZE) {
-        bool corner = (cx == 0 || cx == CLOSE_SIZE - 1) && (cy == 0 || cy == CLOSE_SIZE - 1);
-        if (!corner) {
-            if (cx >= CROSS_INSET && cx < CLOSE_SIZE - CROSS_INSET && (cx == cy || cx + cy == CLOSE_SIZE - 1))
-                return LABEL_COLOR;
-            return theme::CLOSE;
-        }
-    }
-    int lx = x - TITLE_INSET;
+    // The close button is a disc, measured in half pixels from its centre.
+    int cx = 2 * (x - CLOSE_LEFT) + 1 - CLOSE_SIZE;
+    int cy = 2 * (y - CLOSE_TOP) + 1 - CLOSE_SIZE;
+    if (cx * cx + cy * cy <= CLOSE_SIZE * CLOSE_SIZE)
+        return theme::CLOSE;
+    int lx = x - (width - LABEL_WIDTH) / 2;
     int ly = y - LABEL_TOP;
     if (lx >= 0 && lx < LABEL_WIDTH && ly >= 0 && ly < LABEL_HEIGHT && (LABELS[index][ly / 2] & (16U >> (lx / 2))) != 0)
         return LABEL_COLOR;
-    return y == TITLE_HEIGHT - 1 ? theme::TITLE_DIVIDER : theme::TITLE_BACKGROUND;
+    return theme::TITLE_BACKGROUND;
 }
 
 }  // namespace desktop_chrome

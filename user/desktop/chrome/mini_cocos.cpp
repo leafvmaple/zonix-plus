@@ -14,14 +14,14 @@ namespace {
 
 using desktop_ipc::WINDOW_COUNT;
 using zonix_gui::control_style::Color;
-using zonix_gui::control_style::Glyph;
 using zonix_gui::control_style::Palette;
 
 constexpr int STRIP_ROWS = WINDOW_COUNT * TITLE_HEIGHT;
-constexpr float CLOSE_RADIUS = 5.f;
+constexpr float CLOSE_RADIUS = CLOSE_SIZE / 2.f;
 // Space kept between the title and the close button.
 constexpr int LABEL_GAP = 8;
-constexpr int HIDDEN = -1;
+// What the close button takes from each side of a centred title.
+constexpr int TITLE_SIDE = CLOSE_LEFT + CLOSE_SIZE + LABEL_GAP;
 
 // All strips share one scene and font atlas, with the first window's strip at
 // the top of the buffer. The renderer's clear colour is the title background.
@@ -29,11 +29,11 @@ constexpr float strip_bottom(int index) {
     return static_cast<float>(STRIP_ROWS - (index + 1) * TITLE_HEIGHT);
 }
 
-// The divider under each title and the close buttons.
+// The close buttons.
 class Decorations final : public zocos::Node {
 public:
-    static Decorations* create(zocos::Director& director, int width) {
-        auto* decorations = new (mstd::nothrow) Decorations(director, width);
+    static Decorations* create(zocos::Director& director) {
+        auto* decorations = new (mstd::nothrow) Decorations(director);
         if (!decorations)
             return nullptr;
         if (!decorations->init() || !decorations->palette_.init()) {
@@ -45,31 +45,24 @@ public:
         return decorations;
     }
 
-    // `left` is the button's left edge in the strip, or HIDDEN.
-    void set_close(int index, int left) { close_left_[index] = left; }
+    // A title bar too narrow for the button shows none.
+    void show_close(int index, bool shown) { shown_[index] = shown; }
 
     void draw(zocos::Renderer& renderer, const zocos::Mat4& world) override {
         for (int index = 0; index < WINDOW_COUNT; ++index) {
-            float bottom = strip_bottom(index);
-            palette_.box(renderer, world, {0.f, bottom, width_, 1.f}, Color::TitleDivider);
-            if (close_left_[index] == HIDDEN)
+            if (!shown_[index])
                 continue;
-            zocos::Rect button{static_cast<float>(close_left_[index]),
-                               bottom + TITLE_HEIGHT - CLOSE_TOP - CLOSE_SIZE, CLOSE_SIZE, CLOSE_SIZE};
-            palette_.round_box(renderer, world, button, CLOSE_RADIUS, Color::Danger);
-            palette_.glyph(renderer, world, button, Glyph::Close, Color::Text);
+            zocos::Rect button{CLOSE_LEFT, strip_bottom(index) + TITLE_HEIGHT - CLOSE_TOP - CLOSE_SIZE, CLOSE_SIZE,
+                               CLOSE_SIZE};
+            palette_.round_box(renderer, world, button, CLOSE_RADIUS, Color::Close);
         }
     }
 
 private:
-    Decorations(zocos::Director& director, int width) : palette_(director), width_(static_cast<float>(width)) {
-        for (auto& left : close_left_)
-            left = HIDDEN;
-    }
+    explicit Decorations(zocos::Director& director) : palette_(director) {}
 
     Palette palette_;
-    float width_;
-    sys::array<int, WINDOW_COUNT> close_left_{};
+    sys::array<bool, WINDOW_COUNT> shown_{};
 };
 
 }  // namespace
@@ -108,7 +101,7 @@ struct Chrome::Scene {
 
         zocos::AutoreleasePool nodes("desktop chrome");
         auto* scene = zocos::Scene::create();
-        decorations = Decorations::create(engine, width);
+        decorations = Decorations::create(engine);
         if (!scene || !decorations)
             return false;
         scene->addChild(decorations);
@@ -127,15 +120,15 @@ struct Chrome::Scene {
     void position(int index, int title_width) {
         auto& title = titles[index];
         title.width = title_width;
-        const int close = close_left(title_width);
-        const int room = close - LABEL_GAP - TITLE_INSET;
-        decorations->set_close(index, close >= CLOSE_MARGIN ? close : HIDDEN);
+        const int room = title_width - 2 * TITLE_SIDE;
+        decorations->show_close(index, title_width >= CLOSE_LEFT + CLOSE_SIZE + CLOSE_MARGIN);
         title.label->setVisible(room >= 24);
         const auto& spec = desktop_ipc::WINDOWS[index];
-        title.label->setString(title_width >= 132 ? spec.title : spec.short_title);
+        title.label->setString(title_width >= 180 ? spec.title : spec.short_title);
         if (room >= 24)
-            zonix_gui::control_style::place_label(*title.label, TITLE_INSET, strip_bottom(index) + TITLE_HEIGHT / 2.f,
-                                                  0.f, static_cast<float>(room));
+            zonix_gui::control_style::place_label(*title.label, title_width / 2.f,
+                                                  strip_bottom(index) + TITLE_HEIGHT / 2.f, 0.5f,
+                                                  static_cast<float>(room));
     }
 
     unsigned int pixel(int x, int y) const {

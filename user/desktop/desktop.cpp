@@ -134,7 +134,7 @@ private:
 
     static Rect close_rect(const Rect& window) {
         return {
-            {window.origin.x + desktop_chrome::close_left(window.width), window.origin.y + desktop_chrome::CLOSE_TOP},
+            {window.origin.x + desktop_chrome::CLOSE_LEFT, window.origin.y + desktop_chrome::CLOSE_TOP},
             CLOSE_SIZE,
             CLOSE_SIZE};
     }
@@ -471,7 +471,7 @@ extern "C" int main(int argc, char**) {
 #endif
     if (error == 0)
         error = command_text(
-            STDOUT_FD, "Desktop: F2 Terminal, F4 Files, F12 exit. Drag titles to move, X closes.\n");
+            STDOUT_FD, "Desktop: F2 Terminal, F4 Files, F12 exit. Drag titles to move, the red button closes.\n");
     if (error == 0)
         error = sys_ioctl(fd, DISPLAY_ACQUIRE, DISPLAY_ACQUIRE_EVENTS | DISPLAY_ACQUIRE_KEYBOARD_CTRL_C);
     if (error == 0) {

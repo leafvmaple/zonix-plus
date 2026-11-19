@@ -14,8 +14,8 @@ namespace zonix_gui::control_style {
 // map to whole pixels. One size also keeps each process on one font atlas.
 inline constexpr float FONT_SIZE = 16.f;
 inline constexpr float CONTROL_HEIGHT = 28.f;
-inline constexpr float CONTROL_RADIUS = 4.f;
-inline constexpr float PANEL_RADIUS = 6.f;
+inline constexpr float CONTROL_RADIUS = 6.f;
+inline constexpr float PANEL_RADIUS = 8.f;
 inline constexpr float TEXT_INSET = 12.f;
 inline constexpr float GLYPH_SIZE = 12.f;
 inline constexpr float SECONDARY_OPACITY = 0.62f;
@@ -39,8 +39,7 @@ enum class Color {
     DangerPressed,
     Text,
     TextDisabled,
-    Title,
-    TitleDivider,
+    Close,
     Folder,
     FolderShade,
     FolderTab,

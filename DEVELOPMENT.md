@@ -61,7 +61,8 @@ zonix-plus/
 │   └── uefi/                   # UEFI 类型定义
 ├── boot/                       # 通用 UEFI 引导 (uefi_boot.cpp)
 ├── user/                       # 用户态程序 (hello, ...)
-├── fonts/console.psf           # 内嵌控制台字体 (llvm-objcopy → .rodata)
+├── fonts/console.psf           # 内嵌控制台字体 Terminus 8×16 (llvm-objcopy → .rodata)，许可证见 fonts/OFL-Terminus.txt
+├── fonts/Inter-Regular.otf     # Desktop 套件的界面字体，装到 desktop.img，许可证见 fonts/OFL-Inter.txt
 ├── scripts/                    # 构建辅助
 │   ├── kernel.ld, kernel-aarch64.ld, kernel-riscv64.ld  # 内核链接脚本
 │   ├── mbr.ld, boot.ld, bootload.ld, uefi.ld, uefi-riscv64.ld  # 引导链接脚本

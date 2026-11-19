@@ -13,6 +13,9 @@ GUI_OBJECTS := $(addprefix $(GUI_OBJDIR)/,math_x86.cpp.o window_channel.cpp.o wi
                                         controls/context_menu.cpp.o controls/icon_grid.cpp.o controls/dialog.cpp.o)
 ZONIX_GUI := $(GUI_OBJDIR)/libzonix_gui.a
 MINICOCOS_LIB := $(MINICOCOS_ENGINE)/libzocos_software.a
+# The interface font and its licence, installed beside the suite.
+UI_FONT := fonts/Inter-Regular.otf
+UI_FONT_LICENSE := fonts/OFL-Inter.txt
 GUI_LIBRARIES := $(ZONIX_GUI) $(MINICOCOS_CORE) $(MINICOCOS_LIB)
 MINICOCOS_TARGET_FLAGS := $(filter-out -std=c11 -I%,$(USER_CFLAGS)) -fno-rtti \
                          -fno-threadsafe-statics -fno-use-cxa-atexit -ffunction-sections -fdata-sections
@@ -25,7 +28,7 @@ $(MINICOCOS_SOURCE)/.prepared: user/gui/mini-cocos.patch user/gui/Makefile
 		echo "Set MINICOCOS_DIR to a checkout containing $(MINICOCOS_REVISION)." >&2; exit 1; }
 	$(Q)$(MKDIR) "$(MINICOCOS_SOURCE)"
 	$(Q)git -C "$(MINICOCOS_DIR)" archive "$(MINICOCOS_REVISION)" CMakeLists.txt cmake src third_party \
-		fonts/NotoSans-Regular.ttf fonts/OFL.txt | tar -xf - -C "$(MINICOCOS_SOURCE)"
+		| tar -xf - -C "$(MINICOCOS_SOURCE)"
 	$(Q)patch -s -p1 -d "$(MINICOCOS_SOURCE)" < user/gui/mini-cocos.patch
 	$(Q)touch $@
 
@@ -96,7 +99,7 @@ $(USER_BINDIR)/FILES.ELF $(USER_BINDIR)/DESKTOP.ELF $(USER_BINDIR)/TERMINAL.ELF 
 DESKTOP_SUITE_ELFS := $(addprefix $(USER_BINDIR)/,DESKTOP.ELF TERMINAL.ELF FILES.ELF EDITOR.ELF)
 desktop-image: $(BINDIR)/desktop.img
 
-$(BINDIR)/desktop.img: $(DESKTOP_SUITE_ELFS) $(MINICOCOS_SOURCE)/.prepared scripts/install_userspace_image.sh user/gui/Makefile
+$(BINDIR)/desktop.img: $(DESKTOP_SUITE_ELFS) $(UI_FONT) $(UI_FONT_LICENSE) scripts/install_userspace_image.sh user/gui/Makefile
 	@echo "  IMG     $@"
 	$(Q)set -eu; \
 		staging=$$(mktemp -d "$(@D)/.desktop.XXXXXXXX"); \
@@ -104,8 +107,8 @@ $(BINDIR)/desktop.img: $(DESKTOP_SUITE_ELFS) $(MINICOCOS_SOURCE)/.prepared scrip
 		trap 'rm -f "$$image"; rmdir "$$staging"' EXIT; \
 		bash scripts/install_userspace_image.sh apps "$$image" $(DESKTOP_SUITE_ELFS); \
 		mmd -i "$$image" ::/fonts; \
-		mcopy -i "$$image" "$(MINICOCOS_SOURCE)/fonts/NotoSans-Regular.ttf" ::/fonts/UI.TTF; \
-		mcopy -i "$$image" "$(MINICOCOS_SOURCE)/fonts/OFL.txt" ::/fonts/OFL.TXT; \
+		mcopy -i "$$image" $(UI_FONT) ::/fonts/UI.TTF; \
+		mcopy -i "$$image" $(UI_FONT_LICENSE) ::/fonts/OFL.TXT; \
 		mv "$$image" "$@"
 
 else

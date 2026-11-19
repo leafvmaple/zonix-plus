@@ -16,32 +16,31 @@ constexpr zocos::Color4B rgb(unsigned int value, unsigned char alpha = 255) {
 // Indexed by Color.
 constexpr zocos::Color4B COLORS[] = {
     rgb(theme::WINDOW_BACKGROUND),      // Window
-    rgb(0x1A2A39),                      // Panel
-    rgb(0x152230),                      // Sidebar
-    rgb(theme::WINDOW_BORDER),          // Border
-    rgb(0x263746),                      // Divider
-    rgb(0x2A3F52),                      // Control
-    rgb(0x3B6A86),                      // Pressed
-    rgb(0x1E2D3B),                      // Disabled
-    rgb(0x0E1822),                      // Field
-    rgb(0x26506A),                      // Selected
+    rgb(theme::TITLE_BACKGROUND),       // Panel
+    rgb(0x252527),                      // Sidebar
+    rgb(0x4A4A4E),                      // Border
+    rgb(0x3A3A3D),                      // Divider
+    rgb(0x48484C),                      // Control
+    rgb(0x5E5E63),                      // Pressed
+    rgb(0x333336),                      // Disabled
+    rgb(0x1A1A1C),                      // Field
+    rgb(0x0A5BC4),                      // Selected
     rgb(theme::ACCENT),                 // SelectedBorder
-    rgb(0x2E8C8A),                      // Accent
-    rgb(0x3FA9A6),                      // AccentPressed
-    rgb(theme::CLOSE),                  // Danger
-    rgb(0xE88791),                      // DangerPressed
+    rgb(theme::ACCENT),                 // Accent
+    rgb(0x409CFF),                      // AccentPressed
+    rgb(0xE5484D),                      // Danger
+    rgb(0xF2686C),                      // DangerPressed
     rgb(theme::TEXT),                   // Text
     rgb(theme::TEXT, 97),               // TextDisabled
-    rgb(theme::TITLE_BACKGROUND),       // Title
-    rgb(theme::TITLE_DIVIDER),          // TitleDivider
-    rgb(0xEFBC68),                      // Folder
-    rgb(0xD39A4A),                      // FolderShade
-    rgb(0xB77E3A),                      // FolderTab
-    rgb(0xD6E2EB),                      // File
-    rgb(0x86A0B2),                      // FileShade
-    rgb(0xA6BCCB),                      // FileFold
-    rgb(0x000000, 84),                  // Shadow
-    rgb(0x060A0F, 150),                 // Scrim
+    rgb(theme::CLOSE),                  // Close
+    rgb(0x5DB1F5),                      // Folder
+    rgb(0x3F97E3),                      // FolderShade
+    rgb(0x2F82CF),                      // FolderTab
+    rgb(0xE4E4E8),                      // File
+    rgb(0x9A9AA2),                      // FileShade
+    rgb(0xBDBDC5),                      // FileFold
+    rgb(0x000000, 96),                  // Shadow
+    rgb(0x000000, 120),                 // Scrim
 };
 constexpr int COLOR_COUNT = static_cast<int>(Color::Scrim) + 1;
 static_assert(sizeof(COLORS) / sizeof(*COLORS) == COLOR_COUNT);
