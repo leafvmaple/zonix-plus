@@ -146,6 +146,7 @@ void arch_post_dispatch(TrapFrame* tf) {
 extern "C" [[noreturn]] void kernel_stack_overflow(TrapFrame* tf) {
     // The panic path runs on the overflow stack, which lies outside any task's stack.
     OverflowStack::set_floor(0);
+    cprintf("kernel stack exhausted; reporting from the overflow stack\n");
     tf->print();
     trap::stack_overflow();
 }

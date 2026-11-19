@@ -76,9 +76,6 @@ static bool normalize_available_range(uint64_t base_pa, uint64_t size_bytes, uin
 
 }  // namespace
 
-long user_stack[PG_SIZE * 2];
-long* STACK_START = &user_stack[PG_SIZE * 2];
-
 uintptr_t pmm::page_to_phys(Page* page) {
     return static_cast<uintptr_t>((page - Factory::page_descriptors()) << PG_SHIFT);
 }

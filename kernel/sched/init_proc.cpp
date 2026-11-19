@@ -7,8 +7,7 @@
 #endif
 #include "lib/stdio.h"
 #include <asm/arch.h>
-
-extern long user_stack[];
+#include <kernel/boot_stack.h>
 
 #ifdef TEST_MODE
 static int init_main(void* arg) {
@@ -62,7 +61,9 @@ int TaskManager::init_idle() {
         klog::error("sched: init_idle: failed to allocate Task\n");
         return -1;
     }
-    idle_proc->boot_stack_ = reinterpret_cast<uintptr_t>(user_stack);
+    // The idle task is the boot flow itself and stays on the stack it started on.
+    idle_proc->boot_stack_ = reinterpret_cast<uintptr_t>(__boot_stack_bottom);
+    idle_proc->boot_stack_top_ = reinterpret_cast<uintptr_t>(__boot_stack_top);
     idle_proc->files().init();
     idle_proc->priority = sched_prio::IDLE_PRIO;
     idle_proc->time_slice = 0;

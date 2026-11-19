@@ -180,7 +180,7 @@ _main:
     rep stosb
 
     # Set up kernel stack
-    movq STACK_START(%rip), %rsp
+    leaq __boot_stack_top(%rip), %rsp
 
     # Load IDT
     lidt __idtdesc(%rip)
@@ -246,6 +246,17 @@ __boot_pdpt_low:  .space PG_SIZE
 __boot_pdpt_high: .space PG_SIZE
 __boot_pd_low:    .space PG_SIZE
 __boot_pd_high:   .space PG_SIZE
+
+# ===================================================================
+# Boot stack (64KB, in .bss; cleared before it is first used)
+# ===================================================================
+.section .bss
+.balign 16
+.globl __boot_stack_bottom
+__boot_stack_bottom:
+    .space 65536
+.globl __boot_stack_top
+__boot_stack_top:
 
 # ===================================================================
 # Kernel boot info copy (in .data so BSS clear does not overwrite it)

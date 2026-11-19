@@ -60,6 +60,7 @@ private:
     Context context_{};          // Process context for switching
     KernelStack kernel_stack_;   // Owned dynamic stack
     uintptr_t boot_stack_{};     // Borrowed permanent boot stack
+    uintptr_t boot_stack_top_{}; // Its upper end
     sys::unique_ptr<MemoryDesc> owned_memory_;
     MemoryDesc* borrowed_memory_{};
     bool termination_requested_{};
@@ -121,6 +122,9 @@ public:
     void adopt_memory(sys::unique_ptr<MemoryDesc> memory);
     [[nodiscard]] uintptr_t kernel_stack() const {
         return kernel_stack_.empty() ? boot_stack_ : kernel_stack_.base();
+    }
+    [[nodiscard]] uintptr_t kernel_stack_top() const {
+        return kernel_stack_.empty() ? boot_stack_top_ : kernel_stack_.base() + KSTACK_SIZE;
     }
     // Whether the address is in the unmapped page below this task's stack.
     [[nodiscard]] bool stack_guard_contains(uintptr_t address) const { return kernel_stack_.guards(address); }

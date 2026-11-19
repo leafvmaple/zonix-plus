@@ -293,8 +293,10 @@ __boot_pmd_high1:   .space 4096
  * ====================================================================== */
 .section .bss
 .balign 16
+.globl __boot_stack_bottom
 __boot_stack_bottom:
     .space 16384
+.globl __boot_stack_top
 __boot_stack_top:
 
 /* ======================================================================

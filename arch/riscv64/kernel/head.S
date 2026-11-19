@@ -214,6 +214,7 @@ __kernel_pg_dir:
  * ====================================================================== */
 .section .bss
 .balign 16
+.globl __boot_stack_bottom
 __boot_stack_bottom:
     .space 16384
 .globl __boot_stack_top

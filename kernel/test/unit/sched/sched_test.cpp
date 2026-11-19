@@ -7,7 +7,7 @@
 #include "test/task_access.h"
 
 // External symbols
-extern long user_stack[];
+#include <kernel/boot_stack.h>
 
 // Test statistics
 static int tests_passed = 0;
@@ -359,7 +359,7 @@ static void test_process_destruction() {
 
     uintptr_t kstack_addr = TaskAccess::kernel_stack(proc);
     TEST_ASSERT(kstack_addr != 0, "Kernel stack address is non-zero");
-    TEST_ASSERT(kstack_addr != reinterpret_cast<uintptr_t>(user_stack), "Kernel stack is not boot stack");
+    TEST_ASSERT(kstack_addr != reinterpret_cast<uintptr_t>(__boot_stack_bottom), "Kernel stack is not boot stack");
 
     TaskManager::add_process(proc);
     TEST_ASSERT(TaskManager::process_count() == initial_count + 1, "Process added");

@@ -19,6 +19,11 @@ import test_shutdown_qemu as images
 ROOT = images.ROOT
 TIMEOUT = 240
 PANIC = "kernel stack overflow in task"
+# Printed by the aarch64 and riscv64 trap entries when they switch to the
+# overflow stack. Without that switch the overflow is still reported, but only
+# after the handler has run on the memory below the guard page. x86 cannot
+# report an overflow at all without its separate double-fault stack.
+OVERFLOW_STACK = "reporting from the overflow stack"
 
 
 def run(arch, mode):
@@ -44,6 +49,8 @@ def run(arch, mode):
                     line = next(line for line in output.splitlines() if PANIC in line)
                     if "KSTACK_OVERFLOW_BEGIN" not in output:
                         raise RuntimeError("The panic came before the overflow fixture started")
+                    if arch != "x86" and OVERFLOW_STACK not in output:
+                        raise RuntimeError("The overflow was reported from the exhausted stack")
                     print("PASS " + line.strip(), flush=True)
                     return
                 if "KSTACK_OVERFLOW_NOT_DETECTED" in output or "CI_TEST_COMPLETE" in output:

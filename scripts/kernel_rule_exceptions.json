@@ -10,15 +10,14 @@
   {"path": "arch/x86/kernel/idt.cpp", "name": "__idt", "reason": "Pre-existing arch/x86/kernel/idt.cpp state outside this migration; new state must belong to a class."},
   {"path": "arch/x86/kernel/idt.cpp", "name": "__vectors", "reason": "Assembly/linker ABI symbol; keep its external symbol name and storage contract."},
   {"path": "arch/x86/kernel/tss.cpp", "name": "__gdt", "reason": "Assembly/linker ABI symbol; keep its external symbol name and storage contract."},
+  {"path": "include/kernel/boot_stack.h", "name": "__boot_stack_bottom", "reason": "Assembly/linker ABI symbol; keep its external symbol name and storage contract."},
+  {"path": "include/kernel/boot_stack.h", "name": "__boot_stack_top", "reason": "Assembly/linker ABI symbol; keep its external symbol name and storage contract."},
   {"path": "kernel/cons/cons_vfs.cpp", "name": "console_registrar", "reason": "Existing constructor-based device/filesystem registration hook; no new registry state exemption."},
   {"path": "kernel/drivers/display.cpp", "name": "__kernel_boot_info", "reason": "Assembly/linker ABI symbol; keep its external symbol name and storage contract."},
   {"path": "kernel/fs/devfs.cpp", "name": "devfs_registrar", "reason": "Existing constructor-based device/filesystem registration hook; no new registry state exemption."},
   {"path": "kernel/fs/fat/fat_vfs.cpp", "name": "fat::fat_registrar", "reason": "Existing constructor-based device/filesystem registration hook; no new registry state exemption."},
   {"path": "kernel/init.cpp", "name": "__init_array_end", "reason": "Assembly/linker ABI symbol; keep its external symbol name and storage contract."},
   {"path": "kernel/init.cpp", "name": "__init_array_start", "reason": "Assembly/linker ABI symbol; keep its external symbol name and storage contract."},
-  {"path": "kernel/mm/pmm.cpp", "name": "STACK_START", "reason": "Assembly/linker ABI symbol; keep its external symbol name and storage contract."},
   {"path": "kernel/mm/pmm.cpp", "name": "__kernel_boot_info", "reason": "Assembly/linker ABI symbol; keep its external symbol name and storage contract."},
-  {"path": "kernel/mm/pmm.cpp", "name": "page_init::KERNEL_END", "reason": "Assembly/linker ABI symbol; keep its external symbol name and storage contract."},
-  {"path": "kernel/mm/pmm.cpp", "name": "user_stack", "reason": "Assembly/linker ABI symbol; keep its external symbol name and storage contract."},
-  {"path": "kernel/sched/init_proc.cpp", "name": "user_stack", "reason": "Assembly/linker ABI symbol; keep its external symbol name and storage contract."}
+  {"path": "kernel/mm/pmm.cpp", "name": "page_init::KERNEL_END", "reason": "Assembly/linker ABI symbol; keep its external symbol name and storage contract."}
 ]
