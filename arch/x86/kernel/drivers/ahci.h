@@ -179,15 +179,6 @@ struct AhciPortConfig {
     const char* name{};
 };
 
-struct AhciDeviceInfo {
-    uint32_t block_count{};  // Size in sectors
-    uint32_t serial{};       // Serial number
-    uint32_t model{};        // Model number
-    uint16_t cylinders{};    // CHS: cylinders
-    uint16_t heads{};        // CHS: heads
-    uint16_t sectors{};      // CHS: sectors per track
-};
-
 struct AhciRequest {
     enum class Op : int8_t { None = 0, Read = 1, Write = 2 };
 
@@ -209,7 +200,7 @@ struct AhciRequest {
 struct AhciDevice : public BlockDevice {
     const AhciPortConfig* config{};  // Port configuration
 
-    AhciDeviceInfo info{};  // Device information
+    ata::DiskInfo info{};  // Device information
     AhciRequest request{};  // Current I/O request state
 
     Error detect(const AhciPortConfig* cfg, uintptr_t mmio_base);

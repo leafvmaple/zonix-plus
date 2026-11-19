@@ -9,7 +9,6 @@
 #include <kernel/log.h>
 
 namespace {
-constexpr uint16_t VIRTIO_VENDOR = 0x1AF4;
 constexpr uint16_t VIRTIO_RNG_MODERN = 0x1044;
 constexpr uint16_t REQUEST_QUEUE = 0;
 constexpr uint16_t REQUEST_DESCRIPTOR = 0;
@@ -134,7 +133,7 @@ private:
     inline static Device device_{};
 };
 
-const pci::DriverId RNG_IDS[] = {{VIRTIO_VENDOR, VIRTIO_RNG_MODERN, pci::ANY_CLASS, pci::ANY_CLASS, pci::ANY_CLASS}};
+const pci::DriverId RNG_IDS[] = {{virtio::PCI_VENDOR, VIRTIO_RNG_MODERN, pci::ANY_CLASS, pci::ANY_CLASS, pci::ANY_CLASS}};
 const pci::Driver RNG_DRIVER = {"virtio_rng", RNG_IDS, 1, Manager::probe};
 }  // namespace
 

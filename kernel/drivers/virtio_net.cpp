@@ -15,7 +15,6 @@
 
 namespace {
 
-constexpr uint16_t VIRTIO_VENDOR = 0x1AF4;
 constexpr uint16_t VIRTIO_NET_MODERN = 0x1041;
 constexpr uint32_t FEATURE_MAC = 1U << 5;
 constexpr uint16_t RX_QUEUE = 0;
@@ -260,7 +259,7 @@ private:
     inline static Device device_{};
 };
 
-const pci::DriverId NET_IDS[] = {{VIRTIO_VENDOR, VIRTIO_NET_MODERN, pci::ANY_CLASS, pci::ANY_CLASS, pci::ANY_CLASS}};
+const pci::DriverId NET_IDS[] = {{virtio::PCI_VENDOR, VIRTIO_NET_MODERN, pci::ANY_CLASS, pci::ANY_CLASS, pci::ANY_CLASS}};
 const pci::Driver NET_DRIVER = {"virtio_net", NET_IDS, 1, Manager::probe};
 
 }  // namespace

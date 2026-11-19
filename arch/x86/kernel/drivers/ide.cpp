@@ -114,10 +114,7 @@ Result<bool> IdeDevice::identify_locked() {
     arch_port_read16_buffer(cfg.base + ide::REG_DATA, identify_data, 256);
     cache_flush_.identify(identify_data);
 
-    info.cylinders = identify_data[1];
-    info.heads = identify_data[3];
-    info.sectors = identify_data[6];
-    info.block_count = static_cast<uint32_t>(identify_data[60]) | (static_cast<uint32_t>(identify_data[61]) << 16);
+    info = ata::DiskInfo::from_identify(identify_data);
     block_count = info.block_count;
     ENSURE(block_count != 0, Error::NoDevice);
     ENSURE(block_count <= (1U << 28), Error::NotSupported);

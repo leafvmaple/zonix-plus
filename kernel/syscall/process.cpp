@@ -70,7 +70,7 @@ Error syscall::copy_string(Task* task, uintptr_t user, char* out, size_t capacit
     return Error::Invalid;
 }
 
-Error syscall::copy_path(Task* task, const char* user, char* path) {
+Error syscall::copy_path(Task* task, const char* user, char (&path)[exec::MAX_PATH]) {
     char source[exec::MAX_PATH]{};
     TRY(copy_string(task, reinterpret_cast<uintptr_t>(user), source, sizeof(source)));
     ENSURE(source[0], Error::Invalid);

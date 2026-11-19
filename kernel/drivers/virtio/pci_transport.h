@@ -5,6 +5,9 @@
 
 namespace virtio {
 
+// PCI vendor ID shared by every VirtIO device.
+inline constexpr uint16_t PCI_VENDOR = 0x1AF4;
+
 class SplitQueue;
 
 // Borrowed notification binding for one queue. Valid until transport reset.

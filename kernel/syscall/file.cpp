@@ -5,7 +5,6 @@
 #include <asm/page.h>
 
 namespace {
-constexpr size_t SYSCALL_PATH_MAX = 128;
 enum class FileIo { Read, Write };
 
 struct UnlockFile {
@@ -92,7 +91,7 @@ long syscall::open(Task* cur, const char* user_path, int flags, int mode) {
         return -1;
     }
 
-    char path[SYSCALL_PATH_MAX]{};
+    char path[exec::MAX_PATH]{};
     if (copy_path(cur, user_path, path) != Error::None) {
         return -1;
     }

@@ -12,6 +12,23 @@ inline constexpr uint16_t SUPPORTS_FLUSH = 1U << 12;
 inline constexpr uint16_t SUPPORTS_FLUSH_EXT = 1U << 13;
 inline constexpr uint16_t SUPPORTS_WRITE_CACHE = 1U << 5;
 
+// Size and legacy geometry reported by IDENTIFY DEVICE.
+struct DiskInfo {
+    uint32_t block_count{};  // LBA28 sector count
+    uint16_t cylinders{};
+    uint16_t heads{};
+    uint16_t sectors{};  // Sectors per track
+
+    static DiskInfo from_identify(const uint16_t* words) {
+        DiskInfo info;
+        info.cylinders = words[1];
+        info.heads = words[3];
+        info.sectors = words[6];
+        info.block_count = static_cast<uint32_t>(words[60]) | (static_cast<uint32_t>(words[61]) << 16);
+        return info;
+    }
+};
+
 class CacheFlush {
 public:
     void identify(const uint16_t* words) {

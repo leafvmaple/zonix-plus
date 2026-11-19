@@ -84,7 +84,6 @@ Error AhciDevice::detect(const AhciPortConfig* cfg, uintptr_t mmio_base) {
 
     state_ = blk::DeviceState::Ready;
     type = blk::DeviceType::Disk;
-    info.serial = cfg->port;
 
     return Error::None;
 }
@@ -96,10 +95,7 @@ Error AhciDevice::identify() {
     uint16_t* id = reinterpret_cast<uint16_t*>(dma_buf_);
     cache_flush_.identify(id);
 
-    info.cylinders = id[1];
-    info.heads = id[3];
-    info.sectors = id[6];
-    info.block_count = static_cast<uint32_t>(id[60]) | (static_cast<uint32_t>(id[61]) << 16);  // Total LBA28 sectors
+    info = ata::DiskInfo::from_identify(id);
     block_count = info.block_count;
     ENSURE(block_count != 0, Error::NoDevice);
 

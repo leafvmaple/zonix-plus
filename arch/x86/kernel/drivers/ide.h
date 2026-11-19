@@ -71,13 +71,6 @@ struct IdeConfig {
     const char* name{};
 };
 
-struct DiskInfo {
-    uint32_t block_count{};  // Size in sectors
-    uint16_t cylinders{};    // Number of cylinders
-    uint16_t heads{};        // Number of heads
-    uint16_t sectors{};      // Sectors per track
-};
-
 struct IdeRequest {
     enum class Op : uint8_t { None = 0, Read = 1, Write = 2 };
 
@@ -98,7 +91,7 @@ struct IdeRequest {
 // IDE device structure
 struct IdeDevice : public BlockDevice {
     const IdeConfig* config{};  // Pointer to device configuration
-    DiskInfo info{};            // Disk information
+    ata::DiskInfo info{};       // Disk information
     IdeRequest request{};       // Current I/O request state
 
     void interrupt();

@@ -14,7 +14,6 @@
 
 namespace {
 
-constexpr uint16_t VIRTIO_VENDOR = 0x1AF4;
 constexpr uint16_t VIRTIO_INPUT_DEV = 0x1052;
 constexpr uint16_t EV_KEY = 1;
 constexpr uint16_t EV_REL = 2;
@@ -186,7 +185,7 @@ private:
 };
 
 const pci::DriverId VIRTIO_INPUT_IDS[] = {
-    {VIRTIO_VENDOR, VIRTIO_INPUT_DEV, pci::ANY_CLASS, pci::ANY_CLASS, pci::ANY_CLASS},
+    {virtio::PCI_VENDOR, VIRTIO_INPUT_DEV, pci::ANY_CLASS, pci::ANY_CLASS, pci::ANY_CLASS},
 };
 const pci::Driver VIRTIO_INPUT_DRIVER = {
     "virtio_input",
