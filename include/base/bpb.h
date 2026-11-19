@@ -89,6 +89,11 @@ struct FatDirEntry {
         return (static_cast<uint32_t>(first_cluster_high) << 16) + first_cluster_low;
     }
 
+    inline void set_cluster(uint32_t cluster) {
+        first_cluster_high = static_cast<uint16_t>(cluster >> 16);
+        first_cluster_low = static_cast<uint16_t>(cluster);
+    }
+
     void get_filename(char* buf, int bufsize) const {
         if (!buf || bufsize < 13) {
             return;

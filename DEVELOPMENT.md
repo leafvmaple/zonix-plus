@@ -167,7 +167,7 @@ Makefile                         # 顶层: 变量、宏、kernel、磁盘镜像�
 
 - 将文件描述符管理从 `sched` 内部迁移至 `kernel/fs/fd.{h,cpp}`，由 `fd::Table` 统一管理。
 - 收敛 `Task` 对外文件接口，保留 `files()` 访问器，避免调度层承载文件操作语义。
-- FAT 驱动按职责拆分至 `kernel/fs/fat/`：`fat_core.cpp`（挂载/FAT 入口）、`fat_dir.cpp`（目录与路径遍历）、`fat_vfs_adapter.cpp`（VFS 适配层）。
+- FAT 驱动按职责拆分至 `kernel/fs/fat/`：`fat_core.cpp`（挂载/FAT 入口）、`fat_dir.cpp`（目录与路径遍历）、`fat_file.cpp`（文件数据读写）、`fat_vfs_adapter.cpp`（VFS 适配层）。
 - VFS 入参校验加强：`open/stat/readdir` 对空参数与非法输出指针进行快速失败。
 
 ---
