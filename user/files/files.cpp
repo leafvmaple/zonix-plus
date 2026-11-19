@@ -1,4 +1,5 @@
 #include "../command.h"
+#include "directory.h"
 #include "../gui/controls/button.h"
 #include "../gui/controls/context_menu.h"
 #include "../gui/controls/dialog.h"
@@ -83,7 +84,7 @@ public:
             auto* scene = zocos::Scene::create();
             if (scene && build_scene(director, *scene)) {
                 refresh_directory();
-                record_location();
+                dir_.remember();
                 update_controls();
                 director.runWithScene(scene);
                 while (!done_ && director.mainLoop()) {}
@@ -96,17 +97,13 @@ public:
     }
 
 private:
-    struct Entry {
-        DirectoryEntry item;
-        long index;
-    };
-    static constexpr int HISTORY_SIZE = 16;
     // Keep one byte past the FAT limit so an overlong name is rejected.
     static constexpr mstd::size_t NAME_INPUT_LIMIT = sizeof(DirectoryEntry::name);
-    mstd::vector<Entry> page_;
+    files::Directory dir_;
+    // The directory revision whose entries the grid shows.
+    unsigned int shown_revision_{};
     IconGrid* grid_{};
     Dialog* dialog_{};
-    sys::array<mstd::string, HISTORY_SIZE> history_{};
     zonix_gui::Toolbar* toolbar_{};
     zocos::Label* status_{};
     zocos::Label* empty_{};
@@ -117,13 +114,7 @@ private:
     sys::array<Button*, 3> places_{};
     Button* previous_{};
     Button* next_{};
-    char path_[PROCESS_MAX_PATH]{"/"};
     const char* message_{};
-    long first_{};
-    long next_first_{};
-    int page_number_ = 1;
-    int history_count_{};
-    int history_index_ = -1;
     bool done_{};
 
     static constexpr const char* PLACES[]{"Root", "Home", "Apps"};
@@ -217,7 +208,7 @@ private:
             return false;
         grid_->setPosition({GRID_AREA.x, GRID_AREA.y});
         scene.addChild(grid_);
-        page_.reserve(grid_->capacity());
+        dir_.set_page_size(grid_->capacity());
 
         dialog_ = Dialog::create(director);
         if (!dialog_)
@@ -240,7 +231,7 @@ private:
         zonix_gui::ContextMenu::Items items;
         int selected = grid_->selection();
         if (selected != IconGrid::NO_ITEM) {
-            const auto& entry = page_[selected].item;
+            const auto& entry = dir_.entry(selected);
             if (entry.type == FILE_TYPE_FILE || entry.type == FILE_TYPE_DIRECTORY) {
                 items.push_back({"Open", refresh_after([this] { open_selected(); })});
                 items.push_back({"Rename", [this, entry] { rename_item(entry); }});
@@ -248,7 +239,7 @@ private:
             }
         }
         items.push_back({"New folder", [this] { new_folder(); }});
-        if (!root())
+        if (!dir_.at_root())
             items.push_back({"Go up", refresh_after([this] { parent(); })});
         items.push_back({"Refresh", refresh_after([this] { refresh_directory(); })});
         return items;
@@ -324,112 +315,72 @@ private:
         update_controls();
     }
 
-    static bool dot_entry(const DirectoryEntry& entry) {
-        return entry.name[0] == '.' && (entry.name[1] == 0 || (entry.name[1] == '.' && entry.name[2] == 0));
-    }
+    // Shows the failure of the directory's last operation, or clears the message.
+    void show_error() { message_ = dir_.error() < 0 ? command_error_text(dir_.error()) : nullptr; }
 
-    bool root() const { return path_[0] == '/' && path_[1] == 0; }
-
-    void read_page() {
-        page_.clear();
-        next_first_ = 0;
-        for (long index = first_;; ++index) {
-            DirectoryEntry entry{};
-            long result = sys_readdir((char*)".", index, &entry);
-            if (result <= 0) {
-                if (result < 0)
-                    message_ = command_error_text(result);
-                break;
-            }
-            if (dot_entry(entry))
-                continue;
-            if (static_cast<int>(page_.size()) == grid_->capacity()) {
-                next_first_ = index;
-                break;
-            }
-            page_.push_back({entry, index});
-        }
+    // Loads the grid when the directory has read a new page.
+    void show_page() {
+        if (shown_revision_ == dir_.revision())
+            return;
+        shown_revision_ = dir_.revision();
         mstd::vector<IconGrid::Item> items;
-        items.reserve(page_.size());
-        for (const auto& entry : page_) {
-            auto icon = entry.item.type == FILE_TYPE_DIRECTORY ? IconGrid::Icon::Folder : IconGrid::Icon::File;
-            items.push_back({entry.item.name, icon});
+        items.reserve(dir_.size());
+        for (int i = 0; i < dir_.size(); ++i) {
+            const auto& entry = dir_.entry(i);
+            items.push_back({entry.name, entry.type == FILE_TYPE_DIRECTORY ? IconGrid::Icon::Folder
+                                                                           : IconGrid::Icon::File});
         }
         grid_->set_items(items);
     }
 
     void refresh_directory() {
-        message_ = nullptr;
-        first_ = 0;
-        page_number_ = 1;
-        long result = sys_getcwd(path_, sizeof(path_));
-        if (result < 0)
-            message_ = command_error_text(result);
-        read_page();
-        if (!page_.empty())
-            first_ = page_[0].index;
-    }
-
-    bool change_directory(const char* path) {
-        long result = sys_chdir(const_cast<char*>(path));
-        if (result < 0) {
-            message_ = command_error_text(result);
-            return false;
-        }
-        refresh_directory();
-        return true;
-    }
-
-    void record_location() {
-        if (history_index_ >= 0 && history_[history_index_] == path_)
-            return;
-        if (history_index_ == HISTORY_SIZE - 1) {
-            for (int i = 1; i < HISTORY_SIZE; ++i)
-                history_[i - 1] = mstd::move(history_[i]);
-            --history_index_;
-        }
-        history_[++history_index_] = path_;
-        history_count_ = history_index_ + 1;
+        dir_.refresh();
+        show_error();
+        show_page();
     }
 
     void navigate(const char* path) {
-        if (change_directory(path))
-            record_location();
+        dir_.open(path);
+        show_error();
+        show_page();
     }
 
     void history_step(int delta) {
-        int target = history_index_ + delta;
-        if (target >= 0 && target < history_count_ && change_directory(history_[target].c_str()))
-            history_index_ = target;
+        if (dir_.step(delta)) {
+            show_error();
+            show_page();
+        }
     }
 
     void parent() {
-        if (!root())
-            navigate("..");
+        if (dir_.up()) {
+            show_error();
+            show_page();
+        }
     }
 
     bool selected_folder() const {
         int selected = grid_->selection();
-        return selected != IconGrid::NO_ITEM && page_[selected].item.type == FILE_TYPE_DIRECTORY;
+        return selected != IconGrid::NO_ITEM && dir_.entry(selected).type == FILE_TYPE_DIRECTORY;
     }
 
     void open_selected() {
         int selected = grid_->selection();
         if (selected == IconGrid::NO_ITEM)
             return;
-        const auto& entry = page_[selected].item;
+        const auto& entry = dir_.entry(selected);
         if (entry.type == FILE_TYPE_DIRECTORY) {
             navigate(entry.name);
         } else if (entry.type == FILE_TYPE_FILE) {
             desktop_ipc::EditPath path{};
-            auto directory = strlen(path_);
+            auto directory = strlen(dir_.path());
             auto name = strlen(entry.name);
-            auto separator = root() ? 0U : 1U;
+            auto separator = dir_.at_root() ? 0U : 1U;
             if (directory + separator + name >= path.size()) {
                 message_ = "File path is too long";
                 return;
             }
-            memcpy(path.data(), path_, directory);
+            memcpy(path.data(), dir_.path(), directory);
             if (separator != 0)
                 path[directory++] = '/';
             memcpy(path.data() + directory, entry.name, name + 1);
@@ -440,66 +391,46 @@ private:
     }
 
     bool change_page(int delta) {
-        message_ = nullptr;
-        if (delta > 0 && next_first_ > 0) {
-            first_ = next_first_;
-            ++page_number_;
-        } else if (delta < 0 && page_number_ > 1) {
-            int remaining = grid_->capacity();
-            long index = first_;
-            while (index > 0 && remaining > 0) {
-                DirectoryEntry entry{};
-                long result = sys_readdir((char*)".", --index, &entry);
-                if (result < 0) {
-                    message_ = command_error_text(result);
-                    return false;
-                }
-                if (result > 0 && !dot_entry(entry))
-                    --remaining;
-            }
-            first_ = index;
-            --page_number_;
-        } else {
-            return false;
-        }
-        read_page();
-        return true;
+        bool changed = dir_.turn_page(delta);
+        show_error();
+        show_page();
+        return changed;
     }
 
     void move_selection(int delta) {
         message_ = nullptr;
         int selected = grid_->selection();
         int target = selected == IconGrid::NO_ITEM ? 0 : selected + delta;
-        if (target >= static_cast<int>(page_.size()) && change_page(1))
+        if (target >= dir_.size() && change_page(1))
             target -= grid_->capacity();
         else if (target < 0 && change_page(-1))
             target += grid_->capacity();
-        grid_->select(page_.empty() ? IconGrid::NO_ITEM : mstd::clamp(target, 0, static_cast<int>(page_.size()) - 1));
+        grid_->select(dir_.empty() ? IconGrid::NO_ITEM : mstd::clamp(target, 0, dir_.size() - 1));
     }
 
     void update_controls() {
-        mstd::string path(path_);
+        mstd::string path(dir_.path());
         constexpr unsigned int path_columns = 48;
         toolbar_->set_text(path.size() > path_columns ? "..." + path.substr(path.size() - path_columns) : path);
         for (int i = 0; i < 3; ++i)
             places_[i]->set_selected(path == PATHS[i]);
-        back_->set_enabled(history_index_ > 0);
-        forward_->set_enabled(history_index_ + 1 < history_count_);
-        up_->set_enabled(!root());
-        previous_->set_enabled(page_number_ > 1);
-        next_->set_enabled(next_first_ > 0);
-        empty_->setVisible(page_.empty() && !message_);
-        page_label_->setString("Page " + mstd::to_string(page_number_));
+        back_->set_enabled(dir_.can_go_back());
+        forward_->set_enabled(dir_.can_go_forward());
+        up_->set_enabled(!dir_.at_root());
+        previous_->set_enabled(dir_.has_previous_page());
+        next_->set_enabled(dir_.has_next_page());
+        empty_->setVisible(dir_.empty() && !message_);
+        page_label_->setString("Page " + mstd::to_string(dir_.page_number()));
         place_label(*page_label_, NEXT_X - PAGE_LABEL_WIDTH / 2.f, STATUS_HEIGHT / 2.f, 0.5f, PAGE_LABEL_WIDTH);
         int selected = grid_->selection();
         if (message_)
             status_->setString(message_);
         else if (selected != IconGrid::NO_ITEM) {
-            const auto& entry = page_[selected].item;
+            const auto& entry = dir_.entry(selected);
             status_->setString(mstd::string(entry.name) +
                                (selected_folder() ? "  ·  Folder" : "  ·  " + mstd::to_string(entry.size) + " B"));
         } else {
-            status_->setString(mstd::to_string(page_.size()) + " shown");
+            status_->setString(mstd::to_string(dir_.size()) + " shown");
         }
         // Long messages shrink instead of running under the pager.
         place_label(*status_, STATUS_TEXT_X, STATUS_HEIGHT / 2.f, 0.f, PREVIOUS_X - 2.f * STATUS_TEXT_X);

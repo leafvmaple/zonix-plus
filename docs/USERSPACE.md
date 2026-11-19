@@ -262,7 +262,9 @@ Files 随 Desktop 套件安装，按 F4 打开。文件夹和普通文件用不�
 
 `user/gui/controls` 在 mini-cocos 上提供 Zonix 标准控件。应用通过 `ContextMenu::attach` 给场景提供按右键位置生成菜单项的回调，每项包含标签和执行回调。控件负责窗口内的布局、绘制和事件处理，包括按 Esc、点击菜单外和切换焦点时收起。Files 用这套接口保留自己的目录选择和导航逻辑。
 
-Desktop、Terminal 和控件共用 `user/gui/theme.h` 中的颜色。`controls/style` 提供抗锯齿的圆角矩形、边框和图标符号；所有标签按 16 像素原始字号绘制，并用 `place_label` 对齐到整数像素。
+Desktop 内部分成两部分：`desktop.cpp` 管理窗口、指针和输入分发，`compositor.cpp` 只负责算出屏幕上任意像素的颜色。每个窗口槽位的标题、程序、启动参数、初始位置和快捷键集中在 `client.h` 的 `WINDOWS` 表里，新增一种窗口只需加一行。Files 的目录状态（路径、分页、访问历史）在 `user/files/directory.h`，与界面代码分开。
+
+Desktop、Terminal 和控件共用 `user/gui/theme.h` 中的颜色。`controls/style` 提供抗锯齿的圆角矩形、边框和图标符号，同一进程内所有控件共用一套纹理；圆角的覆盖率算法在 `user/gui/shape.h`，合成器和控件共用；所有标签按 16 像素原始字号绘制，并用 `place_label` 对齐到整数像素。
 
 应用可以用 `Toolbar` 排列标准 `Button` 和单行文字。Files 为工具栏提供返回、前进、上一级的回调和启用状态，并更新当前路径。左侧快捷目录和底部翻页也使用标准 `Button`。按钮和菜单共用字体、边框和按下态，工具栏统一处理间距和对齐。
 
