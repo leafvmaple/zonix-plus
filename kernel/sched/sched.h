@@ -41,7 +41,10 @@ struct ProcessInfo;
 
 // Process control block - modeling Linux's task_struct
 struct Task {
-    static constexpr size_t KSTACK_SIZE = 4096;  // 4KB kernel stack
+    // One page was too small: starting a program from a pipeline on aarch64
+    // ran past it into the neighbouring page. Stacks have no guard page, so an
+    // overflow is silent; keep generous headroom.
+    static constexpr size_t KSTACK_SIZE = 16384;
 
     Task() = default;
     ~Task();
