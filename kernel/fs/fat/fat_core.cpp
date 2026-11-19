@@ -5,6 +5,7 @@
 #include "lib/stdio.h"
 #include "lib/kernel_buffer.h"
 
+#include <sys/algorithm.hpp>
 #include <base/bpb.h>
 #include <base/gpt.h>
 #include <base/mbr.h>
@@ -12,7 +13,28 @@
 namespace {
 
 constexpr uint32_t FAT_INVALID_SECTOR = static_cast<uint32_t>(-1);
+constexpr uint32_t UNKNOWN_FREE_CLUSTERS = static_cast<uint32_t>(-1);
 constexpr uint8_t ZERO_SECTOR[BlockDevice::BLOCK_SIZE_BYTES]{};
+
+struct Fat32FsInfo {
+    static constexpr uint32_t LEAD_SIGNATURE = 0x41615252;
+    static constexpr uint32_t STRUCT_SIGNATURE = 0x61417272;
+    static constexpr uint32_t TRAIL_SIGNATURE = 0xAA550000;
+
+    uint32_t lead_signature;
+    uint8_t reserved1[480];
+    uint32_t struct_signature;
+    uint32_t free_count;
+    uint32_t next_free;
+    uint8_t reserved2[12];
+    uint32_t trail_signature;
+
+    bool is_valid() const {
+        return lead_signature == LEAD_SIGNATURE && struct_signature == STRUCT_SIGNATURE &&
+               trail_signature == TRAIL_SIGNATURE;
+    }
+};
+static_assert(sizeof(Fat32FsInfo) == BlockDevice::BLOCK_SIZE_BYTES);
 
 Result<uint32_t> find_partition_start(BlockDevice* dev) {
     MbrHeader mbr{};
@@ -66,6 +88,9 @@ void FatInfo::do_init_state(BlockDevice* dev, uint32_t partition_start, const Fa
     cluster_count_ = data_sectors / sectors_per_cluster_;
     fat_type_ = fat::TYPE_FAT32;
 
+    fs_info_sector_ = bs.fs_info < reserved_sector_count_ && bs.fs_info != bs.backup_boot_sector ? bs.fs_info : 0;
+    free_clusters_ = UNKNOWN_FREE_CLUSTERS;
+    fs_info_dirty_ = fs_info_sector_ != 0;
     buffer_sector_ = FAT_INVALID_SECTOR;
 }
 
@@ -128,11 +153,55 @@ Error FatInfo::write_sectors(uint32_t start_lba, const void* buf, size_t block_c
 
 Error FatInfo::sync() {
     ENSURE(dev_, Error::NoDevice);
+    needs_sync_ = true;
     TRY(free_detached_chain());
     TRY(flush_fat_buffer());
-    needs_sync_ = true;
+    TRY(sync_fs_info());
     TRY(dev_->flush());
     needs_sync_ = false;
+    return Error::None;
+}
+
+Result<uint32_t> FatInfo::count_free_clusters() {
+    constexpr uint32_t sectors_per_read = 8;
+    constexpr uint32_t entries_per_sector = BlockDevice::BLOCK_SIZE_BYTES / sizeof(uint32_t);
+    auto scratch = TRY(KernelBuffer::alloc(sectors_per_read * BlockDevice::BLOCK_SIZE_BYTES));
+    const auto* entries = reinterpret_cast<const uint32_t*>(scratch.data());
+    uint32_t count = 0;
+    uint32_t end = cluster_count_ + 2;
+    uint32_t end_sector = (end + entries_per_sector - 1) / entries_per_sector;
+    for (uint32_t sector = 0; sector < end_sector;) {
+        uint32_t sectors = sys::min(sectors_per_read, end_sector - sector);
+        TRY(dev_->read(partition_start_lba_ + fat_start_sector_ + sector, scratch.data(), sectors));
+        uint32_t first = sector * entries_per_sector;
+        uint32_t limit = sys::min(sectors * entries_per_sector, end - first);
+        for (uint32_t i = sector == 0 ? 2 : 0; i < limit; ++i) {
+            if ((entries[i] & fat::FAT32_CLUSTER_MASK) == fat::FAT32_FREE)
+                ++count;
+        }
+        sector += sectors;
+    }
+    return count;
+}
+
+Error FatInfo::sync_fs_info() {
+    if (!fs_info_dirty_)
+        return Error::None;
+
+    auto scratch = TRY(KernelBuffer::alloc(sizeof(Fat32FsInfo)));
+    auto& info = *reinterpret_cast<Fat32FsInfo*>(scratch.data());
+    uint32_t lba = partition_start_lba_ + fs_info_sector_;
+    TRY(dev_->read(lba, &info, 1));
+    if (info.is_valid()) {
+        // A previously mounted volume can already contain a stale count.
+        if (free_clusters_ == UNKNOWN_FREE_CLUSTERS)
+            free_clusters_ = TRY(count_free_clusters());
+        if (info.free_count != free_clusters_) {
+            info.free_count = free_clusters_;
+            TRY(write_sectors(lba, &info, 1));
+        }
+    }
+    fs_info_dirty_ = false;
     return Error::None;
 }
 
@@ -196,8 +265,20 @@ Error FatInfo::write_entry(uint32_t cluster, uint32_t value) {
 
     // Preserve top 4 reserved bits.
     uint32_t old = *reinterpret_cast<uint32_t*>(&buffer_[ent_offset]);
-    *reinterpret_cast<uint32_t*>(&buffer_[ent_offset]) = (old & 0xF0000000) | (value & fat::FAT32_CLUSTER_MASK);
+    uint32_t updated = value & fat::FAT32_CLUSTER_MASK;
+    *reinterpret_cast<uint32_t*>(&buffer_[ent_offset]) = (old & ~fat::FAT32_CLUSTER_MASK) | updated;
     buffer_dirty_ = true;
+
+    // Match the cached FAT transition once. Failed writes retain that sector for retry.
+    bool was_free = (old & fat::FAT32_CLUSTER_MASK) == fat::FAT32_FREE;
+    bool is_free = updated == fat::FAT32_FREE;
+    if (free_clusters_ != UNKNOWN_FREE_CLUSTERS && was_free != is_free) {
+        if (is_free)
+            ++free_clusters_;
+        else
+            --free_clusters_;
+        fs_info_dirty_ = true;
+    }
 
     // Write through to all FAT copies immediately.
     return flush_fat_buffer();

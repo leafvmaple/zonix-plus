@@ -325,6 +325,12 @@ a successful cache barrier clears it. Checked unmount uses the same path and
 retains the mounted filesystem on failure. Virtual filesystems explicitly return
 success without a storage barrier. The default device flush is `NotSupported`.
 
+On the first sync after mount, FAT32 counts free clusters from the FAT for
+volumes with valid FSInfo. Later changes maintain the count as FAT entries are
+allocated or freed, including rollback and deferred chain cleanup. Sync writes
+the count to the primary FSInfo sector after the FAT copies and before the
+device cache barrier. [Microsoft FAT32 specification](https://cscie92.dce.harvard.edu/fall2025/Microsoft%20Extensible%20Firmware%20Initiative%20FAT32%20File%20System%20Specification%2C%20Version%201.03%2C%2020001206.pdf)
+
 IDE and AHCI choose ATA FLUSH CACHE / FLUSH CACHE EXT from valid IDENTIFY
 capability words. A device verified to lack a write cache needs no command;
 unknown capability cannot claim durability. AHCI flush commands have no PRDT or

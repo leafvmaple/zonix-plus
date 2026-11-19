@@ -96,6 +96,8 @@ private:
     Error write_entry(uint32_t cluster, uint32_t value);
     Error load_fat_sector(uint32_t sector);
     Error flush_fat_buffer();
+    Result<uint32_t> count_free_clusters();
+    Error sync_fs_info();
     Error write_sectors(uint32_t start_lba, const void* buf, size_t block_count);
 
     Result<uint32_t> alloc_cluster();
@@ -164,6 +166,9 @@ private:
     uint32_t data_start_sector_{};      // Data area start sector
     uint32_t cluster_count_{};          // Total clusters
     uint32_t total_sector_count_{};     // Total sectors
+    uint32_t fs_info_sector_{};         // 0 when no usable FSInfo is present
+    uint32_t free_clusters_{};          // Recounted from the FAT before first use
+    bool fs_info_dirty_{};
 
     uint8_t buffer_[512]{};     // Sector buffer
     uint32_t buffer_sector_{};  // Buffered sector number

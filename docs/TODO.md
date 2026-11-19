@@ -106,6 +106,7 @@ Zonix
 - `scripts/test_shutdown_qemu.py` 使用临时镜像副本；x86 BIOS/UEFI、aarch64 UEFI、riscv64 UEFI 均完成“写入并 sync → 再追加/创建目录项 → 实际关机 → 同盘重启校验 → 再次关机”。QMP 确认 `guest-shutdown`，宿主逐字节复核 65,583 字节文件及空文件。独立整套回归分别为 **833 / 833 / 823 / 821 项断言，0 失败**；关机夹具启动仅执行对应持久性场景，不重复整套断言；aarch64/riscv64 原有用户 ELF E2E 仍因缺少对应用户程序而跳过，本项存储场景均完整执行。
 - x86 BIOS 额外禁用 ACPI：电源接口返回 `NotSupported` 后继续创建、写入并同步文件；宿主确认恢复写入持久化，无 guest 关机事件。
 - 修复回归暴露的 BIOS 引导代码与 FAT32 FSInfo 扇区重叠；减少 FAT 分配/回滚嵌套，目录扇区及较大测试夹具移出 4KB 内核栈，保留原栈大小。
+- FAT32 FSInfo 可用簇统计已补齐。x86 BIOS 和 UEFI 的生产镜像均验证了首次同步修正旧计数、写入后计数减少、删除后经正常关机回收簇。使用同一数据盘重启后保留文件的字节正确，被删除的文件和目录均不存在，宿主 `fsck.fat -n` 返回 0。
 - 三架构 `make check`、`TEST=0` 生产构建、clang-format 18、脚本语法检查通过。`bun run lint` / `bun run tsc` 已尝试，仓库未定义这两个脚本。
 - 串口及 QMP 记录位于 `obj/<arch>/shutdown-<boot>/`；CI 四个 QEMU job 已接入上述关机重启回归。以上为本地验收记录；远端 CI 结果以对应提交的 workflow 为准。
 
