@@ -88,7 +88,7 @@ def check_index(repo, index=None):
                   "stage them with the change:\n  " + "\n  ".join(missing), file=sys.stderr)
             return 1
         print("Pre-commit: checking staged architecture, state and naming rules (x86, aarch64, riscv64)", flush=True)
-        # Regression suites require a separate explicit owner request.
+        # The hook stays fast; AGENTS.md says when to run the test suites by hand.
         commands = [["make", "check", f"ARCH={arch}"] for arch in ARCHES]
         for command in commands:
             result = subprocess.run(command, cwd=snapshot, env=check_env)

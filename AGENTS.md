@@ -28,9 +28,8 @@
   its resources and restore usable console display and input. A graphical
   application failure must not take down the kernel or unrelated applications.
 - Changes to graphical support must preserve the three operating modes:
-  Desktop absent, Desktop running, and CLI use after Desktop exits. Roadmap
-  acceptance criteria do not authorize running regression tests; the explicit
-  owner-authorization rule below still applies.
+  Desktop absent, Desktop running, and CLI use after Desktop exits. Verify them
+  as the Testing section describes for user-space changes.
 
 # User program toolchain
 
@@ -72,8 +71,7 @@ existing subsystem design rather than adding a second implementation style.
 - Use the project-level `external/zstl` submodule for standard structures and
   utilities, including `sys::unique_ptr`, `sys::move` and `sys::nothrow`. Do not
   implement another first-party standard container or smart pointer. Add missing
-  required functionality to zstl instead. Add tests only when the owner explicitly
-  requests them.
+  required functionality to zstl instead; its tests live in the submodule.
 - All consumers, including future mini-cocos integration, must select the same
   zstl include root and runtime ABI. zstl is always self-contained; do not define
   the obsolete `ZSTL_FREESTANDING` macro. Freestanding compilation and using a
@@ -161,8 +159,8 @@ existing subsystem design rather than adding a second implementation style.
 
 - Run `make install-hooks` once per clone. The versioned `.githooks/pre-commit`
   checks an isolated snapshot of the Git index for all three architectures and
-  does not run regression tests automatically. Windows Git
-  delegates to the default WSL distribution. Do not bypass this hook.
+  does not run tests. Windows Git delegates to the default WSL distribution. Do
+  not bypass this hook.
 - Run `make check ARCH=x86`, `make check ARCH=aarch64` and
   `make check ARCH=riscv64` after changing kernel code or these rules.
   The checker uses Clang's AST for state ownership and scans unpreprocessed shared
@@ -171,16 +169,107 @@ existing subsystem design rather than adding a second implementation style.
 - Local pre-commit is the submission gate; `make check` is the explicit manual
   entry point. Normal builds and CI must not invoke this check automatically.
   A failed check must be fixed, never ignored or bypassed.
-- Do not add or run any regression tests unless the owner explicitly requests
-  them for the current task. This includes host harness suites, zstl tests,
-  kernel `TEST=1` execution and QEMU regression scripts, including indirect
-  execution through hooks. Preserve existing tests and adapt their API uses
-  only as needed to keep them compilable.
 - Run affected production builds with `TEST=0`. For shared MM, scheduling, trap
   or executable changes, compile all three kernels. Report validation
   limitations plainly; successful compilation is not runtime validation.
-- When changing checker acceptance, add harness cases only if the owner
-  explicitly requests tests.
+- Choose how much to test from the Testing section below. It replaces the
+  earlier blanket rule against running tests.
+
+## Testing
+
+Match the testing to what the change can break. Running everything for a
+trivial edit and running nothing for a kernel change are both wrong.
+
+### How much to run
+
+- **Nothing beyond the build** when behaviour cannot change: documentation,
+  comments, log or message wording, formatting, a rename the compiler fully
+  checks, or deleting code that nothing builds or references. Build the
+  affected targets and stop.
+- **Look at it** for user-space appearance and layout (Desktop, Files,
+  Terminal, controls): build the image, start it in QEMU and check the three
+  modes above. These have no automated suite; do not write one for pixels.
+- **The suite for that area** when the change stays inside one subsystem or one
+  architecture: run the host harness or script test that covers it, or that
+  architecture's QEMU suite. Examples: a storage driver change runs
+  `scripts/tests/test_storage_drivers.py`; a checker script change runs its
+  `scripts/tests/test_*.py`; an aarch64 driver change runs the aarch64 QEMU
+  suite.
+- **The full regression** when the change can affect code outside its own file
+  set:
+  - shared kernel code under `kernel/mm`, `kernel/sched`, `kernel/trap`,
+    `kernel/syscall`, `kernel/fs`, `kernel/exec`, `kernel/block`, `kernel/sync`
+    or `kernel/cons`, and shared headers under `include/`;
+  - architecture entry, trap and context-switch code, page tables, boot code
+    and linker scripts;
+  - the user ABI (`include/abi`, syscall numbers, the zcc runtime) or the
+    `external/zstl` and `user/zcc` pins;
+  - the build system when it changes what is compiled or linked;
+  - a refactor that touches more than one subsystem, even if it is meant to
+    preserve behaviour;
+  - anything about to be tagged as a release.
+
+The full regression is all of:
+
+```sh
+python3 -m unittest discover -s scripts/tests
+make ARCH=x86 TEST=1 && bash scripts/ci_qemu_test.sh bios && bash scripts/ci_qemu_test.sh uefi
+make ARCH=aarch64 TEST=1 bin/aarch64/sdcard.img && bash scripts/ci_qemu_test_aarch64.sh
+make ARCH=riscv64 TEST=1 bin/riscv64/sdcard.img && bash scripts/ci_qemu_test_riscv64.sh
+python3 scripts/test_shutdown_qemu.py x86 --boot bios --unsupported
+python3 scripts/test_shutdown_qemu.py x86 --boot uefi
+python3 scripts/test_shutdown_qemu.py aarch64
+python3 scripts/test_shutdown_qemu.py riscv64
+```
+
+Rebuild with `TEST=0` afterwards. Report which of these ran and their results.
+A suite that already fails before the change is reported as such, with its
+cause, and is repaired or removed; it is never left failing or skipped.
+
+### When to add a test
+
+- A bug fix gets one test that fails without the fix. Check that it does.
+- New behaviour that user space or another subsystem relies on gets a test of
+  that behaviour: a syscall, a file-system operation, an error or fault path.
+- Extend the existing suite for the subsystem. Add a file only for a subject
+  that has none, and register it in `kernel/test/test_main.cpp` or run it from
+  `scripts/tests`.
+
+### What not to test
+
+This is an operating system. Reading and writing a piece of memory, a register
+or a descriptor is often the test itself, because it proves a mapping, a
+permission or a hardware state. Judge a test by what its failure would reveal,
+not by how simple it looks. Before removing one, find out what it was written
+to catch and whether anything else still catches that; if its original purpose
+is gone but a real invariant remains, re-aim it instead of deleting it.
+
+Code built for the kernel is not covered by tests that run on the host. zstl
+compiled with the kernel's flags is exercised by the in-kernel suite, not by
+zstl's own host tests.
+
+With that in mind, do not test:
+
+- Getters, setters and constants that touch no hardware, mapping or
+  architecture-specific layout, and values the test has just assigned.
+- The compiler or the language. Use `static_assert` for compile-time facts.
+- Source text, file layout or editor configuration.
+- The same behaviour in both a host harness and the in-kernel suite. Host
+  harnesses are for injected failures the real kernel cannot produce;
+  everything else belongs in the in-kernel suite.
+- Details a harmless refactor would change: exact PIDs, tick counts, log text,
+  or sizes copied from the implementation.
+- One assertion per message. A test covers a behaviour, and a few assertions
+  are usually enough.
+
+### Keeping tests honest
+
+- A host harness links real kernel sources against stubs. When kernel code
+  gains a dependency, update the stubs in the same change and run that harness.
+- Delete a test when the behaviour it covers is removed. Do not weaken an
+  assertion to make it pass.
+- Tests must not depend on a terminal, on timing, or on an earlier test having
+  run.
 
 ## Working with the user
 

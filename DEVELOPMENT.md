@@ -11,8 +11,8 @@
 hook 使用默认 WSL 发行版中的 Python、Make 和 Clang。
 
 pre-commit 在临时目录中检查暂存区快照，只运行三架构的 `make check`，
-不自动运行回归测试。只有项目所有者明确要求时才添加或运行回归测试。未暂存的修改不会影响结果，失败会阻断本地提交。详细规则见
-[AGENTS.md](AGENTS.md)。需要手动检查时执行 `make check ARCH=<架构>`；普通构建
+不运行测试。未暂存的修改不会影响结果，失败会阻断本地提交。什么改动需要跑哪些测试、什么情况下新增测试，见
+[AGENTS.md](AGENTS.md) 的 Testing 一节。需要手动检查时执行 `make check ARCH=<架构>`；普通构建
 与 CI 不自动执行这些规则检查。
 
 ```
