@@ -26,6 +26,17 @@ int child(char* mode) {
         char c;
         return (int)sys_read(STDIN_FD, &c, 1);
     }
+    if (!strcmp(mode, "raw")) {
+        /* In raw mode Ctrl-C is a byte for the application, not an interrupt. */
+        char c = 0;
+        if (sys_ioctl(STDIN_FD, TERMINAL_SET_RAW, 1) != 0)
+            return 80;
+        if (sys_write(STDOUT_FD, "W", 1) != 1 || sys_read(STDIN_FD, &c, 1) != 1)
+            return 81;
+        if (sys_ioctl(STDIN_FD, TERMINAL_SET_RAW, 0) != 0)
+            return 82;
+        return c;
+    }
     if (!strcmp(mode, "fault"))
         return *(int*)0x1000;
     return 91;
@@ -78,6 +89,18 @@ int pty_shell(char* self) {
         return 73;
     if (sys_ioctl(STDERR_FD, TERMINAL_JOB, TERMINAL_JOB_END) != 0)
         return 74;
+
+    /* A task in raw mode receives Ctrl-C as input and the job is not interrupted. */
+    char* raw[3] = {self, "raw", 0};
+    if (sys_ioctl(STDERR_FD, TERMINAL_JOB, TERMINAL_JOB_BEGIN) != 0)
+        return 77;
+    pid = sys_spawn_foreground(self, 2, raw);
+    if (pid <= 0)
+        return 78;
+    if (sys_wait((int)pid, &status) != pid || status != 3)
+        return 79;
+    if (sys_ioctl(STDERR_FD, TERMINAL_JOB, TERMINAL_JOB_END) != 0)
+        return 83;
     if (sys_write(STDOUT_FD, "E", 1) != 1)
         return 75;
 
@@ -133,7 +156,8 @@ int pty_driver(char* self) {
                    sys_ioctl(slave, TERMINAL_GET_SIZE, (long)&size) == 0 && size.rows == 30 && size.cols == 100,
                "invalid size is rejected and the last size kept"))
         return 1;
-    if (!check(sys_read(slave, data, 1) < 0, "a task outside the session cannot read its input"))
+    if (!check(sys_read(slave, data, 1) < 0 && sys_ioctl(slave, TERMINAL_SET_RAW, 1) == SYS_ERROR_ACCESS,
+               "a task outside the session cannot read its input or take raw mode"))
         return 1;
     if (!check(sys_ioctl(STDERR_FD, TERMINAL_JOB, TERMINAL_JOB_BEGIN) == SYS_ERROR_ACCESS,
                "a background task cannot start a console job"))
@@ -161,7 +185,10 @@ int pty_driver(char* self) {
     passed = passed && check(pty_next(master) == 'D', "Ctrl-C interrupts the job and a cancelled job ends quietly");
     data[0] = 'x';
     passed = passed && check(sys_write(master, data, 1) == 1, "master accepts input");
-    passed = passed && check(pty_next(master) == 'E', "input reaches the job's task");
+    passed = passed && check(pty_next(master) == 'W', "input reaches the job's task");
+    data[0] = 3;
+    passed = passed && check(sys_write(master, data, 1) == 1, "master accepts Ctrl-C in raw mode");
+    passed = passed && check(pty_next(master) == 'E', "raw mode delivers Ctrl-C as input without interrupting the job");
     sys_close(master);
     long waited = sys_wait((int)shell, &status);
     if (!passed) {

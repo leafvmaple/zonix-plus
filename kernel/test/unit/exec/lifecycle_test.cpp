@@ -130,7 +130,7 @@ void test_pty_job_control() {
         if (code != 0)
             cprintf("P1-1 pty: driver exit code %d\n", code);
         TEST_ASSERT(waited.ok() && code == 0,
-                    "Output, resize, Ctrl-C, cancel, input delivery and hangup behave in user mode");
+                    "Output, resize, Ctrl-C, cancel, input delivery, raw mode and hangup behave in user mode");
     }
     TEST_ASSERT(TaskManager::process_count() == before_tasks, "The session leaves no tasks behind");
     TEST_ASSERT(pmm::free_page_count() == before_pages, "The session and its tasks return all pages");

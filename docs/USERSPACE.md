@@ -219,6 +219,10 @@ make ARCH=x86 TEST=0 qemu USER_DISK=bin/x86/apps.img
 
 x86 QEMU 使用 PS/2 键盘与三键相对鼠标。aarch64 和 riscv64 的 QEMU 配置使用 VirtIO 键盘/鼠标，并支持垂直滚轮切换色条。演示使用前台键鼠事件，shell 和 `vi` 继续使用原有字符输入。接口和权限见 [USER_ABI.md](USER_ABI.md#显示控制-abi)。
 
+### 控制台作业控制的回归检查
+
+`scripts/test_console_qemu.py <架构>` 启动 `TEST=0` 的生产系统，用模拟键盘在真实的 init 和 shell 上操作，从串口读输出：Ctrl-C 必须结束前台命令和整条管道并回到提示符；`vi` 占用控制台的原始模式时，Ctrl-C 作为普通按键交给它处理。伪终端上的同类行为由内核测试中的用户态夹具 `user/p1life` 覆盖。
+
 ## 可选 Desktop
 
 `desktop` 是从 shell 启动的可选用户态程序。x86 套件包含 Desktop、图形终端、Files 和界面字体，统一装到独立的 `desktop.img`。Desktop、Terminal 和 Files 静态链接同一套 mini-cocos 与 Zonix GUI 平台。先准备下文指定的 mini-cocos checkout。

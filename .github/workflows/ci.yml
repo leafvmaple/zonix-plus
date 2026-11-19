@@ -156,6 +156,11 @@ jobs:
       - name: Verify shutdown and reboot persistence
         run: python3 scripts/test_shutdown_qemu.py x86 --boot uefi
 
+      - name: Verify console job control on the production system
+        run: |
+          make ARCH=x86 TEST=0
+          python3 scripts/test_console_qemu.py x86
+
   # ======================================================================
   # Job 6: Integration tests in QEMU (AArch64 UEFI boot)
   # ======================================================================
@@ -189,6 +194,11 @@ jobs:
 
       - name: Verify shutdown and reboot persistence
         run: python3 scripts/test_shutdown_qemu.py aarch64
+
+      - name: Verify console job control on the production system
+        run: |
+          make ARCH=aarch64 TEST=0
+          python3 scripts/test_console_qemu.py aarch64
 
   # ======================================================================
   # Job 7: Build riscv64 kernel
@@ -246,6 +256,11 @@ jobs:
 
       - name: Verify shutdown and reboot persistence
         run: python3 scripts/test_shutdown_qemu.py riscv64
+
+      - name: Verify console job control on the production system
+        run: |
+          make ARCH=riscv64 TEST=0
+          python3 scripts/test_console_qemu.py riscv64
 
   # ======================================================================
   # Job 9: Static analysis (clang-tidy, non-blocking)

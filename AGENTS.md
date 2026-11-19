@@ -220,9 +220,14 @@ python3 scripts/test_shutdown_qemu.py x86 --boot bios --unsupported
 python3 scripts/test_shutdown_qemu.py x86 --boot uefi
 python3 scripts/test_shutdown_qemu.py aarch64
 python3 scripts/test_shutdown_qemu.py riscv64
+make ARCH=x86 TEST=0 && python3 scripts/test_console_qemu.py x86
+make ARCH=aarch64 TEST=0 && python3 scripts/test_console_qemu.py aarch64
+make ARCH=riscv64 TEST=0 && python3 scripts/test_console_qemu.py riscv64
 ```
 
-Rebuild with `TEST=0` afterwards. Report which of these ran and their results.
+The console checks boot the production system with its real init and shell, so
+they also leave the tree built with `TEST=0`. Report which of these ran and
+their results.
 A suite that already fails before the change is reported as such, with its
 cause, and is repaired or removed; it is never left failing or skipped.
 
