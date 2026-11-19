@@ -9,10 +9,10 @@ CXX     := $(LLVM_BIN)clang++ --target=x86_64-none-elf
 LD      := $(LLD_BIN)ld.lld
 # Shared user-space runtime ABI, independent of the application compiler.
 USER_ARCH_CFLAGS := -m64 -mno-red-zone -march=x86-64 -msse2 -mno-avx
-CFLAGS  := -g -fno-builtin -Wall -ggdb -O0 -m64 -mno-red-zone -mcmodel=kernel \
+CFLAGS  := -g -fno-builtin -Wall -ggdb $(KERNEL_OPT) -m64 -mno-red-zone -mcmodel=kernel \
            -mno-sse -mno-sse2 -mno-mmx -msoft-float -nostdinc \
            -fno-stack-protector -fno-pic -gdwarf-2
-CXXFLAGS := -g -Wall -ggdb -O0 -m64 -mno-red-zone -mcmodel=kernel \
+CXXFLAGS := -g -Wall -ggdb $(KERNEL_OPT) -m64 -mno-red-zone -mcmodel=kernel \
            -mno-sse -mno-sse2 -mno-mmx -msoft-float -nostdinc -nostdinc++ \
            -fno-builtin -fno-stack-protector -fno-pic -fno-exceptions -fno-rtti \
            -fno-use-cxa-atexit -fno-threadsafe-statics \

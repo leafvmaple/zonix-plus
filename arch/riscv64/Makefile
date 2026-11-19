@@ -20,10 +20,10 @@ CXX     := $(LLVM_BIN)clang++ --target=riscv64-none-elf
 LD      := $(LLD_BIN)ld.lld
 # Shared user-space runtime ABI, independent of the application compiler.
 USER_ARCH_CFLAGS := -march=rv64imac -mabi=lp64 -mno-relax
-CFLAGS  := -g -Wall -O0 -nostdinc -fno-builtin -fno-stack-protector \
+CFLAGS  := -g -Wall $(KERNEL_OPT) -nostdinc -fno-builtin -fno-stack-protector \
            -fno-pic -ffreestanding -gdwarf-2 -march=rv64gc -mabi=lp64d \
            -mcmodel=medany $(BOARD_DEFINE)
-CXXFLAGS := -g -Wall -O0 -nostdinc -nostdinc++ \
+CXXFLAGS := -g -Wall $(KERNEL_OPT) -nostdinc -nostdinc++ \
            -fno-builtin -fno-stack-protector -fno-pic -fno-exceptions -fno-rtti \
            -fno-use-cxa-atexit -fno-threadsafe-statics \
            -fno-asynchronous-unwind-tables -fno-unwind-tables \

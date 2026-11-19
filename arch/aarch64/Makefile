@@ -9,9 +9,11 @@ CXX     := $(LLVM_BIN)clang++ --target=aarch64-none-elf
 LD      := $(LLD_BIN)ld.lld
 # Shared user-space runtime ABI, independent of the application compiler.
 USER_ARCH_CFLAGS := -mgeneral-regs-only
-CFLAGS  := -g -Wall -O0 -nostdinc -fno-builtin -fno-stack-protector \
+# Traps and context switches save no FP/SIMD state, so the kernel must not use
+# those registers, including for copies the optimizer vectorizes.
+CFLAGS  := -g -Wall $(KERNEL_OPT) -mgeneral-regs-only -nostdinc -fno-builtin -fno-stack-protector \
            -fno-pic -ffreestanding -gdwarf-2
-CXXFLAGS := -g -Wall -O0 -nostdinc -nostdinc++ \
+CXXFLAGS := -g -Wall $(KERNEL_OPT) -mgeneral-regs-only -nostdinc -nostdinc++ \
            -fno-builtin -fno-stack-protector -fno-pic -fno-exceptions -fno-rtti \
            -fno-use-cxa-atexit -fno-threadsafe-statics \
            -fno-asynchronous-unwind-tables -fno-unwind-tables \

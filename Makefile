@@ -8,6 +8,14 @@ ARCH ?= x86
 V    ?= 0  # Verbose mode: make V=1
 # Build kernel test suites: make TEST=1
 TEST ?= 0
+# Kernel optimization level. The production kernel is optimized; test kernels
+# stay unoptimized so a failing test can be stepped through line by line.
+# Override to run the suites against optimized code: make TEST=1 KERNEL_OPT=-O2
+ifeq ($(TEST),1)
+  KERNEL_OPT ?= -O0
+else
+  KERNEL_OPT ?= -O2
+endif
 # Show detailed boot logs; all levels remain available in dmesg.
 BOOT_VERBOSE ?= 0
 
@@ -147,11 +155,17 @@ INCLUDE := include \
 # ==========================================================================
 CFLAGS   += $(addprefix -I,$(INCLUDE))
 ZSTL_DIR := external/zstl
+# The kernel reinterprets memory, parks in empty loops, and maps and probes low
+# addresses on purpose. Keep the optimizer from treating those as undefined.
+KERNEL_SEMANTICS := -fno-strict-aliasing -fno-delete-null-pointer-checks -fno-finite-loops -fwrapv
+CFLAGS   += $(KERNEL_SEMANTICS)
+CXXFLAGS += $(KERNEL_SEMANTICS)
 CXXFLAGS += $(addprefix -I,$(INCLUDE)) -Werror=unused-result \
             -I$(ZSTL_DIR)/include -DCONFIG_BOOT_VERBOSE=$(BOOT_VERBOSE)
 
 # Track TEST mode changes: when TEST switches, all .o files must be recompiled
-# (because -DTEST_MODE=1 changes preprocessor output).  Must be defined before
+# (because -DTEST_MODE=1 changes preprocessor output and the optimization level
+# follows it).  Must be defined before
 # the compile rules are eval'd by add_packet_files_cxx below.
 TEST_MODE_STAMP := $(OBJDIR)/.test_mode
 CXX_STANDARD_STAMP := $(OBJDIR)/.cxx_standard
@@ -166,7 +180,7 @@ KOBJS  := $(sort $(call read_packet,kernel))
 FORCE:
 
 $(TEST_MODE_STAMP): FORCE | $(OBJDIR)/
-	$(Q)if [ ! -f $@ ] || [ "$$(cat $@)" != "$(TEST)" ]; then echo "$(TEST)" > $@; fi
+	$(Q)if [ ! -f $@ ] || [ "$$(cat $@)" != "$(TEST) $(KERNEL_OPT)" ]; then echo "$(TEST) $(KERNEL_OPT)" > $@; fi
 
 $(CXX_STANDARD_STAMP): FORCE | $(OBJDIR)/
 	$(Q)if [ ! -f $@ ] || [ "$$(cat $@)" != "$(CXX_STANDARD)" ]; then echo "$(CXX_STANDARD)" > $@; fi
@@ -323,6 +337,7 @@ help:
 	@echo "  USER_CC=zcc|clang|<cross-cc>  Application compiler (base uses Clang)"
 	@echo "  USER_DISK=<path>     Attach optional extra-application disk (default: none)"
 	@echo "  TEST=0|1             Include kernel test suites (default: 0)"
+	@echo "  KERNEL_OPT=-O0|-O2   Kernel optimization level (default: -O2, -O0 with TEST=1)"
 	@echo "  BOOT_VERBOSE=0|1     Detailed startup logs (default: 0)"
 	@echo "  V=1                  Verbose build output"
 	@echo '  QEMU_FLAGS="..."      Extra QEMU arguments (e.g. -display none)'
