@@ -1,5 +1,6 @@
 #include "style.h"
 #include "../platform.h"
+#include "../shape.h"
 #include "../theme.h"
 #include <2d/ZCLabel.h>
 #include <base/ZCDirector.h>
@@ -120,51 +121,59 @@ void place_label(zocos::Label& label, float x, float center_y, float align, floa
 }
 
 Palette::~Palette() {
-    auto* device = director_.getRenderDevice();
-    if (!device)
-        return;
-    if (solid_.isValid())
-        device->destroyTexture(solid_);
-    for (auto texture : discs_) {
-        if (texture.isValid())
-            device->destroyTexture(texture);
-    }
-    for (auto texture : glyphs_) {
-        if (texture.isValid())
-            device->destroyTexture(texture);
-    }
+    if (attached_ && --users_ == 0)
+        destroy(director_.getRenderDevice());
 }
 
 bool Palette::init() {
+    if (attached_)
+        return true;
     auto* device = director_.getRenderDevice();
     if (!device)
         return false;
+    if (users_ == 0 && !create(*device)) {
+        destroy(device);
+        return false;
+    }
+    ++users_;
+    attached_ = true;
+    return true;
+}
+
+// The device is gone once the director has shut down; its textures went with it.
+void Palette::destroy(zocos::RenderDevice* device) {
+    if (device) {
+        if (textures_.solid.isValid())
+            device->destroyTexture(textures_.solid);
+        for (auto texture : textures_.discs) {
+            if (texture.isValid())
+                device->destroyTexture(texture);
+        }
+        for (auto texture : textures_.glyphs) {
+            if (texture.isValid())
+                device->destroyTexture(texture);
+        }
+    }
+    textures_ = {};
+}
+
+bool Palette::create(zocos::RenderDevice& device_ref) {
+    auto* device = &device_ref;
     const unsigned char opaque = 255;
-    solid_ = device->createTexture({1, 1, zocos::TextureFormat::A8Unorm, {&opaque}});
-    if (!solid_.isValid())
+    textures_.solid = device->createTexture({1, 1, zocos::TextureFormat::A8Unorm, {&opaque}});
+    if (!textures_.solid.isValid())
         return false;
 
-    // Coverage comes from SAMPLES x SAMPLES points per texel. Positions are in
-    // units of 1 / (2 * SAMPLES) of a pixel so the sample centres are integers.
     constexpr int unit = SAMPLES * 2;
     unsigned char alpha[MAX_RADIUS * 2 * MAX_RADIUS * 2];
     for (int radius = 1; radius <= MAX_RADIUS; ++radius) {
         const int size = radius * 2;
-        const int reach = radius * unit;
         for (int y = 0; y < size; ++y) {
-            for (int x = 0; x < size; ++x) {
-                int inside = 0;
-                for (int sample = 0; sample < SAMPLES * SAMPLES; ++sample) {
-                    int dx = x * unit + sample % SAMPLES * 2 + 1 - reach;
-                    int dy = y * unit + sample / SAMPLES * 2 + 1 - reach;
-                    if (dx * dx + dy * dy <= reach * reach)
-                        ++inside;
-                }
-                alpha[y * size + x] = static_cast<unsigned char>(inside * 255 / (SAMPLES * SAMPLES));
-            }
+            for (int x = 0; x < size; ++x)
+                alpha[y * size + x] = shape::disc_coverage(radius, x, y);
         }
-        discs_[radius - 1] = device->createTexture({size, size, zocos::TextureFormat::A8Unorm, {alpha}});
-        if (!discs_[radius - 1].isValid())
+        textures_.discs[radius - 1] = device->createTexture({size, size, zocos::TextureFormat::A8Unorm, {alpha}});
+        if (!textures_.discs[radius - 1].isValid())
             return false;
     }
 
@@ -183,9 +192,9 @@ bool Palette::init() {
                 alpha[y * GLYPH_PIXELS + x] = static_cast<unsigned char>(inside * 255 / (SAMPLES * SAMPLES));
             }
         }
-        glyphs_[index] =
+        textures_.glyphs[index] =
             device->createTexture({GLYPH_PIXELS, GLYPH_PIXELS, zocos::TextureFormat::A8Unorm, {alpha}});
-        if (!glyphs_[index].isValid())
+        if (!textures_.glyphs[index].isValid())
             return false;
     }
     return true;
@@ -195,7 +204,7 @@ void Palette::box(zocos::Renderer& renderer, const zocos::Mat4& world, zocos::Re
                   zocos::RenderSortKey order) const {
     Vertices quads;
     push_quad(quads, area, SOLID_UV, value(color));
-    renderer.addDrawQuads(world, solid_, quads, 1.f, order);
+    renderer.addDrawQuads(world, textures_.solid, quads, 1.f, order);
 }
 
 void Palette::round_box(zocos::Renderer& renderer, const zocos::Mat4& world, zocos::Rect area, float radius,
@@ -217,7 +226,7 @@ void Palette::round_box(zocos::Renderer& renderer, const zocos::Mat4& world, zoc
     push_quad(sides, {left, bottom + r, area.width, area.height - 2.f * r}, SOLID_UV, tint);
     push_quad(sides, {left + r, bottom, area.width - 2.f * r, r}, SOLID_UV, tint);
     push_quad(sides, {left + r, top, area.width - 2.f * r, r}, SOLID_UV, tint);
-    renderer.addDrawQuads(world, solid_, sides, 1.f, order);
+    renderer.addDrawQuads(world, textures_.solid, sides, 1.f, order);
 
     // Each corner shows the matching quarter of the disc, one texel per pixel.
     Vertices corners;
@@ -225,7 +234,7 @@ void Palette::round_box(zocos::Renderer& renderer, const zocos::Mat4& world, zoc
     push_quad(corners, {right, bottom, r, r}, {0.5f, 0.f, 0.5f, 0.5f}, tint);
     push_quad(corners, {left, top, r, r}, {0.f, 0.5f, 0.5f, 0.5f}, tint);
     push_quad(corners, {right, top, r, r}, {0.5f, 0.5f, 0.5f, 0.5f}, tint);
-    renderer.addDrawQuads(world, discs_[corner - 1], corners, 1.f, order);
+    renderer.addDrawQuads(world, textures_.discs[corner - 1], corners, 1.f, order);
 }
 
 void Palette::frame(zocos::Renderer& renderer, const zocos::Mat4& world, zocos::Rect area, float radius, Color fill,
@@ -247,7 +256,7 @@ void Palette::glyph(zocos::Renderer& renderer, const zocos::Mat4& world, zocos::
               {area.x + snap((area.width - GLYPH_SIZE) / 2.f), area.y + snap((area.height - GLYPH_SIZE) / 2.f),
                GLYPH_SIZE, GLYPH_SIZE},
               {0.f, 0.f, 1.f, 1.f}, value(color));
-    renderer.addDrawQuads(world, glyphs_[static_cast<int>(symbol)], quads, 1.f, order);
+    renderer.addDrawQuads(world, textures_.glyphs[static_cast<int>(symbol)], quads, 1.f, order);
 }
 
 }  // namespace zonix_gui::control_style

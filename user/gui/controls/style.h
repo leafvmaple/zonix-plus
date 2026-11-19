@@ -86,11 +86,23 @@ private:
     static constexpr int MAX_RADIUS = 8;
     static constexpr int GLYPH_COUNT = static_cast<int>(Glyph::Up) + 1;
 
+    // Handles default to invalid.
+    struct Textures {
+        zocos::TextureHandle solid;
+        // discs[r - 1] is an antialiased disc of radius r in a 2r square.
+        sys::array<zocos::TextureHandle, MAX_RADIUS> discs;
+        sys::array<zocos::TextureHandle, GLYPH_COUNT> glyphs;
+    };
+    static bool create(zocos::RenderDevice& device);
+    static void destroy(zocos::RenderDevice* device);
+
+    // Every palette in the process draws with one set of textures, created by
+    // the first and released with the last.
+    inline static Textures textures_;
+    inline static int users_{};
+
     zocos::Director& director_;
-    zocos::TextureHandle solid_{};
-    // discs_[r - 1] is an antialiased disc of radius r in a 2r square.
-    sys::array<zocos::TextureHandle, MAX_RADIUS> discs_{};
-    sys::array<zocos::TextureHandle, GLYPH_COUNT> glyphs_{};
+    bool attached_{};
 };
 
 }  // namespace zonix_gui::control_style
