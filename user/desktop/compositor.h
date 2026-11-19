@@ -1,6 +1,6 @@
 #pragma once
 
-#include "window.h"
+#include "dock.h"
 #include <kernel/psf.h>
 
 namespace desktop {
@@ -18,6 +18,8 @@ public:
         const desktop_chrome::Chrome& chrome;
         const Point& pointer;
         Rect screen;
+        // Empty when the screen has no room for the Dock.
+        Rect dock;
         psf::Font font;
     };
 
@@ -31,6 +33,7 @@ public:
 private:
     unsigned int compose(Point point, int slot, int top) const;
     unsigned int interior(int index, Point point, bool focused) const;
+    unsigned int desk(Point point) const;
     unsigned int background(Point point) const;
     unsigned int text_color(int index, int x, int y) const;
 

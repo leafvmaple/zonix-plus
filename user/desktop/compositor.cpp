@@ -29,6 +29,7 @@ struct CornerMask {
 constexpr int CORNER_RADIUS = 10;
 constexpr CornerMask<CORNER_RADIUS> OUTER_CORNER{};
 constexpr CornerMask<CORNER_RADIUS - 1> INNER_CORNER{};
+constexpr CornerMask<desktop_dock::RADIUS> DOCK_CORNER{};
 // The shadow is the window's outline moved down and faded over the blur distance.
 constexpr int SHADOW_OFFSET = 8;
 constexpr int SHADOW_BLUR = 28;
@@ -131,7 +132,43 @@ unsigned int Compositor::compose(Point point, int slot, int top) const {
         unsigned int below = mix(compose(point, slot + 1, top), 0, shadow(window, point, strength));
         return mix(below, pixel, outer);
     }
-    return background(point);
+    return desk(point);
+}
+
+// What is behind every window: the Dock over the background.
+unsigned int Compositor::desk(Point point) const {
+    unsigned int wallpaper = background(point);
+    const Rect& dock = scene_.dock;
+    if (!dock.contains(point))
+        return wallpaper;
+    unsigned int pixel = theme::TITLE_BACKGROUND;
+    int item = desktop_dock::item_at(dock, point);
+    if (item != desktop_dock::NO_ITEM) {
+        Point origin = desktop_dock::icon_origin(dock, item);
+        pixel = scene_.chrome.dock_pixel(item, point.x - origin.x, point.y - origin.y);
+    } else {
+        // A mark under the icon of every program that has a window.
+        for (int candidate = 0; candidate < desktop_dock::ITEM_COUNT; ++candidate) {
+            Rect mark = desktop_dock::mark(dock, candidate);
+            if (!mark.contains(point))
+                continue;
+            // Without its corner pixels the small square reads as a dot.
+            bool column_edge = point.x == mark.origin.x || point.x == mark.origin.x + mark.width - 1;
+            bool row_edge = point.y == mark.origin.y || point.y == mark.origin.y + mark.height - 1;
+            if (column_edge && row_edge)
+                continue;
+            for (const auto& window : scene_.windows) {
+                if (window.open() && window.app == desktop_dock::ITEMS[candidate])
+                    pixel = theme::TEXT;
+            }
+        }
+    }
+    int x = point.x - dock.origin.x;
+    int y = point.y - dock.origin.y;
+    int edge_x = x < dock.width - 1 - x ? x : dock.width - 1 - x;
+    int edge_y = y < dock.height - 1 - y ? y : dock.height - 1 - y;
+    int coverage = DOCK_CORNER.at(edge_x, edge_y);
+    return coverage == 255 ? pixel : mix(wallpaper, pixel, coverage);
 }
 
 // A window's own pixel inside its border.

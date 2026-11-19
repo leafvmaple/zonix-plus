@@ -1,7 +1,7 @@
 #include "../../command.h"
 #include "../../gui/controls/style.h"
 #include "../../gui/platform.h"
-#include "../chrome.h"
+#include "../dock.h"
 
 #include <2d/ZCLabel.h>
 #include <base/ZCAutoreleasePool.h>
@@ -17,6 +17,9 @@ using zonix_gui::control_style::Color;
 using zonix_gui::control_style::Palette;
 
 constexpr int STRIP_ROWS = MAX_WINDOWS * TITLE_HEIGHT;
+// The Dock's icons are drawn side by side under the title strips.
+constexpr int DOCK_ICON = desktop_dock::ICON;
+constexpr int BUFFER_ROWS = STRIP_ROWS + DOCK_ICON;
 constexpr float CLOSE_RADIUS = CLOSE_SIZE / 2.f;
 // Space kept between the title and the close button.
 constexpr int LABEL_GAP = 8;
@@ -26,8 +29,57 @@ constexpr int TITLE_SIDE = CLOSE_LEFT + CLOSE_SIZE + LABEL_GAP;
 // All strips share one scene and font atlas, with the first slot's strip at
 // the top of the buffer. The renderer's clear colour is the title background.
 constexpr float strip_bottom(int index) {
-    return static_cast<float>(STRIP_ROWS - (index + 1) * TITLE_HEIGHT);
+    return static_cast<float>(BUFFER_ROWS - (index + 1) * TITLE_HEIGHT);
 }
+
+// The Dock's icons, each in a DOCK_ICON square at the bottom of the buffer.
+class DockIcons final : public zocos::Node {
+public:
+    static DockIcons* create(zocos::Director& director) {
+        auto* icons = new (mstd::nothrow) DockIcons(director);
+        if (!icons)
+            return nullptr;
+        if (!icons->init() || !icons->palette_.init()) {
+            delete icons;
+            return nullptr;
+        }
+        icons->autorelease();
+        icons->setAnchorPoint({0.f, 0.f});
+        return icons;
+    }
+
+    void draw(zocos::Renderer& renderer, const zocos::Mat4& world) override {
+        for (int item = 0; item < desktop_dock::ITEM_COUNT; ++item) {
+            const float x = static_cast<float>(item * DOCK_ICON);
+            auto shape = [&](zocos::Rect area, float radius, Color color) {
+                palette_.round_box(renderer, world, {x + area.x, area.y, area.width, area.height}, radius, color);
+            };
+            switch (desktop_dock::ITEMS[item]) {
+                case desktop_ipc::APP_TERMINAL:
+                    // The prompt is a label over this tile.
+                    palette_.frame(renderer, world, {x + 3.f, 3.f, 38.f, 38.f}, 8.f, Color::Field, Color::Border);
+                    break;
+                case desktop_ipc::APP_FILES:
+                    shape({7.f, 31.f, 15.f, 8.f}, 3.f, Color::FolderTab);
+                    shape({5.f, 9.f, 34.f, 26.f}, 4.f, Color::FolderShade);
+                    shape({5.f, 9.f, 34.f, 21.f}, 4.f, Color::Folder);
+                    break;
+                default:
+                    // A ring that is open at the top, with a bar through the gap.
+                    shape({14.f, 12.f, 16.f, 16.f}, 8.f, Color::Text);
+                    shape({16.f, 14.f, 12.f, 12.f}, 6.f, Color::Panel);
+                    shape({18.f, 22.f, 8.f, 8.f}, 0.f, Color::Panel);
+                    shape({21.f, 20.f, 2.f, 11.f}, 0.f, Color::Text);
+                    break;
+            }
+        }
+    }
+
+private:
+    explicit DockIcons(zocos::Director& director) : palette_(director) {}
+
+    Palette palette_;
+};
 
 // The close buttons.
 class Decorations final : public zocos::Node {
@@ -86,13 +138,13 @@ struct Chrome::Scene {
     }
 
     bool init(int max_width) {
-        width = max_width;
+        width = mstd::max(max_width, desktop_dock::ITEM_COUNT * DOCK_ICON);
         if (width <= 0 || width > 32768)
             return false;
         auto stride = static_cast<mstd::size_t>(width) * 4;
-        rgba.resize(stride * STRIP_ROWS);
+        rgba.resize(stride * BUFFER_ROWS);
         auto& engine = zocos::Director::getInstance();
-        if (!zonix_gui::init_offscreen(engine, {rgba.data(), width, STRIP_ROWS, stride, rgba.size()},
+        if (!zonix_gui::init_offscreen(engine, {rgba.data(), width, BUFFER_ROWS, stride, rgba.size()},
                                        zonix_gui::opaque_color(zonix_gui::theme::TITLE_BACKGROUND)))
             return false;
         director = &engine;
@@ -100,9 +152,17 @@ struct Chrome::Scene {
         zocos::AutoreleasePool nodes("desktop chrome");
         auto* scene = zocos::Scene::create();
         decorations = Decorations::create(engine);
-        if (!scene || !decorations)
+        auto* dock = DockIcons::create(engine);
+        auto* prompt = zonix_gui::control_style::make_label(engine, ">_");
+        if (!scene || !decorations || !dock || !prompt)
             return false;
         scene->addChild(decorations);
+        scene->addChild(dock);
+        scene->addChild(prompt);
+        for (int item = 0; item < desktop_dock::ITEM_COUNT; ++item) {
+            if (desktop_dock::ITEMS[item] == desktop_ipc::APP_TERMINAL)
+                zonix_gui::control_style::place_label(*prompt, (item + 0.5f) * DOCK_ICON, DOCK_ICON / 2.f, 0.5f);
+        }
         for (auto& title : titles) {
             title.label = zonix_gui::control_style::make_label(engine, "");
             if (!title.label)
@@ -165,6 +225,10 @@ long Chrome::configure(int slot, int app, int width) {
 
 unsigned int Chrome::title_pixel(int index, int, int x, int y) const {
     return scene_->pixel(x, index * TITLE_HEIGHT + y);
+}
+
+unsigned int Chrome::dock_pixel(int item, int x, int y) const {
+    return scene_->pixel(item * DOCK_ICON + x, STRIP_ROWS + y);
 }
 
 }  // namespace desktop_chrome

@@ -22,7 +22,8 @@ public:
         : fd_(fd),
           screen_{{0, 0}, width, height},
           pointer_{width / 2, height / 2},
-          compositor_({windows_, order_, surfaces_, chrome_, pointer_, screen_, font}) {
+          dock_(desktop_dock::bounds(width, height)),
+          compositor_({windows_, order_, surfaces_, chrome_, pointer_, screen_, dock_, font}) {
         terminal_fits_ = width >= TERMINAL_OUTER_WIDTH && height >= TERMINAL_OUTER_HEIGHT;
         for (int slot = 0; slot < MAX_WINDOWS; ++slot)
             order_[slot] = slot;
@@ -47,7 +48,7 @@ public:
         }
         error = repaint(screen_);
         const unsigned int display_mask = 1U << fd_;
-        while (error == 0) {
+        while (error == 0 && !quit_) {
             unsigned int mask = display_mask;
             for (const auto& window : windows_)
                 mask |= window.client.mask();
@@ -116,6 +117,9 @@ private:
     Rect screen_;
     Point pointer_;
     Point drag_offset_{};
+    Rect dock_;
+    // Set by the Dock's exit item.
+    bool quit_{};
     Order order_{};
     Compositor compositor_;
     bool terminal_fits_{};
@@ -225,6 +229,11 @@ private:
             return error;
         window.app = app;
         window.step = siblings;
+        // The Dock marks programs that have a window.
+        if (repaint(dock_) < 0) {
+            window.client.stop();
+            return SYS_ERROR_IO;
+        }
         window.close_requested = false;
         window.path = {};
         if (path)
@@ -361,7 +370,17 @@ private:
             if (error < 0)
                 return error;
         }
-        return repaint(bounds(old));
+        long error = repaint(bounds(old));
+        return error < 0 ? error : repaint(dock_);
+    }
+
+    // A click on a Dock item: a program is shown as its key would show it.
+    long activate(int item, unsigned int modifiers) {
+        if (item == desktop_dock::ITEM_EXIT) {
+            quit_ = true;
+            return 0;
+        }
+        return show(item, modifiers);
     }
 
     long handle(const DisplayTimedEvent& input) {
@@ -420,8 +439,12 @@ private:
         if (!left || index == NO_WINDOW || !in_body(windows_[index].rect, pointer_))
             last_click_ = {};
         DisplayEvent reset{DISPLAY_EVENT_RESET, 0, 0, event.modifiers};
-        if (index == NO_WINDOW)
+        if (index == NO_WINDOW) {
+            int item = left ? desktop_dock::item_at(dock_, pointer_) : desktop_dock::NO_ITEM;
+            if (item != desktop_dock::NO_ITEM)
+                return activate(desktop_dock::ITEMS[item], event.modifiers);
             return send(top_window(), reset);
+        }
         const auto& rect = windows_[index].rect;
         if (left && close_rect(rect).contains(pointer_))
             return request_close(index);
@@ -577,7 +600,7 @@ extern "C" int main(int argc, char**) {
 #endif
     if (error == 0)
         error = command_text(
-            STDOUT_FD, "Desktop: F2 Terminal, F4 Files, F12 exit. Drag titles to move, the red button closes.\n");
+            STDOUT_FD, "Desktop: click the Dock or press F2 Terminal, F4 Files, F12 exit. Shift opens another window.\n");
     if (error == 0)
         error = sys_ioctl(fd, DISPLAY_ACQUIRE, DISPLAY_ACQUIRE_EVENTS | DISPLAY_ACQUIRE_KEYBOARD_CTRL_C);
     if (error == 0) {

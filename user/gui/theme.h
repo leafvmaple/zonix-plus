@@ -19,6 +19,7 @@ inline constexpr unsigned int TITLE_INACTIVE = 0x232325;
 inline constexpr unsigned int TEXT = 0xE8E8EA;
 inline constexpr unsigned int ACCENT = 0x0A84FF;
 inline constexpr unsigned int CLOSE = 0xFF5F57;
+inline constexpr unsigned int FOLDER = 0x5DB1F5;
 inline constexpr unsigned int CURSOR_OUTLINE = 0x0B0B0C;
 
 }  // namespace zonix_gui::theme
