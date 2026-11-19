@@ -1,6 +1,5 @@
 #include "../command.h"
-#include "chrome.h"
-#include "../gui/theme.h"
+#include "compositor.h"
 #include <kernel/psf.h>
 #include <sys/array.hpp>
 
@@ -10,69 +9,23 @@ extern "C" const unsigned char terminal_font[];
 
 namespace {
 
+using namespace desktop;
 using namespace desktop_ipc;
 using desktop_chrome::CLOSE_SIZE;
-using desktop_chrome::LABEL_COLOR;
-using desktop_chrome::TITLE_HEIGHT;
-namespace theme = zonix_gui::theme;
 
-struct Point {
-    int x;
-    int y;
-};
-
-struct Rect {
-    Point origin;
-    int width;
-    int height;
-
-    bool contains(Point point) const {
-        return point.x >= origin.x && point.x < static_cast<long>(origin.x) + width && point.y >= origin.y &&
-               point.y < static_cast<long>(origin.y) + height;
-    }
-};
-
-// Coverage of the pixels in a rounded corner, indexed by their distance from
-// the two edges that meet there.
-template <int RADIUS>
-struct CornerMask {
-    unsigned char alpha[RADIUS][RADIUS];
-
-    constexpr CornerMask() : alpha{} {
-        // Sample positions are in eighths of a pixel, from the circle's centre.
-        constexpr int samples = 4;
-        constexpr int reach = RADIUS * 8;
-        for (int y = 0; y < RADIUS; ++y) {
-            for (int x = 0; x < RADIUS; ++x) {
-                int inside = 0;
-                for (int sample = 0; sample < samples * samples; ++sample) {
-                    int dx = reach - (x * 8 + sample % samples * 2 + 1);
-                    int dy = reach - (y * 8 + sample / samples * 2 + 1);
-                    if (dx * dx + dy * dy <= reach * reach)
-                        ++inside;
-                }
-                alpha[y][x] = static_cast<unsigned char>(inside * 255 / (samples * samples));
-            }
-        }
-    }
-
-    constexpr int at(int x, int y) const { return x < RADIUS && y < RADIUS ? alpha[y][x] : 255; }
-};
-
-struct Window {
-    Rect rect{};
-    desktop_ipc::Client client;
-    bool open() const { return client.alive(); }
-};
-
+// Owns the windows and the pointer, routes input to clients and decides which
+// parts of the screen to repaint. The Compositor supplies the pixels.
 class Desktop {
 public:
     Desktop(int fd, int width, int height, psf::Font font)
-        : fd_(fd), font_(font), screen_{{0, 0}, width, height}, pointer_{width / 2, height / 2} {
+        : fd_(fd),
+          screen_{{0, 0}, width, height},
+          pointer_{width / 2, height / 2},
+          compositor_({windows_, order_, surfaces_, chrome_, pointer_, screen_, font}) {
         windows_[0].rect = {{width / 8, height / 5}, width / 5 * 2, height / 2};
         windows_[1].rect = {{width / 3, height / 3}, width / 5 * 2, height / 2};
-        constexpr int terminal_width = TERMINAL_WIDTH + 4;
-        constexpr int terminal_height = TERMINAL_HEIGHT + TITLE_HEIGHT + 2;
+        constexpr int terminal_width = outer_width(TERMINAL_WIDTH);
+        constexpr int terminal_height = outer_height(TERMINAL_HEIGHT);
         if (is_text_window(TERMINAL_WINDOW))
             windows_[TERMINAL_WINDOW].rect = {
                 {(width - terminal_width) / 2, (height - terminal_height) / 2}, terminal_width, terminal_height};
@@ -87,7 +40,7 @@ public:
         if (error < 0)
             return error;
         FileStat example{};
-        if (sys_stat(const_cast<char*>(Client::program(0)), &example) == 0 && example.type == FILE_TYPE_FILE) {
+        if (sys_stat(const_cast<char*>(WINDOWS[0].program), &example) == 0 && example.type == FILE_TYPE_FILE) {
             start_client(0);
             start_client(1);
         }
@@ -129,50 +82,28 @@ public:
         return error;
     }
 
-
 private:
-    static constexpr unsigned int KEY_1 = 2;
-    static constexpr unsigned int KEY_2 = 3;
     static constexpr unsigned int KEY_C = 46;
-    static constexpr unsigned int KEY_F2 = 60;
-    static constexpr unsigned int KEY_F4 = 62;
     static constexpr unsigned int KEY_F12 = 88;
-    static constexpr int NO_WINDOW = -1;
     static constexpr unsigned long DOUBLE_CLICK_MS = 400;
     static constexpr int CLICK_DISTANCE = 5;
     static constexpr int TILE_SIZE = 64;
-    static constexpr int CORNER_RADIUS = 6;
-    static constexpr CornerMask<CORNER_RADIUS> OUTER_CORNER{};
-    static constexpr CornerMask<CORNER_RADIUS - 1> INNER_CORNER{};
-    // The shadow is the window's outline moved down and faded over the blur distance.
-    static constexpr int SHADOW_OFFSET = 4;
-    static constexpr int SHADOW_BLUR = 12;
-    static constexpr int SHADOW_MARGIN = SHADOW_BLUR + SHADOW_OFFSET;
-    static constexpr int SHADOW_FOCUSED = 128;
-    static constexpr int SHADOW_UNFOCUSED = 72;
-    // How far an unfocused title bar moves towards theme::TITLE_INACTIVE, out of 255.
-    static constexpr int INACTIVE_TITLE = 120;
-    static constexpr int CURSOR_WIDTH = 12;
-    static constexpr int CURSOR_HEIGHT = 19;
-    // 'X' is the pointer's outline and '.' its fill. The hot spot is the top-left pixel.
-    static constexpr const char* CURSOR[CURSOR_HEIGHT] = {
-        "X           ", "XX          ", "X.X         ", "X..X        ", "X...X       ",
-        "X....X      ", "X.....X     ", "X......X    ", "X.......X   ", "X........X  ",
-        "X.........X ", "X......XXXXX", "X...X..X    ", "X..XX..X    ", "X.X  X..X   ",
-        "XX   X..X   ", "X     X..X  ", "      X..X  ", "       XX   "};
+    // Margins for a window placed at the right edge or in the top-left corner.
+    static constexpr Point RIGHT_MARGIN{24, 56};
+    static constexpr Point CORNER_MARGIN{16, 16};
     inline static sys::array<unsigned int, TILE_SIZE * TILE_SIZE> pixels_{};
-    inline static sys::array<PixelSurface, WINDOW_COUNT - FIRST_PIXEL_WINDOW> surfaces_{};
+    inline static Surfaces surfaces_{};
 
     static PixelSurface& surface(int index) { return surfaces_[index - FIRST_PIXEL_WINDOW]; }
 
     int fd_;
-    psf::Font font_;
     desktop_chrome::Chrome chrome_;
     Rect screen_;
-    sys::array<Window, WINDOW_COUNT> windows_;
+    Windows windows_;
     Point pointer_;
     Point drag_offset_{};
-    sys::array<int, WINDOW_COUNT> order_{{1, 0, TERMINAL_WINDOW, PIXEL_WINDOW, FILE_WINDOW, EDITOR_WINDOW}};
+    Order order_{{1, 0, TERMINAL_WINDOW, PIXEL_WINDOW, FILE_WINDOW, EDITOR_WINDOW}};
+    Compositor compositor_;
     bool terminal_fits_{};
     int drag_ = NO_WINDOW;
     sys::array<int, 3> button_targets_{{NO_WINDOW, NO_WINDOW, NO_WINDOW}};
@@ -199,50 +130,7 @@ private:
         return double_click;
     }
 
-    static int clamp(long value, int limit) {
-        if (value < 0)
-            return 0;
-        return value > limit ? limit : static_cast<int>(value);
-    }
-
-    Rect cursor_rect() const { return {pointer_, CURSOR_WIDTH, CURSOR_HEIGHT}; }
-
-    // The area a window paints, including its shadow.
-    static Rect bounds(const Rect& window) {
-        if (window.width == 0)
-            return window;
-        return {{window.origin.x - SHADOW_MARGIN, window.origin.y - SHADOW_MARGIN},
-                window.width + 2 * SHADOW_MARGIN,
-                window.height + 2 * SHADOW_MARGIN};
-    }
-
-    // Blends towards `to` by `amount` out of 255.
-    static unsigned int mix(unsigned int from, unsigned int to, int amount) {
-        unsigned int weight = static_cast<unsigned int>(amount + (amount >> 7));
-        unsigned int red_blue = (((from & 0xFF00FF) * (256 - weight) + (to & 0xFF00FF) * weight) >> 8) & 0xFF00FF;
-        unsigned int green = (((from & 0x00FF00) * (256 - weight) + (to & 0x00FF00) * weight) >> 8) & 0x00FF00;
-        return red_blue | green;
-    }
-
-    // Shadow darkness out of 255 at a point outside the window or in its corner gaps.
-    static int shadow(const Rect& window, Point point, int strength) {
-        int left = window.origin.x;
-        int right = left + window.width - 1;
-        int top = window.origin.y + SHADOW_OFFSET;
-        int bottom = top + window.height - 1;
-        int dx = point.x < left ? left - point.x : (point.x > right ? point.x - right : 0);
-        int dy = point.y < top ? top - point.y : (point.y > bottom ? point.y - bottom : 0);
-        if (dx >= SHADOW_BLUR || dy >= SHADOW_BLUR)
-            return 0;
-        int square = dx * dx + dy * dy;
-        int distance = 0;
-        while ((distance + 1) * (distance + 1) <= square)
-            ++distance;
-        if (distance >= SHADOW_BLUR)
-            return 0;
-        int fade = SHADOW_BLUR - distance;
-        return strength * fade * fade / (SHADOW_BLUR * SHADOW_BLUR);
-    }
+    static Rect bounds(const Rect& window) { return Compositor::bounds(window); }
 
     static Rect close_rect(const Rect& window) {
         return {
@@ -251,12 +139,7 @@ private:
             CLOSE_SIZE};
     }
 
-    int top_window() const {
-        for (int index : order_)
-            if (windows_[index].open())
-                return index;
-        return NO_WINDOW;
-    }
+    int top_window() const { return desktop::top_window(windows_, order_); }
 
     int window_at(Point point) const {
         for (int index : order_)
@@ -265,25 +148,18 @@ private:
         return NO_WINDOW;
     }
 
-    static bool in_body(const Rect& rect, Point point) {
-        return point.x >= rect.origin.x + 2 && point.x < rect.origin.x + rect.width - 2 &&
-               point.y >= rect.origin.y + TITLE_HEIGHT && point.y < rect.origin.y + rect.height - 2;
-    }
-
-    static Point surface_point(const Rect& rect, Point point) {
-        constexpr int size = desktop_ipc::SURFACE_SIZE;
-        int width = rect.width - 4;
-        int height = rect.height - TITLE_HEIGHT - 2;
-        int x = clamp(static_cast<long>(point.x) - rect.origin.x - 2, width - 1);
-        int y = clamp(static_cast<long>(point.y) - rect.origin.y - TITLE_HEIGHT, height - 1);
-        return {static_cast<int>(static_cast<long>(x) * size / width),
-                static_cast<int>(static_cast<long>(y) * size / height)};
+    // The window a key opens, or NO_WINDOW.
+    static int window_for_key(unsigned int code) {
+        for (int index = 0; index < WINDOW_COUNT; ++index)
+            if (WINDOWS[index].key != 0 && WINDOWS[index].key == code)
+                return index;
+        return NO_WINDOW;
     }
 
     void start_client(int index) {
         long error = windows_[index].client.start(index);
         if (error < 0)
-            command_error("desktop", Client::program(index), error);
+            command_error("desktop", WINDOWS[index].program, error);
     }
 
     long edit_text(const char* path) {
@@ -307,8 +183,8 @@ private:
         auto& window = windows_[index];
         if (is_pixel_window(index) && !surface(index).configured())
             return 0;
-        Point point = is_pixel_window(index) ? Point{pointer_.x - window.rect.origin.x - 2,
-                                                     pointer_.y - window.rect.origin.y - TITLE_HEIGHT}
+        Point origin = client_origin(window.rect);
+        Point point = is_pixel_window(index) ? Point{pointer_.x - origin.x, pointer_.y - origin.y}
                                              : surface_point(window.rect, pointer_);
         return window.client.send({event, point.x, point.y}) ? 0 : close_window(index);
     }
@@ -372,18 +248,16 @@ private:
     long handle(const DisplayTimedEvent& input) {
         const auto& event = input.event;
         if (event.type == DISPLAY_EVENT_KEY) {
-            if (event.code >= KEY_F2 && event.code <= KEY_F4) {
-                int index = TERMINAL_WINDOW + static_cast<int>(event.code - KEY_F2);
-                return event.value == DISPLAY_KEY_PRESS ? show(index, event.modifiers) : 0;
-            }
+            int shortcut = window_for_key(event.code);
+            // Application windows open from anywhere. The example windows' keys
+            // belong to the focused application while one has the keyboard.
+            if (shortcut >= TERMINAL_WINDOW)
+                return event.value == DISPLAY_KEY_PRESS ? show(shortcut, event.modifiers) : 0;
             int top = top_window();
             if (top >= TERMINAL_WINDOW)
                 return send(top, event);
-            if (event.code == KEY_1 || event.code == KEY_2) {
-                if (event.value == DISPLAY_KEY_PRESS)
-                    return show(event.code == KEY_1 ? 0 : 1, event.modifiers);
-                return 0;
-            }
+            if (shortcut != NO_WINDOW)
+                return event.value == DISPLAY_KEY_PRESS ? show(shortcut, event.modifiers) : 0;
             if (event.code == DISPLAY_KEY_ESCAPE || event.code == DISPLAY_KEY_Q)
                 return 0;
             return send(top, event);
@@ -450,7 +324,7 @@ private:
     }
 
     long move(const DisplayEvent& event) {
-        Rect old_cursor = cursor_rect();
+        Rect old_cursor = compositor_.cursor_rect();
         if (event.code == DISPLAY_REL_X)
             pointer_.x = clamp(static_cast<long>(pointer_.x) + event.value, screen_.width - 1);
         else
@@ -473,115 +347,37 @@ private:
                 return error;
         }
         long error = repaint(old_cursor);
-        return error < 0 ? error : repaint(cursor_rect());
+        return error < 0 ? error : repaint(compositor_.cursor_rect());
     }
 
-    unsigned int color(Point point) const {
-        if (cursor_rect().contains(point)) {
-            char mark = CURSOR[point.y - pointer_.y][point.x - pointer_.x];
-            if (mark == 'X')
-                return theme::CURSOR_OUTLINE;
-            if (mark == '.')
-                return theme::TEXT;
+    // Where a pixel window of the given outer size first appears.
+    Point place(int index, int width, int height) const {
+        Point origin = CORNER_MARGIN;
+        switch (WINDOWS[index].placement) {
+            case Placement::Center: origin = {(screen_.width - width) / 2, (screen_.height - height) / 2}; break;
+            case Placement::Right: origin = {screen_.width - width - RIGHT_MARGIN.x, RIGHT_MARGIN.y}; break;
+            case Placement::Corner: break;
         }
-        return compose(point, 0, top_window());
-    }
-
-    // The colour of the windows from `slot` down in the stacking order, over the background.
-    unsigned int compose(Point point, int slot, int top) const {
-        for (; slot < WINDOW_COUNT; ++slot) {
-            int index = order_[slot];
-            const Rect& window = windows_[index].rect;
-            if (!windows_[index].open() || window.width == 0)
-                continue;
-            bool focused = index == top;
-            int strength = focused ? SHADOW_FOCUSED : SHADOW_UNFOCUSED;
-            if (!window.contains(point)) {
-                int shade = shadow(window, point, strength);
-                if (shade != 0)
-                    return mix(compose(point, slot + 1, top), 0, shade);
-                continue;
-            }
-            unsigned int border = focused ? theme::WINDOW_BORDER_FOCUSED : theme::WINDOW_BORDER;
-            int x = point.x - window.origin.x;
-            int y = point.y - window.origin.y;
-            int edge_x = x < window.width - 1 - x ? x : window.width - 1 - x;
-            int edge_y = y < window.height - 1 - y ? y : window.height - 1 - y;
-            bool on_border = edge_x == 0 || edge_y == 0;
-            if (edge_x >= CORNER_RADIUS || edge_y >= CORNER_RADIUS)
-                return on_border ? border : interior(index, point, focused);
-
-            // The border follows the corner one pixel inside the outline.
-            int outer = OUTER_CORNER.at(edge_x, edge_y);
-            int inner = on_border ? 0 : INNER_CORNER.at(edge_x - 1, edge_y - 1);
-            unsigned int pixel = inner == 0 ? border : mix(border, interior(index, point, focused), inner);
-            if (outer == 255)
-                return pixel;
-            unsigned int below = mix(compose(point, slot + 1, top), 0, shadow(window, point, strength));
-            return mix(below, pixel, outer);
-        }
-        return background(point);
-    }
-
-    // A window's own pixel inside its border.
-    unsigned int interior(int index, Point point, bool focused) const {
-        const Rect& window = windows_[index].rect;
-        int x = point.x - window.origin.x;
-        int y = point.y - window.origin.y;
-        if (y < TITLE_HEIGHT) {
-            unsigned int pixel = chrome_.title_pixel(index, window.width, x, y);
-            return focused ? pixel : mix(pixel, theme::TITLE_INACTIVE, INACTIVE_TITLE);
-        }
-        if (x < 2 || x >= window.width - 2 || y >= window.height - 2)
-            return theme::WINDOW_BACKGROUND;
-        if (is_text_window(index))
-            return text_color(index, x - 2, y - TITLE_HEIGHT);
-        if (is_pixel_window(index))
-            return surface(index).pixel(x - 2, y - TITLE_HEIGHT);
-        Point sample = surface_point(window, point);
-        return windows_[index].client.frame()[sample.y * desktop_ipc::SURFACE_SIZE + sample.x];
-    }
-
-    // A vertical gradient, dithered so its steps do not show as bands.
-    unsigned int background(Point point) const {
-        static constexpr unsigned char dither[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
-        int threshold = dither[point.y & 3][point.x & 3] * 16 + 8;
-        int span = screen_.height > 1 ? screen_.height - 1 : 1;
-        unsigned int pixel = 0;
-        for (int shift = 16; shift >= 0; shift -= 8) {
-            int from = static_cast<int>((theme::DESKTOP_TOP >> shift) & 0xFF);
-            int to = static_cast<int>((theme::DESKTOP_BOTTOM >> shift) & 0xFF);
-            int level = from * 256 + (to - from) * 256 * point.y / span;
-            pixel |= static_cast<unsigned int>((level + threshold) >> 8) << shift;
-        }
-        return pixel;
+        return {clamp(origin.x, screen_.width - width), clamp(origin.y, screen_.height - height)};
     }
 
     long receive_pixels(int index) {
         auto& window = windows_[index];
         auto& pixels = surface(index);
-        switch (window.client.receive_pixels(pixels, screen_.width - 4, screen_.height - TITLE_HEIGHT - 2)) {
+        switch (window.client.receive_pixels(pixels, screen_.width - 2 * FRAME,
+                                             screen_.height - TITLE_HEIGHT - FRAME)) {
             case PixelSurface::Result::Pending: return 0;
             case PixelSurface::Result::Configured: {
-                int width = static_cast<int>(pixels.width()) + 4;
-                int height = static_cast<int>(pixels.height()) + TITLE_HEIGHT + 2;
-                int x = 16;
-                int y = 16;
-                if (index == TERMINAL_WINDOW || index == EDITOR_WINDOW) {
-                    x = (screen_.width - width) / 2;
-                    y = (screen_.height - height) / 2;
-                } else if (index == FILE_WINDOW) {
-                    x = screen_.width - width - 24;
-                    y = 56;
-                }
-                window.rect = {{clamp(x, screen_.width - width), clamp(y, screen_.height - height)}, width, height};
+                int width = outer_width(static_cast<int>(pixels.width()));
+                int height = outer_height(static_cast<int>(pixels.height()));
+                window.rect = {place(index, width, height), width, height};
                 long error = chrome_.configure(index, width);
                 return error < 0 ? error : repaint(bounds(window.rect));
             }
             case PixelSurface::Result::Updated: {
                 auto dirty = pixels.damage();
-                return repaint({{window.rect.origin.x + 2 + static_cast<int>(dirty.x),
-                                 window.rect.origin.y + TITLE_HEIGHT + static_cast<int>(dirty.y)},
+                Point origin = client_origin(window.rect);
+                return repaint({{origin.x + static_cast<int>(dirty.x), origin.y + static_cast<int>(dirty.y)},
                                 static_cast<int>(dirty.width),
                                 static_cast<int>(dirty.height)});
             }
@@ -599,17 +395,6 @@ private:
         return 0;
     }
 
-    unsigned int text_color(int index, int x, int y) const {
-        const auto* data = reinterpret_cast<const unsigned char*>(windows_[index].client.frame().data());
-        int row = y / GLYPH_HEIGHT;
-        int col = x / GLYPH_WIDTH;
-        if (data[CURSOR_VISIBLE] && row == data[CURSOR_ROW] && col == data[CURSOR_COL] &&
-            y % GLYPH_HEIGHT >= GLYPH_HEIGHT - 2)
-            return theme::ACCENT;
-        auto* glyph = psf::glyph(&font_, data[row * TERMINAL_COLS + col]);
-        return (glyph[y % GLYPH_HEIGHT] & (0x80U >> (x % GLYPH_WIDTH))) != 0 ? LABEL_COLOR : theme::WINDOW_BACKGROUND;
-    }
-
     long repaint_client(int index) {
         const auto& window = windows_[index];
         if (!is_text_window(index))
@@ -617,8 +402,8 @@ private:
         const auto& dirty = window.client.damage();
         if (dirty.empty())
             return 0;
-        return repaint({{window.rect.origin.x + 2 + dirty.left * GLYPH_WIDTH,
-                         window.rect.origin.y + TITLE_HEIGHT + dirty.top * GLYPH_HEIGHT},
+        Point origin = client_origin(window.rect);
+        return repaint({{origin.x + dirty.left * GLYPH_WIDTH, origin.y + dirty.top * GLYPH_HEIGHT},
                         (dirty.right - dirty.left) * GLYPH_WIDTH,
                         (dirty.bottom - dirty.top) * GLYPH_HEIGHT});
     }
@@ -632,7 +417,7 @@ private:
                 int width = clamp(right - x, TILE_SIZE);
                 for (int row = 0; row < height; ++row)
                     for (int col = 0; col < width; ++col)
-                        pixels_[row * width + col] = color({x + col, y + row});
+                        pixels_[row * width + col] = compositor_.color({x + col, y + row});
                 DisplayPresent area{static_cast<unsigned int>(x),          static_cast<unsigned int>(y),
                                     static_cast<unsigned int>(width),      static_cast<unsigned int>(height),
                                     static_cast<unsigned int>(width * 4),  0,

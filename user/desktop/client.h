@@ -25,6 +25,35 @@ inline constexpr bool is_text_window(int index) {
     return index == TERMINAL_WINDOW && !is_pixel_window(index);
 }
 
+// Scancodes of the keys that open windows.
+inline constexpr unsigned int KEY_1 = 2;
+inline constexpr unsigned int KEY_2 = 3;
+inline constexpr unsigned int KEY_F2 = 60;
+inline constexpr unsigned int KEY_F3 = 61;
+inline constexpr unsigned int KEY_F4 = 62;
+
+// Where a pixel window appears once its client reports a size.
+enum class Placement { Corner, Center, Right };
+
+// Everything that distinguishes one window slot from another.
+struct WindowSpec {
+    const char* title;
+    const char* short_title;  // For a title bar too narrow for the title.
+    const char* program;
+    const char* argument;  // Passed to the program, or null. The editor passes the file instead.
+    Placement placement;
+    unsigned int key;  // Opens or focuses the window, or 0.
+};
+
+inline constexpr WindowSpec WINDOWS[WINDOW_COUNT] = {
+    {"Example A", "A", "/opt/bin/deskapp", "a", Placement::Corner, KEY_1},
+    {"Example B", "B", "/opt/bin/deskapp", "b", Placement::Corner, KEY_2},
+    {"Terminal", "Term", "/opt/bin/terminal", nullptr, Placement::Center, KEY_F2},
+    {"mini-cocos", "Cocos", "/opt/bin/minicoco", "--window", Placement::Corner, KEY_F3},
+    {"Files", "Files", "/opt/bin/files", "--window", Placement::Right, KEY_F4},
+    {"Text Editor", "Editor", "/opt/bin/terminal", nullptr, Placement::Center, 0},
+};
+
 class Client {
 public:
     Client() = default;
@@ -32,7 +61,6 @@ public:
     Client(const Client&) = delete;
     Client& operator=(const Client&) = delete;
 
-    static const char* program(int index);
     long start(int index, const char* edit_path = nullptr);
     void stop();
     bool alive() const { return pid_ > 0; }

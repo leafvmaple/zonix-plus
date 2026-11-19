@@ -22,9 +22,6 @@ constexpr float CLOSE_RADIUS = 5.f;
 // Space kept between the title and the close button.
 constexpr int LABEL_GAP = 8;
 constexpr int HIDDEN = -1;
-constexpr const char* TITLES[]{"Example A", "Example B", "Terminal", "mini-cocos", "Files", "Text Editor"};
-constexpr const char* SHORT_TITLES[]{"A", "B", "Term", "Cocos", "Files", "Editor"};
-static_assert(sizeof(TITLES) / sizeof(*TITLES) == WINDOW_COUNT);
 
 // All strips share one scene and font atlas, with the first window's strip at
 // the top of the buffer. The renderer's clear colour is the title background.
@@ -134,7 +131,8 @@ struct Chrome::Scene {
         const int room = close - LABEL_GAP - TITLE_INSET;
         decorations->set_close(index, close >= CLOSE_MARGIN ? close : HIDDEN);
         title.label->setVisible(room >= 24);
-        title.label->setString(title_width >= 132 ? TITLES[index] : SHORT_TITLES[index]);
+        const auto& spec = desktop_ipc::WINDOWS[index];
+        title.label->setString(title_width >= 132 ? spec.title : spec.short_title);
         if (room >= 24)
             zonix_gui::control_style::place_label(*title.label, TITLE_INSET, strip_bottom(index) + TITLE_HEIGHT / 2.f,
                                                   0.f, static_cast<float>(room));

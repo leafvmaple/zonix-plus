@@ -62,7 +62,8 @@ $(GUI_OBJDIR)/%_runtime.cpp.o: user/gui/runtime.cpp $(MINICOCOS_LIB) $(ZCC_RUNTI
 	$(Q)$(MKDIR) $(@D)
 	$(Q)$(CXX) $(MINICOCOS_CXXFLAGS) -DZONIX_GUI_HEAP_MIB=$(GUI_HEAP_MIB) $(DEPFLAGS) -c $< -o $@
 
-DESKTOP_OBJECTS := $(addprefix $(USER_OBJDIR)/desktop/,client.cpp.o desktop.cpp.o pixel_surface.cpp.o chrome/mini_cocos.cpp.o)
+DESKTOP_OBJECTS := $(addprefix $(USER_OBJDIR)/desktop/,client.cpp.o compositor.cpp.o desktop.cpp.o pixel_surface.cpp.o \
+                                                    chrome/mini_cocos.cpp.o)
 TERMINAL_OBJECTS := $(addprefix $(USER_OBJDIR)/terminal/,terminal.cpp.o grid_renderer.cpp.o) $(USER_OBJDIR)/desktop/font.S.o
 
 $(USER_OBJDIR)/files/%.cpp.o: user/files/%.cpp $(MINICOCOS_CORE) $(ZCC_RUNTIME_STAMP) user/gui/Makefile
