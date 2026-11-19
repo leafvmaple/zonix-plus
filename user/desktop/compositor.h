@@ -20,6 +20,8 @@ public:
         Rect screen;
         // Empty when the screen has no room for the Dock.
         Rect dock;
+        // The height of the menu bar, or 0 on a screen without one.
+        int menu_height;
         psf::Font font;
     };
 

@@ -19,7 +19,11 @@ using zonix_gui::control_style::Palette;
 constexpr int STRIP_ROWS = MAX_WINDOWS * TITLE_HEIGHT;
 // The Dock's icons are drawn side by side under the title strips.
 constexpr int DOCK_ICON = desktop_dock::ICON;
-constexpr int BUFFER_ROWS = STRIP_ROWS + DOCK_ICON;
+// The menu bar's two ends are drawn in the last rows: the names from the left
+// edge of the buffer and the clock up to its right edge.
+constexpr int BUFFER_ROWS = STRIP_ROWS + DOCK_ICON + MENU_HEIGHT;
+constexpr int MENU_CLOCK_WIDTH = 160;
+constexpr int MENU_NAME_GAP = 14;
 constexpr float CLOSE_RADIUS = CLOSE_SIZE / 2.f;
 // Space kept between the title and the close button.
 constexpr int LABEL_GAP = 8;
@@ -127,6 +131,9 @@ struct Chrome::Scene {
 
     sys::array<Title, MAX_WINDOWS> titles;
     Decorations* decorations{};
+    zocos::Label* brand{};
+    zocos::Label* program{};
+    zocos::Label* clock{};
     sys::vector<unsigned char> rgba;
     int width{};
     zocos::Director* director{};
@@ -154,15 +161,27 @@ struct Chrome::Scene {
         decorations = Decorations::create(engine);
         auto* dock = DockIcons::create(engine);
         auto* prompt = zonix_gui::control_style::make_label(engine, ">_");
-        if (!scene || !decorations || !dock || !prompt)
+        brand = zonix_gui::control_style::make_label(engine, MENU_BRAND);
+        program = zonix_gui::control_style::make_label(engine, "");
+        clock = zonix_gui::control_style::make_label(engine, "");
+        if (!scene || !decorations || !dock || !prompt || !brand || !program || !clock)
             return false;
         scene->addChild(decorations);
+        // The Dock's row is above the menu bar's.
+        dock->setPosition({0.f, static_cast<float>(MENU_HEIGHT)});
         scene->addChild(dock);
         scene->addChild(prompt);
         for (int item = 0; item < desktop_dock::ITEM_COUNT; ++item) {
             if (desktop_dock::ITEMS[item] == desktop_ipc::APP_TERMINAL)
-                zonix_gui::control_style::place_label(*prompt, (item + 0.5f) * DOCK_ICON, DOCK_ICON / 2.f, 0.5f);
+                zonix_gui::control_style::place_label(*prompt, (item + 0.5f) * DOCK_ICON,
+                                                      MENU_HEIGHT + DOCK_ICON / 2.f, 0.5f);
         }
+        scene->addChild(brand);
+        scene->addChild(program);
+        scene->addChild(clock);
+        program->setOpacity(0.85f);
+        clock->setOpacity(0.85f);
+        zonix_gui::control_style::place_label(*brand, MENU_INSET, MENU_HEIGHT / 2.f, 0.f);
         for (auto& title : titles) {
             title.label = zonix_gui::control_style::make_label(engine, "");
             if (!title.label)
@@ -186,6 +205,16 @@ struct Chrome::Scene {
             zonix_gui::control_style::place_label(*title.label, title_width / 2.f,
                                                   strip_bottom(index) + TITLE_HEIGHT / 2.f, 0.5f,
                                                   static_cast<float>(room));
+    }
+
+    void set_menu(const char* name, const char* time) {
+        program->setString(name);
+        clock->setString(time);
+        float name_left = MENU_INSET + brand->getContentSize().width + MENU_NAME_GAP;
+        zonix_gui::control_style::place_label(*program, name_left, MENU_HEIGHT / 2.f, 0.f,
+                                              width - MENU_CLOCK_WIDTH - name_left);
+        zonix_gui::control_style::place_label(*clock, static_cast<float>(width - MENU_INSET), MENU_HEIGHT / 2.f, 1.f,
+                                              MENU_CLOCK_WIDTH - MENU_INSET);
     }
 
     unsigned int pixel(int x, int y) const {
@@ -225,6 +254,23 @@ long Chrome::configure(int slot, int app, int width) {
 
 unsigned int Chrome::title_pixel(int index, int, int x, int y) const {
     return scene_->pixel(x, index * TITLE_HEIGHT + y);
+}
+
+long Chrome::set_menu(int app, const char* clock) {
+    if (!menu_changed(app, clock))
+        return 0;
+    scene_->set_menu(app >= 0 ? desktop_ipc::APPS[app].title : MENU_NO_PROGRAM, menu_clock_.data());
+    return scene_->director->mainLoop() ? 1 : SYS_ERROR_IO;
+}
+
+// The names come from the left of the buffer and the clock from its right.
+unsigned int Chrome::menu_pixel(int screen_width, int x, int y) const {
+    int row = STRIP_ROWS + DOCK_ICON + y;
+    if (x >= screen_width - MENU_CLOCK_WIDTH)
+        return scene_->pixel(scene_->width - (screen_width - x), row);
+    if (x < scene_->width - MENU_CLOCK_WIDTH)
+        return scene_->pixel(x, row);
+    return zonix_gui::theme::TITLE_BACKGROUND;
 }
 
 unsigned int Chrome::dock_pixel(int item, int x, int y) const {

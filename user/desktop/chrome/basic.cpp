@@ -1,4 +1,7 @@
 #include "../dock.h"
+#include <kernel/psf.h>
+
+extern "C" const unsigned char terminal_font[];
 
 namespace desktop_chrome {
 
@@ -82,6 +85,39 @@ unsigned int Chrome::title_pixel(int slot, int width, int x, int y) const {
     if (lx >= 0 && lx < LABEL_WIDTH && ly >= 0 && ly < LABEL_HEIGHT && (LABELS[index][ly / 2] & (16U >> (lx / 2))) != 0)
         return LABEL_COLOR;
     return theme::TITLE_BACKGROUND;
+}
+
+long Chrome::set_menu(int app, const char* clock) {
+    return menu_changed(app, clock) ? 1 : 0;
+}
+
+// The program's name on the left and the clock on the right, in the console font.
+unsigned int Chrome::menu_pixel(int screen_width, int x, int y) const {
+    psf::Font font{};
+    int row = y - (MENU_HEIGHT - 16) / 2;
+    if (row < 0 || row >= 16 || !psf::parse(terminal_font, &font) || font.width != 8 || font.height != 16)
+        return theme::TITLE_BACKGROUND;
+    const char* clock = menu_clock_.data();
+    int clock_length = 0;
+    while (clock[clock_length] != 0)
+        ++clock_length;
+    const char* name = menu_app_ >= 0 ? desktop_ipc::APPS[menu_app_].title : MENU_NO_PROGRAM;
+    const char* text = name;
+    int column = (x - MENU_INSET) / 8;
+    int left = MENU_INSET;
+    if (x >= screen_width - MENU_INSET - clock_length * 8) {
+        text = clock;
+        left = screen_width - MENU_INSET - clock_length * 8;
+        column = (x - left) / 8;
+    }
+    if (x < left)
+        return theme::TITLE_BACKGROUND;
+    for (int index = 0; index <= column; ++index) {
+        if (text[index] == 0)
+            return theme::TITLE_BACKGROUND;
+    }
+    const auto* glyph = psf::glyph(&font, text[column]);
+    return (glyph[row] & (0x80U >> ((x - left) % 8))) != 0 ? LABEL_COLOR : theme::TITLE_BACKGROUND;
 }
 
 unsigned int Chrome::dock_pixel(int item, int x, int y) const {

@@ -23,8 +23,11 @@ public:
           screen_{{0, 0}, width, height},
           pointer_{width / 2, height / 2},
           dock_(desktop_dock::bounds(width, height)),
-          compositor_({windows_, order_, surfaces_, chrome_, pointer_, screen_, dock_, font}) {
+          // A screen with room for the Dock also gets the menu bar.
+          menu_height_(dock_.width != 0 ? desktop_chrome::MENU_HEIGHT : 0),
+          compositor_({windows_, order_, surfaces_, chrome_, pointer_, screen_, dock_, menu_height_, font}) {
         terminal_fits_ = width >= TERMINAL_OUTER_WIDTH && height >= TERMINAL_OUTER_HEIGHT;
+        timezone_minutes_ = read_timezone();
         for (int slot = 0; slot < MAX_WINDOWS; ++slot)
             order_[slot] = slot;
     }
@@ -52,7 +55,12 @@ public:
             unsigned int mask = display_mask;
             for (const auto& window : windows_)
                 mask |= window.client.mask();
-            long ready = sys_wait_readable(mask);
+            long clock_wait_ms = 0;
+            error = update_menu(clock_wait_ms);
+            if (error < 0)
+                break;
+            // With a menu bar, wake when its clock moves to the next minute.
+            long ready = menu_height_ != 0 ? sys_wait_readable_for(mask, clock_wait_ms) : sys_wait_readable(mask);
             if (ready < 0)
                 return ready;
             for (int index = 0; index < MAX_WINDOWS && error == 0; ++index) {
@@ -90,9 +98,10 @@ private:
     static constexpr unsigned long DOUBLE_CLICK_MS = 400;
     static constexpr int CLICK_DISTANCE = 5;
     static constexpr int TILE_SIZE = 64;
+    static constexpr long MINUTE_MS = 60000;
     // Margins for a window placed at the right edge or in the top-left corner.
     static constexpr Point RIGHT_MARGIN{24, 56};
-    static constexpr Point CORNER_MARGIN{16, 16};
+    static constexpr Point CORNER_MARGIN{16, 40};
     // Each further window of a program moves this far down and to the right,
     // starting over after CASCADE_STEPS windows.
     static constexpr int CASCADE_OFFSET = 26;
@@ -118,6 +127,9 @@ private:
     Point pointer_;
     Point drag_offset_{};
     Rect dock_;
+    int menu_height_;
+    // The local time's offset from UTC.
+    int timezone_minutes_{};
     // Set by the Dock's exit item.
     bool quit_{};
     Order order_{};
@@ -374,6 +386,100 @@ private:
         return error < 0 ? error : repaint(dock_);
     }
 
+    // The offset in /etc/timezone, written as +HH:MM or -HH:MM. UTC without
+    // the file or when it does not parse.
+    static int read_timezone() {
+        char text[8]{};
+        int fd = sys_open(const_cast<char*>("/etc/timezone"), O_RDONLY | O_CLOEXEC);
+        if (fd < 0)
+            return 0;
+        long count = sys_read(fd, text, sizeof(text) - 1);
+        sys_close(fd);
+        auto digit = [&](int index) { return text[index] >= '0' && text[index] <= '9' ? text[index] - '0' : -1; };
+        if (count < 6 || (text[0] != '+' && text[0] != '-') || text[3] != ':' || digit(1) < 0 || digit(2) < 0 ||
+            digit(4) < 0 || digit(5) < 0)
+            return 0;
+        int minutes = (digit(1) * 10 + digit(2)) * 60 + digit(4) * 10 + digit(5);
+        return text[0] == '-' ? -minutes : minutes;
+    }
+
+    static char* put_number(char* out, long value, int min_digits) {
+        char digits[20];
+        int count = 0;
+        do {
+            digits[count++] = static_cast<char>('0' + value % 10);
+            value /= 10;
+        } while ((value != 0 || count < min_digits) && count < 19);
+        while (count > 0)
+            *out++ = digits[--count];
+        return out;
+    }
+
+    static char* put_text(char* out, const char* text) {
+        while (*text != 0)
+            *out++ = *text++;
+        return out;
+    }
+
+    // Writes the menu bar's clock and how long it stays right. With a
+    // real-time clock this is the local date and time, as "Nov 20  14:05".
+    // Without one it is the time since boot, as "Up 1:23".
+    void menu_clock(char* out, long& wait_ms) const {
+        static constexpr const char* MONTHS[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+        long now = sys_realtime();
+        if (now >= 0)
+            now += timezone_minutes_ * 60L;
+        if (now < 0) {
+            long uptime = sys_uptime_ms();
+            out = put_text(out, "Up ");
+            out = put_number(out, uptime / MINUTE_MS / 60, 1);
+            *out++ = ':';
+            out = put_number(out, uptime / MINUTE_MS % 60, 2);
+            *out = 0;
+            wait_ms = MINUTE_MS - uptime % MINUTE_MS;
+            return;
+        }
+        // Days since 1970-01-01 to a month and day of the Gregorian calendar,
+        // counting years from March.
+        long days = now / 86400 + 719468;
+        long era = days / 146097;
+        long day_of_era = days - era * 146097;
+        long year_of_era = (day_of_era - day_of_era / 1460 + day_of_era / 36524 - day_of_era / 146096) / 365;
+        long day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+        long shifted_month = (5 * day_of_year + 2) / 153;
+        long day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
+        long month = shifted_month < 10 ? shifted_month + 3 : shifted_month - 9;
+        long second_of_day = now % 86400;
+        out = put_text(out, MONTHS[month - 1]);
+        *out++ = ' ';
+        out = put_number(out, day, 1);
+        out = put_text(out, "  ");
+        out = put_number(out, second_of_day / 3600, 2);
+        *out++ = ':';
+        out = put_number(out, second_of_day / 60 % 60, 2);
+        *out = 0;
+        wait_ms = (60 - second_of_day % 60) * 1000;
+    }
+
+    // Keeps the menu bar showing the program in front and the clock. Reports
+    // how long the clock text stays right.
+    long update_menu(long& wait_ms) {
+        if (menu_height_ == 0)
+            return 0;
+        char clock[desktop_chrome::MENU_CLOCK_CAPACITY];
+        menu_clock(clock, wait_ms);
+        int top = top_window();
+        long changed = chrome_.set_menu(top == NO_WINDOW ? NO_APP : windows_[top].app, clock);
+        return changed > 0 ? repaint({{0, 0}, screen_.width, menu_height_}) : changed;
+    }
+
+    // Windows stay below the menu bar.
+    int clamp_top(long y, int height) const {
+        int top = clamp(y, screen_.height - height);
+        return top < menu_height_ ? menu_height_ : top;
+    }
+
     // A click on a Dock item: a program is shown as its key would show it.
     long activate(int item, unsigned int modifiers) {
         if (item == desktop_dock::ITEM_EXIT) {
@@ -477,7 +583,7 @@ private:
             Rect& window = windows_[drag_].rect;
             Rect old_window = window;
             window.origin = {clamp(pointer_.x - drag_offset_.x, screen_.width - window.width),
-                             clamp(pointer_.y - drag_offset_.y, screen_.height - window.height)};
+                             clamp_top(pointer_.y - drag_offset_.y, window.height)};
             long error = repaint(bounds(old_window));
             if (error == 0)
                 error = repaint(bounds(window));
@@ -505,7 +611,7 @@ private:
         Point shift = cascade(windows_[index].step);
         if (windows_[index].spec().placement == Placement::Right)
             shift.x = -shift.x;
-        return {clamp(origin.x + shift.x, screen_.width - width), clamp(origin.y + shift.y, screen_.height - height)};
+        return {clamp(origin.x + shift.x, screen_.width - width), clamp_top(origin.y + shift.y, height)};
     }
 
     long receive_pixels(int index) {

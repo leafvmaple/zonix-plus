@@ -135,8 +135,13 @@ unsigned int Compositor::compose(Point point, int slot, int top) const {
     return desk(point);
 }
 
-// What is behind every window: the Dock over the background.
+// What is behind every window: the menu bar and the Dock over the background.
 unsigned int Compositor::desk(Point point) const {
+    if (point.y < scene_.menu_height) {
+        // A dark line separates the bar from the desktop.
+        return point.y == scene_.menu_height - 1 ? theme::CURSOR_OUTLINE
+                                                 : scene_.chrome.menu_pixel(scene_.screen.width, point.x, point.y);
+    }
     unsigned int wallpaper = background(point);
     const Rect& dock = scene_.dock;
     if (!dock.contains(point))
