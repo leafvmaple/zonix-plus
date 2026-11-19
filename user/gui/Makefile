@@ -60,6 +60,7 @@ $(ZONIX_GUI): $(GUI_OBJECTS) user/gui/Makefile
 $(GUI_OBJDIR)/desktop_runtime.cpp.o: GUI_HEAP_MIB := 6
 $(GUI_OBJDIR)/files_runtime.cpp.o: GUI_HEAP_MIB := 8
 $(GUI_OBJDIR)/editor_runtime.cpp.o: GUI_HEAP_MIB := 6
+$(GUI_OBJDIR)/settings_runtime.cpp.o: GUI_HEAP_MIB := 6
 $(GUI_OBJDIR)/terminal_runtime.cpp.o: GUI_HEAP_MIB := 1
 
 $(GUI_OBJDIR)/%_runtime.cpp.o: user/gui/runtime.cpp $(MINICOCOS_LIB) $(ZCC_RUNTIME_STAMP) user/gui/Makefile
@@ -72,6 +73,10 @@ TERMINAL_OBJECTS := $(addprefix $(USER_OBJDIR)/terminal/,terminal.cpp.o grid_ren
 EDITOR_OBJECTS := $(USER_OBJDIR)/editor/editor.cpp.o $(USER_OBJDIR)/desktop/font.S.o
 
 $(USER_OBJDIR)/editor/%.cpp.o: user/editor/%.cpp $(MINICOCOS_CORE) $(ZCC_RUNTIME_STAMP) user/gui/Makefile
+	$(Q)$(MKDIR) $(@D)
+	$(Q)$(CXX) $(MINICOCOS_CXXFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(USER_OBJDIR)/settings/%.cpp.o: user/settings/%.cpp $(MINICOCOS_CORE) $(ZCC_RUNTIME_STAMP) user/gui/Makefile
 	$(Q)$(MKDIR) $(@D)
 	$(Q)$(CXX) $(MINICOCOS_CXXFLAGS) $(DEPFLAGS) -c $< -o $@
 
@@ -91,12 +96,13 @@ $(USER_BINDIR)/FILES.ELF: $(USER_OBJDIR)/files/files.cpp.o $(GUI_OBJDIR)/files_r
 $(USER_BINDIR)/DESKTOP.ELF: $(DESKTOP_OBJECTS) $(GUI_OBJDIR)/desktop_runtime.cpp.o
 $(USER_BINDIR)/TERMINAL.ELF: $(TERMINAL_OBJECTS) $(GUI_OBJDIR)/terminal_runtime.cpp.o
 $(USER_BINDIR)/EDITOR.ELF: $(EDITOR_OBJECTS) $(GUI_OBJDIR)/editor_runtime.cpp.o
-$(USER_BINDIR)/FILES.ELF $(USER_BINDIR)/DESKTOP.ELF $(USER_BINDIR)/TERMINAL.ELF $(USER_BINDIR)/EDITOR.ELF: $(GUI_LIBRARIES) $(ZCC_RUNTIME_STAMP) | $(USER_BINDIR) check-syscall-abi
+$(USER_BINDIR)/SETTINGS.ELF: $(USER_OBJDIR)/settings/settings.cpp.o $(GUI_OBJDIR)/settings_runtime.cpp.o
+$(USER_BINDIR)/FILES.ELF $(USER_BINDIR)/DESKTOP.ELF $(USER_BINDIR)/TERMINAL.ELF $(USER_BINDIR)/EDITOR.ELF $(USER_BINDIR)/SETTINGS.ELF: $(GUI_LIBRARIES) $(ZCC_RUNTIME_STAMP) | $(USER_BINDIR) check-syscall-abi
 	@echo "  LINK    $@ (Zonix mini-cocos GUI)"
 	$(Q)$(LD) -nostdlib --no-relax --gc-sections --strip-debug -T $(ZCC_SYSROOT)/linker.ld $(ZCC_SYSROOT)/crt0.o \
 		$(filter %.o,$^) --start-group $(GUI_LIBRARIES) $(ZCC_SYSROOT)/libzccrt.a --end-group -o $@
 
-DESKTOP_SUITE_ELFS := $(addprefix $(USER_BINDIR)/,DESKTOP.ELF TERMINAL.ELF FILES.ELF EDITOR.ELF)
+DESKTOP_SUITE_ELFS := $(addprefix $(USER_BINDIR)/,DESKTOP.ELF TERMINAL.ELF FILES.ELF EDITOR.ELF SETTINGS.ELF)
 desktop-image: $(BINDIR)/desktop.img
 
 $(BINDIR)/desktop.img: $(DESKTOP_SUITE_ELFS) $(UI_FONT) $(UI_FONT_LICENSE) scripts/install_userspace_image.sh user/gui/Makefile

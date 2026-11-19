@@ -1,5 +1,6 @@
 #include "../command.h"
 #include "compositor.h"
+#include "../gui/settings.h"
 #include <kernel/psf.h>
 #include <sys/algorithm.hpp>
 #include <sys/array.hpp>
@@ -27,7 +28,7 @@ public:
           menu_height_(dock_.width != 0 ? desktop_chrome::MENU_HEIGHT : 0),
           compositor_({windows_, order_, surfaces_, chrome_, pointer_, screen_, dock_, menu_height_, font}) {
         terminal_fits_ = width >= TERMINAL_OUTER_WIDTH && height >= TERMINAL_OUTER_HEIGHT;
-        timezone_minutes_ = read_timezone();
+        timezone_minutes_ = zonix_gui::Settings::load().timezone_minutes;
         for (int slot = 0; slot < MAX_WINDOWS; ++slot)
             order_[slot] = slot;
     }
@@ -366,6 +367,9 @@ private:
         Rect old = window.rect;
         window.client.stop();
         window.close_requested = false;
+        // Settings may have changed what Desktop itself shows.
+        if (window.app == APP_SETTINGS)
+            timezone_minutes_ = zonix_gui::Settings::load().timezone_minutes;
         surface(index).reset();
         window.rect = {};
         if (drag_ == index)
@@ -384,23 +388,6 @@ private:
         }
         long error = repaint(bounds(old));
         return error < 0 ? error : repaint(dock_);
-    }
-
-    // The offset in /etc/timezone, written as +HH:MM or -HH:MM. UTC without
-    // the file or when it does not parse.
-    static int read_timezone() {
-        char text[8]{};
-        int fd = sys_open(const_cast<char*>("/etc/timezone"), O_RDONLY | O_CLOEXEC);
-        if (fd < 0)
-            return 0;
-        long count = sys_read(fd, text, sizeof(text) - 1);
-        sys_close(fd);
-        auto digit = [&](int index) { return text[index] >= '0' && text[index] <= '9' ? text[index] - '0' : -1; };
-        if (count < 6 || (text[0] != '+' && text[0] != '-') || text[3] != ':' || digit(1) < 0 || digit(2) < 0 ||
-            digit(4) < 0 || digit(5) < 0)
-            return 0;
-        int minutes = (digit(1) * 10 + digit(2)) * 60 + digit(4) * 10 + digit(5);
-        return text[0] == '-' ? -minutes : minutes;
     }
 
     static char* put_number(char* out, long value, int min_digits) {

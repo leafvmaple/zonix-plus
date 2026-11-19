@@ -10,9 +10,17 @@ class Label;
 
 namespace zonix_gui::control_style {
 
-// Every label is rasterised at this size and drawn unscaled, so glyph texels
-// map to whole pixels. One size also keeps each process on one font atlas.
-inline constexpr float FONT_SIZE = 16.f;
+// Every label of a process is rasterised at one size and drawn unscaled, so
+// glyph texels map to whole pixels and the process keeps one font atlas. A
+// program sets the size from the settings before it creates its first label.
+class TextSize {
+public:
+    static float get() { return value_; }
+    static void set(int pixels) { value_ = static_cast<float>(pixels); }
+
+private:
+    inline static float value_ = 16.f;
+};
 inline constexpr float CONTROL_HEIGHT = 28.f;
 inline constexpr float CONTROL_RADIUS = 6.f;
 inline constexpr float PANEL_RADIUS = 8.f;

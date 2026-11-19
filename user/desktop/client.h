@@ -20,7 +20,8 @@ inline constexpr int APP_TERMINAL = 2;
 inline constexpr int APP_COCOS = 3;
 inline constexpr int APP_FILES = 4;
 inline constexpr int APP_EDITOR = 5;
-inline constexpr int APP_COUNT = 6;
+inline constexpr int APP_SETTINGS = 6;
+inline constexpr int APP_COUNT = 7;
 
 // Windows are slots shared by all programs. Every slot keeps a full-size
 // surface, because a process cannot ask the kernel for memory after it starts.
@@ -70,6 +71,7 @@ inline constexpr AppSpec APPS[APP_COUNT] = {
     {"mini-cocos", "Cocos", "/opt/bin/minicoco", "--window", Placement::Corner, KEY_F3, Protocol::Pixels, false, true},
     {"Files", "Files", "/opt/bin/files", "--window", Placement::Right, KEY_F4, Protocol::Pixels, true, true},
     {"Text Editor", "Editor", "/opt/bin/editor", nullptr, Placement::Center, 0, Protocol::Pixels, true, true, true},
+    {"Settings", "Set", "/opt/bin/settings", "--window", Placement::Center, 0, Protocol::Pixels, false, true},
 };
 
 class Client {

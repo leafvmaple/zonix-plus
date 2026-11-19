@@ -11,7 +11,9 @@ namespace theme = zonix_gui::theme;
 // One 5x7 letter per program, drawn at twice its size.
 constexpr unsigned int LABELS[][7] = {{14, 17, 17, 31, 17, 17, 17}, {30, 17, 17, 30, 17, 17, 30},
                                       {31, 4, 4, 4, 4, 4, 4},       {17, 27, 21, 21, 17, 17, 17},
-                                      {31, 16, 16, 30, 16, 16, 16}, {31, 16, 16, 30, 16, 16, 31}};
+                                      {31, 16, 16, 30, 16, 16, 16}, {31, 16, 16, 30, 16, 16, 31},
+                                      {15, 16, 16, 14, 1, 1, 30}};
+static_assert(sizeof(LABELS) / sizeof(*LABELS) == desktop_ipc::APP_COUNT);
 constexpr int LABEL_WIDTH = 10;
 constexpr int LABEL_HEIGHT = 14;
 constexpr int LABEL_TOP = (TITLE_HEIGHT - LABEL_HEIGHT) / 2;

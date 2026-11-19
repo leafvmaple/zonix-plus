@@ -107,7 +107,7 @@ zocos::Color4B value(Color color) {
 }  // namespace
 
 zocos::Label* make_label(zocos::Director& director, const mstd::string& text) {
-    return zocos::Label::createWithTTF(director, text, UI_FONT_PATH, FONT_SIZE);
+    return zocos::Label::createWithTTF(director, text, UI_FONT_PATH, TextSize::get());
 }
 
 void place_label(zocos::Label& label, float x, float center_y, float align, float max_width) {

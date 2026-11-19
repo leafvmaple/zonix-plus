@@ -6,6 +6,7 @@
 #include "../gui/controls/icon_grid.h"
 #include "../gui/controls/toolbar.h"
 #include "../gui/platform.h"
+#include "../gui/settings.h"
 #include "../gui/window_channel.h"
 #include <2d/ZCLabel.h>
 #include <base/ZCAutoreleasePool.h>
@@ -455,6 +456,7 @@ private:
 extern "C" int main(int argc, char** argv) {
     if (argc != 2 || strcmp(argv[1], (char*)"--window") != 0)
         return command_usage("Open Files with F4 in Desktop.\n");
+    zonix_gui::control_style::TextSize::set(zonix_gui::Settings::load().text_size);
     Browser browser;
     long error = browser.run();
     zonix_gui::finish();

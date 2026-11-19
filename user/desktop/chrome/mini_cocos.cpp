@@ -1,6 +1,7 @@
 #include "../../command.h"
 #include "../../gui/controls/style.h"
 #include "../../gui/platform.h"
+#include "../../gui/settings.h"
 #include "../dock.h"
 
 #include <2d/ZCLabel.h>
@@ -62,6 +63,13 @@ public:
                 case desktop_ipc::APP_TERMINAL:
                     // The prompt is a label over this tile.
                     palette_.frame(renderer, world, {x + 3.f, 3.f, 38.f, 38.f}, 8.f, Color::Field, Color::Border);
+                    break;
+                case desktop_ipc::APP_SETTINGS:
+                    // A cog: a disc with four teeth and a hole.
+                    shape({20.f, 9.f, 4.f, 26.f}, 1.f, Color::Text);
+                    shape({9.f, 20.f, 26.f, 4.f}, 1.f, Color::Text);
+                    shape({14.f, 14.f, 16.f, 16.f}, 8.f, Color::Text);
+                    shape({18.f, 18.f, 8.f, 8.f}, 4.f, Color::Panel);
                     break;
                 case desktop_ipc::APP_FILES:
                     shape({7.f, 31.f, 15.f, 8.f}, 3.f, Color::FolderTab);
@@ -236,6 +244,7 @@ long Chrome::init(int max_width) {
         command_error("desktop", zonix_gui::UI_FONT_PATH, error);
         return error;
     }
+    zonix_gui::control_style::TextSize::set(zonix_gui::Settings::load().text_size);
     scene_.reset(new (sys::nothrow) Scene);
     if (!scene_)
         return SYS_ERROR_FULL;

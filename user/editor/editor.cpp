@@ -5,6 +5,7 @@
 #include "../gui/controls/toolbar.h"
 #include "../gui/mono_font.h"
 #include "../gui/platform.h"
+#include "../gui/settings.h"
 #include "../gui/theme.h"
 #include "../gui/window_channel.h"
 #include <2d/ZCLabel.h>
@@ -386,6 +387,7 @@ private:
 extern "C" int main(int argc, char** argv) {
     if (argc != 2 || argv[1][0] != '/')
         return command_usage("Open a file from Files in Desktop.\n");
+    zonix_gui::control_style::TextSize::set(zonix_gui::Settings::load().text_size);
     Editor editor;
     long error = editor.run(argv[1]);
     zonix_gui::finish();
