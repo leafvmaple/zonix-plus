@@ -95,6 +95,14 @@ unsigned int Compositor::color(Point point) const {
         if (mark == '.')
             return theme::TEXT;
     }
+    const Rect& outline = scene_.resize_outline;
+    if (outline.width != 0 && outline.contains(point)) {
+        int x = point.x - outline.origin.x;
+        int y = point.y - outline.origin.y;
+        if (x < RESIZE_OUTLINE || y < RESIZE_OUTLINE || x >= outline.width - RESIZE_OUTLINE ||
+            y >= outline.height - RESIZE_OUTLINE)
+            return theme::ACCENT;
+    }
     return compose(point, 0, top_window(scene_.windows, scene_.order));
 }
 
@@ -103,7 +111,7 @@ unsigned int Compositor::compose(Point point, int slot, int top) const {
     for (; slot < MAX_WINDOWS; ++slot) {
         int index = scene_.order[slot];
         const Rect& window = scene_.windows[index].rect;
-        if (!scene_.windows[index].open() || window.width == 0)
+        if (!scene_.windows[index].visible() || window.width == 0)
             continue;
         bool focused = index == top;
         int strength = focused ? SHADOW_FOCUSED : SHADOW_UNFOCUSED;

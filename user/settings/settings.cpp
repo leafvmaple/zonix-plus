@@ -161,11 +161,11 @@ private:
         if (!earlier_ || !later_ || !offset_ || !status_ || !keys ||
             !add_text(director, scene, "Time zone", {INSET, FIRST_ROW}, 0.f, 1.f) ||
             !add_text(director, scene, "Text size", {INSET, FIRST_ROW + ROW_HEIGHT}, 0.f, 1.f) ||
-            !add_text(director, scene, "The time zone applies when this window closes.", {INSET, NOTE_TOP + NOTE_PITCH},
+            !add_text(director, scene, "The time zone and the size of the menu bar and", {INSET, NOTE_TOP + NOTE_PITCH},
                       0.f, SECONDARY_OPACITY, note_width) ||
-            !add_text(director, scene, "Text size applies to windows opened next, and to", {INSET, NOTE_TOP + 2.f * NOTE_PITCH},
+            !add_text(director, scene, "title text change when this window closes.", {INSET, NOTE_TOP + 2.f * NOTE_PITCH},
                       0.f, SECONDARY_OPACITY, note_width) ||
-            !add_text(director, scene, "the menu bar and titles when Desktop restarts.", {INSET, NOTE_TOP + 3.f * NOTE_PITCH},
+            !add_text(director, scene, "Windows opened afterwards use the new text size.", {INSET, NOTE_TOP + 3.f * NOTE_PITCH},
                       0.f, SECONDARY_OPACITY, note_width))
             return false;
         director.getEventDispatcher().addEventListenerWithNodePriority(keys, &scene);

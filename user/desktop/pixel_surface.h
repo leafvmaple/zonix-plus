@@ -7,10 +7,11 @@ namespace desktop_ipc {
 
 class PixelSurface {
 public:
-    enum class Result { Pending, Configured, Updated, EditText, Closed };
+    enum class Result { Pending, Configured, Resized, Updated, EditText, Closed };
 
-    // A size request allocates the surface. If memory runs out the client
-    // is closed like one that broke the protocol.
+    // A size request allocates the surface, or replaces it with a cleared one
+    // of the new size. If memory runs out the client is closed like one that
+    // broke the protocol.
     Result receive(int fd, unsigned int max_width, unsigned int max_height);
     // Releases the surface.
     void reset();

@@ -23,7 +23,7 @@ public:
           menu_height_(dock_.width != 0 ? desktop_chrome::MENU_HEIGHT : 0),
           // So does the column of desktop icons, between the two.
           icons_(menu_height_ != 0 ? desktop_icons::bounds(width, menu_height_, dock_.origin.y) : Rect{}),
-          compositor_({windows_, order_, surfaces_, chrome_, pointer_, screen_, dock_, icons_, menu_height_}) {
+          compositor_({windows_, order_, surfaces_, chrome_, pointer_, screen_, dock_, icons_, menu_height_, resize_outline_}) {
         terminal_fits_ = width >= TERMINAL_OUTER_WIDTH && height >= TERMINAL_OUTER_HEIGHT;
         timezone_minutes_ = zonix_gui::Settings::load().timezone_minutes;
         for (int slot = 0; slot < MAX_WINDOWS; ++slot)
@@ -127,6 +127,11 @@ private:
     Rect dock_;
     int menu_height_;
     Rect icons_;
+    // The window being resized, its new outer rectangle, and the pointer's
+    // distance from that rectangle's bottom-right corner.
+    int resizing_ = NO_WINDOW;
+    Rect resize_outline_{};
+    Point resize_offset_{};
     // The local time's offset from UTC.
     int timezone_minutes_{};
     // Set by the Dock's exit item.
@@ -163,6 +168,12 @@ private:
 
     static Rect bounds(const Rect& window) { return Compositor::bounds(window); }
 
+    static Rect minimize_rect(const Rect& window) {
+        return {{window.origin.x + desktop_chrome::MINIMIZE_LEFT, window.origin.y + desktop_chrome::CLOSE_TOP},
+                CLOSE_SIZE,
+                CLOSE_SIZE};
+    }
+
     static Rect close_rect(const Rect& window) {
         return {
             {window.origin.x + desktop_chrome::CLOSE_LEFT, window.origin.y + desktop_chrome::CLOSE_TOP},
@@ -174,7 +185,7 @@ private:
 
     int window_at(Point point) const {
         for (int index : order_)
-            if (windows_[index].open() && windows_[index].rect.contains(point))
+            if (windows_[index].visible() && windows_[index].rect.contains(point))
                 return index;
         return NO_WINDOW;
     }
@@ -248,6 +259,7 @@ private:
             return SYS_ERROR_IO;
         }
         window.close_requested = false;
+        window.minimized = false;
         window.path = {};
         if (path)
             memcpy(window.path.data(), path, strlen(const_cast<char*>(path)) + 1);
@@ -317,12 +329,15 @@ private:
         return window.client.send({event, point.x, point.y}) ? 0 : close_window(index);
     }
 
-    // Focuses the front window of a program. Opens one when there is none, or
-    // another when Shift is held and the program allows several.
+    // Focuses the front window of a program, showing it again if it is
+    // minimized. Opens one when there is none, or another when Shift is held
+    // and the program allows several.
     long show(int app, unsigned int modifiers) {
         int previous = top_window();
         int index = front_window(app);
         bool another = APPS[app].multiple && (modifiers & DISPLAY_MOD_SHIFT) != 0;
+        if (index != NO_WINDOW && !another)
+            windows_[index].minimized = false;
         if (index == NO_WINDOW || another) {
             long slot = open(app);
             if (slot < 0) {
@@ -365,13 +380,13 @@ private:
         Rect old = window.rect;
         window.client.stop();
         window.close_requested = false;
-        // Settings may have changed what Desktop itself shows.
-        if (window.app == APP_SETTINGS)
-            timezone_minutes_ = zonix_gui::Settings::load().timezone_minutes;
+        window.minimized = false;
         surface(index).reset();
         window.rect = {};
         if (drag_ == index)
             drag_ = NO_WINDOW;
+        if (resizing_ == index)
+            cancel_resize();
         if (last_click_.window == index)
             last_click_ = {};
         for (auto& target : button_targets_) {
@@ -385,7 +400,68 @@ private:
                 return error;
         }
         long error = repaint(bounds(old));
-        return error < 0 ? error : repaint(dock_);
+        if (error == 0)
+            error = repaint(dock_);
+        // Settings may have changed what Desktop itself shows.
+        if (error == 0 && window.app == APP_SETTINGS)
+            error = apply_settings();
+        return error;
+    }
+
+    long apply_settings() {
+        auto settings = zonix_gui::Settings::load();
+        timezone_minutes_ = settings.timezone_minutes;
+        long changed = chrome_.set_text_size(settings.text_size);
+        return changed > 0 ? repaint(screen_) : changed;
+    }
+
+    // Hides a window until its program is shown again. The window below it
+    // takes the keyboard.
+    long minimize(int index) {
+        auto& window = windows_[index];
+        long error = send(index, {DISPLAY_EVENT_RESET, 0, 0, 0});
+        if (error < 0 || !window.open())
+            return error;
+        window.minimized = true;
+        if (drag_ == index)
+            drag_ = NO_WINDOW;
+        if (resizing_ == index)
+            cancel_resize();
+        if (last_click_.window == index)
+            last_click_ = {};
+        for (auto& target : button_targets_) {
+            if (target == index)
+                target = NO_WINDOW;
+        }
+        error = repaint(bounds(window.rect));
+        int next = top_window();
+        if (error == 0 && next != NO_WINDOW)
+            error = repaint(bounds(windows_[next].rect));
+        return error;
+    }
+
+    // Alt-Tab sends the front window to the back, so repeated presses visit
+    // every window. With Shift the back window comes to the front instead.
+    long cycle(bool backwards) {
+        int top = top_window();
+        if (top == NO_WINDOW)
+            return 0;
+        int target = NO_WINDOW;
+        if (backwards) {
+            for (int index : order_) {
+                if (windows_[index].visible())
+                    target = index;
+            }
+        } else {
+            int slot = 0;
+            while (order_[slot] != top)
+                ++slot;
+            for (; slot + 1 < MAX_WINDOWS; ++slot)
+                order_[slot] = order_[slot + 1];
+            order_[MAX_WINDOWS - 1] = top;
+            target = top_window();
+        }
+        return target == top ? 0 : focus(target, top, 0);
     }
 
     static char* put_number(char* out, long value, int min_digits) {
@@ -498,6 +574,15 @@ private:
 
     long handle(const DisplayTimedEvent& input) {
         const auto& event = input.event;
+        if (event.type == DISPLAY_EVENT_KEY && (event.modifiers & DISPLAY_MOD_ALT) != 0 &&
+            (event.code == KEY_TAB || event.code == KEY_M)) {
+            if (event.value == DISPLAY_KEY_RELEASE)
+                return 0;
+            if (event.code == KEY_TAB)
+                return cycle((event.modifiers & DISPLAY_MOD_SHIFT) != 0);
+            int top = top_window();
+            return top == NO_WINDOW ? 0 : minimize(top);
+        }
         if (event.type == DISPLAY_EVENT_KEY) {
             int shortcut = app_for_key(event.code);
             // Application windows open from anywhere. The example windows' keys
@@ -515,6 +600,7 @@ private:
         }
         if (event.type == DISPLAY_EVENT_RESET) {
             drag_ = NO_WINDOW;
+            cancel_resize();
             last_click_ = {};
             left_click_ = false;
             for (auto& target : button_targets_)
@@ -539,6 +625,8 @@ private:
         bool left = event.code == DISPLAY_BUTTON_LEFT;
         int& target = button_targets_[event.code - DISPLAY_BUTTON_LEFT];
         if (event.value == DISPLAY_KEY_RELEASE) {
+            if (left && resizing_ != NO_WINDOW)
+                return finish_resize();
             int index = target;
             target = NO_WINDOW;
             if (left) {
@@ -569,9 +657,17 @@ private:
         const auto& rect = windows_[index].rect;
         if (left && close_rect(rect).contains(pointer_))
             return request_close(index);
+        if (left && rect.width >= desktop_chrome::BUTTONS_WIDTH && minimize_rect(rect).contains(pointer_))
+            return minimize(index);
         long error = focus(index, top_window(), event.modifiers);
         if (error < 0)
             return error;
+        if (left && windows_[index].spec().resizable && surface(index).configured() && in_resize_grip(rect, pointer_)) {
+            resizing_ = index;
+            resize_outline_ = rect;
+            resize_offset_ = {rect.origin.x + rect.width - pointer_.x, rect.origin.y + rect.height - pointer_.y};
+            return repaint_outline(resize_outline_);
+        }
         if (left && pointer_.y - rect.origin.y < TITLE_HEIGHT) {
             drag_ = index;
             drag_offset_ = {pointer_.x - rect.origin.x, pointer_.y - rect.origin.y};
@@ -594,7 +690,11 @@ private:
             pointer_.y = clamp(static_cast<long>(pointer_.y) + event.value, screen_.height - 1);
         if (left_click_ && !near(left_press_, pointer_))
             left_click_ = false;
-        if (drag_ != NO_WINDOW) {
+        if (resizing_ != NO_WINDOW) {
+            long error = drag_resize();
+            if (error < 0)
+                return error;
+        } else if (drag_ != NO_WINDOW) {
             Rect& window = windows_[drag_].rect;
             Rect old_window = window;
             window.origin = {clamp(pointer_.x - drag_offset_.x, screen_.width - window.width),
@@ -612,6 +712,63 @@ private:
         }
         long error = repaint(old_cursor);
         return error < 0 ? error : repaint(compositor_.cursor_rect());
+    }
+
+    // The smallest window a resize drag makes. Clients may clamp further.
+    static constexpr int MIN_RESIZE_WIDTH = 160;
+    static constexpr int MIN_RESIZE_HEIGHT = TITLE_HEIGHT + 80;
+
+    long repaint_outline(const Rect& outline) {
+        if (outline.width == 0)
+            return 0;
+        const Point& o = outline.origin;
+        long error = repaint({o, outline.width, RESIZE_OUTLINE});
+        if (error == 0)
+            error = repaint({{o.x, o.y + outline.height - RESIZE_OUTLINE}, outline.width, RESIZE_OUTLINE});
+        if (error == 0)
+            error = repaint({o, RESIZE_OUTLINE, outline.height});
+        if (error == 0)
+            error = repaint({{o.x + outline.width - RESIZE_OUTLINE, o.y}, RESIZE_OUTLINE, outline.height});
+        return error;
+    }
+
+    void cancel_resize() {
+        if (resizing_ == NO_WINDOW)
+            return;
+        Rect outline = resize_outline_;
+        resizing_ = NO_WINDOW;
+        resize_outline_ = {};
+        repaint_outline(outline);
+    }
+
+    // Follows the pointer with the outline of the new size.
+    long drag_resize() {
+        const Rect& window = windows_[resizing_].rect;
+        int width = pointer_.x + resize_offset_.x - window.origin.x;
+        int height = pointer_.y + resize_offset_.y - window.origin.y;
+        width = sys::max(MIN_RESIZE_WIDTH, sys::min(width, screen_.width - window.origin.x));
+        height = sys::max(MIN_RESIZE_HEIGHT, sys::min(height, screen_.height - window.origin.y));
+        if (width == resize_outline_.width && height == resize_outline_.height)
+            return 0;
+        Rect old = resize_outline_;
+        resize_outline_ = {window.origin, width, height};
+        long error = repaint_outline(old);
+        return error < 0 ? error : repaint_outline(resize_outline_);
+    }
+
+    // Asks the client for the outline's size. The window changes when the
+    // client answers with its new surface.
+    long finish_resize() {
+        int index = resizing_;
+        Rect outline = resize_outline_;
+        resizing_ = NO_WINDOW;
+        resize_outline_ = {};
+        long error = repaint_outline(outline);
+        const Rect& window = windows_[index].rect;
+        if (error < 0 || !windows_[index].open() || (outline.width == window.width && outline.height == window.height))
+            return error;
+        Input request{{INPUT_RESIZE, 0, 0, 0}, outline.width - 2 * FRAME, outline.height - TITLE_HEIGHT - FRAME};
+        return windows_[index].client.send(request) ? 0 : close_window(index);
     }
 
     // Where a pixel window of the given outer size first appears.
@@ -645,6 +802,17 @@ private:
                 int height = outer_height(static_cast<int>(pixels.height()));
                 window.rect = {place(index, width, height), width, height};
                 long error = chrome_.configure(index, window.app, width);
+                return error < 0 ? error : repaint(bounds(window.rect));
+            }
+            case PixelSurface::Result::Resized: {
+                Rect old = window.rect;
+                window.rect.width = outer_width(static_cast<int>(pixels.width()));
+                window.rect.height = outer_height(static_cast<int>(pixels.height()));
+                window.rect.origin = {clamp(old.origin.x, screen_.width - window.rect.width),
+                                      clamp_top(old.origin.y, window.rect.height)};
+                long error = chrome_.configure(index, window.app, window.rect.width);
+                if (error == 0)
+                    error = repaint(bounds(old));
                 return error < 0 ? error : repaint(bounds(window.rect));
             }
             case PixelSurface::Result::Updated: {

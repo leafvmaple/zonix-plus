@@ -25,17 +25,17 @@ using zonix_gui::control_style::Glyph;
 using zonix_gui::control_style::Palette;
 using zonix_gui::control_style::place_label;
 
-// The window has the same size as the Terminal. Layout rectangles use a
-// top-left origin, like the window, unless noted otherwise.
-constexpr int WIDTH = 512;
-constexpr int HEIGHT = 320;
+// The window opens with the same size as the Terminal and can be resized down
+// to the minimum. Layout rectangles use a top-left origin, like the window,
+// unless noted otherwise.
+constexpr int DEFAULT_WIDTH = 512;
+constexpr int DEFAULT_HEIGHT = 320;
+constexpr int MIN_WIDTH = 360;
+constexpr int MIN_HEIGHT = 240;
 constexpr float TOOLBAR_HEIGHT = zonix_gui::Toolbar::HEIGHT;
 constexpr float STATUS_HEIGHT = 28.f;
-constexpr float STATUS_TOP = HEIGHT - STATUS_HEIGHT;
-constexpr float STATUS_CENTER = STATUS_TOP + STATUS_HEIGHT / 2.f;
 // The last column of the sidebar is the divider.
 constexpr float SIDEBAR_WIDTH = 120.f;
-constexpr float BODY_HEIGHT = STATUS_TOP - TOOLBAR_HEIGHT;
 constexpr float MARGIN = 8.f;
 // Sidebar text lines up with the labels of the location buttons.
 constexpr float SIDEBAR_TEXT_X = MARGIN + zonix_gui::control_style::TEXT_INSET;
@@ -43,27 +43,26 @@ constexpr float PLACES_TOP = TOOLBAR_HEIGHT + 32.f;
 constexpr float PLACE_PITCH = 30.f;
 constexpr zocos::Size PAGER_BUTTON{24.f, 20.f};
 constexpr float PAGE_LABEL_WIDTH = 64.f;
-constexpr float NEXT_X = WIDTH - MARGIN - PAGER_BUTTON.width;
-constexpr float PREVIOUS_X = NEXT_X - PAGE_LABEL_WIDTH - PAGER_BUTTON.width;
 constexpr float STATUS_TEXT_X = 12.f;
-// Contents between the toolbar, shortcuts and status bar, with a bottom-left origin.
-constexpr zocos::Rect GRID_AREA{SIDEBAR_WIDTH, STATUS_HEIGHT, WIDTH - SIDEBAR_WIDTH, BODY_HEIGHT};
 
 class Panels final : public zocos::Node {
 public:
     explicit Panels(zocos::Director& director) : palette_(director) {}
 
     bool init() override { return Node::init() && palette_.init(); }
+    void set_window(zocos::Size window) { window_ = window; }
 
     void draw(zocos::Renderer& renderer, const zocos::Mat4& world) override {
-        palette_.box(renderer, world, {0.f, STATUS_HEIGHT, SIDEBAR_WIDTH - 1.f, BODY_HEIGHT}, Color::Sidebar);
-        palette_.box(renderer, world, {SIDEBAR_WIDTH - 1.f, STATUS_HEIGHT, 1.f, BODY_HEIGHT}, Color::Divider);
-        palette_.box(renderer, world, {0.f, 0.f, WIDTH, STATUS_HEIGHT}, Color::Panel);
-        palette_.box(renderer, world, {0.f, STATUS_HEIGHT - 1.f, WIDTH, 1.f}, Color::Divider);
+        const float body = window_.height - STATUS_HEIGHT - TOOLBAR_HEIGHT;
+        palette_.box(renderer, world, {0.f, STATUS_HEIGHT, SIDEBAR_WIDTH - 1.f, body}, Color::Sidebar);
+        palette_.box(renderer, world, {SIDEBAR_WIDTH - 1.f, STATUS_HEIGHT, 1.f, body}, Color::Divider);
+        palette_.box(renderer, world, {0.f, 0.f, window_.width, STATUS_HEIGHT}, Color::Panel);
+        palette_.box(renderer, world, {0.f, STATUS_HEIGHT - 1.f, window_.width, 1.f}, Color::Divider);
     }
 
 private:
     Palette palette_;
+    zocos::Size window_{};
 };
 
 class Browser {
@@ -75,16 +74,23 @@ public:
         if (error < 0)
             return error;
         auto& director = zocos::Director::getInstance();
-        auto view = zonix_gui::make_window_view([this](int error) {
-            message_ = error == SYS_ERROR_BUSY ? "Close a window first" : command_error_text(error);
-            update_controls();
-        });
-        if (!director.init(WIDTH, HEIGHT, "Files", mstd::move(view)))
+        auto view = zonix_gui::make_window_view(
+            [this](int error) {
+                message_ = error == SYS_ERROR_BUSY ? "Close a window first" : command_error_text(error);
+                update_controls();
+            },
+            {}, {MIN_WIDTH, MIN_HEIGHT, [this](int width, int height) {
+                     relayout(static_cast<float>(width), static_cast<float>(height));
+                     refresh_directory();
+                     update_controls();
+                 }});
+        if (!director.init(DEFAULT_WIDTH, DEFAULT_HEIGHT, "Files", mstd::move(view)))
             return SYS_ERROR_IO;
         {
             zocos::AutoreleasePool startup("Files controls");
             auto* scene = zocos::Scene::create();
             if (scene && build_scene(director, *scene)) {
+                relayout(DEFAULT_WIDTH, DEFAULT_HEIGHT);
                 refresh_directory();
                 if (message)
                     message_ = message;
@@ -104,6 +110,9 @@ private:
     // Keep one byte past the FAT limit so an overlong name is rejected.
     static constexpr mstd::size_t NAME_INPUT_LIMIT = sizeof(DirectoryEntry::name);
     files::Directory dir_;
+    float width_ = DEFAULT_WIDTH;
+    Panels* panels_{};
+    zocos::Label* locations_{};
     // The directory revision whose entries the grid shows.
     unsigned int shown_revision_{};
     IconGrid* grid_{};
@@ -133,29 +142,54 @@ private:
         };
     }
 
-    // The content is a label or a glyph.
+    float next_x() const { return width_ - MARGIN - PAGER_BUTTON.width; }
+    float previous_x() const { return next_x() - PAGE_LABEL_WIDTH - PAGER_BUTTON.width; }
+
+    // The content is a label or a glyph. relayout places the button.
     template <typename Content>
-    Button* add_button(zocos::Director& director, zocos::Scene& scene, Content content, zocos::Rect area, Action action,
+    Button* add_button(zocos::Director& director, zocos::Scene& scene, Content content, zocos::Size size, Action action,
                        Button::Alignment alignment = Button::Alignment::Center) {
         auto* button = Button::create(director, content, refresh_after(mstd::move(action)));
         if (button) {
-            button->layout({area.width, area.height}, alignment);
-            button->setPosition({area.x, HEIGHT - area.y - area.height});
+            button->layout(size, alignment);
             scene.addChild(button);
         }
         return button;
     }
 
-    // The position is the left edge or centre of the text and the middle of its line.
-    static zocos::Label* add_text(zocos::Director& director, zocos::Scene& scene, const char* text,
-                                  zocos::Vec2 position, float align, float opacity) {
+    // relayout or update_controls places the label.
+    static zocos::Label* add_text(zocos::Director& director, zocos::Scene& scene, const char* text, float opacity) {
         auto* label = zonix_gui::control_style::make_label(director, text);
         if (label) {
-            place_label(*label, position.x, HEIGHT - position.y, align);
             label->setOpacity(opacity);
             scene.addChild(label);
         }
         return label;
+    }
+
+    // Places everything for a window of the given size. Rows hang from the
+    // top, the status bar sits at the bottom, and the pager and grid follow
+    // the right edge.
+    void relayout(float width, float height) {
+        width_ = width;
+        const float body = height - STATUS_HEIGHT - TOOLBAR_HEIGHT;
+        panels_->set_window({width, height});
+        toolbar_->setPosition({0.f, height - TOOLBAR_HEIGHT});
+        toolbar_->set_width(width);
+        const float pager_y = (STATUS_HEIGHT - PAGER_BUTTON.height) / 2.f;
+        previous_->setPosition({previous_x(), pager_y});
+        next_->setPosition({next_x(), pager_y});
+        place_label(*locations_, SIDEBAR_TEXT_X, height - TOOLBAR_HEIGHT - 18.f, 0.f);
+        for (int i = 0; i < 3; ++i) {
+            places_[i]->setPosition(
+                {MARGIN, height - (PLACES_TOP + i * PLACE_PITCH) - zonix_gui::control_style::CONTROL_HEIGHT});
+        }
+        place_label(*empty_, SIDEBAR_WIDTH + (width - SIDEBAR_WIDTH) / 2.f, STATUS_HEIGHT + body / 2.f, 0.5f);
+        grid_->setPosition({SIDEBAR_WIDTH, STATUS_HEIGHT});
+        grid_->resize(zocos::Director::getInstance(), {width - SIDEBAR_WIDTH, body});
+        dir_.set_page_size(grid_->capacity());
+        shown_revision_ = 0;
+        dialog_->fit({width, height});
     }
 
     bool build_scene(zocos::Director& director, zocos::Scene& scene) {
@@ -166,43 +200,36 @@ private:
         }
         panels->autorelease();
         scene.addChild(panels);
-        toolbar_ = zonix_gui::Toolbar::create(director, WIDTH);
+        panels_ = panels;
+        toolbar_ = zonix_gui::Toolbar::create(director, DEFAULT_WIDTH);
         if (!toolbar_)
             return false;
-        toolbar_->setPosition({0.f, HEIGHT - TOOLBAR_HEIGHT});
         scene.addChild(toolbar_);
         back_ = toolbar_->add_button(Glyph::Back, refresh_after([this] { history_step(-1); }));
         forward_ = toolbar_->add_button(Glyph::Forward, refresh_after([this] { history_step(1); }));
         up_ = toolbar_->add_button(Glyph::Up, refresh_after([this] { parent(); }));
 
         using zonix_gui::control_style::SECONDARY_OPACITY;
-        constexpr float pager_top = STATUS_TOP + (STATUS_HEIGHT - PAGER_BUTTON.height) / 2.f;
-        previous_ = add_button(director, scene, Glyph::Back,
-                               {PREVIOUS_X, pager_top, PAGER_BUTTON.width, PAGER_BUTTON.height},
-                               [this] { change_page(-1); });
-        next_ = add_button(director, scene, Glyph::Forward,
-                           {NEXT_X, pager_top, PAGER_BUTTON.width, PAGER_BUTTON.height}, [this] { change_page(1); });
-        status_ = add_text(director, scene, "", {STATUS_TEXT_X, STATUS_CENTER}, 0.f, 0.85f);
-        page_label_ = add_text(director, scene, "", {NEXT_X - PAGE_LABEL_WIDTH / 2.f, STATUS_CENTER}, 0.5f, 0.85f);
-        empty_ = add_text(director, scene, "Empty folder",
-                          {SIDEBAR_WIDTH + (WIDTH - SIDEBAR_WIDTH) / 2.f, TOOLBAR_HEIGHT + BODY_HEIGHT / 2.f}, 0.5f,
-                          SECONDARY_OPACITY);
-        if (!back_ || !forward_ || !up_ || !previous_ || !next_ || !status_ || !page_label_ || !empty_ ||
-            !add_text(director, scene, "Locations", {SIDEBAR_TEXT_X, TOOLBAR_HEIGHT + 18.f}, 0.f, SECONDARY_OPACITY))
+        previous_ = add_button(director, scene, Glyph::Back, PAGER_BUTTON, [this] { change_page(-1); });
+        next_ = add_button(director, scene, Glyph::Forward, PAGER_BUTTON, [this] { change_page(1); });
+        status_ = add_text(director, scene, "", 0.85f);
+        page_label_ = add_text(director, scene, "", 0.85f);
+        empty_ = add_text(director, scene, "Empty folder", SECONDARY_OPACITY);
+        locations_ = add_text(director, scene, "Locations", SECONDARY_OPACITY);
+        if (!back_ || !forward_ || !up_ || !previous_ || !next_ || !status_ || !page_label_ || !empty_ || !locations_)
             return false;
 
         for (int i = 0; i < 3; ++i) {
             places_[i] = add_button(
-                director, scene, PLACES[i],
-                {MARGIN, PLACES_TOP + i * PLACE_PITCH, SIDEBAR_WIDTH - 2.f * MARGIN,
-                 zonix_gui::control_style::CONTROL_HEIGHT},
+                director, scene, PLACES[i], {SIDEBAR_WIDTH - 2.f * MARGIN, zonix_gui::control_style::CONTROL_HEIGHT},
                 [this, i] { navigate(PATHS[i]); }, Button::Alignment::Left);
             if (!places_[i])
                 return false;
             places_[i]->set_style(Button::Style::Flat);
         }
 
-        grid_ = IconGrid::create(director, {GRID_AREA.width, GRID_AREA.height}, [this](IconGrid::Interaction action) {
+        grid_ = IconGrid::create(director, {DEFAULT_WIDTH - SIDEBAR_WIDTH, DEFAULT_HEIGHT - STATUS_HEIGHT - TOOLBAR_HEIGHT},
+                                 [this](IconGrid::Interaction action) {
             message_ = nullptr;
             if (action == IconGrid::Interaction::Activate)
                 open_selected();
@@ -210,9 +237,7 @@ private:
         });
         if (!grid_)
             return false;
-        grid_->setPosition({GRID_AREA.x, GRID_AREA.y});
         scene.addChild(grid_);
-        dir_.set_page_size(grid_->capacity());
 
         dialog_ = Dialog::create(director);
         if (!dialog_)
@@ -438,7 +463,7 @@ private:
         next_->set_enabled(dir_.has_next_page());
         empty_->setVisible(dir_.empty() && !message_);
         page_label_->setString("Page " + mstd::to_string(dir_.page_number()));
-        place_label(*page_label_, NEXT_X - PAGE_LABEL_WIDTH / 2.f, STATUS_HEIGHT / 2.f, 0.5f, PAGE_LABEL_WIDTH);
+        place_label(*page_label_, next_x() - PAGE_LABEL_WIDTH / 2.f, STATUS_HEIGHT / 2.f, 0.5f, PAGE_LABEL_WIDTH);
         int selected = grid_->selection();
         if (message_)
             status_->setString(message_);
@@ -450,7 +475,7 @@ private:
             status_->setString(mstd::to_string(dir_.size()) + " shown");
         }
         // Long messages shrink instead of running under the pager.
-        place_label(*status_, STATUS_TEXT_X, STATUS_HEIGHT / 2.f, 0.f, PREVIOUS_X - 2.f * STATUS_TEXT_X);
+        place_label(*status_, STATUS_TEXT_X, STATUS_HEIGHT / 2.f, 0.f, previous_x() - 2.f * STATUS_TEXT_X);
     }
 };
 

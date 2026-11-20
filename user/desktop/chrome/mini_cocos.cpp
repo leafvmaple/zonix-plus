@@ -33,10 +33,10 @@ constexpr int MAX_ICONS = sizeof(desktop_icons::ITEMS) / sizeof(*desktop_icons::
 constexpr int MENU_CLOCK_WIDTH = 160;
 constexpr int MENU_NAME_GAP = 14;
 constexpr float CLOSE_RADIUS = CLOSE_SIZE / 2.f;
-// Space kept between the title and the close button.
+// Space kept between the title and the buttons.
 constexpr int LABEL_GAP = 8;
-// What the close button takes from each side of a centred title.
-constexpr int TITLE_SIDE = CLOSE_LEFT + CLOSE_SIZE + LABEL_GAP;
+// What the buttons take from each side of a centred title.
+constexpr int TITLE_SIDE = MINIMIZE_LEFT + CLOSE_SIZE + LABEL_GAP;
 
 // All strips share one scene and font atlas, with the first slot's strip at
 // the top of the buffer. The buffer is cleared to transparent black, and
@@ -210,7 +210,7 @@ private:
     sys::array<float, MAX_ICONS> label_widths_{};
 };
 
-// The close buttons.
+// The close and minimize buttons.
 class Decorations final : public zocos::Node {
 public:
     static Decorations* create(zocos::Director& director) {
@@ -226,16 +226,18 @@ public:
         return decorations;
     }
 
-    // A title bar too narrow for the button shows none.
-    void show_close(int index, bool shown) { shown_[index] = shown; }
+    // A title bar too narrow for the buttons shows none.
+    void show_buttons(int index, bool shown) { shown_[index] = shown; }
 
     void draw(zocos::Renderer& renderer, const zocos::Mat4& world) override {
         for (int index = 0; index < MAX_WINDOWS; ++index) {
             if (!shown_[index])
                 continue;
-            zocos::Rect button{CLOSE_LEFT, strip_bottom(index) + TITLE_HEIGHT - CLOSE_TOP - CLOSE_SIZE, CLOSE_SIZE,
-                               CLOSE_SIZE};
-            palette_.round_box(renderer, world, button, CLOSE_RADIUS, Color::Close);
+            const float bottom = strip_bottom(index) + TITLE_HEIGHT - CLOSE_TOP - CLOSE_SIZE;
+            palette_.round_box(renderer, world, {CLOSE_LEFT, bottom, CLOSE_SIZE, CLOSE_SIZE}, CLOSE_RADIUS,
+                               Color::Close);
+            palette_.round_box(renderer, world, {MINIMIZE_LEFT, bottom, CLOSE_SIZE, CLOSE_SIZE}, CLOSE_RADIUS,
+                               Color::Minimize);
         }
     }
 
@@ -255,6 +257,7 @@ struct Chrome::Scene {
     };
 
     sys::array<Title, MAX_WINDOWS> titles;
+    sys::array<zocos::Label*, MAX_ICONS> icon_labels{};
     Decorations* decorations{};
     DesktopIcons* icons{};
     zocos::Label* brand{};
@@ -334,20 +337,43 @@ struct Chrome::Scene {
             auto* label = zonix_gui::control_style::make_label(engine, ITEMS[item].label);
             if (!label)
                 return false;
-            zonix_gui::control_style::place_label(*label, (item + 0.5f) * CELL_WIDTH,
-                                                  static_cast<float>(CELL_HEIGHT - LABEL_CENTER), 0.5f,
-                                                  DesktopIcons::LABEL_ROOM);
-            icons->set_label_width(item, label->getContentSize().width);
+            icon_labels[item] = label;
+            place_icon_label(item);
             scene.addChild(label);
         }
         return true;
+    }
+
+    void place_icon_label(int item) {
+        using namespace desktop_icons;
+        auto& label = *icon_labels[item];
+        zonix_gui::control_style::place_label(label, (item + 0.5f) * CELL_WIDTH,
+                                              static_cast<float>(CELL_HEIGHT - LABEL_CENTER), 0.5f,
+                                              DesktopIcons::LABEL_ROOM);
+        icons->set_label_width(item, label.getContentSize().width);
+    }
+
+    // Sets the size of every label that follows the text size and places the
+    // ones whose place does not depend on what else is shown. The Dock's
+    // prompt is part of an icon and keeps its size.
+    void set_text_size(float size) {
+        brand->setFontSize(size);
+        program->setFontSize(size);
+        clock->setFontSize(size);
+        zonix_gui::control_style::place_label(*brand, MENU_INSET, MENU_MIDDLE, 0.f);
+        for (auto& title : titles)
+            title.label->setFontSize(size);
+        for (int item = 0; item < desktop_icons::ITEM_COUNT; ++item) {
+            icon_labels[item]->setFontSize(size);
+            place_icon_label(item);
+        }
     }
 
     void position(int index, int app, int title_width) {
         auto& title = titles[index];
         title.width = title_width;
         const int room = title_width - 2 * TITLE_SIDE;
-        decorations->show_close(index, title_width >= CLOSE_LEFT + CLOSE_SIZE + CLOSE_MARGIN);
+        decorations->show_buttons(index, title_width >= BUTTONS_WIDTH);
         title.label->setVisible(room >= 24);
         const auto& spec = desktop_ipc::APPS[app];
         title.label->setString(title_width >= 180 ? spec.title : spec.short_title);
@@ -405,6 +431,21 @@ long Chrome::configure(int slot, int app, int width) {
 
 unsigned int Chrome::title_pixel(int index, int, int x, int y) const {
     return scene_->pixel(x, index * TITLE_HEIGHT + y);
+}
+
+long Chrome::set_text_size(int pixels) {
+    using zonix_gui::control_style::TextSize;
+    if (TextSize::get() == static_cast<float>(pixels))
+        return 0;
+    TextSize::set(pixels);
+    scene_->set_text_size(TextSize::get());
+    for (int slot = 0; slot < MAX_WINDOWS; ++slot) {
+        if (apps_[slot] != desktop_ipc::NO_APP)
+            scene_->position(slot, apps_[slot], scene_->titles[slot].width);
+    }
+    if (menu_app_ != MENU_UNSET)
+        scene_->set_menu(menu_app_ >= 0 ? desktop_ipc::APPS[menu_app_].title : MENU_NO_PROGRAM, menu_clock_.data());
+    return scene_->director->mainLoop() ? 1 : SYS_ERROR_IO;
 }
 
 long Chrome::set_menu(int app, const char* clock) {

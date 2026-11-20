@@ -5,8 +5,9 @@
 
 namespace desktop_ipc {
 
-inline constexpr unsigned int PIXEL_MAX_WIDTH = 512;
-inline constexpr unsigned int PIXEL_MAX_HEIGHT = 384;
+// Desktop further limits a surface to what fits on the screen.
+inline constexpr unsigned int PIXEL_MAX_WIDTH = 2048;
+inline constexpr unsigned int PIXEL_MAX_HEIGHT = 2048;
 inline constexpr unsigned int PIXEL_PACKET_CAPACITY = 960;
 
 enum class PixelRequest : unsigned int { Size = 1, Update, UpdatePart, EditText };
@@ -23,7 +24,8 @@ struct PixelHeader {
     PixelRect rect;
 };
 
-// Size carries no payload. Both update requests carry width*height packed
+// Size carries no payload. The first one creates the surface; a later one,
+// the answer to INPUT_RESIZE, resizes it. Both update requests carry width*height packed
 // XRGB8888 words in top-left order, with no stride, pointer or padding.
 // UpdatePart continues a batch; Update ends it or carries a standalone update.
 struct PixelPacket {

@@ -13,6 +13,11 @@ inline constexpr unsigned int INPUT_EDIT_ERROR = 0x10000;
 // Desktop-only event. The user asked to close a window whose client decides
 // when to exit, so it can first ask about unsaved work.
 inline constexpr unsigned int INPUT_CLOSE_REQUEST = 0x10001;
+// Desktop-only event. The user resized the window; x and y are the surface
+// size Desktop proposes. A client that can resize answers with a Size request
+// for the size it accepts, which may be clamped, followed by a full update.
+// Others ignore it and keep their size.
+inline constexpr unsigned int INPUT_RESIZE = 0x10002;
 
 struct Input {
     DisplayEvent event;

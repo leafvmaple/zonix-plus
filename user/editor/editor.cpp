@@ -24,16 +24,17 @@ using zonix_gui::control_style::Color;
 using zonix_gui::control_style::Palette;
 using zonix_gui::control_style::place_label;
 
-// The window has the same size as the Terminal. Node coordinates have a
-// bottom-left origin.
-constexpr int WIDTH = desktop_ipc::TERMINAL_WIDTH;
-constexpr int HEIGHT = desktop_ipc::TERMINAL_HEIGHT;
+// The window opens with the same size as the Terminal and can be resized down
+// to the minimum. Node coordinates have a bottom-left origin.
+constexpr int DEFAULT_WIDTH = desktop_ipc::TERMINAL_WIDTH;
+constexpr int DEFAULT_HEIGHT = desktop_ipc::TERMINAL_HEIGHT;
+constexpr int MIN_WIDTH = 320;
+constexpr int MIN_HEIGHT = 180;
 constexpr float TOOLBAR_HEIGHT = zonix_gui::Toolbar::HEIGHT;
 constexpr float STATUS_HEIGHT = 28.f;
 constexpr float STATUS_INSET = 12.f;
 // The cursor position is right-aligned in the status bar.
 constexpr float POSITION_WIDTH = 120.f;
-constexpr float TEXT_HEIGHT = HEIGHT - TOOLBAR_HEIGHT - STATUS_HEIGHT;
 
 // Extended keys the shared keyboard table does not name.
 constexpr unsigned int KEY_PAGE_UP = 104;
@@ -54,9 +55,6 @@ public:
     static constexpr float PAD_Y = 6.f;
     static constexpr float SCROLLBAR_WIDTH = 4.f;
     static constexpr float SCROLLBAR_MARGIN = 4.f;
-    static constexpr int ROWS = static_cast<int>((TEXT_HEIGHT - 2.f * PAD_Y) / MonoFont::HEIGHT);
-    static constexpr int COLS =
-        static_cast<int>((WIDTH - PAD_X - SCROLLBAR_WIDTH - 2.f * SCROLLBAR_MARGIN) / MonoFont::WIDTH);
 
     using OnPlace = mstd::function<void()>;
 
@@ -68,18 +66,30 @@ public:
         return view->build(director) ? view : nullptr;
     }
 
+    // The lines and columns that fit.
+    int rows() const { return rows_; }
+
+    void resize(float width, float height) {
+        setContentSize({width, height});
+        rows_ = mstd::max(1, static_cast<int>((height - 2.f * PAD_Y) / MonoFont::HEIGHT));
+        cols_ = mstd::max(1, static_cast<int>((width - PAD_X - SCROLLBAR_WIDTH - 2.f * SCROLLBAR_MARGIN) /
+                                              MonoFont::WIDTH));
+        // Every cell twice (its selection and its glyph), the cursor and the scrollbar.
+        quads_.reserve((2 * rows_ * cols_ + 2) * 6);
+    }
+
     // Scrolls just far enough to show the cursor.
     void reveal() {
         int line = document_.line();
         int column = document_.column();
         if (line < top_)
             top_ = line;
-        else if (line >= top_ + ROWS)
-            top_ = line - ROWS + 1;
+        else if (line >= top_ + rows_)
+            top_ = line - rows_ + 1;
         if (column < left_)
             left_ = column;
-        else if (column >= left_ + COLS)
-            left_ = column - COLS + 1;
+        else if (column >= left_ + cols_)
+            left_ = column - cols_ + 1;
     }
 
 private:
@@ -94,9 +104,11 @@ private:
     OnPlace on_place_;
     MonoFont font_;
     mstd::vector<zocos::QuadVertex> quads_;
-    // The first line and display column shown.
+    // The first line and display column shown, and how many fit.
     int top_{};
     int left_{};
+    int rows_ = 1;
+    int cols_ = 1;
     // The left button went down in the text and has not come up.
     bool dragging_{};
 
@@ -108,9 +120,6 @@ private:
         if (!Node::init() || !device || !mouse || font_.init(*device) < 0)
             return false;
         setAnchorPoint({0.f, 0.f});
-        setContentSize({static_cast<float>(WIDTH), TEXT_HEIGHT});
-        // Every cell twice (its selection and its glyph), the cursor and the scrollbar.
-        quads_.reserve((2 * ROWS * COLS + 2) * 6);
         mouse->onMouseDown = [this](zocos::EventMouse& event) {
             if (event.getMouseButton() != zocos::EventMouse::MouseButton::BUTTON_LEFT)
                 return;
@@ -144,7 +153,7 @@ private:
             row = -1;
         // The cursor goes to the nearer edge of the character under the pointer.
         int column = static_cast<int>((local.x - PAD_X + MonoFont::WIDTH / 2.f) / MonoFont::WIDTH);
-        document_.place(top_ + mstd::clamp(row, clamp ? -1 : 0, clamp ? ROWS : ROWS - 1), left_ + mstd::max(column, 0),
+        document_.place(top_ + mstd::clamp(row, clamp ? -1 : 0, clamp ? rows_ : rows_ - 1), left_ + mstd::max(column, 0),
                         extend);
         on_place_();
         return true;
@@ -178,7 +187,7 @@ private:
                                static_cast<float>(MonoFont::WIDTH), static_cast<float>(MonoFont::HEIGHT)};
         };
         auto cursor_at = [&](int row, int column) {
-            if (offset != document_.cursor() || column < left_ || column > left_ + COLS)
+            if (offset != document_.cursor() || column < left_ || column > left_ + cols_)
                 return;
             // The bar sits between two characters, half on each.
             auto area = cell_area(row, column);
@@ -192,21 +201,21 @@ private:
             if (offset < selected_from || offset >= selected_to)
                 return;
             int from = mstd::max(column, left_);
-            int to = mstd::min(next, left_ + COLS);
+            int to = mstd::min(next, left_ + cols_);
             if (from >= to)
                 return;
             auto area = cell_area(row, from);
             area.width = static_cast<float>((to - from) * MonoFont::WIDTH);
             add(area, MonoFont::solid(), SELECTION_COLOR);
         };
-        for (int row = 0; row < ROWS && top_ + row < lines; ++row) {
+        for (int row = 0; row < rows_ && top_ + row < lines; ++row) {
             int column = 0;
             for (; offset < document_.size() && text[offset] != '\n'; ++offset) {
                 cursor_at(row, column);
                 char byte = text[offset];
                 int next = Document::advance(column, byte);
                 selection_at(row, column, next);
-                if (byte != ' ' && byte != '\t' && column >= left_ && column < left_ + COLS)
+                if (byte != ' ' && byte != '\t' && column >= left_ && column < left_ + cols_)
                     add(cell_area(row, column), MonoFont::cell(byte), TEXT_COLOR);
                 column = next;
             }
@@ -216,12 +225,13 @@ private:
             ++offset;
         }
 
-        if (lines > ROWS) {
-            const float track = TEXT_HEIGHT - 2.f * PAD_Y;
-            const float thumb = mstd::max(MIN_THUMB, track * ROWS / lines);
-            const float travel = mstd::min(1.f, static_cast<float>(top_) / (lines - ROWS));
+        if (lines > rows_) {
+            const auto size = getContentSize();
+            const float track = size.height - 2.f * PAD_Y;
+            const float thumb = mstd::max(MIN_THUMB, track * rows_ / lines);
+            const float travel = mstd::min(1.f, static_cast<float>(top_) / (lines - rows_));
             const float y = static_cast<float>(static_cast<int>(top_edge - thumb - (track - thumb) * travel));
-            add({WIDTH - SCROLLBAR_MARGIN - SCROLLBAR_WIDTH, y, SCROLLBAR_WIDTH, thumb}, MonoFont::solid(),
+            add({size.width - SCROLLBAR_MARGIN - SCROLLBAR_WIDTH, y, SCROLLBAR_WIDTH, thumb}, MonoFont::solid(),
                 THUMB_COLOR);
         }
         if (!quads_.empty())
@@ -233,11 +243,17 @@ class StatusBar final : public zocos::Node {
 public:
     explicit StatusBar(zocos::Director& director) : palette_(director) {}
 
-    bool init() override { return Node::init() && palette_.init(); }
+    bool init() override {
+        if (!Node::init() || !palette_.init())
+            return false;
+        setAnchorPoint({0.f, 0.f});
+        return true;
+    }
 
     void draw(zocos::Renderer& renderer, const zocos::Mat4& world) override {
-        palette_.box(renderer, world, {0.f, 0.f, WIDTH, STATUS_HEIGHT}, Color::Panel);
-        palette_.box(renderer, world, {0.f, STATUS_HEIGHT - 1.f, WIDTH, 1.f}, Color::Divider);
+        const float width = getContentSize().width;
+        palette_.box(renderer, world, {0.f, 0.f, width, STATUS_HEIGHT}, Color::Panel);
+        palette_.box(renderer, world, {0.f, STATUS_HEIGHT - 1.f, width, 1.f}, Color::Divider);
     }
 
 private:
@@ -264,14 +280,17 @@ public:
             problem_ = mstd::string("Cannot open: ") + command_error_text(loaded);
 
         auto& director = zocos::Director::getInstance();
-        auto view = zonix_gui::make_window_view({}, [this] { request_close(); });
-        if (!director.init(WIDTH, HEIGHT, "Text Editor", mstd::move(view)))
+        auto view = zonix_gui::make_window_view({}, [this] { request_close(); },
+                                                {MIN_WIDTH, MIN_HEIGHT, [this](int width, int height) {
+                                                     relayout(static_cast<float>(width), static_cast<float>(height));
+                                                 }});
+        if (!director.init(DEFAULT_WIDTH, DEFAULT_HEIGHT, "Text Editor", mstd::move(view)))
             return SYS_ERROR_IO;
         {
             zocos::AutoreleasePool startup("Editor controls");
             auto* scene = zocos::Scene::create();
             if (scene && build_scene(director, *scene)) {
-                update_controls();
+                relayout(DEFAULT_WIDTH, DEFAULT_HEIGHT);
                 director.runWithScene(scene);
                 while (!done_ && director.mainLoop()) {}
             } else {
@@ -284,6 +303,8 @@ public:
 
 private:
     Document document_;
+    float width_ = DEFAULT_WIDTH;
+    StatusBar* bar_{};
     TextView* view_{};
     Dialog* dialog_{};
     Button* save_{};
@@ -310,18 +331,17 @@ private:
     }
 
     bool build_scene(zocos::Director& director, zocos::Scene& scene) {
-        auto* bar = new (mstd::nothrow) StatusBar(director);
-        if (!bar || !bar->init()) {
-            delete bar;
+        bar_ = new (mstd::nothrow) StatusBar(director);
+        if (!bar_ || !bar_->init()) {
+            delete bar_;
             return false;
         }
-        bar->autorelease();
-        scene.addChild(bar);
+        bar_->autorelease();
+        scene.addChild(bar_);
 
-        toolbar_ = zonix_gui::Toolbar::create(director, WIDTH);
+        toolbar_ = zonix_gui::Toolbar::create(director, DEFAULT_WIDTH);
         if (!toolbar_)
             return false;
-        toolbar_->setPosition({0.f, HEIGHT - TOOLBAR_HEIGHT});
         scene.addChild(toolbar_);
         save_ = toolbar_->add_button("Save", [this] {
             save();
@@ -335,7 +355,6 @@ private:
         });
         if (!view_)
             return false;
-        view_->setPosition({0.f, STATUS_HEIGHT});
         scene.addChild(view_);
 
         status_ = add_text(director, scene);
@@ -347,6 +366,18 @@ private:
         scene.addChild(dialog_, dialog_->getLocalZOrder());
         director.getEventDispatcher().addEventListenerWithNodePriority(keys, &scene);
         return true;
+    }
+
+    // Lays the window out for its current size.
+    void relayout(float width, float height) {
+        width_ = width;
+        bar_->setContentSize({width, STATUS_HEIGHT});
+        toolbar_->setPosition({0.f, height - TOOLBAR_HEIGHT});
+        toolbar_->set_width(width);
+        view_->setPosition({0.f, STATUS_HEIGHT});
+        view_->resize(width, height - TOOLBAR_HEIGHT - STATUS_HEIGHT);
+        dialog_->fit({width, height});
+        update_controls();
     }
 
     void show_path() { toolbar_->set_text(document_.untitled() ? UNTITLED : document_.path()); }
@@ -479,9 +510,9 @@ private:
         message_.clear();
 
         if (code == KEY_PAGE_UP) {
-            document_.vertical(-(TextView::ROWS - 1), shift);
+            document_.vertical(-mstd::max(1, view_->rows() - 1), shift);
         } else if (code == KEY_PAGE_DOWN) {
-            document_.vertical(TextView::ROWS - 1, shift);
+            document_.vertical(mstd::max(1, view_->rows() - 1), shift);
         } else if (key == static_cast<int>(Key::Up)) {
             document_.vertical(-1, shift);
         } else if (key == static_cast<int>(Key::Down)) {
@@ -550,8 +581,8 @@ private:
         else
             position_->setString("Ln " + mstd::to_string(document_.line() + 1) + ", Col " +
                                  mstd::to_string(document_.column() + 1));
-        place_label(*status_, STATUS_INSET, STATUS_HEIGHT / 2.f, 0.f, WIDTH - POSITION_WIDTH - 2.f * STATUS_INSET);
-        place_label(*position_, WIDTH - STATUS_INSET, STATUS_HEIGHT / 2.f, 1.f, POSITION_WIDTH - STATUS_INSET);
+        place_label(*status_, STATUS_INSET, STATUS_HEIGHT / 2.f, 0.f, width_ - POSITION_WIDTH - 2.f * STATUS_INSET);
+        place_label(*position_, width_ - STATUS_INSET, STATUS_HEIGHT / 2.f, 1.f, POSITION_WIDTH - STATUS_INSET);
     }
 };
 

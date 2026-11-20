@@ -18,6 +18,8 @@ public:
     // What the button that confirms a destructive action says.
     enum class Danger { Delete, Discard };
     void confirm(const char* title, const mstd::string& target, Submit submit, Danger danger = Danger::Delete);
+    // Covers a window of a new size, keeping the panel centred.
+    void fit(zocos::Size window);
 
 private:
     explicit Dialog(zocos::Director& director) : palette_(director) {}

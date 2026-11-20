@@ -31,7 +31,8 @@ PixelSurface::Result PixelSurface::receive(int fd, unsigned int max_width, unsig
 
         const auto& rect = header_.rect;
         if (header_.request == PixelRequest::Size) {
-            if (configured() || rect.x || rect.y || !rect.width || !rect.height || rect.width > PIXEL_MAX_WIDTH ||
+            bool resize = configured();
+            if (rect.x || rect.y || !rect.width || !rect.height || rect.width > PIXEL_MAX_WIDTH ||
                 rect.height > PIXEL_MAX_HEIGHT || rect.width > max_width || rect.height > max_height)
                 return Result::Closed;
             sys::size_t bytes = sys::size_t{rect.width} * rect.height * sizeof(unsigned int);
@@ -42,7 +43,8 @@ PixelSurface::Result PixelSurface::receive(int fd, unsigned int max_width, unsig
             width_ = rect.width;
             height_ = rect.height;
             header_bytes_ = 0;
-            return Result::Configured;
+            batch_damage_ = {};
+            return resize ? Result::Resized : Result::Configured;
         }
         if (header_.request == PixelRequest::EditText)
             return configured() && !rect.x && !rect.y && !rect.width && !rect.height ? Result::Pending : Result::Closed;

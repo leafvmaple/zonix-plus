@@ -48,6 +48,7 @@ enum class Color {
     Text,
     TextDisabled,
     Close,
+    Minimize,
     Folder,
     FolderShade,
     FolderTab,

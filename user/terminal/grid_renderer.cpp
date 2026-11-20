@@ -37,55 +37,99 @@ void add_glyph(zocos::RenderCommand& batch, zocos::Rect cell, int x, int y, int 
 
 }  // namespace
 
-long GridRenderer::init() {
-    long error = font_.init(device_);
+long GridRenderer::resize(int cols, int rows) {
+    if (!font_ready_) {
+        long error = font_.init(device_);
+        if (error < 0)
+            return error;
+        glyphs_.texture = font_.texture();
+        device_.setClearColor(BACKGROUND);
+        font_ready_ = true;
+    }
+    long error = zonix_gui::WindowChannel::open(static_cast<unsigned int>(cols * GLYPH_WIDTH),
+                                                static_cast<unsigned int>(rows * GLYPH_HEIGHT));
     if (error < 0)
         return error;
-    glyphs_.texture = font_.texture();
-
-    device_.setClearColor(BACKGROUND);
-    pixels_.resize(TERMINAL_WIDTH * TERMINAL_HEIGHT * 4);
-    glyphs_.vertices.reserve((TERMINAL_COLS * TERMINAL_ROWS + 1) * 6);
-    return zonix_gui::WindowChannel::open(TERMINAL_WIDTH, TERMINAL_HEIGHT);
+    cols_ = cols;
+    rows_ = rows;
+    pixels_.resize(static_cast<sys::size_t>(cols) * GLYPH_WIDTH * rows * GLYPH_HEIGHT * 4);
+    glyphs_.vertices.reserve((static_cast<sys::size_t>(cols) * rows + 1) * 6);
+    shown_.cells.resize(static_cast<sys::size_t>(cols) * rows);
+    everything_ = true;
+    return 0;
 }
 
-long GridRenderer::publish(const Frame& frame) {
-    auto damage = compare_text(previous_, frame);
-    if (damage.empty())
+long GridRenderer::publish(const terminal_grid::Grid& grid) {
+    if (grid.cols() != cols_ || grid.rows() != rows_)
+        return SYS_ERROR_INVALID;
+    // The changed cells, as a rectangle of cells. The cursor's old and new
+    // cells count as changed when it moves or blinks on or off.
+    int left = cols_, top = rows_, right = 0, bottom = 0;
+    auto include = [&](int row, int col) {
+        left = sys::min(left, col);
+        top = sys::min(top, row);
+        right = sys::max(right, col + 1);
+        bottom = sys::max(bottom, row + 1);
+    };
+    if (everything_) {
+        include(0, 0);
+        include(rows_ - 1, cols_ - 1);
+    } else {
+        for (int row = 0; row < rows_; ++row) {
+            for (int col = 0; col < cols_; ++col) {
+                if (shown_.cells[row * cols_ + col] != grid.at(row, col))
+                    include(row, col);
+            }
+        }
+        if (shown_.cursor != grid.cursor_visible() || shown_.row != grid.row() || shown_.col != grid.col()) {
+            if (shown_.cursor)
+                include(shown_.row, sys::min(shown_.col, cols_ - 1));
+            if (grid.cursor_visible())
+                include(grid.row(), grid.col());
+        }
+    }
+    if (right <= left)
         return 0;
 
-    int x = damage.left * GLYPH_WIDTH;
-    int y = damage.top * GLYPH_HEIGHT;
-    int width = (damage.right - damage.left) * GLYPH_WIDTH;
-    int height = (damage.bottom - damage.top) * GLYPH_HEIGHT;
-    constexpr sys::size_t pitch = TERMINAL_WIDTH * 4;
+    int x = left * GLYPH_WIDTH;
+    int y = top * GLYPH_HEIGHT;
+    int width = (right - left) * GLYPH_WIDTH;
+    int height = (bottom - top) * GLYPH_HEIGHT;
+    const sys::size_t pitch = static_cast<sys::size_t>(cols_) * GLYPH_WIDTH * 4;
     sys::size_t offset = y * pitch + x * 4;
     if (!device_.setOutputBuffer({pixels_.data() + offset, width, height, pitch, pixels_.size() - offset}))
         return SYS_ERROR_IO;
 
-    const auto* cells = reinterpret_cast<const unsigned char*>(frame.data());
     glyphs_.vertices.clear();
-    for (int row = damage.top; row < damage.bottom; ++row) {
-        for (int col = damage.left; col < damage.right; ++col) {
-            int c = cells[row * TERMINAL_COLS + col];
+    for (int row = top; row < bottom; ++row) {
+        for (int col = left; col < right; ++col) {
+            int c = grid.at(row, col);
             if (c != ' ')
                 add_glyph(glyphs_, MonoFont::cell(c), col * GLYPH_WIDTH - x, row * GLYPH_HEIGHT - y, GLYPH_HEIGHT,
                           TEXT_COLOR);
         }
     }
-    int cursor_x = cells[CURSOR_COL] * GLYPH_WIDTH - x;
-    int cursor_y = cells[CURSOR_ROW] * GLYPH_HEIGHT - y;
-    if (cells[CURSOR_VISIBLE] && cursor_x >= 0 && cursor_x < width && cursor_y >= 0 && cursor_y < height)
+    int cursor_x = grid.col() * GLYPH_WIDTH - x;
+    int cursor_y = grid.row() * GLYPH_HEIGHT - y;
+    if (grid.cursor_visible() && cursor_x >= 0 && cursor_x < width && cursor_y >= 0 && cursor_y < height)
         add_glyph(glyphs_, MonoFont::solid(), cursor_x, cursor_y + GLYPH_HEIGHT - 2, 2, CURSOR_COLOR);
 
     device_.beginFrame(zocos::Mat4::ortho(0.f, width, height, 0.f, -1.f, 1.f), width, height);
     device_.submit(glyphs_);
     device_.endFrame();
 
-    auto result = channel_.present({pixels_.data(), TERMINAL_WIDTH, TERMINAL_HEIGHT, pitch, pixels_.size()},
+    auto result = channel_.present({pixels_.data(), cols_ * GLYPH_WIDTH, rows_ * GLYPH_HEIGHT, pitch, pixels_.size()},
                                    {static_cast<unsigned int>(x), static_cast<unsigned int>(y),
                                     static_cast<unsigned int>(width), static_cast<unsigned int>(height)});
-    if (result == 0)
-        previous_ = frame;
+    if (result == 0) {
+        for (int row = 0; row < rows_; ++row) {
+            for (int col = 0; col < cols_; ++col)
+                shown_.cells[row * cols_ + col] = grid.at(row, col);
+        }
+        shown_.row = grid.row();
+        shown_.col = grid.col();
+        shown_.cursor = grid.cursor_visible();
+        everything_ = false;
+    }
     return result;
 }

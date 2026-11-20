@@ -60,10 +60,12 @@ private:
 
 class WindowView final : public SoftwareView {
 public:
-    explicit WindowView(mstd::function<void(int)> on_edit_error = {}, mstd::function<void()> on_close_request = {})
+    explicit WindowView(mstd::function<void(int)> on_edit_error = {}, mstd::function<void()> on_close_request = {},
+                        zonix_gui::Resize resize = {})
         : SoftwareView(zonix_gui::opaque_color(zonix_gui::theme::WINDOW_BACKGROUND)),
           on_edit_error_(mstd::move(on_edit_error)),
-          on_close_request_(mstd::move(on_close_request)) {}
+          on_close_request_(mstd::move(on_close_request)),
+          resize_(mstd::move(resize)) {}
 
     bool init(int width, int height, const char* title) override {
         if (!SoftwareView::init(width, height, title) || WindowChannel::open(width, height) < 0)
@@ -92,6 +94,10 @@ public:
         if (event.type == desktop_ipc::INPUT_CLOSE_REQUEST) {
             if (on_close_request_)
                 on_close_request_();
+            return;
+        }
+        if (event.type == desktop_ipc::INPUT_RESIZE) {
+            resize(input.x, input.y);
             return;
         }
         if (event.type == DISPLAY_EVENT_RESET) {
@@ -136,9 +142,31 @@ public:
 private:
     mstd::function<void(int)> on_edit_error_;
     mstd::function<void()> on_close_request_;
+    zonix_gui::Resize resize_;
     WindowChannel channel_;
     sys::vector<unsigned int> pixels_;
     bool painted_{};
+
+    // Takes the proposed size, within the window's minimum and the protocol's
+    // maximum, and tells Desktop. The next frame repaints everything.
+    void resize(int width, int height) {
+        if (!resize_.relayout)
+            return;
+        width = mstd::clamp(width, resize_.min_width, static_cast<int>(desktop_ipc::PIXEL_MAX_WIDTH));
+        height = mstd::clamp(height, resize_.min_height, static_cast<int>(desktop_ipc::PIXEL_MAX_HEIGHT));
+        if (width == width_ && height == height_)
+            return;
+        if (WindowChannel::open(static_cast<unsigned int>(width), static_cast<unsigned int>(height)) < 0) {
+            closed_ = true;
+            return;
+        }
+        width_ = width;
+        height_ = height;
+        pixels_.resize(static_cast<sys::size_t>(width) * height);
+        painted_ = false;
+        delegate_->onViewResized(width, height);
+        resize_.relayout(width, height);
+    }
 
     PixelRect changed(const zocos::PixelBuffer& buffer) {
         int left = width_;
@@ -184,8 +212,8 @@ mstd::unique_ptr<RenderDevice> createDefaultRenderDevice(View& view) {
 namespace zonix_gui {
 
 mstd::unique_ptr<zocos::View> make_window_view(mstd::function<void(int)> on_edit_error,
-                                               mstd::function<void()> on_close_request) {
-    return mstd::make_unique<WindowView>(mstd::move(on_edit_error), mstd::move(on_close_request));
+                                               mstd::function<void()> on_close_request, Resize resize) {
+    return mstd::make_unique<WindowView>(mstd::move(on_edit_error), mstd::move(on_close_request), mstd::move(resize));
 }
 
 bool is_double_click(unsigned int modifiers) {

@@ -24,6 +24,8 @@ public:
         Rect icons;
         // The height of the menu bar, or 0 on a screen without one.
         int menu_height;
+        // The new size of a window being resized, or empty.
+        const Rect& resize_outline;
     };
 
     explicit Compositor(const Scene& scene) : scene_(scene) {}

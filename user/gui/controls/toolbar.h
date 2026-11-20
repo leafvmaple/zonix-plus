@@ -13,6 +13,8 @@ public:
     Button* add_button(const mstd::string& text, Button::Action action);
     Button* add_button(control_style::Glyph glyph, Button::Action action);
     void set_text(const mstd::string& text);
+    // The text field stretches with the toolbar.
+    void set_width(float width);
 
 private:
     explicit Toolbar(zocos::Director& director) : director_(director), palette_(director) {}

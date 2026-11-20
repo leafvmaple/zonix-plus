@@ -32,6 +32,18 @@ Dialog* Dialog::create(zocos::Director& director) {
     return dialog->build(director) ? dialog : nullptr;
 }
 
+void Dialog::fit(zocos::Size window) {
+    zocos::Vec2 panel{static_cast<float>(static_cast<int>((window.width - WIDTH) / 2.f)),
+                      static_cast<float>(static_cast<int>((window.height - HEIGHT) / 2.f))};
+    zocos::Vec2 shift{panel.x - panel_.x, panel.y - panel_.y};
+    setContentSize(window);
+    for (auto* child : getChildren()) {
+        auto position = child->getPosition();
+        child->setPosition({position.x + shift.x, position.y + shift.y});
+    }
+    panel_ = panel;
+}
+
 bool Dialog::build(zocos::Director& director) {
     if (!Widget::init() || !palette_.init())
         return false;

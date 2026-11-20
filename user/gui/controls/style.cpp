@@ -33,6 +33,7 @@ constexpr zocos::Color4B COLORS[] = {
     rgb(theme::TEXT),                   // Text
     rgb(theme::TEXT, 97),               // TextDisabled
     rgb(theme::CLOSE),                  // Close
+    rgb(theme::MINIMIZE),               // Minimize
     rgb(theme::FOLDER),                 // Folder
     rgb(0x3F97E3),                      // FolderShade
     rgb(0x2F82CF),                      // FolderTab

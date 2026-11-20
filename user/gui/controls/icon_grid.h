@@ -20,6 +20,9 @@ public:
     static IconGrid* create(zocos::Director& director, zocos::Size size, OnInteraction on_interaction);
 
     int columns() const { return columns_; }
+    // Lays the tiles out for a new size, adding or removing tiles so the grid
+    // holds as many as fit. Clears the selection. False if none fits.
+    bool resize(zocos::Director& director, zocos::Size size);
     int capacity() const { return static_cast<int>(tiles_.size()); }
     // Copies labels for display. The caller can discard the items after this call.
     void set_items(const mstd::vector<Item>& items);
@@ -34,6 +37,8 @@ private:
     class Tile;
     explicit IconGrid(zocos::Director& director, OnInteraction on_interaction);
     bool init_grid(zocos::Director& director, zocos::Size size);
+    bool add_tile(zocos::Director& director);
+    void place_tiles();
     bool contains(zocos::Vec2 pointer) const;
     int item_at(zocos::Vec2 pointer) const;
     void highlight(int index);

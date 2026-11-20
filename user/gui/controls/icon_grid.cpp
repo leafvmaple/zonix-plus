@@ -116,25 +116,53 @@ IconGrid* IconGrid::create(zocos::Director& director, zocos::Size size, OnIntera
     return grid->init_grid(director, size) ? grid : nullptr;
 }
 
-bool IconGrid::init_grid(zocos::Director& director, zocos::Size size) {
-    columns_ = static_cast<int>((size.width - 2.f * INSET_X + COLUMN_GAP) / (CELL_WIDTH + COLUMN_GAP));
+bool IconGrid::add_tile(zocos::Director& director) {
+    auto* tile = Tile::create(director, *this);
+    if (!tile)
+        return false;
+    int index = static_cast<int>(tiles_.size());
+    tile->setVisible(false);
+    tile->addEventListener([this, index](zocos::ui::Widget&) { click(index); });
+    tiles_.push_back(tile);
+    addChild(tile);
+    return true;
+}
+
+void IconGrid::place_tiles() {
+    const float height = getContentSize().height;
+    for (int index = 0; index < capacity(); ++index) {
+        tiles_[index]->setPosition({INSET_X + (index % columns_) * (CELL_WIDTH + COLUMN_GAP),
+                                    height - INSET_Y - CELL_HEIGHT - (index / columns_) * (CELL_HEIGHT + ROW_GAP)});
+    }
+}
+
+bool IconGrid::resize(zocos::Director& director, zocos::Size size) {
+    int columns = static_cast<int>((size.width - 2.f * INSET_X + COLUMN_GAP) / (CELL_WIDTH + COLUMN_GAP));
     int rows = static_cast<int>((size.height - 2.f * INSET_Y + ROW_GAP) / (CELL_HEIGHT + ROW_GAP));
-    if (!Node::init() || columns_ <= 0 || rows <= 0 || !palette_.init())
+    if (columns <= 0 || rows <= 0)
+        return false;
+    select(NO_ITEM);
+    while (capacity() < rows * columns) {
+        if (!add_tile(director))
+            return false;
+    }
+    while (capacity() > rows * columns) {
+        removeChild(tiles_.back());
+        tiles_.pop_back();
+    }
+    columns_ = columns;
+    setContentSize(size);
+    place_tiles();
+    count_ = mstd::min(count_, capacity());
+    return true;
+}
+
+bool IconGrid::init_grid(zocos::Director& director, zocos::Size size) {
+    if (!Node::init() || !palette_.init())
         return false;
     setAnchorPoint({0.f, 0.f});
-    setContentSize(size);
-    tiles_.reserve(rows * columns_);
-    for (int index = 0; index < rows * columns_; ++index) {
-        auto* tile = Tile::create(director, *this);
-        if (!tile)
-            return false;
-        tile->setVisible(false);
-        tile->setPosition({INSET_X + (index % columns_) * (CELL_WIDTH + COLUMN_GAP),
-                           size.height - INSET_Y - CELL_HEIGHT - (index / columns_) * (CELL_HEIGHT + ROW_GAP)});
-        tile->addEventListener([this, index](zocos::ui::Widget&) { click(index); });
-        tiles_.push_back(tile);
-        addChild(tile);
-    }
+    if (!resize(director, size))
+        return false;
 
     auto* mouse = zocos::EventListenerMouse::create();
     auto* keys = zocos::EventListenerKeyboard::create([this](zocos::EventKeyboard&) { cancel_click(); });

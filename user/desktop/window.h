@@ -27,6 +27,10 @@ struct Rect {
 // Width of the border and gap between a window's outline and its client
 // surface on the left, right and bottom. The title bar is above the surface.
 inline constexpr int FRAME = 2;
+// The square at a resizable window's bottom-right corner that drags its size.
+inline constexpr int RESIZE_GRIP = 14;
+// Width of the outline drawn while a window is being resized.
+inline constexpr int RESIZE_OUTLINE = 2;
 inline constexpr int NO_WINDOW = -1;
 
 // One slot of the window pool. A slot is free while its client is not running.
@@ -42,8 +46,12 @@ struct Window {
     int step{};
     // The client was asked to close and has had no input since.
     bool close_requested{};
+    // The window is hidden until its program is shown again from the Dock.
+    bool minimized{};
 
     bool open() const { return client.alive(); }
+    // Open and shown on the screen.
+    bool visible() const { return open() && !minimized; }
     const desktop_ipc::AppSpec& spec() const { return desktop_ipc::APPS[app]; }
     desktop_ipc::Protocol protocol() const { return spec().protocol; }
 };
@@ -73,6 +81,11 @@ inline Point client_origin(const Rect& window) {
     return {window.origin.x + FRAME, window.origin.y + TITLE_HEIGHT};
 }
 
+inline bool in_resize_grip(const Rect& window, Point point) {
+    return point.x >= window.origin.x + window.width - RESIZE_GRIP && point.x < window.origin.x + window.width &&
+           point.y >= window.origin.y + window.height - RESIZE_GRIP && point.y < window.origin.y + window.height;
+}
+
 inline bool in_body(const Rect& window, Point point) {
     return point.x >= window.origin.x + FRAME && point.x < window.origin.x + window.width - FRAME &&
            point.y >= window.origin.y + TITLE_HEIGHT && point.y < window.origin.y + window.height - FRAME;
@@ -89,9 +102,10 @@ inline Point surface_point(const Rect& window, Point point) {
             static_cast<int>(static_cast<long>(y) * size / height)};
 }
 
+// The front visible window, which has the keyboard.
 inline int top_window(const Windows& windows, const Order& order) {
     for (int index : order)
-        if (windows[index].open())
+        if (windows[index].visible())
             return index;
     return NO_WINDOW;
 }

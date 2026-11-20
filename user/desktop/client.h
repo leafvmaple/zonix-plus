@@ -35,6 +35,9 @@ inline constexpr unsigned int KEY_2 = 3;
 inline constexpr unsigned int KEY_F2 = 60;
 inline constexpr unsigned int KEY_F3 = 61;
 inline constexpr unsigned int KEY_F4 = 62;
+// With Alt, Tab switches windows and M minimizes the front one.
+inline constexpr unsigned int KEY_TAB = 15;
+inline constexpr unsigned int KEY_M = 50;
 
 // Where a pixel window appears once its client reports a size.
 enum class Placement { Corner, Center, Right };
@@ -55,15 +58,17 @@ struct AppSpec {
     // The client is asked to close and exits by itself, so it can keep
     // unsaved work. A second request closes the window regardless.
     bool asks_before_closing = false;
+    // Dragging the window's bottom-right corner resizes it.
+    bool resizable = false;
 };
 
 inline constexpr AppSpec APPS[APP_COUNT] = {
     {"Example A", "A", "/opt/bin/deskapp", "a", Placement::Corner, KEY_1, Protocol::Frame},
     {"Example B", "B", "/opt/bin/deskapp", "b", Placement::Corner, KEY_2, Protocol::Frame},
-    {"Terminal", "Term", "/opt/bin/terminal", nullptr, Placement::Center, KEY_F2, Protocol::Pixels, true},
+    {"Terminal", "Term", "/opt/bin/terminal", nullptr, Placement::Center, KEY_F2, Protocol::Pixels, true, false, false, true},
     {"mini-cocos", "Cocos", "/opt/bin/minicoco", "--window", Placement::Corner, KEY_F3, Protocol::Pixels, false, true},
-    {"Files", "Files", "/opt/bin/files", "--window", Placement::Right, KEY_F4, Protocol::Pixels, true, true},
-    {"Text Editor", "Editor", "/opt/bin/editor", nullptr, Placement::Center, 0, Protocol::Pixels, true, true, true},
+    {"Files", "Files", "/opt/bin/files", "--window", Placement::Right, KEY_F4, Protocol::Pixels, true, true, false, true},
+    {"Text Editor", "Editor", "/opt/bin/editor", nullptr, Placement::Center, 0, Protocol::Pixels, true, true, true, true},
     {"Settings", "Set", "/opt/bin/settings", "--window", Placement::Center, 0, Protocol::Pixels, false, true},
 };
 

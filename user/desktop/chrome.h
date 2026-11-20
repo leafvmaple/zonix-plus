@@ -8,11 +8,16 @@ namespace desktop_chrome {
 
 inline constexpr int TITLE_HEIGHT = 30;
 // The close button is a disc that keeps the same distance from the top, bottom
-// and left of the title bar. The title is centred in the bar.
+// and left of the title bar, and the minimize button a disc of the same size
+// to its right. The title is centred in the bar.
 inline constexpr int CLOSE_SIZE = 14;
 inline constexpr int CLOSE_MARGIN = (TITLE_HEIGHT - CLOSE_SIZE) / 2;
 inline constexpr int CLOSE_TOP = CLOSE_MARGIN;
 inline constexpr int CLOSE_LEFT = CLOSE_MARGIN;
+inline constexpr int BUTTON_GAP = 8;
+inline constexpr int MINIMIZE_LEFT = CLOSE_LEFT + CLOSE_SIZE + BUTTON_GAP;
+// The narrowest title bar that shows both buttons.
+inline constexpr int BUTTONS_WIDTH = MINIMIZE_LEFT + CLOSE_SIZE + CLOSE_MARGIN;
 
 // The bar along the top of the screen. It names the system and the program
 // in front on the left and shows a clock on the right.
@@ -41,6 +46,9 @@ public:
     // text. Returns 1 if the bar changed, 0 if not, or a negative error.
     long set_menu(int app, const char* clock);
     unsigned int menu_pixel(int screen_width, int x, int y) const;
+    // Redraws every label at a new text size. Returns 1 if the size changed,
+    // 0 if not, or a negative error.
+    long set_text_size(int pixels);
     // Shows a desktop icon as selected, or none for a negative item. Returns
     // 1 if the icons changed, 0 if not, or a negative error.
     long select_icon(int item);

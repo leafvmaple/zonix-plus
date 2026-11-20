@@ -2,88 +2,18 @@
 #include "../desktop/fd.h"
 #include "../desktop/text_frame.h"
 #include <base/keyboard.h>
-#include <base/terminal_parser.h>
+#include "grid.h"
 #include "grid_renderer.h"
 
 namespace {
 
 using namespace desktop_ipc;
 
-class Grid {
-public:
-    Grid() {
-        clear();
-        cursor(true);
-    }
-    void feed(const char* bytes, unsigned int count) {
-        for (unsigned int i = 0; i < count; ++i)
-            parser_.putc(static_cast<unsigned char>(bytes[i]), *this);
-    }
-    const Frame& frame() {
-        bytes()[CURSOR_ROW] = static_cast<unsigned char>(row_);
-        bytes()[CURSOR_COL] = static_cast<unsigned char>(col_);
-        return frame_;
-    }
-    void text(int c) {
-        switch (c) {
-            case '\r': col_ = 0; break;
-            case '\n': newline(); break;
-            case '\b':
-            case 127:
-                if (col_ > 0)
-                    --col_;
-                break;
-            case '\t': {
-                int stop = (col_ / 8 + 1) * 8;
-                for (int i = col_; i < stop; ++i)
-                    text(' ');
-                break;
-            }
-            default:
-                if (c >= 32) {
-                    bytes()[row_ * TERMINAL_COLS + col_] = static_cast<unsigned char>(c <= 126 ? c : '?');
-                    if (++col_ == TERMINAL_COLS)
-                        newline();
-                }
-                break;
-        }
-    }
-    void cursor(bool visible) { bytes()[CURSOR_VISIBLE] = visible ? 1 : 0; }
-    void position(unsigned int row, unsigned int col) {
-        row_ = row < TERMINAL_ROWS ? row : TERMINAL_ROWS - 1;
-        column(col);
-    }
-    void column(unsigned int col) { col_ = col < TERMINAL_COLS ? col : TERMINAL_COLS - 1; }
-    void erase_line(unsigned int mode) {
-        int first = mode == 2 ? 0 : col_;
-        for (int i = first; i < TERMINAL_COLS; ++i)
-            bytes()[row_ * TERMINAL_COLS + i] = ' ';
-    }
-    void clear() {
-        for (int i = 0; i < TERMINAL_COLS * TERMINAL_ROWS; ++i)
-            bytes()[i] = ' ';
-        row_ = col_ = 0;
-    }
+using terminal_grid::Grid;
 
-private:
-    Frame frame_{};
-    terminal::Parser parser_{};
-    int row_{};
-    int col_{};
-
-    unsigned char* bytes() { return reinterpret_cast<unsigned char*>(frame_.data()); }
-    void newline() {
-        col_ = 0;
-        if (row_ < TERMINAL_ROWS - 1) {
-            ++row_;
-            return;
-        }
-        auto* cells = bytes();
-        for (int i = 0; i < TERMINAL_COLS * (TERMINAL_ROWS - 1); ++i)
-            cells[i] = cells[i + TERMINAL_COLS];
-        erase_line(2);
-    }
-};
+// The largest grid a window can show.
+constexpr int MAX_COLS = static_cast<int>(PIXEL_MAX_WIDTH) / GLYPH_WIDTH;
+constexpr int MAX_ROWS = static_cast<int>(PIXEL_MAX_HEIGHT) / GLYPH_HEIGHT;
 
 long spawn_session(int slave, int argc, char** argv) {
     Fd input(sys_fcntl(STDIN_FD, F_DUPFD_CLOEXEC, 0));
@@ -127,14 +57,28 @@ void send_key(int fd, const DisplayEvent& event) {
     }
 }
 
+// Fits the grid to a window size Desktop proposes, in whole cells, and tells
+// the shell's terminal the new size.
+long resize(Grid& grid, GridRenderer& renderer, int master, int width, int height) {
+    int cols = sys::max(Grid::MIN_COLS, sys::min(width / GLYPH_WIDTH, MAX_COLS));
+    int rows = sys::max(Grid::MIN_ROWS, sys::min(height / GLYPH_HEIGHT, MAX_ROWS));
+    if (cols == grid.cols() && rows == grid.rows())
+        return 0;
+    grid.resize(cols, rows);
+    TerminalSize size{static_cast<unsigned int>(rows), static_cast<unsigned int>(cols)};
+    sys_ioctl(master, TERMINAL_SET_SIZE, reinterpret_cast<long>(&size));
+    long error = renderer.resize(cols, rows);
+    return error < 0 ? error : renderer.publish(grid);
+}
+
 long run(int master) {
-    Grid grid;
+    Grid grid(TERMINAL_COLS, TERMINAL_ROWS);
     unsigned int tty_bit = 1U << master;
     unsigned int input_bit = 1U << STDIN_FD;
     GridRenderer renderer;
-    long error = renderer.init();
+    long error = renderer.resize(grid.cols(), grid.rows());
     if (error == 0)
-        error = renderer.publish(grid.frame());
+        error = renderer.publish(grid);
     while (error == 0) {
         long ready = sys_wait_readable(tty_bit | input_bit);
         if (ready < 0)
@@ -146,15 +90,18 @@ long run(int master) {
                 return 0;
             if (got != sizeof(input))
                 return SYS_ERROR_IO;
-            send_key(master, input.event);
+            if (input.event.type == INPUT_RESIZE)
+                error = resize(grid, renderer, master, input.x, input.y);
+            else
+                send_key(master, input.event);
         }
-        if ((ready & tty_bit) != 0) {
+        if (error == 0 && (ready & tty_bit) != 0) {
             char output[1024];
             long got = sys_read(master, output, sizeof(output));
             if (got <= 0)
                 return got;
             grid.feed(output, static_cast<unsigned int>(got));
-            error = renderer.publish(grid.frame());
+            error = renderer.publish(grid);
         }
     }
     return error;

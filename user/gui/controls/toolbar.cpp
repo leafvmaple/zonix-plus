@@ -53,6 +53,11 @@ void Toolbar::set_text(const mstd::string& text) {
     layout_text();
 }
 
+void Toolbar::set_width(float width) {
+    setContentSize({width, HEIGHT});
+    layout_text();
+}
+
 zocos::Rect Toolbar::field() const {
     float x = next_button_x_ > INSET ? next_button_x_ + GAP : INSET;
     return {x, (HEIGHT - CONTROL_HEIGHT) / 2.f, getContentSize().width - INSET - x, CONTROL_HEIGHT};
