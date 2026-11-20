@@ -10,7 +10,7 @@ LWIP_FILES := core/init core/def core/dns core/inet_chksum core/ip core/mem core
               core/ipv4/ip4 core/ipv4/ip4_addr core/ipv4/icmp netif/ethernet
 LWIP_OBJECTS := $(addprefix $(NET_OBJDIR)/lwip/,$(addsuffix .o,$(LWIP_FILES)))
 NET_LIBRARY := $(NET_OBJDIR)/zonix_net.o
-NET_CLIENTS := ping nc netinfo tcpserve
+NET_CLIENTS := ping nc netinfo tcpserve fetch
 NET_PROGRAMS := netd $(NET_CLIENTS) tcpecho
 NET_ELFS := $(foreach p,$(NET_PROGRAMS),$(USER_BINDIR)/$(call uc,$(p)).ELF)
 
@@ -41,8 +41,10 @@ $(NET_ELFS): $(ZCC_RUNTIME_STAMP) | $(USER_BINDIR) check-syscall-abi
 	$(Q)$(LD) -nostdlib --no-relax --gc-sections --strip-debug --discard-all -T $(ZCC_SYSROOT)/linker.ld $(ZCC_SYSROOT)/crt0.o \
 		$(filter %.o,$^) $(ZCC_SYSROOT)/libzccrt.a -o "$@"
 
+# NETWORK_IMAGE may name an existing application disk, such as desktop.img, to add networking to it.
+NETWORK_IMAGE ?= $(BINDIR)/network.img
 .PHONY: network-image
 network-image: $(NET_ELFS)
-	$(Q)bash scripts/install_network_image.sh "$(BINDIR)/network.img" "$(LWIP_SOURCE)/COPYING" $^
+	$(Q)bash scripts/install_network_image.sh "$(NETWORK_IMAGE)" "$(LWIP_SOURCE)/COPYING" $^
 
 -include $(LWIP_OBJECTS:.o=.d) $(patsubst %,$(NET_OBJDIR)/%.d,$(NET_PROGRAMS) zonix_net)

@@ -41,6 +41,15 @@ static long read_input(char* buffer, long size) {
 static int bridge_stream(int stream) {
     char buffer[1024];
     int input_open = 1;
+    /* A regular file cannot be waited on: send all of it first, then end the direction. */
+    if (sys_wait_readable_for(1L << STDIN_FD, 0) < 0) {
+        long count;
+        while ((count = sys_read(STDIN_FD, buffer, sizeof(buffer))) > 0)
+            if (command_write_all(stream, buffer, count) < 0)
+                return 1;
+        net_shutdown_write(stream);
+        input_open = 0;
+    }
     for (;;) {
         long ready = sys_wait_readable((input_open ? 1L << STDIN_FD : 0) | 1L << stream);
         if (ready < 0)

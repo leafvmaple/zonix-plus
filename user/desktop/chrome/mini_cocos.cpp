@@ -30,7 +30,7 @@ constexpr int ICON_ROW = MENU_ROW + MENU_HEIGHT;
 constexpr int ICON_ROWS = desktop_icons::CELL_HEIGHT;
 constexpr int BUFFER_ROWS = ICON_ROW + ICON_ROWS;
 constexpr int MAX_ICONS = sizeof(desktop_icons::ITEMS) / sizeof(*desktop_icons::ITEMS);
-constexpr int MENU_CLOCK_WIDTH = 160;
+constexpr int MENU_CLOCK_WIDTH = 300;
 constexpr int MENU_NAME_GAP = 14;
 constexpr float CLOSE_RADIUS = CLOSE_SIZE / 2.f;
 // Space kept between the title and the buttons.

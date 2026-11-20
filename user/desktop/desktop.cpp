@@ -1,6 +1,7 @@
 #include "../command.h"
 #include "compositor.h"
 #include "../gui/settings.h"
+#include "../net/zonix_net.h"
 #include <sys/algorithm.hpp>
 #include <sys/array.hpp>
 
@@ -97,6 +98,7 @@ private:
     static constexpr int CLICK_DISTANCE = 5;
     static constexpr int TILE_SIZE = 64;
     static constexpr long MINUTE_MS = 60000;
+    static constexpr long NETWORK_POLL_MS = 5000;
     // Margins for a window placed at the right edge or in the top-left corner.
     static constexpr Point RIGHT_MARGIN{24, 56};
     static constexpr Point CORNER_MARGIN{16, 40};
@@ -134,6 +136,10 @@ private:
     Point resize_offset_{};
     // The local time's offset from UTC.
     int timezone_minutes_{};
+    // The network status last read from netd, and when.
+    int network_state_ = NET_ERROR_NO_SERVICE;
+    sys::array<char, 16> network_address_{};
+    long network_checked_ms_ = -1;
     // Set by the Dock's exit item.
     bool quit_{};
     Order order_{};
@@ -523,13 +529,35 @@ private:
         wait_ms = (60 - second_of_day % 60) * 1000;
     }
 
-    // Keeps the menu bar showing the program in front and the clock. Reports
-    // how long the clock text stays right.
+    // Writes the network status in front of the clock: the address, "No
+    // network" while netd has none, nothing without netd. netd is asked again
+    // every NETWORK_POLL_MS, so a lease or a netd started later shows up.
+    char* network_status(char* out, long& wait_ms) {
+        long now = sys_uptime_ms();
+        if (network_checked_ms_ < 0 || now - network_checked_ms_ >= NETWORK_POLL_MS) {
+            NetInfo info;
+            network_state_ = net_info(&info);
+            if (network_state_ == 0)
+                net_format_ipv4(info.address, network_address_.data());
+            network_checked_ms_ = now;
+        }
+        wait_ms = NETWORK_POLL_MS - (now - network_checked_ms_);
+        if (network_state_ == 0)
+            out = put_text(put_text(out, network_address_.data()), "    ");
+        else if (network_state_ != NET_ERROR_NO_SERVICE)
+            out = put_text(out, "No network    ");
+        return out;
+    }
+
+    // Keeps the menu bar showing the program in front, the network status and
+    // the clock. Reports how long that text stays right.
     long update_menu(long& wait_ms) {
         if (menu_height_ == 0)
             return 0;
         char clock[desktop_chrome::MENU_CLOCK_CAPACITY];
-        menu_clock(clock, wait_ms);
+        long network_wait_ms = 0;
+        menu_clock(network_status(clock, network_wait_ms), wait_ms);
+        wait_ms = sys::min(wait_ms, network_wait_ms);
         int top = top_window();
         long changed = chrome_.set_menu(top == NO_WINDOW ? NO_APP : windows_[top].app, clock);
         return changed > 0 ? repaint({{0, 0}, screen_.width, menu_height_}) : changed;

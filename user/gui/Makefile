@@ -99,7 +99,8 @@ $(USER_OBJDIR)/terminal/%.cpp.o: user/terminal/%.cpp $(MINICOCOS_CORE) $(ZCC_RUN
 	$(Q)$(CXX) $(MINICOCOS_CXXFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(USER_BINDIR)/FILES.ELF: $(USER_OBJDIR)/files/files.cpp.o $(GUI_RUNTIME)
-$(USER_BINDIR)/DESKTOP.ELF: $(DESKTOP_OBJECTS) $(GUI_RUNTIME)
+# Desktop shows netd's status through the socket library (user/net/Makefile builds it).
+$(USER_BINDIR)/DESKTOP.ELF: $(DESKTOP_OBJECTS) $(GUI_RUNTIME) $(USER_OBJDIR)/net/zonix_net.o
 $(USER_BINDIR)/TERMINAL.ELF: $(TERMINAL_OBJECTS) $(GUI_RUNTIME)
 $(USER_BINDIR)/EDITOR.ELF: $(EDITOR_OBJECTS) $(GUI_RUNTIME)
 $(USER_BINDIR)/SETTINGS.ELF: $(USER_OBJDIR)/settings/settings.cpp.o $(GUI_RUNTIME)

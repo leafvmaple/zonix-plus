@@ -236,7 +236,7 @@ make ARCH=x86 TEST=0 qemu USER_DISK=bin/x86/desktop.img
 
 界面字体是仓库内的 Inter Regular（`fonts/Inter-Regular.otf`），连同许可证装到套件镜像的 `/fonts`；构建时完整更新套件镜像。用 `make qemu ARCH=x86` 启动时默认只接引导盘和基础 rootfs，无需 mini-cocos。Desktop 套件三个架构用同一份源码。架构 Makefile 给出 mini-cocos 的目标处理器 `GUI_PROCESSOR` 和 GUI 代码的架构选项 `GUI_ARCH_CFLAGS`；后者允许浮点指令，但保持共用运行时的调用约定：aarch64 去掉 `-mgeneral-regs-only`，riscv64 用 `rv64gc` 加整数寄存器传参的 `lp64`。运行时不碰浮点寄存器，所以可以和 GUI 代码链接在一起。x86 的数学函数用 x87 指令（`math_x86.cpp`）；其他架构共用 `math_series.cpp` 里的级数实现，只在 `math_<arch>.cpp` 提供取整和开方。GUI 程序链接时去掉调试信息和所有局部符号：riscv64 的目标文件为 PC 相对重定位留有大量无名局部符号，保留它们会让程序超过内核 1 MiB 的可执行文件上限。
 
-屏幕顶部是菜单栏：左侧是系统名和最前面窗口所属的程序名，没有窗口时显示 Desktop；右侧是日期和时间（如 `Nov 20  14:05`），每分钟更新一次。时间来自 `sys_realtime()`，是 UTC；在设置里选了时区后按该偏移显示本地时间。平台没有时钟时改为显示开机以来的时长（`Up 时:分`）。窗口不能拖到菜单栏上面。屏幕底部居中是 Dock，依次是 Terminal、Files、文本编辑器、设置和退出。单击程序图标与按它的快捷键效果相同，有窗口的程序在图标下方有一个标记点，单击退出图标与 F12 一样离开 Desktop。Dock 在所有窗口之下，被窗口盖住时可以把窗口拖开；屏幕太小放不下时不显示。套件的桌面右上角有一列图标：Zonix（根目录）、Home（`/home`）和 Applications（`/opt`）。单击选中，图标有深色底、名称有蓝色底；单击桌面空白处或窗口取消选中；双击用 Files 打开该目录，Files 无法进入时在状态栏说明原因并停在原目录。图标在所有窗口之下，靠右打开的 Files 窗口排在图标列左边；屏幕放不下时不显示。按 F2 打开 Terminal，按 F4 打开 Files；程序已有窗口时按键聚焦它最前面的那个，按住 Shift 再按或再点则另开一个。Terminal、Files 和文本编辑器都可以开多个窗口，同一程序后开的窗口依次向右下错开。所有程序合计最多 8 个窗口，开满后再开会失败，Files 在状态栏提示先关闭一个窗口。单击窗口切换焦点，按住标题栏拖动，单击标题栏左侧的红色圆钮关闭，单击它右边的黄色圆钮或按 Alt-M 最小化；最小化的窗口不显示，在 Dock 上单击它的程序或按程序的快捷键会恢复它。Alt-Tab 把最前面的窗口放到最后，连续按可以轮流切换所有窗口，Alt-Shift-Tab 把最后面的窗口提到最前。Terminal、Files 和文本编辑器可以拖动窗口右下角调整大小：拖动时显示新大小的蓝色轮廓，松开后程序按新大小重新排版，各程序有最小尺寸，Terminal 按整字符取整，并把新的行列数告诉 shell（下一次提示符起生效）。F12 退出 Desktop。安装示例客户端后，Desktop 会在启动时打开两个示例窗口，按 1 或 2 可重开。示例窗口的内容区支持鼠标和 Space，聚焦时 q/Esc 退出、Ctrl-C 终止前台 Desktop。另装 mini-cocos 渲染示例后按 F3 打开它。无可用帧缓冲时，Desktop 报告设备不可用并返回 shell。
+屏幕顶部是菜单栏：左侧是系统名和最前面窗口所属的程序名，没有窗口时显示 Desktop；右侧是网络状态和日期时间（如 `10.0.2.15    Nov 20  14:05`），时间每分钟更新一次。网络状态来自 netd：有地址时显示地址，netd 在运行但还没取得地址时显示 No network，没有 netd 时不显示；Desktop 每 5 秒问一次 netd，所以之后取得的地址或之后启动的 netd 也会出现。时间来自 `sys_realtime()`，是 UTC；在设置里选了时区后按该偏移显示本地时间。平台没有时钟时改为显示开机以来的时长（`Up 时:分`）。窗口不能拖到菜单栏上面。屏幕底部居中是 Dock，依次是 Terminal、Files、文本编辑器、设置和退出。单击程序图标与按它的快捷键效果相同，有窗口的程序在图标下方有一个标记点，单击退出图标与 F12 一样离开 Desktop。Dock 在所有窗口之下，被窗口盖住时可以把窗口拖开；屏幕太小放不下时不显示。套件的桌面右上角有一列图标：Zonix（根目录）、Home（`/home`）和 Applications（`/opt`）。单击选中，图标有深色底、名称有蓝色底；单击桌面空白处或窗口取消选中；双击用 Files 打开该目录，Files 无法进入时在状态栏说明原因并停在原目录。图标在所有窗口之下，靠右打开的 Files 窗口排在图标列左边；屏幕放不下时不显示。按 F2 打开 Terminal，按 F4 打开 Files；程序已有窗口时按键聚焦它最前面的那个，按住 Shift 再按或再点则另开一个。Terminal、Files 和文本编辑器都可以开多个窗口，同一程序后开的窗口依次向右下错开。所有程序合计最多 8 个窗口，开满后再开会失败，Files 在状态栏提示先关闭一个窗口。单击窗口切换焦点，按住标题栏拖动，单击标题栏左侧的红色圆钮关闭，单击它右边的黄色圆钮或按 Alt-M 最小化；最小化的窗口不显示，在 Dock 上单击它的程序或按程序的快捷键会恢复它。Alt-Tab 把最前面的窗口放到最后，连续按可以轮流切换所有窗口，Alt-Shift-Tab 把最后面的窗口提到最前。Terminal、Files 和文本编辑器可以拖动窗口右下角调整大小：拖动时显示新大小的蓝色轮廓，松开后程序按新大小重新排版，各程序有最小尺寸，Terminal 按整字符取整，并把新的行列数告诉 shell（下一次提示符起生效）。F12 退出 Desktop。安装示例客户端后，Desktop 会在启动时打开两个示例窗口，按 1 或 2 可重开。示例窗口的内容区支持鼠标和 Space，聚焦时 q/Esc 退出、Ctrl-C 终止前台 Desktop。另装 mini-cocos 渲染示例后按 F3 打开它。无可用帧缓冲时，Desktop 报告设备不可用并返回 shell。
 
 每个客户端有两条专用匿名管道。像素客户端先发送一次 Size 请求声明表面尺寸；用户调整窗口大小后，Desktop 通过输入管道发送 `INPUT_RESIZE` 事件，x、y 是建议的表面尺寸，支持缩放的客户端按自己的最小尺寸取舍后再发一次 Size 并重画整个表面，Desktop 收到后换成新尺寸的表面，不支持的客户端忽略它。两个示例客户端通过 stdout 发送 24×24 XRGB8888 像素帧，Desktop 按窗口尺寸放大并合成，通过 stdin 发送聚焦窗口的键盘事件、内容区鼠标按下/释放和画布坐标。桌面处理指针移动和标题栏操作。双方每次只交换一条输入及其对应帧，桌面可等待输入和任一客户端的帧或 EOF。
 
@@ -286,7 +286,7 @@ Ctrl-C 复制、Ctrl-X 剪切、Ctrl-V 粘贴。剪贴板是文件 `/tmp/clipboa
 
 `user/gui/controls` 在 mini-cocos 上提供 Zonix 标准控件。应用通过 `ContextMenu::attach` 给场景提供按右键位置生成菜单项的回调，每项包含标签和执行回调。控件负责窗口内的布局、绘制和事件处理，包括按 Esc、点击菜单外和切换焦点时收起。Files 用这套接口保留自己的目录选择和导航逻辑。
 
-Desktop 内部分成两部分：`desktop.cpp` 管理窗口、指针和输入分发，`compositor.cpp` 只负责算出屏幕上任意像素的颜色。Dock 的位置、项目和尺寸在 `dock.h`，三方共用：Desktop 处理点击，合成器画底板和运行标记，装饰层画图标。桌面图标的项目和位置在 `desktop_icons.h`，同样三方共用；装饰层把图标和名称画在画布底部清成透明的几行里，得到预乘透明度的像素，合成器按透明度把它们叠到渐变背景上。选中状态由装饰层保存，变化时重画画布。Files 启动时可以多带一个目录参数（`files --window /opt`），先进入该目录。菜单栏的文字由装饰层绘制，Desktop 在每轮事件循环前把最前面的程序和时钟文字交给它，有变化才重绘；等待输入时带超时，到下一分钟自动醒来。每种程序的标题、可执行文件、启动参数、初始位置、快捷键和通信方式集中在 `client.h` 的 `APPS` 表里，新增一种程序只需加一行。窗口是与程序无关的槽位，槽位记录正在其中运行的程序。Files 的目录状态（路径、分页、访问历史）在 `user/files/directory.h`，与界面代码分开。
+Desktop 内部分成两部分：`desktop.cpp` 管理窗口、指针和输入分发，`compositor.cpp` 只负责算出屏幕上任意像素的颜色。Dock 的位置、项目和尺寸在 `dock.h`，三方共用：Desktop 处理点击，合成器画底板和运行标记，装饰层画图标。桌面图标的项目和位置在 `desktop_icons.h`，同样三方共用；装饰层把图标和名称画在画布底部清成透明的几行里，得到预乘透明度的像素，合成器按透明度把它们叠到渐变背景上。选中状态由装饰层保存，变化时重画画布。Files 启动时可以多带一个目录参数（`files --window /opt`），先进入该目录。菜单栏的文字由装饰层绘制，Desktop 在每轮事件循环前把最前面的程序、网络状态和时钟文字交给它，有变化才重绘；等待输入时带超时，到下一分钟或下一次查询网络状态时自动醒来。网络状态用 socket 库的 `net_info` 查询，它不等待 netd 启动，最多等 1 秒回答，Desktop 因此不会因网络卡住。每种程序的标题、可执行文件、启动参数、初始位置、快捷键和通信方式集中在 `client.h` 的 `APPS` 表里，新增一种程序只需加一行。窗口是与程序无关的槽位，槽位记录正在其中运行的程序。Files 的目录状态（路径、分页、访问历史）在 `user/files/directory.h`，与界面代码分开。
 
 Desktop、Terminal 和控件共用 `user/gui/theme.h` 中的颜色：中性深灰底色配蓝色强调色，标题栏与工具栏同色，连成一条。窗口为 10 像素圆角加一像素细边，阴影向下偏移并在 28 像素内淡出，聚焦窗口的阴影更深。关闭钮是标题栏左侧的红色圆钮，标题居中。`controls/style` 提供抗锯齿的圆角矩形、边框和图标符号，同一进程内所有控件共用一套纹理；圆角的覆盖率算法在 `user/gui/shape.h`，合成器和控件共用；每个进程的标签用 Inter 按设置里的字号（默认 16 像素）原始大小绘制，并用 `place_label` 对齐到整数像素。
 
@@ -316,11 +316,14 @@ make ARCH=x86 TEST=0 qemu USER_DISK=bin/x86/network.img   QEMU_FLAGS='-netdev us
 `network.img` 带有 netd、`ping`、`nc`、`netinfo`、`tcpserve`、`tcpecho` 和 `/opt/etc/services`，init 开机时在后台启动 netd。netd 用 DHCP 取得地址、网关和 DNS 服务器，取得后在控制台打印 `netd: address 10.0.2.15, DNS 10.0.2.3`；`netd -a 192.168.1.20/24 -g 192.168.1.1 -d 192.168.1.1` 使用固定配置。netd 同时最多服务 16 个 socket，另外最多 16 条连接等待接受。
 
 - `netinfo` 显示地址、掩码、网关和 DNS；`netinfo HOST` 解析一个主机名。
+- `fetch [-o FILE|-] http://HOST[:PORT]/PATH` 用 HTTP/1.1 下载文件：默认存为路径的最后一段（没有时为 `index.html`），`-o -` 输出到终端。支持 Content-Length、chunked 编码和最多 5 次重定向，30 秒收不到数据时放弃；状态不是 200 时报告服务器的回答，不写文件。暂不支持 HTTPS。
 - `ping [-c COUNT] HOST` 发送 ICMP Echo 请求，默认 4 次，显示往返时间。
-- `nc HOST PORT` 建立 TCP 连接，把终端输入发给对方、把收到的内容显示出来，对方关闭后退出；终端按 Ctrl-D 结束发送方向。`nc -u HOST PORT` 把每行输入作为一个 UDP 数据报发送并显示回复。`nc -l PORT` 接受一条 TCP 连接，`nc -l -u PORT` 接收数据报并回复给最后的发送者。
+- `nc HOST PORT` 建立 TCP 连接，把终端输入发给对方、把收到的内容显示出来，对方关闭后退出；终端按 Ctrl-D 结束发送方向，标准输入重定向自文件（`nc HOST PORT < FILE`）时先发完整个文件再结束发送方向。`nc -u HOST PORT` 把每行输入作为一个 UDP 数据报发送并显示回复。`nc -l PORT` 接受一条 TCP 连接，`nc -l -u PORT` 接收数据报并回复给最后的发送者。
 - `tcpserve PORT /absolute/worker-path` 监听 TCP 端口，每接受一条连接启动一个子进程，把连接直接作为它的标准输入和输出，最多同时四个；第五条连接会被关闭。`tcpecho` 只用标准输入输出回显数据。在来宾运行 `tcpserve 2323 /opt/bin/tcpecho` 后，宿主机用 `nc 127.0.0.1 2323` 连接；按 Ctrl-C 停止 `tcpserve`。
 
 QEMU 用户网络的 `restrict=on` 会挡住来宾主动发起的连接和 DNS，只需要从宿主机连进来时可以加上它。
+
+`network-image` 默认生成独立的 `network.img`。只有一块应用盘挂在 `/opt`，要让 Desktop 和网络同时可用，先生成 `desktop.img`，再把网络程序装进去：`make ARCH=x86 TEST=0 USER_CC=clang network-image NETWORK_IMAGE=bin/x86/desktop.img LWIP_DIR=../lwip`。之后重新生成 `desktop.img` 会覆盖这些程序，需要再装一次。
 
 ### socket 接口
 
@@ -333,7 +336,7 @@ QEMU 用户网络的 `restrict=on` 会挡住来宾主动发起的连接和 DNS�
 
 地址是主机字节序的 32 位整数（10.0.2.15 为 0x0A00020F）。函数失败返回负的 `NET_ERROR_*`；netd 没有运行时，库最多等 2 秒（给开机时同时启动的服务留出时间）后返回 `NET_ERROR_NO_SERVICE`。库与 netd 之间的协议见 `user/net/netproto.h`：每个 socket 对应一条通道，建立 TCP 连接后通道里就是连接的字节流，netd 在两者之间转发。
 
-`scripts/test_network_qemu.py <arch>` 启动带 `network.img` 的系统，从宿主机配合检查 `netinfo`、`ping`、DNS、TCP 客户端、UDP 双向收发、`tcpserve` 同时处理两条连接和 netd 在客户端退出后继续服务，并打印回显速度。
+`scripts/test_network_qemu.py <arch>` 启动带 `network.img` 的系统，从宿主机配合检查 `netinfo`、`ping`、DNS、TCP 客户端、UDP 双向收发、`fetch` 跟随重定向、解 chunked 编码和逐字节保存 256 KiB 文件（用 `nc` 送回宿主机比对）、`tcpserve` 同时处理两条连接和 netd 在客户端退出后继续服务，并打印回显速度。
 
 ## 系统随机源与用户态加密库
 

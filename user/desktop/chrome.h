@@ -20,13 +20,13 @@ inline constexpr int MINIMIZE_LEFT = CLOSE_LEFT + CLOSE_SIZE + BUTTON_GAP;
 inline constexpr int BUTTONS_WIDTH = MINIMIZE_LEFT + CLOSE_SIZE + CLOSE_MARGIN;
 
 // The bar along the top of the screen. It names the system and the program
-// in front on the left and shows a clock on the right.
+// in front on the left and shows the network status and a clock on the right.
 inline constexpr int MENU_HEIGHT = 24;
 inline constexpr int MENU_INSET = 14;
 inline constexpr const char* MENU_BRAND = "Zonix";
 inline constexpr const char* MENU_NO_PROGRAM = "Desktop";
-// The longest clock text, with its terminator.
-inline constexpr int MENU_CLOCK_CAPACITY = 24;
+// The longest status and clock text, with its terminator.
+inline constexpr int MENU_CLOCK_CAPACITY = 48;
 
 // Draws each window's title bar. The compositor adds the border, rounds the
 // corners and dims unfocused windows.

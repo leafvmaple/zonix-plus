@@ -4,11 +4,13 @@
 Boots the installed system with the network application disk built by
 `make network-image` and QEMU's user network. Types commands on the console and
 talks to them from host sockets: interface configuration, ping, DNS, a TCP
-client, UDP in both directions and tcpserve with two concurrent connections.
+client, UDP in both directions, HTTP downloads with fetch and tcpserve with two
+concurrent connections.
 Run after `make ARCH=<arch> TEST=0` and `make ARCH=<arch> TEST=0 network-image`.
 Disks are opened as snapshots. The console log stays under obj/<arch>/network/.
 """
 import argparse
+import http.server
 import os
 from pathlib import Path
 import socket
@@ -18,10 +20,13 @@ import threading
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_console_qemu import BOOT_TIMEOUT, ROOT, Console, check  # noqa: E402
+from test_console_qemu import BOOT_TIMEOUT, KEYS, ROOT, Console, check  # noqa: E402
 
 GUEST_SERVER_PORT = 7000
 ECHO_BYTES = 64 * 1024
+HTTP_BYTES = 256 * 1024
+# Shell redirection needs "<", which the console test does not type.
+KEYS.setdefault("<", "shift-comma")
 STEP_TIMEOUT = 60
 
 
@@ -53,6 +58,57 @@ def run_command(console, line, wanted, what):
     console.type(line + "\n")
     console.expect(wanted, what)
     console.prompt(f"a prompt after {line!r}")
+
+
+class HttpServer:
+    """Serves a redirect, a chunked page and a binary file on the host loopback."""
+
+    def __init__(self):
+        self.data = os.urandom(HTTP_BYTES)
+        data = self.data
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, *arguments):
+                pass
+
+            def do_GET(self):
+                if self.path == "/moved":
+                    self.send_response(302)
+                    self.send_header("Location", "/hello.txt")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                elif self.path == "/hello.txt":
+                    self.reply(b"hello over http\n")
+                elif self.path == "/chunked.txt":
+                    self.send_response(200)
+                    self.send_header("Transfer-Encoding", "chunked")
+                    self.end_headers()
+                    for part in (b"zonix ", b"chunked ", b"body end\n"):
+                        self.wfile.write(b"%x\r\n%s\r\n" % (len(part), part))
+                    self.wfile.write(b"0\r\n\r\n")
+                elif self.path == "/data.bin":
+                    self.reply(data)
+                else:
+                    self.send_error(404)
+
+            def reply(self, body):
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.port = self.server.server_address[1]
+
+    def __enter__(self):
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        return self
+
+    def __exit__(self, *exception):
+        self.server.shutdown()
+        self.server.server_close()
 
 
 def echo_through(port, payload, results, index):
@@ -127,6 +183,29 @@ def run(arch, image):
                 console.press("ctrl-c")
                 console.prompt("a prompt after leaving nc")
             check(data == b"udp-ping\n", "UDP datagrams travel both ways")
+
+            # HTTP: fetch follows a redirect, decodes chunked bodies and saves a binary file,
+            # which nc then sends back so the host can compare it.
+            with HttpServer() as http:
+                base = f"http://10.0.2.2:{http.port}"
+                run_command(console, f"fetch -o - {base}/moved", "hello over http", "the redirected page")
+                run_command(console, f"fetch -o - {base}/chunked.txt", "zonix chunked body end", "the chunked body")
+                console.type(f"fetch -o /tmp/data.bin {base}/data.bin\n")
+                console.expect(f"saved {len(http.data)} bytes", "the saved download")
+                console.prompt("a prompt after the download")
+                with socket.socket() as listener:
+                    listener.bind(("127.0.0.1", 0))
+                    listener.listen(1)
+                    listener.settimeout(STEP_TIMEOUT)
+                    console.type(f"nc 10.0.2.2 {listener.getsockname()[1]} < /tmp/data.bin\n")
+                    peer, _ = listener.accept()
+                    with peer:
+                        peer.settimeout(STEP_TIMEOUT)
+                        uploaded = bytearray()
+                        while chunk := peer.recv(65536):
+                            uploaded += chunk
+                    console.prompt("a prompt after sending the file back")
+            check(bytes(uploaded) == http.data, "fetch saves a file byte for byte, after a redirect and a chunked page")
 
             # TCP server: tcpserve runs tcpecho for two connections at once.
             console.type(f"tcpserve {GUEST_SERVER_PORT} /opt/bin/tcpecho\n")

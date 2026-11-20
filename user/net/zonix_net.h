@@ -19,6 +19,10 @@
 #define NET_ERROR_NO_ADDRESS  -9 /* the interface has no address yet */
 #define NET_ERROR_IO          -10
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct NetInfo {
     unsigned int address;
     unsigned int netmask;
@@ -41,9 +45,15 @@ long net_udp_receive(int fd, unsigned int* address, int* port, void* data, long 
 int net_resolve(const char* name, unsigned int* address);
 /* Sends one ICMP echo request; on success *rtt_ms holds the round trip. */
 int net_ping(unsigned int address, int timeout_ms, int* rtt_ms);
+/* Unlike the other calls this does not wait for netd to start, so a status
+ * display can poll it: without netd it returns NET_ERROR_NO_SERVICE at once. */
 int net_info(struct NetInfo* info);
 
 int net_parse_ipv4(const char* text, unsigned int* address);
 /* Writes "a.b.c.d" into out, which holds at least 16 bytes. */
 void net_format_ipv4(unsigned int address, char* out);
 const char* net_error_text(int error);
+
+#ifdef __cplusplus
+}
+#endif

@@ -5,6 +5,7 @@
 /* netd may still be starting when a service started next to it calls in. */
 #define SERVICE_WAIT_MS 2000
 #define RETRY_MS        20
+#define REPLY_WAIT_MS   1000
 
 static int read_full(int fd, void* output, long size) {
     char* bytes = (char*)output;
@@ -42,8 +43,8 @@ static void pause_ms(long milliseconds) {
     sys_close(ends[1]);
 }
 
-static int open_service(void) {
-    long deadline = sys_uptime_ms() + SERVICE_WAIT_MS;
+static int open_service(long wait_ms) {
+    long deadline = sys_uptime_ms() + wait_ms;
     for (;;) {
         long fd = sys_channel_connect(NETD_CHANNEL, O_CLOEXEC);
         if (fd >= 0)
@@ -57,11 +58,14 @@ static int open_service(void) {
 }
 
 /* Sends a request on a new channel. On success the channel stays open. */
-static int transact(const struct NetRequest* request, struct NetReply* reply) {
-    int fd = open_service();
+static int transact_within(const struct NetRequest* request, struct NetReply* reply, long wait_ms) {
+    int fd = open_service(wait_ms);
     if (fd < 0)
         return fd;
-    if (write_full(fd, request, sizeof(*request)) < 0 || read_full(fd, reply, sizeof(*reply)) < 0) {
+    int sent = write_full(fd, request, sizeof(*request)) == 0;
+    /* A caller that does not wait for netd does not wait long for its answer either. */
+    int answered = sent && (wait_ms != 0 || sys_wait_readable_for(1L << fd, REPLY_WAIT_MS) > 0);
+    if (!answered || read_full(fd, reply, sizeof(*reply)) < 0) {
         sys_close(fd);
         return NET_ERROR_NO_SERVICE;
     }
@@ -70,6 +74,10 @@ static int transact(const struct NetRequest* request, struct NetReply* reply) {
         return reply->status;
     }
     return fd;
+}
+
+static int transact(const struct NetRequest* request, struct NetReply* reply) {
+    return transact_within(request, reply, SERVICE_WAIT_MS);
 }
 
 static int valid_port(int port) {
@@ -187,7 +195,7 @@ int net_ping(unsigned int address, int timeout_ms, int* rtt_ms) {
 int net_info(struct NetInfo* info) {
     struct NetRequest request = {.op = NET_OP_INFO};
     struct NetReply reply;
-    int fd = transact(&request, &reply);
+    int fd = transact_within(&request, &reply, 0);
     if (fd < 0)
         return fd;
     sys_close(fd);
