@@ -156,14 +156,15 @@ are independent of the log threshold.
 The default `make` builds the boot images, kernel and base `rootfs.img`. QEMU
 boots into the shell with those disks. Use `make rootfs ARCH=<arch> TEST=0` to
 update the base rootfs separately. An optional application disk can be attached
-with `USER_DISK`. The x86 Desktop suite has a dedicated build and install target.
+with `USER_DISK`. The Desktop suite (x86 and aarch64) has a dedicated build and
+install target.
 See [Userspace](docs/USERSPACE.md#%E5%8F%AF%E9%80%89-desktop) for the pinned
 mini-cocos revision and package contents.
 
 ```bash
 make desktop-image ARCH=x86 MINICOCOS_DIR=../mini-cocos
 make qemu ARCH=x86 USER_DISK=bin/x86/desktop.img
-# Run desktop from the guest shell
+# Run desktop from the guest shell; use ARCH=aarch64 and bin/aarch64 for aarch64
 ```
 
 ```bash

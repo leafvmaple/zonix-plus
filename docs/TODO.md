@@ -342,6 +342,8 @@ x86、aarch64 和 riscv64 UEFI 的生产镜像本地通过画面、焦点键盘�
 2. 不同窗口尺寸和支持的缩放设置下，文字可读，光标/点击位置准确，滚屏不残留、不越界。
 3. 记录内核/镜像大小、启动时间、CLI/桌面空闲内存及 CPU 占用，并据实设置预算；持续交互后资源占用不随操作次数无界增长。
 
+2026-11-20 aarch64 图形套件（三架构本地回归，aarch64 QEMU 验收）：`make ARCH=aarch64 desktop-image` 现在构建与 x86 相同的 Desktop、Terminal、Files、文本编辑器和设置。架构 Makefile 用 `GUI_PROCESSOR` 指定 mini-cocos 的目标处理器，GUI Makefile 按架构选 `user/gui/math_<arch>.cpp`；新增 `math_aarch64.cpp`，取整和开方用指令，三角、反余弦、幂和 ldexp 用区间约简加级数。GUI 程序去掉 `-mgeneral-regs-only`，共用运行时不变。aarch64 QEMU（ramfb 800×600、VirtIO 键鼠）验证了菜单栏和时钟、桌面图标、Dock、图形终端、双击图标用 Files 打开 `/home`、从 Files 打开文件、编辑器输入和 Ctrl-S 保存、设置窗口，以及 F12 退出后 shell 能读到保存的内容、`ps` 无残留进程；aarch64 控制台检查覆盖没有 Desktop 的情况。riscv64 仍是基础版。
+
 2026-11-20 riscv64 浮点状态（三架构本地回归）：内核改为纯整数编译（`rv64imac_zicsr_zifencei`、`lp64`），与 x86 的 `-msoft-float` 和 aarch64 的 `-mgeneral-regs-only` 一致；启动时和每个任务的陷阱帧都打开 `sstatus.FS`；`switch_to` 在切换任务时保存和恢复 f0–f31 和 fcsr，新任务从全零开始。新增 TEST=1 用户夹具 RVFPTEST/RVFPPEER；两个寄存器夹具的内核测试流程抽成共用的 `register_peers_test`，aarch64 和 riscv64 各自传入程序名。去掉保存代码时两个夹具都报失败。riscv64 字体对象现在依赖架构 Makefile，编译选项变化时会重建。用户态的共用编译选项仍是整数 ABI，GUI 套件移植时再改。
 
 2026-11-20 aarch64 浮点状态（三架构本地回归）：`switch_to` 在切换任务时保存和恢复 q0–q31、FPCR 和 FPSR，状态放在 `Context` 里，新任务从全零开始；内核仍用 `-mgeneral-regs-only` 编译，不碰这些寄存器。新增 TEST=1 用户夹具 FPTEST/FPPEER，两者用不同的值填满全部向量寄存器和 FPCR/FPSR，在时间片抢占和系统调用之间反复检查；去掉保存代码时两个夹具都报失败。用户态的共用编译选项仍是 `-mgeneral-regs-only`，GUI 套件移植到 aarch64 时再改。riscv64 的浮点状态未做。

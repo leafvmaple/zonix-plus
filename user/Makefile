@@ -37,7 +37,9 @@ USER_PROGRAMS := $(filter-out zcc minicoco gui files editor settings net crypto 
 # architecture Makefile names the ones it builds in USER_REGISTER_FIXTURES.
 REGISTER_FIXTURES := ssetest ssepeer fptest fppeer rvfptest rvfppeer
 USER_PROGRAMS := $(filter-out $(filter-out $(USER_REGISTER_FIXTURES),$(REGISTER_FIXTURES)),$(USER_PROGRAMS))
-ifeq ($(ARCH),x86)
+# With the Desktop suite, Desktop and Terminal are mini-cocos programs built by
+# user/gui/Makefile instead of the basic character-grid versions.
+ifneq ($(GUI_PROCESSOR),)
 USER_PROGRAMS := $(filter-out desktop terminal,$(USER_PROGRAMS))
 endif
 ifneq ($(TEST),1)

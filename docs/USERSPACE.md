@@ -7,7 +7,7 @@
 | `zonix.img` / `zonix-uefi.img` | 引导和内核，不含任何用户 ELF | 必需 |
 | `rootfs.img` | `/sbin/init`、`/bin/sh`、基础命令和基础目录，挂载到 `/` | 必需 |
 | `apps.img` | 独立额外应用盘，接入时挂载到 `/opt` | 可选 |
-| `desktop.img` | x86 Desktop、Terminal、Files 和字体，作为应用盘挂载到 `/opt` | 可选 |
+| `desktop.img` | x86/aarch64 Desktop、Terminal、Files 和字体，作为应用盘挂载到 `/opt` | 可选 |
 
 内核查找包含 `/sbin/init` 的 FAT 文件系统作为基础 rootfs，不按“第一张可挂载盘”猜测根目录。随后加载 `/sbin/init` 为用户态 PID 1，由它启动 `/bin/sh`。init 等待并回收子进程，shell 退出或发生用户态异常后重新启动它。失去 init 属于致命错误，不能终止 PID 1。
 
@@ -225,7 +225,7 @@ x86 QEMU 使用 PS/2 键盘与三键相对鼠标。aarch64 和 riscv64 的 QEMU 
 
 ## 可选 Desktop
 
-`desktop` 是从 shell 启动的可选用户态程序。x86 套件包含 Desktop、图形终端、Files、文本编辑器和界面字体，统一装到独立的 `desktop.img`。四个程序静态链接同一套 mini-cocos 与 Zonix GUI 平台。先准备下文指定的 mini-cocos checkout。
+`desktop` 是从 shell 启动的可选用户态程序。x86 和 aarch64 的套件包含 Desktop、图形终端、Files、文本编辑器、设置和界面字体，统一装到独立的 `desktop.img`。这些程序静态链接同一套 mini-cocos 与 Zonix GUI 平台。先准备下文指定的 mini-cocos checkout。aarch64 把命令里的 `ARCH=x86` 换成 `ARCH=aarch64`。
 
 ```sh
 make ARCH=x86 TEST=0 -j8
@@ -234,9 +234,9 @@ make ARCH=x86 TEST=0 qemu USER_DISK=bin/x86/desktop.img
 # 在 shell 中执行 desktop
 ```
 
-界面字体是仓库内的 Inter Regular（`fonts/Inter-Regular.otf`），连同许可证装到套件镜像的 `/fonts`；构建时完整更新套件镜像。用 `make qemu ARCH=x86` 启动时默认只接引导盘和基础 rootfs，无需 mini-cocos。Desktop 套件入口目前支持 x86，aarch64 和 riscv64 的基础窗口装饰版仍可通过独立 ELF 目标开发。
+界面字体是仓库内的 Inter Regular（`fonts/Inter-Regular.otf`），连同许可证装到套件镜像的 `/fonts`；构建时完整更新套件镜像。用 `make qemu ARCH=x86` 启动时默认只接引导盘和基础 rootfs，无需 mini-cocos。Desktop 套件支持 x86 和 aarch64，两者用同一份源码，只是 mini-cocos 的目标处理器（架构 Makefile 里的 `GUI_PROCESSOR`）和 `user/gui/math_<arch>.cpp` 里的数学函数不同。aarch64 的共用运行时仍按 `-mgeneral-regs-only` 编译，GUI 程序去掉这个选项使用浮点，运行时不碰浮点寄存器，所以两者可以链接在一起。riscv64 仍是基础窗口装饰版，可通过独立 ELF 目标开发。
 
-屏幕顶部是菜单栏：左侧是系统名和最前面窗口所属的程序名，没有窗口时显示 Desktop；右侧是日期和时间（如 `Nov 20  14:05`），每分钟更新一次。时间来自 `sys_realtime()`，是 UTC；在设置里选了时区后按该偏移显示本地时间。平台没有时钟时改为显示开机以来的时长（`Up 时:分`）。窗口不能拖到菜单栏上面。屏幕底部居中是 Dock，依次是 Terminal、Files、设置和退出。单击程序图标与按它的快捷键效果相同，有窗口的程序在图标下方有一个标记点，单击退出图标与 F12 一样离开 Desktop。Dock 在所有窗口之下，被窗口盖住时可以把窗口拖开；屏幕太小放不下时不显示。x86 套件的桌面右上角有一列图标：Zonix（根目录）、Home（`/home`）和 Applications（`/opt`）。单击选中，图标有深色底、名称有蓝色底；单击桌面空白处或窗口取消选中；双击用 Files 打开该目录，Files 无法进入时在状态栏说明原因并停在原目录。图标在所有窗口之下，靠右打开的 Files 窗口排在图标列左边；屏幕放不下时不显示。aarch64 和 riscv64 没有 Files，也没有桌面图标。按 F2 打开 Terminal，按 F4 打开 Files；程序已有窗口时按键聚焦它最前面的那个，按住 Shift 再按或再点则另开一个。Terminal、Files 和文本编辑器都可以开多个窗口，同一程序后开的窗口依次向右下错开。所有程序合计最多 8 个窗口，开满后再开会失败，Files 在状态栏提示先关闭一个窗口。单击窗口切换焦点，按住标题栏拖动，单击标题栏左侧的红色圆钮关闭，F12 退出 Desktop。安装示例客户端后，Desktop 会在启动时打开两个示例窗口，按 1 或 2 可重开。示例窗口的内容区支持鼠标和 Space，聚焦时 q/Esc 退出、Ctrl-C 终止前台 Desktop。另装 mini-cocos 渲染示例后按 F3 打开它。无可用帧缓冲时，Desktop 报告设备不可用并返回 shell。
+屏幕顶部是菜单栏：左侧是系统名和最前面窗口所属的程序名，没有窗口时显示 Desktop；右侧是日期和时间（如 `Nov 20  14:05`），每分钟更新一次。时间来自 `sys_realtime()`，是 UTC；在设置里选了时区后按该偏移显示本地时间。平台没有时钟时改为显示开机以来的时长（`Up 时:分`）。窗口不能拖到菜单栏上面。屏幕底部居中是 Dock，依次是 Terminal、Files、设置和退出。单击程序图标与按它的快捷键效果相同，有窗口的程序在图标下方有一个标记点，单击退出图标与 F12 一样离开 Desktop。Dock 在所有窗口之下，被窗口盖住时可以把窗口拖开；屏幕太小放不下时不显示。套件的桌面右上角有一列图标：Zonix（根目录）、Home（`/home`）和 Applications（`/opt`）。单击选中，图标有深色底、名称有蓝色底；单击桌面空白处或窗口取消选中；双击用 Files 打开该目录，Files 无法进入时在状态栏说明原因并停在原目录。图标在所有窗口之下，靠右打开的 Files 窗口排在图标列左边；屏幕放不下时不显示。riscv64 没有 Files，也没有桌面图标。按 F2 打开 Terminal，按 F4 打开 Files；程序已有窗口时按键聚焦它最前面的那个，按住 Shift 再按或再点则另开一个。Terminal、Files 和文本编辑器都可以开多个窗口，同一程序后开的窗口依次向右下错开。所有程序合计最多 8 个窗口，开满后再开会失败，Files 在状态栏提示先关闭一个窗口。单击窗口切换焦点，按住标题栏拖动，单击标题栏左侧的红色圆钮关闭，F12 退出 Desktop。安装示例客户端后，Desktop 会在启动时打开两个示例窗口，按 1 或 2 可重开。示例窗口的内容区支持鼠标和 Space，聚焦时 q/Esc 退出、Ctrl-C 终止前台 Desktop。另装 mini-cocos 渲染示例后按 F3 打开它。无可用帧缓冲时，Desktop 报告设备不可用并返回 shell。
 
 每个客户端有两条专用匿名管道。两个示例客户端通过 stdout 发送 24×24 XRGB8888 像素帧，Desktop 按窗口尺寸放大并合成，通过 stdin 发送聚焦窗口的键盘事件、内容区鼠标按下/释放和画布坐标。桌面处理指针移动和标题栏操作。双方每次只交换一条输入及其对应帧，桌面可等待输入和任一客户端的帧或 EOF。
 
@@ -244,7 +244,7 @@ make ARCH=x86 TEST=0 qemu USER_DISK=bin/x86/desktop.img
 
 ### 图形终端
 
-在 Desktop 按 F2 打开或聚焦 Terminal 窗口。它在一个独立伪终端上启动基础 rootfs 的 `/bin/sh`。64×20 字符网格沿用现有 ASCII 字体、ANSI 光标和清屏语义，支持键入、光标移动、历史、滚屏、重定向和管道。x86 版在 Terminal 进程内把原有 PSF 字形转换为纹理。mini-cocos 批量绘制变化区域内的字形和光标，再通过与 Files 相同的管道发送局部像素矩形，Desktop 合成这些像素。通过 `desktop-image` 一起更新 Desktop 和 Terminal。aarch64 和 riscv64 版本仍通过管道发送字符网格。
+在 Desktop 按 F2 打开或聚焦 Terminal 窗口。它在一个独立伪终端上启动基础 rootfs 的 `/bin/sh`。64×20 字符网格沿用现有 ASCII 字体、ANSI 光标和清屏语义，支持键入、光标移动、历史、滚屏、重定向和管道。x86 版在 Terminal 进程内把原有 PSF 字形转换为纹理。mini-cocos 批量绘制变化区域内的字形和光标，再通过与 Files 相同的管道发送局部像素矩形，Desktop 合成这些像素。通过 `desktop-image` 一起更新 Desktop 和 Terminal。aarch64 版与 x86 相同；riscv64 版仍通过管道发送字符网格。
 
 Terminal 聚焦时，键盘 Ctrl-C 交给这个伪终端，取消输入行或中断该终端的前台命令或管道，Desktop 与原来的物理 shell 保持运行。关闭窗口会话挂断，回收本会话中的 shell 和命令。F12 可以随时退出并回到物理 shell。串口 Ctrl-C 仍由物理控制台处理。
 
@@ -296,9 +296,9 @@ Desktop、Terminal 和控件共用 `user/gui/theme.h` 中的颜色：中性深�
 
 `IconGrid` 根据内容区大小排列文件和文件夹图标，并处理选中、双击和右键命中。Files 按控件容量读取一页目录数据，负责状态栏、目录导航和右键菜单项。
 
-Files 用管道后端接收窗口坐标中的键鼠事件，mini-cocos 将事件分发给内容区控件。它的软件绘制结果按变化矩形经管道交给 Desktop。x86 Terminal 用同一软件渲染器绘制固定网格，PTY 负责终端输入输出和前台命令。Desktop 持有显示会话，通过 `/dev/display` 读取带入队时间的键鼠事件来识别双击，并提交最终画面。使用这版 Desktop 时需同时更新内核。当前两个后端均按事件重绘，暂无动画时钟。
+Files 用管道后端接收窗口坐标中的键鼠事件，mini-cocos 将事件分发给内容区控件。它的软件绘制结果按变化矩形经管道交给 Desktop。套件的 Terminal 用同一软件渲染器绘制固定网格，PTY 负责终端输入输出和前台命令。Desktop 持有显示会话，通过 `/dev/display` 读取带入队时间的键鼠事件来识别双击，并提交最终画面。使用这版 Desktop 时需同时更新内核。当前两个后端均按事件重绘，暂无动画时钟。
 
-构建在对象目录展开固定版本源码，对副本应用 Zonix 的无 RTTI、字体、离屏视图和按钮绘制顺序兼容补丁。引擎和平台库使用项目的 `external/zstl` 静态链接到 GUI ELF。可选 GUI 软件及字体从应用盘安装，启动镜像和基础 rootfs 独立构建。x86 的 Desktop、Files 和 Terminal 共用分配器，链接时分别为各进程预留 6、8 和 1 MiB 堆。
+构建在对象目录展开固定版本源码，对副本应用 Zonix 的无 RTTI、字体、离屏视图和按钮绘制顺序兼容补丁。引擎和平台库使用项目的 `external/zstl` 静态链接到 GUI ELF。可选 GUI 软件及字体从应用盘安装，启动镜像和基础 rootfs 独立构建。套件的 Desktop、Files 和 Terminal 共用分配器，链接时分别为各进程预留 6、8 和 1 MiB 堆。
 
 ## x86 QEMU 最小联网
 

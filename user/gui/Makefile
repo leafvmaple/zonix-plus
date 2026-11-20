@@ -1,14 +1,16 @@
 # Optional freestanding GUI engine and Zonix platform. The boot and base
-# rootfs targets do not depend on this build.
+# rootfs targets do not depend on this build. An architecture that supports the
+# suite sets GUI_PROCESSOR, the target processor mini-cocos is built for, and
+# supplies user/gui/math_$(ARCH).cpp.
 .PHONY: desktop-image
-ifeq ($(ARCH),x86)
+ifneq ($(GUI_PROCESSOR),)
 GUI_OBJDIR := $(USER_OBJDIR)/gui
 MINICOCOS_DIR ?= ../mini-cocos
 MINICOCOS_REVISION := f58e97052de5a696ad7ed55b99700f265a5b331f
 MINICOCOS_SOURCE := $(GUI_OBJDIR)/source
 MINICOCOS_ENGINE := $(GUI_OBJDIR)/engine
 MINICOCOS_CORE := $(MINICOCOS_ENGINE)/libzocos_core.a
-GUI_OBJECTS := $(addprefix $(GUI_OBJDIR)/,math_x86.cpp.o window_channel.cpp.o window_view.cpp.o file_utils.cpp.o mono_font.cpp.o \
+GUI_OBJECTS := $(addprefix $(GUI_OBJDIR)/,math_$(ARCH).cpp.o window_channel.cpp.o window_view.cpp.o file_utils.cpp.o mono_font.cpp.o \
                                         controls/style.cpp.o controls/button.cpp.o controls/toolbar.cpp.o \
                                         controls/context_menu.cpp.o controls/icon_grid.cpp.o controls/dialog.cpp.o)
 ZONIX_GUI := $(GUI_OBJDIR)/libzonix_gui.a
@@ -17,7 +19,10 @@ MINICOCOS_LIB := $(MINICOCOS_ENGINE)/libzocos_software.a
 UI_FONT := fonts/Inter-Regular.otf
 UI_FONT_LICENSE := fonts/OFL-Inter.txt
 GUI_LIBRARIES := $(ZONIX_GUI) $(MINICOCOS_CORE) $(MINICOCOS_LIB)
-MINICOCOS_TARGET_FLAGS := $(filter-out -std=c11 -I%,$(USER_CFLAGS)) -fno-rtti \
+# The engine draws with floating point. The kernel saves FP state on every
+# architecture, and the shared runtime, built integer-only where USER_CFLAGS
+# asks for that, never touches the FP registers it would have to preserve.
+MINICOCOS_TARGET_FLAGS := $(filter-out -std=c11 -I% -mgeneral-regs-only,$(USER_CFLAGS)) -fno-rtti \
                          -fno-threadsafe-statics -fno-use-cxa-atexit -ffunction-sections -fdata-sections
 MINICOCOS_CXXFLAGS := $(MINICOCOS_TARGET_FLAGS) -std=$(CXX_STANDARD) -nostdinc++ \
                      -Iinclude -I$(ZCC_DIR)/src/runtime -Iexternal/zstl/include \
@@ -34,10 +39,10 @@ $(MINICOCOS_SOURCE)/.prepared: user/gui/mini-cocos.patch user/gui/Makefile
 
 $(MINICOCOS_LIB): FORCE $(MINICOCOS_SOURCE)/.prepared
 	$(Q)cmake -S "$(MINICOCOS_SOURCE)" -B "$(@D)" -G Ninja \
-		-DCMAKE_SYSTEM_NAME=Generic -DCMAKE_SYSTEM_PROCESSOR=x86_64 \
+		-DCMAKE_SYSTEM_NAME=Generic -DCMAKE_SYSTEM_PROCESSOR=$(GUI_PROCESSOR) \
 		-DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY -DCMAKE_BUILD_TYPE=Release \
 		-DCMAKE_C_COMPILER="$(firstword $(CC))" -DCMAKE_CXX_COMPILER="$(firstword $(CXX))" \
-		-DCMAKE_C_COMPILER_TARGET=x86_64-none-elf -DCMAKE_CXX_COMPILER_TARGET=x86_64-none-elf \
+		-DCMAKE_C_COMPILER_TARGET=$(GUI_PROCESSOR)-none-elf -DCMAKE_CXX_COMPILER_TARGET=$(GUI_PROCESSOR)-none-elf \
 		-DCMAKE_AR="$$(command -v $(LLVM_BIN)llvm-ar)" -DCMAKE_RANLIB="$$(command -v $(LLVM_BIN)llvm-ranlib)" \
 		-DCMAKE_CXX_FLAGS="$(MINICOCOS_TARGET_FLAGS) -isystem$$($(firstword $(CXX)) -print-resource-dir)/include" \
 		-DZSTL_DIR="$(abspath external/zstl)" \
@@ -119,7 +124,7 @@ $(BINDIR)/desktop.img: $(DESKTOP_SUITE_ELFS) $(UI_FONT) $(UI_FONT_LICENSE) scrip
 
 else
 desktop-image:
-	@echo "The Desktop suite requires ARCH=x86." >&2
+	@echo "The Desktop suite requires ARCH=x86 or ARCH=aarch64." >&2
 	@exit 1
 
 endif

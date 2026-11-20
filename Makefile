@@ -308,7 +308,7 @@ help:
 	@echo "  make $(BINDIR)/kernel  Build kernel only"
 	@echo "  make rootfs          Install base userspace on the independent rootfs"
 	@echo "  make user-image      Install extra applications on optional apps.img"
-	@echo "  make desktop-image   Build the optional x86 Desktop suite on desktop.img"
+	@echo "  make desktop-image   Build the optional Desktop suite on desktop.img (x86, aarch64)"
 	@echo "  make user            Build applications with USER_CC (default: zcc)"
 	@echo "  make zcc-examples    Build compiler examples explicitly with zcc"
 	@echo "  make disasm          Generate disassembly listings (x86)"

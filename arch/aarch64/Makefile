@@ -12,6 +12,8 @@ USER_ARCH_CFLAGS := -mgeneral-regs-only
 # Instruction-generation flags for the TEST=1 user FP/SIMD register fixtures.
 USER_TEST_CFLAGS := -g -O2 -nostdinc -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -Iinclude
 USER_REGISTER_FIXTURES := fptest fppeer
+# The optional Desktop suite's mini-cocos target processor.
+GUI_PROCESSOR := aarch64
 # Context switches save the user's FP/SIMD state, but traps do not, so the
 # kernel must not use those registers, including for copies the optimizer
 # vectorizes.
