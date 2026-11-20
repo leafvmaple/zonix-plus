@@ -77,8 +77,8 @@ _start:
     mov  x19, x0               /* x19 = boot_info physical address */
 
     /* ---- Enable FP/SIMD (CPACR_EL1.FPEN = 0b11) ----
-     * Without this, variadic C functions (like cprintf) that save
-     * q0-q7 in their prologue will trap as SIMD/FP access is undefined.
+     * User programs may use FP/SIMD, and switch_to saves and restores it.
+     * The kernel itself is built with -mgeneral-regs-only.
      */
     mov  x0, #(3 << 20)
     msr  cpacr_el1, x0

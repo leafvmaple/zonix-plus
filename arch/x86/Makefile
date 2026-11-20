@@ -113,3 +113,4 @@ disasm: $(BINDIR)/kernel $(BINDIR)/mbr $(BINDIR)/vbr $(BINDIR)/bootloader
 # Instruction-generation flags for existing TEST=1 user register-state fixtures.
 USER_TEST_CFLAGS := -g -O2 -m64 -mno-red-zone -march=x86-64 -msse2 -mno-avx -mno-avx2 \
                    -nostdinc -ffreestanding -fno-builtin -fno-stack-protector -fno-pic
+USER_REGISTER_FIXTURES := ssetest ssepeer

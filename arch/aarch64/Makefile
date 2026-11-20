@@ -9,8 +9,12 @@ CXX     := $(LLVM_BIN)clang++ --target=aarch64-none-elf
 LD      := $(LLD_BIN)ld.lld
 # Shared user-space runtime ABI, independent of the application compiler.
 USER_ARCH_CFLAGS := -mgeneral-regs-only
-# Traps and context switches save no FP/SIMD state, so the kernel must not use
-# those registers, including for copies the optimizer vectorizes.
+# Instruction-generation flags for the TEST=1 user FP/SIMD register fixtures.
+USER_TEST_CFLAGS := -g -O2 -nostdinc -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -Iinclude
+USER_REGISTER_FIXTURES := fptest fppeer
+# Context switches save the user's FP/SIMD state, but traps do not, so the
+# kernel must not use those registers, including for copies the optimizer
+# vectorizes.
 CFLAGS  := -g -Wall $(KERNEL_OPT) -mgeneral-regs-only -nostdinc -fno-builtin -fno-stack-protector \
            -fno-pic -ffreestanding -gdwarf-2
 CXXFLAGS := -g -Wall $(KERNEL_OPT) -mgeneral-regs-only -nostdinc -nostdinc++ \

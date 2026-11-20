@@ -33,13 +33,15 @@ USER_CFLAGS := -g -O2 -Wall -Wextra -std=c11 -ffreestanding -nostdinc \
 USER_ASFLAGS := -g -nostdinc -ffreestanding
 USER_PROGRAMS := $(notdir $(patsubst %/,%,$(dir $(wildcard $(USER_DIR)/*/*.S $(USER_DIR)/*/*.c $(USER_DIR)/*/*.cpp))))
 USER_PROGRAMS := $(filter-out zcc minicoco gui files editor settings net crypto ssh,$(sort $(USER_PROGRAMS)))
+# Register-state fixtures are assembly for one architecture each. The
+# architecture Makefile names the ones it builds in USER_REGISTER_FIXTURES.
+REGISTER_FIXTURES := ssetest ssepeer fptest fppeer
+USER_PROGRAMS := $(filter-out $(filter-out $(USER_REGISTER_FIXTURES),$(REGISTER_FIXTURES)),$(USER_PROGRAMS))
 ifeq ($(ARCH),x86)
 USER_PROGRAMS := $(filter-out desktop terminal,$(USER_PROGRAMS))
-else
-USER_PROGRAMS := $(filter-out ssetest ssepeer,$(USER_PROGRAMS))
 endif
 ifneq ($(TEST),1)
-USER_PROGRAMS := $(filter-out p1life ssetest ssepeer,$(USER_PROGRAMS))
+USER_PROGRAMS := $(filter-out p1life $(REGISTER_FIXTURES),$(USER_PROGRAMS))
 endif
 uc = $(shell echo '$(1)' | tr '[:lower:]' '[:upper:]')
 zcc_fat_name = $(shell echo 'Z$(1)' | tr '[:lower:]' '[:upper:]' | tr -d '_' | head -c 8)
@@ -63,15 +65,15 @@ define user_program_template
 _UP_C_$(1) := $$(wildcard $(USER_DIR)/$(1)/*.c)
 _UP_CXX_$(1) := $$(strip $$(filter-out $(USER_DIR)/terminal/grid_renderer.cpp,$$(wildcard $(USER_DIR)/$(1)/*.cpp)) $$(if $$(filter desktop,$(1)),$(USER_DIR)/desktop/chrome/basic.cpp))
 _UP_ASM_$(1) := $$(wildcard $(USER_DIR)/$(1)/*.S)
-_UP_COMPILER_DEP_$(1) := $$(if $$(filter $(BASE_PROGRAMS) ssetest ssepeer,$(1)),,$(USER_COMPILER_STAMP) $(USER_COMPILER_CHANGED))
-ifneq ($$(and $$(filter-out $(BASE_PROGRAMS) ssetest ssepeer,$(1)),$$(filter zcc,$(USER_CC))),)
+_UP_COMPILER_DEP_$(1) := $$(if $$(filter $(BASE_PROGRAMS) $(REGISTER_FIXTURES),$(1)),,$(USER_COMPILER_STAMP) $(USER_COMPILER_CHANGED))
+ifneq ($$(and $$(filter-out $(BASE_PROGRAMS) $(REGISTER_FIXTURES),$(1)),$$(filter zcc,$(USER_CC))),)
 $(USER_BINDIR)/$(call uc,$(1)).ELF: $$(_UP_C_$(1)) $$(_UP_CXX_$(1)) $(ZCC_COMPILER) $(ZCC_RUNTIME_STAMP) $$(_UP_COMPILER_DEP_$(1)) user/Makefile | $(USER_BINDIR) check-syscall-abi
 	$(Q)if [ -n "$$(_UP_CXX_$(1))" ]; then echo "zcc accepts C; select USER_CC=clang for C++ applications" >&2; exit 1; fi
 	@echo "  ZCC     $$@"
 	$(Q)$(ZCC_COMPILER) $(ZCC_TARGET) $$< -o $$@ -sysroot $(ZCC_SYSROOT)
 else
-_UP_CC_$(1) := $$(if $$(filter $(BASE_PROGRAMS) ssetest ssepeer,$(1)),$(CC),$(USER_NATIVE_CC))
-_UP_FLAGS_$(1) := $$(if $$(filter ssetest ssepeer,$(1)),$(USER_TEST_CFLAGS),$(USER_CFLAGS))
+_UP_CC_$(1) := $$(if $$(filter $(BASE_PROGRAMS) $(REGISTER_FIXTURES),$(1)),$(CC),$(USER_NATIVE_CC))
+_UP_FLAGS_$(1) := $$(if $$(filter $(REGISTER_FIXTURES),$(1)),$(USER_TEST_CFLAGS),$(USER_CFLAGS))
 _UP_OBJS_$(1) := $$(patsubst $(USER_DIR)/%,$(USER_OBJDIR)/%.o,$$(_UP_C_$(1)) $$(_UP_CXX_$(1)) $$(_UP_ASM_$(1)))
 $(USER_OBJDIR)/$(1)/%.c.o: $(USER_DIR)/$(1)/%.c $(ZCC_RUNTIME_STAMP) $$(_UP_COMPILER_DEP_$(1)) user/Makefile arch/$(ARCH)/Makefile
 	$(Q)$(MKDIR) $$(@D)
@@ -83,7 +85,7 @@ $(USER_OBJDIR)/$(1)/%.S.o: $(USER_DIR)/$(1)/%.S $(ZCC_RUNTIME_STAMP) $$(_UP_COMP
 	$(Q)$(MKDIR) $$(@D)
 	$(Q)$$(_UP_CC_$(1)) $$(_UP_FLAGS_$(1)) $(DEPFLAGS) -c $$< -o $$@
 $(USER_BINDIR)/$(call uc,$(1)).ELF: $$(_UP_OBJS_$(1)) $(ZCC_RUNTIME_STAMP) $$(_UP_COMPILER_DEP_$(1)) | $(USER_BINDIR) check-syscall-abi
-ifeq ($$(filter $(1),ssetest ssepeer),)
+ifeq ($$(filter $(1),$(REGISTER_FIXTURES)),)
 	@echo "  LINK    $$@ (shared user runtime)"
 	$(Q)$(LD) -nostdlib --no-relax -T $(ZCC_SYSROOT)/linker.ld $(ZCC_SYSROOT)/crt0.o $$(_UP_OBJS_$(1)) $(ZCC_SYSROOT)/libzccrt.a -o $$@
 else

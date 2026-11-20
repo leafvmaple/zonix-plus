@@ -9,7 +9,7 @@
 | 架构 | 当前共用的用户态编译选项 |
 | --- | --- |
 | x86_64 | `-m64 -mno-red-zone -march=x86-64 -msse2 -mno-avx` |
-| aarch64 | `-mgeneral-regs-only`，当前用户态不使用 FP/SIMD |
+| aarch64 | `-mgeneral-regs-only`，共用运行时和现有程序暂不使用 FP/SIMD；内核在切换任务时保存 q0–q31、FPCR 和 FPSR，新任务从全零状态开始 |
 | riscv64 | `-march=rv64imac -mabi=lp64 -mno-relax`，整数 ABI |
 
 Clang 必须选择相应 `*-none-elf` 目标；其他编译器必须自身面向相同目标。共享 C 选项使用 freestanding、禁用宿主头文件/内建函数、栈保护及 PIC/PIE，链接时只显式使用共同的启动对象和运行时库。当前没有动态链接器或宿主 libc 兼容层。

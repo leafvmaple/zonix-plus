@@ -9,7 +9,9 @@
 
 namespace arch_trap_test {
 
-void test() {
+void test_fp_simd();
+
+static void test_exception_classification() {
     int tests_passed{};
     int tests_failed{};
     intr::Guard guard;
@@ -39,6 +41,11 @@ void test() {
     TEST_ASSERT(!tf.from_user(), "Kernel frame reports kernel origin");
     TEST_END();
     TEST_SUMMARY("Architecture traps");
+}
+
+void test() {
+    test_exception_classification();
+    test_fp_simd();
 }
 
 }  // namespace arch_trap_test
