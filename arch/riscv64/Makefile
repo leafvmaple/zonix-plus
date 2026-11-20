@@ -24,6 +24,11 @@ USER_ARCH_CFLAGS := -march=rv64imac -mabi=lp64 -mno-relax
 USER_TEST_CFLAGS := -g -O2 -march=rv64gc -mabi=lp64d -mno-relax -nostdinc -ffreestanding \
                    -fno-builtin -fno-stack-protector -fno-pic -Iinclude
 USER_REGISTER_FIXTURES := rvfptest rvfppeer
+# The optional Desktop suite's mini-cocos target processor and user flags. GUI
+# code uses the F/D instructions but keeps the runtime's lp64 calling
+# convention, so it links with the shared integer-only runtime.
+GUI_PROCESSOR := riscv64
+GUI_ARCH_CFLAGS := -march=rv64gc -mabi=lp64 -mno-relax
 # Context switches save the user's FP state, but traps do not, so the kernel
 # is integer-only: no F/D extension and the lp64 ABI.
 KERNEL_ISA := -march=rv64imac_zicsr_zifencei -mabi=lp64

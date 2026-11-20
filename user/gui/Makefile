@@ -1,7 +1,8 @@
 # Optional freestanding GUI engine and Zonix platform. The boot and base
 # rootfs targets do not depend on this build. An architecture that supports the
 # suite sets GUI_PROCESSOR, the target processor mini-cocos is built for, and
-# supplies user/gui/math_$(ARCH).cpp.
+# GUI_ARCH_CFLAGS, and supplies the rounding and square root primitives in
+# user/gui/math_$(ARCH).cpp.
 .PHONY: desktop-image
 ifneq ($(GUI_PROCESSOR),)
 GUI_OBJDIR := $(USER_OBJDIR)/gui
@@ -13,16 +14,23 @@ MINICOCOS_CORE := $(MINICOCOS_ENGINE)/libzocos_core.a
 GUI_OBJECTS := $(addprefix $(GUI_OBJDIR)/,math_$(ARCH).cpp.o window_channel.cpp.o window_view.cpp.o file_utils.cpp.o mono_font.cpp.o \
                                         controls/style.cpp.o controls/button.cpp.o controls/toolbar.cpp.o \
                                         controls/context_menu.cpp.o controls/icon_grid.cpp.o controls/dialog.cpp.o)
+# x86 evaluates libm with x87 instructions. The other architectures share the
+# series in math_series.cpp.
+ifneq ($(ARCH),x86)
+GUI_OBJECTS += $(GUI_OBJDIR)/math_series.cpp.o
+endif
 ZONIX_GUI := $(GUI_OBJDIR)/libzonix_gui.a
 MINICOCOS_LIB := $(MINICOCOS_ENGINE)/libzocos_software.a
 # The interface font and its licence, installed beside the suite.
 UI_FONT := fonts/Inter-Regular.otf
 UI_FONT_LICENSE := fonts/OFL-Inter.txt
 GUI_LIBRARIES := $(ZONIX_GUI) $(MINICOCOS_CORE) $(MINICOCOS_LIB)
-# The engine draws with floating point. The kernel saves FP state on every
-# architecture, and the shared runtime, built integer-only where USER_CFLAGS
-# asks for that, never touches the FP registers it would have to preserve.
-MINICOCOS_TARGET_FLAGS := $(filter-out -std=c11 -I% -mgeneral-regs-only,$(USER_CFLAGS)) -fno-rtti \
+# The engine draws with floating point, so GUI code replaces the shared user
+# architecture flags with GUI_ARCH_CFLAGS, which allow FP instructions but keep
+# the runtime's calling convention. The kernel saves FP state on every
+# architecture, and the shared runtime, built integer-only where its flags ask
+# for that, never touches the FP registers GUI code relies on.
+MINICOCOS_TARGET_FLAGS := $(filter-out -std=c11 -I% $(USER_ARCH_CFLAGS),$(USER_CFLAGS)) $(GUI_ARCH_CFLAGS) -fno-rtti \
                          -fno-threadsafe-statics -fno-use-cxa-atexit -ffunction-sections -fdata-sections
 MINICOCOS_CXXFLAGS := $(MINICOCOS_TARGET_FLAGS) -std=$(CXX_STANDARD) -nostdinc++ \
                      -Iinclude -I$(ZCC_DIR)/src/runtime -Iexternal/zstl/include \
@@ -104,7 +112,7 @@ $(USER_BINDIR)/EDITOR.ELF: $(EDITOR_OBJECTS) $(GUI_OBJDIR)/editor_runtime.cpp.o
 $(USER_BINDIR)/SETTINGS.ELF: $(USER_OBJDIR)/settings/settings.cpp.o $(GUI_OBJDIR)/settings_runtime.cpp.o
 $(USER_BINDIR)/FILES.ELF $(USER_BINDIR)/DESKTOP.ELF $(USER_BINDIR)/TERMINAL.ELF $(USER_BINDIR)/EDITOR.ELF $(USER_BINDIR)/SETTINGS.ELF: $(GUI_LIBRARIES) $(ZCC_RUNTIME_STAMP) | $(USER_BINDIR) check-syscall-abi
 	@echo "  LINK    $@ (Zonix mini-cocos GUI)"
-	$(Q)$(LD) -nostdlib --no-relax --gc-sections --strip-debug -T $(ZCC_SYSROOT)/linker.ld $(ZCC_SYSROOT)/crt0.o \
+	$(Q)$(LD) -nostdlib --no-relax --gc-sections --strip-debug --discard-all -T $(ZCC_SYSROOT)/linker.ld $(ZCC_SYSROOT)/crt0.o \
 		$(filter %.o,$^) --start-group $(GUI_LIBRARIES) $(ZCC_SYSROOT)/libzccrt.a --end-group -o $@
 
 DESKTOP_SUITE_ELFS := $(addprefix $(USER_BINDIR)/,DESKTOP.ELF TERMINAL.ELF FILES.ELF EDITOR.ELF SETTINGS.ELF)
@@ -124,7 +132,7 @@ $(BINDIR)/desktop.img: $(DESKTOP_SUITE_ELFS) $(UI_FONT) $(UI_FONT_LICENSE) scrip
 
 else
 desktop-image:
-	@echo "The Desktop suite requires ARCH=x86 or ARCH=aarch64." >&2
+	@echo "ARCH=$(ARCH) does not set GUI_PROCESSOR for the Desktop suite." >&2
 	@exit 1
 
 endif

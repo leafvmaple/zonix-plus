@@ -114,5 +114,6 @@ disasm: $(BINDIR)/kernel $(BINDIR)/mbr $(BINDIR)/vbr $(BINDIR)/bootloader
 USER_TEST_CFLAGS := -g -O2 -m64 -mno-red-zone -march=x86-64 -msse2 -mno-avx -mno-avx2 \
                    -nostdinc -ffreestanding -fno-builtin -fno-stack-protector -fno-pic
 USER_REGISTER_FIXTURES := ssetest ssepeer
-# The optional Desktop suite's mini-cocos target processor.
+# The optional Desktop suite's mini-cocos target processor and user flags.
 GUI_PROCESSOR := x86_64
+GUI_ARCH_CFLAGS := $(USER_ARCH_CFLAGS)
