@@ -259,7 +259,8 @@ private:
     inline static Device device_{};
 };
 
-const pci::DriverId NET_IDS[] = {{virtio::PCI_VENDOR, VIRTIO_NET_MODERN, pci::ANY_CLASS, pci::ANY_CLASS, pci::ANY_CLASS}};
+const pci::DriverId NET_IDS[] = {
+    {virtio::PCI_VENDOR, VIRTIO_NET_MODERN, pci::ANY_CLASS, pci::ANY_CLASS, pci::ANY_CLASS}};
 const pci::Driver NET_DRIVER = {"virtio_net", NET_IDS, 1, Manager::probe};
 
 }  // namespace

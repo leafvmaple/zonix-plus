@@ -200,7 +200,7 @@ struct AhciRequest {
 struct AhciDevice : public BlockDevice {
     const AhciPortConfig* config{};  // Port configuration
 
-    ata::DiskInfo info{};  // Device information
+    ata::DiskInfo info{};   // Device information
     AhciRequest request{};  // Current I/O request state
 
     Error detect(const AhciPortConfig* cfg, uintptr_t mmio_base);

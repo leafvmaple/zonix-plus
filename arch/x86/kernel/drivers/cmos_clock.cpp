@@ -71,7 +71,9 @@ bool arch_read_wall_clock(uint64_t* seconds) {
     const uint8_t status = read_register(REG_STATUS_B);
     const bool binary = (status & STATUS_B_BINARY) != 0;
     const bool pm = (reading.hour & HOURS_PM) != 0;
-    auto decode = [binary](uint8_t value) { return binary ? static_cast<int>(value) : from_bcd(value); };
+    auto decode = [binary](uint8_t value) {
+        return binary ? static_cast<int>(value) : from_bcd(value);
+    };
     int hour = decode(reading.hour & static_cast<uint8_t>(~HOURS_PM));
     if ((status & STATUS_B_24_HOUR) == 0)
         hour = hour % 12 + (pm ? 12 : 0);

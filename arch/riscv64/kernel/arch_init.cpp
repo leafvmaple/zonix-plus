@@ -94,8 +94,8 @@ void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry_va, uintptr_t fn, uint
     }
     tf->sepc = entry_va;
     tf->sstatus = SSTATUS_KERN; /* S-mode, IRQs on after sret */
-    tf->regs[10] = fn;                        /* a0 */
-    tf->regs[11] = arg;                       /* a1 */
+    tf->regs[10] = fn;          /* a0 */
+    tf->regs[11] = arg;         /* a1 */
     /* TF_SP (kernel sp) is filled in by process creation (copy_thread) */
 }
 

@@ -235,9 +235,7 @@ private:
     WaitQueue input_ready_;
     WaitQueue output_space_;
 
-    bool is_foreground(const Task* task) const {
-        return task->pid == foreground_pid_ || job_.includes(task);
-    }
+    bool is_foreground(const Task* task) const { return task->pid == foreground_pid_ || job_.includes(task); }
     Error check_interrupt() {
         if (!input_.has(3))
             return Error::None;

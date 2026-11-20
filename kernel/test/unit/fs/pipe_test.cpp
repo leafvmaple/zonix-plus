@@ -45,10 +45,12 @@ void test_transfer() {
     TEST_ASSERT(failed(ends.read->read(out, sizeof(out), 0), Error::Busy), "Reading an empty pipe does not block");
     TEST_ASSERT(returned(ends.write->write("zonix", 5, 0), 5), "Wrote five bytes");
     TEST_ASSERT(ready(ends.read->read_ready(), true), "Written bytes make the pipe readable");
-    TEST_ASSERT(returned(ends.read->read(out, 3, 0), 3) && memcmp(out, "zon", 3) == 0, "Short read takes the oldest bytes");
+    TEST_ASSERT(returned(ends.read->read(out, 3, 0), 3) && memcmp(out, "zon", 3) == 0,
+                "Short read takes the oldest bytes");
     TEST_ASSERT(returned(ends.read->read(out, sizeof(out), 0), 2) && memcmp(out, "ix", 2) == 0,
                 "Next read returns only what is left");
-    TEST_ASSERT(failed(ends.write->read(out, 1, 0), Error::Access) && failed(ends.read->write("x", 1, 0), Error::Access),
+    TEST_ASSERT(failed(ends.write->read(out, 1, 0), Error::Access) &&
+                    failed(ends.read->write("x", 1, 0), Error::Access),
                 "Each end refuses the other direction");
     TEST_END();
 }

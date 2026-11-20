@@ -133,7 +133,8 @@ private:
     inline static Device device_{};
 };
 
-const pci::DriverId RNG_IDS[] = {{virtio::PCI_VENDOR, VIRTIO_RNG_MODERN, pci::ANY_CLASS, pci::ANY_CLASS, pci::ANY_CLASS}};
+const pci::DriverId RNG_IDS[] = {
+    {virtio::PCI_VENDOR, VIRTIO_RNG_MODERN, pci::ANY_CLASS, pci::ANY_CLASS, pci::ANY_CLASS}};
 const pci::Driver RNG_DRIVER = {"virtio_rng", RNG_IDS, 1, Manager::probe};
 }  // namespace
 

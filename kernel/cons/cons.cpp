@@ -292,9 +292,7 @@ private:
         events_ready_.wakeup_one();
     }
 
-    static bool is_foreground(Task* task) {
-        return task->pid == foreground_pid_ || job_.includes(task);
-    }
+    static bool is_foreground(Task* task) { return task->pid == foreground_pid_ || job_.includes(task); }
     static Error check_interrupt(Task* task) {
         ENSURE(!task->termination_requested(), Error::Interrupted);
         for (size_t i = read_; i != write_; i = (i + 1) % input_.size()) {
