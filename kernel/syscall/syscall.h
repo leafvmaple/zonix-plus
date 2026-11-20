@@ -16,6 +16,7 @@ Error copy_string(Task* task, uintptr_t user, char* out, size_t capacity);
 Error copy_path(Task* task, const char* user, char (&path)[exec::MAX_PATH]);
 long chdir(Task* task, const char* path);
 long getcwd(Task* task, uintptr_t output, size_t capacity);
+long brk(Task* task, uintptr_t end);
 long spawn(Task* task, const char* path, long argc, uintptr_t argv, bool foreground = false);
 long wait(Task* task, long pid, uintptr_t status);
 long process_next(Task* task, long after_pid, uintptr_t output);

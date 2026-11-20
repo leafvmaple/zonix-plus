@@ -1,6 +1,7 @@
 #include "pixel_surface.h"
 #include <minilib.h>
 #include <sys/algorithm.hpp>
+#include <sys/cstdlib.hpp>
 
 namespace desktop_ipc {
 
@@ -33,9 +34,13 @@ PixelSurface::Result PixelSurface::receive(int fd, unsigned int max_width, unsig
             if (configured() || rect.x || rect.y || !rect.width || !rect.height || rect.width > PIXEL_MAX_WIDTH ||
                 rect.height > PIXEL_MAX_HEIGHT || rect.width > max_width || rect.height > max_height)
                 return Result::Closed;
+            sys::size_t bytes = sys::size_t{rect.width} * rect.height * sizeof(unsigned int);
+            surface_.reset(static_cast<unsigned int*>(malloc(bytes)));
+            if (!surface_)
+                return Result::Closed;
+            memset(surface_.get(), 0, bytes);
             width_ = rect.width;
             height_ = rect.height;
-            memset(surface_.data(), 0, width_ * height_ * sizeof(unsigned int));
             header_bytes_ = 0;
             return Result::Configured;
         }
@@ -62,7 +67,7 @@ PixelSurface::Result PixelSurface::receive(int fd, unsigned int max_width, unsig
     if (payload_bytes_ != size)
         return Result::Pending;
     for (unsigned int row = 0; row < rect.height; ++row) {
-        auto* out = surface_.data() + (rect.y + row) * width_ + rect.x;
+        auto* out = surface_.get() + (rect.y + row) * width_ + rect.x;
         memcpy(out, pending_.data() + row * rect.width, rect.width * sizeof(unsigned int));
     }
     header_bytes_ = payload_bytes_ = 0;
@@ -90,7 +95,12 @@ PixelSurface::Result PixelSurface::receive_edit_path(int fd) {
     return Result::Closed;
 }
 
+void PixelSurface::FreeSurface::operator()(unsigned int* pixels) const noexcept {
+    free(pixels);
+}
+
 void PixelSurface::reset() {
+    surface_.reset();
     width_ = height_ = header_bytes_ = payload_bytes_ = 0;
     batch_damage_ = {};
     damage_ = {};

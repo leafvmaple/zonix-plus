@@ -12,7 +12,13 @@ inline constexpr size_t ELF_MAX_SIZE = 1024ULL * 1024ULL;  // 1 MB
 
 bool is_elf(const uint8_t* data, size_t size);
 Error validate(const ElfHeader* eh, size_t file_size);
+struct LoadedImage {
+    uintptr_t entry;
+    // The page-aligned end of the highest loaded segment, where the heap starts.
+    uintptr_t end;
+};
+
 // The caller owns pgdir, including any pages mapped before a failed load.
-Result<uintptr_t> load(const uint8_t* data, size_t size, pde_t* pgdir);
+Result<LoadedImage> load(const uint8_t* data, size_t size, pde_t* pgdir);
 
 }  // namespace elf

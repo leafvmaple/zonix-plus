@@ -6,37 +6,40 @@
 
 namespace {
 
-// Each executable sets its heap capacity at build time. The allocator
-// releases and merges blocks as the scene changes.
+// The heap lives above the program image and grows by moving the program
+// break, so a program takes only the memory it uses. Blocks are laid out back
+// to back from the first break to the current one; freed neighbours merge, and
+// a large free block at the end is given back to the kernel.
 class Heap {
 public:
     static void* allocate(sys::size_t size) {
         if (size == 0)
             size = 1;
-        if (size > sizeof(storage_) - sizeof(Block))
+        if (size > MAX_REQUEST)
             return nullptr;
-        size = (size + ALIGN - 1) & ~(ALIGN - 1);
-        if (!first_)
-            first_ = new (storage_) Block{sizeof(storage_) - sizeof(Block), true};
-        for (Block* block = first_; block; block = next(block)) {
-            if (!block->free || block->size < size)
-                continue;
-            split(block, size);
-            block->free = false;
-            return block + 1;
+        size = round(size);
+        if (!base_ && !start())
+            return nullptr;
+        for (Block* block = first(); block; block = next(block)) {
+            if (block->free && block->size >= size)
+                return take(block, size);
         }
-        return nullptr;
+        Block* block = extend(size);
+        return block ? take(block, size) : nullptr;
     }
 
     static void release(void* pointer) {
         if (!pointer)
             return;
         (static_cast<Block*>(pointer) - 1)->free = true;
-        for (Block* block = first_; block;) {
+        Block* last = nullptr;
+        for (Block* block = first(); block; block = next(block)) {
             if (block->free)
                 merge(block);
-            block = next(block);
+            last = block;
         }
+        if (last && last->free)
+            trim(last);
     }
 
     static void* resize(void* pointer, sys::size_t size) {
@@ -59,18 +62,80 @@ public:
 
 private:
     static constexpr sys::size_t ALIGN = 16;
+    // The break moves in steps of at least this much, so small allocations
+    // do not each cost a system call.
+    static constexpr sys::size_t GROWTH = 256 * 1024;
+    // A free block at the end larger than this is returned to the kernel,
+    // keeping GROWTH bytes for the next allocations.
+    static constexpr sys::size_t TRIM = 1024 * 1024;
+    static constexpr sys::size_t MAX_REQUEST = sys::size_t{1} << 40;
 
     struct alignas(ALIGN) Block {
         sys::size_t size;
         bool free;
     };
 
-    alignas(ALIGN) inline static unsigned char storage_[ZONIX_GUI_HEAP_MIB * 1024 * 1024]{};
-    inline static Block* first_{};
+    inline static unsigned char* base_{};
+    inline static unsigned char* end_{};
+
+    static sys::size_t round(sys::size_t size) { return (size + ALIGN - 1) & ~(ALIGN - 1); }
+
+    // The heap starts at the first break, aligned for blocks.
+    static bool start() {
+        long brk = sys_brk(0);
+        if (brk <= 0)
+            return false;
+        auto aligned = (static_cast<unsigned long>(brk) + ALIGN - 1) & ~(ALIGN - 1);
+        if (sys_brk(static_cast<long>(aligned)) != static_cast<long>(aligned))
+            return false;
+        base_ = end_ = reinterpret_cast<unsigned char*>(aligned);
+        return true;
+    }
+
+    // Moves the end of the heap, or returns false and leaves it.
+    static bool move_end(unsigned char* end) {
+        auto target = reinterpret_cast<unsigned long>(end);
+        if (sys_brk(static_cast<long>(target)) != static_cast<long>(target))
+            return false;
+        end_ = end;
+        return true;
+    }
+
+    static Block* first() { return base_ != end_ ? reinterpret_cast<Block*>(base_) : nullptr; }
 
     static Block* next(Block* block) {
         auto* address = reinterpret_cast<unsigned char*>(block + 1) + block->size;
-        return address == storage_ + sizeof(storage_) ? nullptr : reinterpret_cast<Block*>(address);
+        return address == end_ ? nullptr : reinterpret_cast<Block*>(address);
+    }
+
+    static Block* last() {
+        Block* found = nullptr;
+        for (Block* block = first(); block; block = next(block))
+            found = block;
+        return found;
+    }
+
+    // Grows the heap until its last block is free and holds `size` bytes.
+    static Block* extend(sys::size_t size) {
+        Block* tail = last();
+        bool reuse = tail && tail->free;
+        sys::size_t have = reuse ? tail->size : 0;
+        sys::size_t need = size - have + (reuse ? 0 : sizeof(Block));
+        sys::size_t step = need > GROWTH ? round(need) : GROWTH;
+        unsigned char* old_end = end_;
+        if (!move_end(end_ + step))
+            return nullptr;
+        if (reuse) {
+            tail->size += step;
+            return tail;
+        }
+        return new (old_end) Block{step - sizeof(Block), true};
+    }
+
+    static void* take(Block* block, sys::size_t size) {
+        split(block, size);
+        block->free = false;
+        return block + 1;
     }
 
     static void split(Block* block, sys::size_t size) {
@@ -87,6 +152,14 @@ private:
                 break;
             block->size += sizeof(Block) + following->size;
         }
+    }
+
+    static void trim(Block* tail) {
+        if (tail->size <= TRIM)
+            return;
+        sys::size_t release = round(tail->size - GROWTH);
+        if (move_end(end_ - release))
+            tail->size -= release;
     }
 };
 

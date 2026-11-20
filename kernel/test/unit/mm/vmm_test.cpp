@@ -228,10 +228,92 @@ static void test_file_io(MemoryDesc& mm, uintptr_t base) {
     TEST_END();
 }
 
+// True if every byte of the user range reads as zero.
+static bool user_zeroed(MemoryDesc& mm, uintptr_t va, size_t size) {
+    for (size_t offset = 0; offset < size; offset += 64) {
+        uint8_t bytes[64]{};
+        if (vmm::copy_from_user(&mm, bytes, va + offset, sizeof(bytes)) != Error::None)
+            return false;
+        for (uint8_t byte : bytes) {
+            if (byte != 0)
+                return false;
+        }
+    }
+    return true;
+}
+
+static void test_program_break() {
+    TEST_START("Program break maps, zeroes and releases heap pages");
+    intr::Guard guard;
+    const size_t free_before = pmm::free_page_count();
+    {
+        MemoryDesc no_heap;
+        no_heap.pgdir = exec::create_user_pgdir().value_or(nullptr);
+        auto rejected = vmm::set_break(&no_heap, 0x800000);
+        TEST_ASSERT(no_heap.pgdir && !rejected.ok() && rejected.error() == Error::Invalid,
+                    "An address space without a heap has no break to move");
+    }
+    {
+        MemoryDesc mm;
+        mm.pgdir = exec::create_user_pgdir().value_or(nullptr);
+        TEST_ASSERT(mm.pgdir != nullptr, "Created heap fixture address space");
+        if (!mm.pgdir) {
+            TEST_END();
+            return;
+        }
+        constexpr uintptr_t heap = 0x800000;
+        mm.heap_start = mm.heap_end = heap;
+        ScopedTaskMemory memory_view(*sched::current(), mm);
+        TEST_ASSERT(syscall(NR_BRK, 0, 0, 0) == static_cast<long>(heap) && !vmm::user_range_valid(&mm, heap, 1, false),
+                    "The initial break is the image end and maps nothing");
+
+        const uintptr_t grown = heap + 2 * PG_SIZE + 8;
+        TEST_ASSERT(syscall(NR_BRK, grown, 0, 0) == static_cast<long>(grown) &&
+                        vmm::user_range_valid(&mm, heap, 3 * PG_SIZE, true) &&
+                        !vmm::user_range_valid(&mm, heap + 3 * PG_SIZE, 1, false),
+                    "Growing maps writable pages up to the rounded break");
+        TEST_ASSERT(user_zeroed(mm, heap, 3 * PG_SIZE), "New heap pages are zeroed");
+        const uint8_t marker[4] = {1, 2, 3, 4};
+        TEST_ASSERT(vmm::copy_to_user(&mm, heap + 16, marker, sizeof(marker)) == Error::None, "Heap accepts writes");
+
+        TEST_ASSERT(syscall(NR_BRK, heap - 1, 0, 0) == static_cast<long>(Error::Invalid) &&
+                        syscall(NR_BRK, vmm::HEAP_LIMIT + 1, 0, 0) == static_cast<long>(Error::Invalid) &&
+                        syscall(NR_BRK, 0, 0, 0) == static_cast<long>(grown),
+                    "Breaks below the image or into the stack guard are rejected");
+
+        TEST_ASSERT(syscall(NR_BRK, heap + PG_SIZE, 0, 0) == static_cast<long>(heap + PG_SIZE) &&
+                        vmm::user_range_valid(&mm, heap, PG_SIZE, true) &&
+                        !vmm::user_range_valid(&mm, heap + PG_SIZE, 1, false),
+                    "Shrinking releases the pages above the new break");
+        uint8_t kept[4]{};
+        TEST_ASSERT(vmm::copy_from_user(&mm, kept, heap + 16, sizeof(kept)) == Error::None && kept[0] == 1 &&
+                        kept[3] == 4,
+                    "Shrinking keeps the contents below the new break");
+
+        // Shrinking back to empty and growing again reuses the page tables,
+        // so a second round trip returns every page it took.
+        TEST_ASSERT(syscall(NR_BRK, heap, 0, 0) == static_cast<long>(heap), "Shrinks to an empty heap");
+        const size_t free_empty = pmm::free_page_count();
+        syscall(NR_BRK, heap + 3 * PG_SIZE, 0, 0);
+        syscall(NR_BRK, heap, 0, 0);
+        TEST_ASSERT(pmm::free_page_count() == free_empty, "A grow and shrink round trip returns its pages");
+
+        // Ask for more than all free memory: growth fails part way and undoes itself.
+        const uintptr_t too_much = heap + (pmm::free_page_count() + 16) * PG_SIZE;
+        TEST_ASSERT(syscall(NR_BRK, too_much, 0, 0) == static_cast<long>(Error::NoMem) &&
+                        syscall(NR_BRK, 0, 0, 0) == static_cast<long>(heap) &&
+                        !vmm::user_range_valid(&mm, heap, 1, false),
+                    "Growth beyond free memory fails and leaves the break and mappings unchanged");
+    }
+    TEST_ASSERT(pmm::free_page_count() == free_before, "Destroying the address space returns heap pages and tables");
+    TEST_END();
+}
+
 void test() {
     tests_passed = tests_failed = 0;
     test_address_space_recycling();
     test_address_space_switch();
+    test_program_break();
     TEST_START("User memory permissions, copies and page faults");
     intr::Guard guard;
     TEST_ASSERT(vmm::Manager::kernel_pgdir() == __kernel_pg_dir &&

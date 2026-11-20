@@ -13,6 +13,9 @@ pte_t* get_pte(pde_t* pgdir, uintptr_t va, bool create);
 // allocated tables, preserving reserved assembly-backed boot tables.
 void unmap_mmio_page(pde_t* pgdir, uintptr_t va);
 Error page_insert(pde_t* pgdir, Page* page, uintptr_t va, uint32_t perm);
+// Remove a user leaf mapping, dropping its page reference or releasing its
+// swap slot. Page tables stay until the address space is destroyed.
+void page_remove(pde_t* pgdir, uintptr_t va);
 // Validate every page-table level and return a kernel alias for a user address.
 Result<void*> user_address(pde_t* pgdir, uintptr_t user_va, bool write);
 

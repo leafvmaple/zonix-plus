@@ -82,7 +82,11 @@ public:
         image.memory_ = sys::unique_ptr<MemoryDesc>(new (sys::nothrow) MemoryDesc());
         ENSURE(image.memory_, Error::NoMem);
         image.memory_->pgdir = TRY(create_user_pgdir());
-        image.entry_va_ = TRY(elf::load(data, size, image.memory_->pgdir));
+        auto loaded = TRY(elf::load(data, size, image.memory_->pgdir));
+        image.entry_va_ = loaded.entry;
+        // The program break starts empty at the end of the image.
+        image.memory_->heap_start = loaded.end;
+        image.memory_->heap_end = loaded.end;
         image.stack_va_ = TRY(setup_user_stack(*image.memory_, args));
         return image;
     }

@@ -59,13 +59,14 @@ Error validate(const ElfHeader* eh, size_t file_size) {
     return Error::None;
 }
 
-Result<uintptr_t> load(const uint8_t* data, size_t size, pde_t* pgdir) {
+Result<LoadedImage> load(const uint8_t* data, size_t size, pde_t* pgdir) {
     ENSURE(data && pgdir);
     const auto* eh = reinterpret_cast<const ElfHeader*>(data);
 
     TRY(validate(eh, size));
 
     klog::debug("elf: loading - %d program header(s), entry=0x%lx\n", eh->e_phnum, eh->e_entry);
+    uintptr_t image_end = 0;
 
     for (uint16_t i = 0; i < eh->e_phnum; i++) {
         size_t ph_offset = eh->e_phoff + i * eh->e_phentsize;
@@ -85,6 +86,9 @@ Result<uintptr_t> load(const uint8_t* data, size_t size, pde_t* pgdir) {
 
         uintptr_t seg_start = round_down(ph->p_va, PG_SIZE);
         uintptr_t seg_end = round_up(ph->p_va + ph->p_memsz, PG_SIZE);
+        if (seg_end > image_end) {
+            image_end = seg_end;
+        }
 
         for (uintptr_t va = seg_start; va < seg_end; va += PG_SIZE) {
             pte_t* existing = pmm::get_pte(pgdir, va, false);
@@ -116,7 +120,7 @@ Result<uintptr_t> load(const uint8_t* data, size_t size, pde_t* pgdir) {
         }
     }
 
-    return eh->e_entry;
+    return LoadedImage{eh->e_entry, image_end};
 }
 
 }  // namespace elf

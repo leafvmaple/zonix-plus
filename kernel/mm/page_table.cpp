@@ -240,6 +240,26 @@ Error pmm::page_insert(pde_t* pgdir, Page* page, uintptr_t va, uint32_t perm) {
     return Error::None;
 }
 
+void pmm::page_remove(pde_t* pgdir, uintptr_t va) {
+    pte_t* ptep = pmm::get_pte(pgdir, va, false);
+    if (!ptep || *ptep == 0) {
+        return;
+    }
+    if (!pte_present(*ptep)) {
+        swap::release_entry(*ptep);
+    } else {
+        Page* page = pmm::phys_to_page(pte_addr(*ptep));
+        if (page->ref_count > 0)
+            page->ref_count--;
+        if (page->ref_count == 0) {
+            page->list_node.unlink();
+            pmm::free_pages(page);
+        }
+    }
+    *ptep = 0;
+    pmm::invalidate_tlb_page(pgdir, va);
+}
+
 void pmm::free_user_pgdir(pde_t* pgdir) {
     for (int i = 0; i < USER_TOP_ENTRIES; i++) {
         pde_t entry = pgdir[i];

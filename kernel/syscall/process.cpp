@@ -138,6 +138,13 @@ long syscall::getcwd(Task* task, uintptr_t output, size_t capacity) {
     return static_cast<long>(vmm::copy_to_user(task->memory(), output, task->cwd(), size));
 }
 
+long syscall::brk(Task* task, uintptr_t end) {
+    if (!task)
+        return static_cast<long>(Error::Invalid);
+    auto moved = vmm::set_break(task->memory(), end);
+    return moved.ok() ? static_cast<long>(moved.value()) : static_cast<long>(moved.error());
+}
+
 long syscall::spawn(Task* task, const char* path, long argc, uintptr_t argv, bool foreground) {
     auto result = spawn_user(task, path, argc, argv, foreground);
     return result.ok() ? result.value() : static_cast<long>(result.error());

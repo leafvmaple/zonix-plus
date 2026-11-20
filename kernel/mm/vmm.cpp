@@ -7,6 +7,7 @@
 #include "lib/math.h"
 #include "lib/stdio.h"
 #include "lib/memory.h"
+#include <kernel/vm_flags.h>
 #include "drivers/intr.h"
 #include "trap/trap.h"
 
@@ -114,6 +115,31 @@ int pg_fault(MemoryDesc* mm, uint32_t error_code, uintptr_t fault_va) {
     }
     Page* page = nullptr;
     return swap::in(mm, fault_va, &page) == Error::None ? 0 : -1;
+}
+
+Result<uintptr_t> set_break(MemoryDesc* mm, uintptr_t end) {
+    ENSURE(mm && mm->pgdir && mm->heap_start != 0, Error::Invalid);
+    if (end == 0) {
+        return mm->heap_end;
+    }
+    ENSURE(end >= mm->heap_start && end <= HEAP_LIMIT, Error::Invalid);
+    const uintptr_t mapped = round_up(mm->heap_end, PG_SIZE);
+    const uintptr_t wanted = round_up(end, PG_SIZE);
+    for (uintptr_t va = mapped; va < wanted; va += PG_SIZE) {
+        Page* page = pmm::alloc_and_map_page(mm->pgdir, va, VM_USER_RW);
+        if (!page) {
+            for (uintptr_t added = mapped; added < va; added += PG_SIZE) {
+                pmm::page_remove(mm->pgdir, added);
+            }
+            return Error::NoMem;
+        }
+        memset(pmm::page_to_kva(page), 0, PG_SIZE);
+    }
+    for (uintptr_t va = wanted; va < mapped; va += PG_SIZE) {
+        pmm::page_remove(mm->pgdir, va);
+    }
+    mm->heap_end = end;
+    return end;
 }
 
 // Map a byte range through the architecture's page table levels.

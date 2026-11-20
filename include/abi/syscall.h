@@ -50,6 +50,7 @@
 #define NR_GETRANDOM 408
 #define NR_WAIT_IO 409
 #define NR_REALTIME 410
+#define NR_BRK 411
 
 /* ---- Stdout / Stderr fd constants ---- */
 #define STDIN_FD  0

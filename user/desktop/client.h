@@ -22,11 +22,11 @@ inline constexpr int APP_EDITOR = 5;
 inline constexpr int APP_SETTINGS = 6;
 inline constexpr int APP_COUNT = 7;
 
-// Windows are slots shared by all programs. Every slot keeps a full-size
-// surface, because a process cannot ask the kernel for memory after it starts.
-// The count follows from the kernel's 24 descriptors per process: Desktop
-// holds four of its own and two pipes per window, and starting a client needs
-// four more for a moment.
+// Windows are slots shared by all programs. A slot allocates its surface when
+// its client reports a size and releases it when the window closes. The count
+// follows from the kernel's 24 descriptors per process: Desktop holds four of
+// its own and two pipes per window, and starting a client needs four more for
+// a moment.
 inline constexpr int MAX_WINDOWS = 8;
 
 // Scancodes of the keys that open windows.

@@ -342,6 +342,8 @@ x86、aarch64 和 riscv64 UEFI 的生产镜像本地通过画面、焦点键盘�
 2. 不同窗口尺寸和支持的缩放设置下，文字可读，光标/点击位置准确，滚屏不残留、不越界。
 3. 记录内核/镜像大小、启动时间、CLI/桌面空闲内存及 CPU 占用，并据实设置预算；持续交互后资源占用不随操作次数无界增长。
 
+2026-11-20 程序断点（三架构本地回归，x86 QEMU 验收）：新增 `brk` 系统调用（411）。exec 把断点放在映像末尾，`vmm::set_break` 增长时立即映射清零页、缩小时释放页，内存不足时撤回并保持断点；新增 `pmm::page_remove` 释放单个用户页。共用运行时增加 `sys_brk`（zcc 子模块）。GUI 运行时的堆改为按需移动断点，去掉了各程序编译期写死的 1～8 MiB 静态堆；Desktop 的每个窗口画布改为打开时分配、关闭时释放，Desktop 的 `.bss` 从 12 MiB 降到 49 KB。内核用户内存测试覆盖查询、增长清零、越界拒绝、缩小保留内容、往返不漏页和内存耗尽时撤回。x86 QEMU 验证了 8 个窗口全部打开、第 9 个因槽位用完被拒、退出后无残留进程。未做：按进程内存上限、mmap、按需分配（缺页时再映射）；编辑器 64 KiB 文件上限和可执行文件 1 MiB 上限是独立限制，未改。
+
 2026-11-20 删除基础版 Desktop（三架构本地回归和 QEMU 验收）：三个架构都用 mini-cocos 套件后，删除基础版的标题栏绘制 `user/desktop/chrome/basic.cpp`、字符网格协议 `Protocol::Text`（Desktop 的接收与局部重绘、合成器按 PSF 字体画字符、Terminal 直接输出字符帧的分支）、`ZONIX_PIXEL_TERMINAL` 开关和 `user/Makefile` 里构建基础版 Desktop、Terminal 的特例。Desktop、Terminal、Files、文本编辑器和设置统一由 `user/gui/Makefile` 构建；示例客户端用的 `Protocol::Frame` 保留。
 
 2026-11-20 riscv64 图形套件（三架构本地回归，riscv64 QEMU 验收）：`make ARCH=riscv64 desktop-image` 构建与 x86、aarch64 相同的套件。各架构 Makefile 增加 `GUI_ARCH_CFLAGS`，替代共用用户选项编译 GUI 代码：riscv64 用 `rv64gc` 和 `lp64`，能用浮点指令，又能和整数 ABI 的共用运行时链接。数学函数拆成共用的 `math_series.cpp` 和各架构的取整、开方原语（`math_aarch64.cpp`、`math_riscv64.cpp`，后者没有 Zfa，用带舍入模式的整数转换取整）。GUI 链接改用 `--discard-all`：riscv64 目标文件带约 5.4 万个无名局部符号，原先 Desktop 有 1.5 MB，超过内核 1 MiB 的可执行文件上限，`desktop` 报 invalid argument；去掉后为 179 KB。riscv64 QEMU（ramfb 800×600、VirtIO 键鼠）验证了菜单栏、桌面图标、Dock、图形终端、双击图标用 Files 打开 `/home`、编辑器保存、设置，以及 F12 退出后 shell 读到保存内容、`ps` 无残留进程；riscv64 控制台检查覆盖没有 Desktop 的情况。三个架构都用套件后，基础版 Desktop（`chrome/basic.cpp`、字符网格终端协议）不再有构建使用，尚未删除。

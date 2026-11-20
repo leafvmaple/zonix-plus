@@ -1,6 +1,7 @@
 #include "mm/page_table.h"
 #include "test/test_defs.h"
 #include <sys/memory.hpp>
+#include "lib/math.h"
 #include "lib/memory.h"
 #include "lib/result.h"
 #include "exec/elf_loader.h"
@@ -296,7 +297,9 @@ static void test_load_and_stack() {
         TEST_ASSERT(pmm::free_page_count() == empty_root_pages, "Invalid inputs allocate no mapped pages");
 
         auto loaded = elf::load(buf, sizeof(buf), mm.pgdir);
-        TEST_ASSERT(loaded.ok() && loaded.value() == eh->e_entry, "Successful load returns the ELF entry");
+        TEST_ASSERT(loaded.ok() && loaded.value().entry == eh->e_entry, "Successful load returns the ELF entry");
+        TEST_ASSERT(loaded.ok() && loaded.value().end == round_up(ph->p_va + ph->p_memsz, PG_SIZE),
+                    "Successful load reports the page-aligned image end where the heap starts");
         if (loaded.ok()) {
             auto start = pmm::user_address(mm.pgdir, ph->p_va, false);
             auto bss = pmm::user_address(mm.pgdir, ph->p_va + ph->p_filesz, false);
