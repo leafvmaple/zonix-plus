@@ -1,5 +1,6 @@
 #pragma once
 
+#include "desktop_icons.h"
 #include "dock.h"
 #include <kernel/psf.h>
 
@@ -20,6 +21,8 @@ public:
         Rect screen;
         // Empty when the screen has no room for the Dock.
         Rect dock;
+        // The column of desktop icons, empty when there are none.
+        Rect icons;
         // The height of the menu bar, or 0 on a screen without one.
         int menu_height;
         psf::Font font;

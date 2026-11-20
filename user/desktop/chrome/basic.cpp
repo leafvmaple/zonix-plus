@@ -122,6 +122,15 @@ unsigned int Chrome::menu_pixel(int screen_width, int x, int y) const {
     return (glyph[row] & (0x80U >> ((x - left) % 8))) != 0 ? LABEL_COLOR : theme::TITLE_BACKGROUND;
 }
 
+// The basic Desktop has no Files, so the desktop shows no icons.
+long Chrome::select_icon(int) {
+    return 0;
+}
+
+unsigned int Chrome::icon_pixel(int, int, int, unsigned int below) const {
+    return below;
+}
+
 unsigned int Chrome::dock_pixel(int item, int x, int y) const {
     switch (desktop_dock::ITEMS[item]) {
         case desktop_ipc::APP_TERMINAL: return terminal_icon(x, y);

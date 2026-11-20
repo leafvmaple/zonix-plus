@@ -26,7 +26,9 @@ public:
           dock_(desktop_dock::bounds(width, height)),
           // A screen with room for the Dock also gets the menu bar.
           menu_height_(dock_.width != 0 ? desktop_chrome::MENU_HEIGHT : 0),
-          compositor_({windows_, order_, surfaces_, chrome_, pointer_, screen_, dock_, menu_height_, font}) {
+          // So does the column of desktop icons, between the two.
+          icons_(menu_height_ != 0 ? desktop_icons::bounds(width, menu_height_, dock_.origin.y) : Rect{}),
+          compositor_({windows_, order_, surfaces_, chrome_, pointer_, screen_, dock_, icons_, menu_height_, font}) {
         terminal_fits_ = width >= TERMINAL_OUTER_WIDTH && height >= TERMINAL_OUTER_HEIGHT;
         timezone_minutes_ = zonix_gui::Settings::load().timezone_minutes;
         for (int slot = 0; slot < MAX_WINDOWS; ++slot)
@@ -129,6 +131,7 @@ private:
     Point drag_offset_{};
     Rect dock_;
     int menu_height_;
+    Rect icons_;
     // The local time's offset from UTC.
     int timezone_minutes_{};
     // Set by the Dock's exit item.
@@ -144,6 +147,8 @@ private:
         unsigned long timestamp_ms{};
     };
     Click last_click_{};
+    // The last press on a desktop icon, whose item is in `window`.
+    Click last_icon_press_{};
     Point left_press_{};
     bool left_click_{};
 
@@ -476,6 +481,28 @@ private:
         return show(item, modifiers);
     }
 
+    // A left press selects the desktop icon under the pointer, or none. A
+    // second press on the same icon soon after opens its folder in Files.
+    long press_icon(int item, unsigned long timestamp_ms) {
+        bool again = item != desktop_icons::NO_ITEM && last_icon_press_.window == item &&
+                     near(last_icon_press_.position, pointer_) &&
+                     timestamp_ms - last_icon_press_.timestamp_ms <= DOUBLE_CLICK_MS;
+        last_icon_press_ =
+            item != desktop_icons::NO_ITEM && !again ? Click{item, pointer_, timestamp_ms} : Click{};
+        long changed = chrome_.select_icon(item);
+        long error = changed > 0 ? repaint(icons_) : changed;
+        if (error < 0 || !again)
+            return error;
+        const char* path = desktop_icons::ITEMS[item].path;
+        int previous = top_window();
+        long slot = open(APP_FILES, path);
+        if (slot < 0) {
+            command_error("desktop", path, slot);
+            return 0;
+        }
+        return focus(static_cast<int>(slot), previous, 0);
+    }
+
     long handle(const DisplayTimedEvent& input) {
         const auto& event = input.event;
         if (event.type == DISPLAY_EVENT_KEY) {
@@ -532,6 +559,14 @@ private:
         if (!left || index == NO_WINDOW || !in_body(windows_[index].rect, pointer_))
             last_click_ = {};
         DisplayEvent reset{DISPLAY_EVENT_RESET, 0, 0, event.modifiers};
+        if (left) {
+            int icon = index == NO_WINDOW ? desktop_icons::item_at(icons_, pointer_) : desktop_icons::NO_ITEM;
+            long error = press_icon(icon, timestamp_ms);
+            if (error < 0)
+                return error;
+            if (icon != desktop_icons::NO_ITEM)
+                return send(top_window(), reset);
+        }
         if (index == NO_WINDOW) {
             int item = left ? desktop_dock::item_at(dock_, pointer_) : desktop_dock::NO_ITEM;
             if (item != desktop_dock::NO_ITEM)
@@ -591,7 +626,12 @@ private:
         Point origin = CORNER_MARGIN;
         switch (windows_[index].spec().placement) {
             case Placement::Center: origin = {(screen_.width - width) / 2, (screen_.height - height) / 2}; break;
-            case Placement::Right: origin = {screen_.width - width - RIGHT_MARGIN.x, RIGHT_MARGIN.y}; break;
+            case Placement::Right: {
+                // Left of the desktop icons, so they stay in view.
+                int right = icons_.width != 0 ? icons_.origin.x : screen_.width;
+                origin = {right - width - RIGHT_MARGIN.x, RIGHT_MARGIN.y};
+                break;
+            }
             case Placement::Corner: break;
         }
         // Windows on the right edge step leftwards so they stay on the screen.

@@ -51,7 +51,7 @@ struct AppSpec {
     const char* title;
     const char* short_title;  // For a title bar too narrow for the title.
     const char* program;
-    const char* argument;  // Passed to the program, or null. The editor passes the file instead.
+    const char* argument;  // Passed to the program, or null.
     Placement placement;
     unsigned int key;  // Focuses the program's front window or opens one, or 0.
     Protocol protocol;
@@ -82,8 +82,9 @@ public:
     Client(const Client&) = delete;
     Client& operator=(const Client&) = delete;
 
-    // `argument` replaces the program's own argument when it is not null.
-    long start(const AppSpec& spec, const char* argument = nullptr);
+    // `path` follows the program's own argument when it is not null: the file
+    // an editor opens or the folder Files shows.
+    long start(const AppSpec& spec, const char* path = nullptr);
     void stop();
     bool alive() const { return pid_ > 0; }
     unsigned int mask() const;

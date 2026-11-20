@@ -68,7 +68,8 @@ private:
 
 class Browser {
 public:
-    long run() {
+    // `message`, if not null, is shown in the status bar at first.
+    long run(const char* message) {
         FileStat font{};
         long error = sys_stat(const_cast<char*>(zonix_gui::UI_FONT_PATH), &font);
         if (error < 0)
@@ -85,6 +86,8 @@ public:
             auto* scene = zocos::Scene::create();
             if (scene && build_scene(director, *scene)) {
                 refresh_directory();
+                if (message)
+                    message_ = message;
                 dir_.remember();
                 update_controls();
                 director.runWithScene(scene);
@@ -454,11 +457,14 @@ private:
 }  // namespace
 
 extern "C" int main(int argc, char** argv) {
-    if (argc != 2 || strcmp(argv[1], (char*)"--window") != 0)
+    if ((argc != 2 && argc != 3) || strcmp(argv[1], (char*)"--window") != 0)
         return command_usage("Open Files with F4 in Desktop.\n");
     zonix_gui::control_style::TextSize::set(zonix_gui::Settings::load().text_size);
+    // Desktop may name the folder to show first. Files opens in its working
+    // directory and says why when it cannot enter that folder.
+    long moved = argc == 3 ? sys_chdir(argv[2]) : 0;
     Browser browser;
-    long error = browser.run();
+    long error = browser.run(moved < 0 ? command_error_text(moved) : nullptr);
     zonix_gui::finish();
     return error < 0 ? command_error("files", nullptr, error) : 0;
 }

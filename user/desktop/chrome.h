@@ -42,6 +42,11 @@ public:
     // text. Returns 1 if the bar changed, 0 if not, or a negative error.
     long set_menu(int app, const char* clock);
     unsigned int menu_pixel(int screen_width, int x, int y) const;
+    // Shows a desktop icon as selected, or none for a negative item. Returns
+    // 1 if the icons changed, 0 if not, or a negative error.
+    long select_icon(int item);
+    // A pixel of a desktop icon's cell over `below`, the background there.
+    unsigned int icon_pixel(int item, int x, int y, unsigned int below) const;
 
 private:
     static constexpr int MENU_UNSET = -2;

@@ -135,7 +135,8 @@ unsigned int Compositor::compose(Point point, int slot, int top) const {
     return desk(point);
 }
 
-// What is behind every window: the menu bar and the Dock over the background.
+// What is behind every window: the menu bar, the desktop icons and the Dock
+// over the background.
 unsigned int Compositor::desk(Point point) const {
     if (point.y < scene_.menu_height) {
         // A dark line separates the bar from the desktop.
@@ -143,6 +144,11 @@ unsigned int Compositor::desk(Point point) const {
                                                  : scene_.chrome.menu_pixel(scene_.screen.width, point.x, point.y);
     }
     unsigned int wallpaper = background(point);
+    int icon = desktop_icons::item_at(scene_.icons, point);
+    if (icon != desktop_icons::NO_ITEM) {
+        Rect cell = desktop_icons::cell(scene_.icons, icon);
+        return scene_.chrome.icon_pixel(icon, point.x - cell.origin.x, point.y - cell.origin.y, wallpaper);
+    }
     const Rect& dock = scene_.dock;
     if (!dock.contains(point))
         return wallpaper;

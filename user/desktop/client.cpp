@@ -5,11 +5,15 @@
 
 namespace desktop_ipc {
 
-long Client::start(const AppSpec& spec, const char* argument_override) {
+long Client::start(const AppSpec& spec, const char* extra) {
     protocol_ = spec.protocol;
     auto* path = const_cast<char*>(spec.program);
-    auto* argument = const_cast<char*>(argument_override ? argument_override : spec.argument);
-    char* argv[] = {path, argument, nullptr};
+    char* argv[4] = {path};
+    int argc = 1;
+    if (spec.argument)
+        argv[argc++] = const_cast<char*>(spec.argument);
+    if (extra)
+        argv[argc++] = const_cast<char*>(extra);
 
     // Desktop reads input from its display FD. Keep descriptor 0 occupied
     // using diagnostics as the placeholder rather than saving an unused FD.
@@ -45,7 +49,7 @@ long Client::start(const AppSpec& spec, const char* argument_override) {
         pid = sys_dup2(child_out.get(), STDOUT_FD);
     }
     if (pid >= 0)
-        pid = sys_spawn(path, argument ? 2 : 1, argv);
+        pid = sys_spawn(path, argc, argv);
     long restored_in = sys_dup2(STDERR_FD, STDIN_FD);
     long restored_out = sys_dup2(saved_out.get(), STDOUT_FD);
     if (pid < 0)
