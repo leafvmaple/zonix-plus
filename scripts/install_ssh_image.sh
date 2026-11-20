@@ -51,9 +51,10 @@ mmd -i "$stage/ssh.img" ::/ssh
 mcopy -i "$stage/ssh.img" "$hostkeys/ed25519.pk" ::/ssh/HOST.PK
 mcopy -i "$stage/ssh.img" "$hostkeys/.ed25519.sk" ::/ssh/HOST.SK
 mcopy -i "$stage/ssh.img" "$stage/login.pub" ::/ssh/LOGIN.PUB
-# init starts the SSH service at boot; tcpserve takes its address from DHCP.
-printf '%s\n' '# Started by init at boot. Use "-a ADDRESS/PREFIX -g GATEWAY" before the port for a fixed address.' \
-    '/opt/bin/tcpserve 22 /opt/bin/sshd' > "$stage/services"
+# init starts the network service and the SSH listener at boot.
+printf '%s\n' '# Started by init at boot. netd takes its address from DHCP; give' \
+    '# "-a ADDRESS/PREFIX -g GATEWAY -d DNS" for a fixed one.' \
+    '/opt/bin/netd' '/opt/bin/tcpserve 22 /opt/bin/sshd' > "$stage/services"
 mmd -i "$stage/ssh.img" ::/etc
 mcopy -i "$stage/ssh.img" "$stage/services" ::/etc/services
 mcopy -i "$stage/ssh.img" "$tinyssh_license" ::/TINYSSH.LIC

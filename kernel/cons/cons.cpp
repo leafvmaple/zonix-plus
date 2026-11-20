@@ -64,6 +64,8 @@ public:
         if (next == read_) {
             return;
         }
+        if (read_ == write_)
+            fd::Readiness::notify();
         input_[write_] = c;
         write_ = next;
         waitq_.wakeup_one();
@@ -178,16 +180,27 @@ public:
         restore_console();
     }
 
+    // Called with interrupts disabled; the same rules decide reading and readiness.
+    static Error check_reader(Task* task) {
+        ENSURE(!task || (!job_.active() && foreground_pid_ == 0) || (is_foreground(task) && task->pid != job_.owner()),
+               Error::Access);
+        ENSURE(!display_events_ && (!task || raw_owner_pid_ == 0 || task->pid == raw_owner_pid_), Error::Access);
+        return Error::None;
+    }
+
+    static Result<bool> input_ready() {
+        intr::Guard guard;
+        TRY(check_reader(sched::current()));
+        return read_ != write_;
+    }
+
     static Result<char> read_input() {
         while (true) {
             // Keep checking the buffer and registering the waiter atomic.
             intr::Guard guard;
             Task* task = sched::current();
             ENSURE(!task || !task->termination_requested(), Error::Interrupted);
-            ENSURE(!task || (!job_.active() && foreground_pid_ == 0) ||
-                       (is_foreground(task) && task->pid != job_.owner()),
-                   Error::Access);
-            ENSURE(!display_events_ && (!task || raw_owner_pid_ == 0 || task->pid == raw_owner_pid_), Error::Access);
+            TRY(check_reader(task));
             if (read_ != write_) {
                 char c = input_[read_];
                 read_ = (read_ + 1) % input_.size();
@@ -411,6 +424,9 @@ char getc() {
 }
 Result<char> read_input() {
     return Console::read_input();
+}
+Result<bool> input_ready() {
+    return Console::input_ready();
 }
 void putc(int c) {
     Console::putc(c, false);

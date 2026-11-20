@@ -1,6 +1,8 @@
 #include "test/test_defs.h"
+#include "fs/channel.h"
 #include "fs/fd.h"
 #include "fs/pipe.h"
+#include <abi/channel.h>
 #include "fs/readiness.h"
 #include "lib/memory.h"
 #include "mm/heap.h"
@@ -151,6 +153,73 @@ void test_readiness_of_high_descriptors() {
     TEST_END();
 }
 
+// netd and its clients rely on named channels: connect queues a stream that
+// accept hands over, both directions carry bytes, and one side can end its
+// direction while still reading the other.
+void test_channels() {
+    TEST_START("Named channels connect, accept and shut down one direction");
+    auto listened = channel::listen("pipe-test", true);
+    TEST_ASSERT(listened.ok(), "Listened on a name");
+    if (!listened.ok()) {
+        TEST_END();
+        return;
+    }
+    vfs::FileHandle listener = listened.release_value();
+    channel::Listener* endpoint = listener->channel_listener();
+    auto taken = channel::listen("pipe-test", true);
+    auto unnamed = channel::listen("", true);
+    auto spaced = channel::listen("pipe test", true);
+    TEST_ASSERT(!taken.ok() && taken.error() == Error::Exists, "A taken name cannot be listened on again");
+    TEST_ASSERT(!unnamed.ok() && !spaced.ok() && unnamed.error() == Error::Invalid && spaced.error() == Error::Invalid,
+                "Empty names and names with spaces are refused");
+    auto missing = channel::connect("pipe-test-missing", true);
+    TEST_ASSERT(!missing.ok() && missing.error() == Error::NotFound, "Connecting to an unknown name fails");
+    auto idle = channel::accept(*endpoint, true);
+    TEST_ASSERT(endpoint && ready(listener->read_ready(), false) && !idle.ok() && idle.error() == Error::Busy,
+                "An idle nonblocking listener is not readable and accept does not wait");
+
+    auto connected = channel::connect("pipe-test", true);
+    TEST_ASSERT(connected.ok() && ready(listener->read_ready(), true), "Connecting makes the listener readable");
+    auto accepted = channel::accept(*endpoint, true);
+    TEST_ASSERT(accepted.ok() && ready(listener->read_ready(), false), "Accept takes the queued stream");
+    if (connected.ok() && accepted.ok()) {
+        vfs::FileHandle client = connected.release_value();
+        vfs::FileHandle server = accepted.release_value();
+        char out[8]{};
+        TEST_ASSERT(returned(client->write("ping", 4, 0), 4) && returned(server->read(out, sizeof(out), 0), 4) &&
+                        memcmp(out, "ping", 4) == 0,
+                    "Bytes travel from client to server");
+        TEST_ASSERT(returned(server->write("pong", 4, 0), 4) && returned(client->read(out, sizeof(out), 0), 4) &&
+                        memcmp(out, "pong", 4) == 0,
+                    "Bytes travel from server to client");
+        TEST_ASSERT(returned(client->write("end", 3, 0), 3) &&
+                        client->control(CHANNEL_SHUTDOWN_WRITE, nullptr) == Error::None,
+                    "The client ends its direction after a last write");
+        TEST_ASSERT(failed(client->write("x", 1, 0), Error::Io), "The ended direction refuses writes");
+        TEST_ASSERT(returned(server->read(out, sizeof(out), 0), 3) && returned(server->read(out, sizeof(out), 0), 0),
+                    "The server reads the last bytes, then end of file");
+        TEST_ASSERT(returned(server->write("ok", 2, 0), 2) && returned(client->read(out, sizeof(out), 0), 2),
+                    "The other direction keeps working");
+    }
+
+    // Fill the backlog; the queued streams end when the listener closes.
+    sys::inplace_vector<vfs::FileHandle, CHANNEL_BACKLOG> queued;
+    bool filled = true;
+    for (int i = 0; i < CHANNEL_BACKLOG && filled; ++i) {
+        auto stream = channel::connect("pipe-test", true);
+        filled = stream.ok() && queued.try_push_back(stream.release_value());
+    }
+    auto overflow = channel::connect("pipe-test", true);
+    TEST_ASSERT(filled && !overflow.ok() && overflow.error() == Error::Full, "A full backlog refuses another stream");
+    listener.reset();
+    char out[1]{};
+    TEST_ASSERT(filled && returned(queued[0]->read(out, sizeof(out), 0), 0),
+                "Closing the listener ends the streams it never accepted");
+    auto relisten = channel::listen("pipe-test", true);
+    TEST_ASSERT(relisten.ok(), "A closed listener frees its name");
+    TEST_END();
+}
+
 }  // namespace
 
 namespace pipe_test {
@@ -161,6 +230,7 @@ void test() {
     test_capacity();
     test_closed_ends();
     test_readiness_of_high_descriptors();
+    test_channels();
     TEST_SUMMARY("Pipes");
 }
 

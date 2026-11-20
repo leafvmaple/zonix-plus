@@ -51,6 +51,9 @@
 #define NR_WAIT_IO 409
 #define NR_REALTIME 410
 #define NR_BRK 411
+#define NR_CHANNEL_LISTEN 412
+#define NR_CHANNEL_CONNECT 413
+#define NR_CHANNEL_ACCEPT 414
 
 /* ---- Stdout / Stderr fd constants ---- */
 #define STDIN_FD  0

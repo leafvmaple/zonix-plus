@@ -66,6 +66,14 @@ public:
     }
     bool output_ready() const { return output_.size() != 0 || closed_; }
     bool input_ready() const { return input_.space() != 0 || closed_; }
+    // Readiness of the slave side follows the same access rules as read_input.
+    Result<bool> slave_readable() {
+        intr::Guard guard;
+        if (closed_)
+            return true;
+        TRY(check_reader(sched::current()));
+        return input_.size() != 0;
+    }
 
     Error attach(Task* parent, Task* child, bool foreground) {
         ENSURE(!closed_ && !parent->termination_requested(), Error::Interrupted);
@@ -152,9 +160,7 @@ public:
             ENSURE(!task->termination_requested(), Error::Interrupted);
             if (closed_)
                 return 0;
-            ENSURE(task->pty_session() == this && is_foreground(task) && task->pid != job_.owner() &&
-                       (raw_owner_pid_ == 0 || raw_owner_pid_ == task->pid),
-                   Error::Access);
+            TRY(check_reader(task));
             if (input_.size() != 0) {
                 bool was_full = input_.space() == 0;
                 int taken = take(input_, buffer, count);
@@ -184,6 +190,8 @@ public:
             }
         }
         ENSURE(count <= input_.space(), Error::Busy);
+        if (input_.size() == 0 && count != 0)
+            fd::Readiness::notify();
         for (size_t i = 0; i < count; ++i)
             input_.push(bytes[i]);
         input_ready_.wakeup_all();
@@ -236,6 +244,12 @@ private:
     WaitQueue output_space_;
 
     bool is_foreground(const Task* task) const { return task->pid == foreground_pid_ || job_.includes(task); }
+    Error check_reader(Task* task) const {
+        ENSURE(task->pty_session() == this && is_foreground(task) && task->pid != job_.owner() &&
+                   (raw_owner_pid_ == 0 || raw_owner_pid_ == task->pid),
+               Error::Access);
+        return Error::None;
+    }
     Error check_interrupt() {
         if (!input_.has(3))
             return Error::None;
@@ -278,8 +292,9 @@ public:
     bool is_duplex() const override { return true; }
     Session* controlling_terminal() override { return master_ ? nullptr : session_.get(); }
     Result<bool> read_ready() override {
-        ENSURE(master_, Error::NotSupported);
-        return session_->output_ready();
+        if (master_)
+            return session_->output_ready();
+        return session_->slave_readable();
     }
     Result<bool> write_ready() override {
         ENSURE(master_, Error::NotSupported);

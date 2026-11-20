@@ -304,31 +304,36 @@ Files 用管道后端接收窗口坐标中的键鼠事件，mini-cocos 将事件
 
 ## 联网
 
-可选的网络应用盘安装 `ping`。三种架构的内核探测到现代 VirtIO PCI 网卡时都注册 `/dev/net0`，收到帧时由网卡中断唤醒读者。`ping` 使用 QEMU 用户态网络，来宾 IPv4 固定为 `10.0.2.15/24`。下面以 x86 为例；aarch64 和 riscv64 把 `ARCH` 换掉，QEMU 参数相同。
-
-```sh
-make ARCH=x86 TEST=0
-make ARCH=x86 TEST=0 USER_CC=clang network-image
-make ARCH=x86 TEST=0 qemu USER_DISK=bin/x86/network.img \
-  QEMU_FLAGS='-netdev user,id=net0,ipv6=off,restrict=on -device virtio-net-pci,disable-legacy=on,netdev=net0'
-```
-
-在 Zonix shell 运行 `ping 10.0.2.2`。命令先通过 ARP 解析目标的 MAC，再发送一次 ICMP Echo 请求。成功会显示 `Reply from 10.0.2.2`。
-
-### TCP 回显示例
-
-可选的 `tcp-image` 使用 Clang 和固定版本 lwIP 构建 `tcpserve` 与 `tcpecho`，单独打包到 `tcp.img`。`tcpserve` 在用户态运行 IPv4/TCP 协议栈，通过 `/dev/net0` 收发，最多同时处理四条连接，每条连接启动一个子进程，用普通管道把 TCP 字节流接到它的标准输入和输出；第五条连接会被拒绝。`tcpecho` 只用标准输入输出就能回显二进制数据。`tcpserve` 独占网卡，退出后才能用网卡运行 `ping`。
-
-`tcpserve [-a ADDRESS/PREFIX [-g GATEWAY]] <port> /absolute/worker-path`：不带 `-a` 时用 DHCP 取得地址，取得后打印 `tcpserve: listening on ADDRESS:PORT`；`-a 192.168.1.20/24 -g 192.168.1.1` 使用固定地址。它关闭 Nagle 算法，交互输入不等待对端确认。
+联网由可选的网络服务 netd 提供。netd 独占内核的 `/dev/net0`，在用户态运行固定版本的 lwIP（IPv4、TCP、UDP、ICMP、DHCP 和 DNS），通过命名本地通道 `net` 向其他程序提供 socket 接口。内核里没有协议代码：三种架构的内核探测到现代 VirtIO PCI 网卡时都注册 `/dev/net0`，收到帧时由网卡中断唤醒 netd。下面以 x86 为例；aarch64 和 riscv64 把 `ARCH` 换掉，QEMU 参数相同。
 
 ```sh
 git clone --branch STABLE-2_2_1_RELEASE https://github.com/lwip-tcpip/lwip.git ../lwip
-make ARCH=x86 TEST=0 tcp-image LWIP_DIR=../lwip
-make ARCH=x86 TEST=0 qemu USER_DISK=bin/x86/tcp.img \
-  QEMU_FLAGS='-netdev user,id=net0,ipv6=off,restrict=on,hostfwd=tcp:127.0.0.1:2323-:2323 -device virtio-net-pci,disable-legacy=on,netdev=net0'
+make ARCH=x86 TEST=0
+make ARCH=x86 TEST=0 USER_CC=clang network-image LWIP_DIR=../lwip
+make ARCH=x86 TEST=0 qemu USER_DISK=bin/x86/network.img   QEMU_FLAGS='-netdev user,id=net0,ipv6=off,hostfwd=tcp:127.0.0.1:2323-:2323 -device virtio-net-pci,disable-legacy=on,netdev=net0'
 ```
 
-在 QEMU 窗口的 Zonix shell 运行 `tcpserve 2323 /opt/bin/tcpecho`，然后在宿主机用 `nc 127.0.0.1 2323` 连接。监听示例只把端口转发到宿主机回环地址。来宾 shell 中按 Ctrl-C 停止服务。
+`network.img` 带有 netd、`ping`、`nc`、`netinfo`、`tcpserve`、`tcpecho` 和 `/opt/etc/services`，init 开机时在后台启动 netd。netd 用 DHCP 取得地址、网关和 DNS 服务器，取得后在控制台打印 `netd: address 10.0.2.15, DNS 10.0.2.3`；`netd -a 192.168.1.20/24 -g 192.168.1.1 -d 192.168.1.1` 使用固定配置。netd 同时最多服务 16 个 socket，另外最多 16 条连接等待接受。
+
+- `netinfo` 显示地址、掩码、网关和 DNS；`netinfo HOST` 解析一个主机名。
+- `ping [-c COUNT] HOST` 发送 ICMP Echo 请求，默认 4 次，显示往返时间。
+- `nc HOST PORT` 建立 TCP 连接，把终端输入发给对方、把收到的内容显示出来，对方关闭后退出；终端按 Ctrl-D 结束发送方向。`nc -u HOST PORT` 把每行输入作为一个 UDP 数据报发送并显示回复。`nc -l PORT` 接受一条 TCP 连接，`nc -l -u PORT` 接收数据报并回复给最后的发送者。
+- `tcpserve PORT /absolute/worker-path` 监听 TCP 端口，每接受一条连接启动一个子进程，把连接直接作为它的标准输入和输出，最多同时四个；第五条连接会被关闭。`tcpecho` 只用标准输入输出回显数据。在来宾运行 `tcpserve 2323 /opt/bin/tcpecho` 后，宿主机用 `nc 127.0.0.1 2323` 连接；按 Ctrl-C 停止 `tcpserve`。
+
+QEMU 用户网络的 `restrict=on` 会挡住来宾主动发起的连接和 DNS，只需要从宿主机连进来时可以加上它。
+
+### socket 接口
+
+程序包含 `user/net/zonix_net.h` 并链接 `zonix_net.o`（`user/net/Makefile` 中的 `NET_LIBRARY`）。每个 socket 都是一个描述符：
+
+- `net_tcp_connect(address, port)` 返回已连接的流；`net_tcp_listen(port)` 返回监听描述符，有连接等待时读就绪，`net_tcp_accept(listener, &address, &port)` 取出一条连接。
+- TCP 流就是普通字节流，`read`、`write`、`sys_wait_io`、`fcntl(O_NONBLOCK)` 和 `close` 直接可用，`net_shutdown_write(fd)` 结束发送方向。
+- `net_udp_open(port)`（0 表示任意端口）返回数据报描述符，`net_udp_send` / `net_udp_receive` 收发单个数据报，最大 1472 字节，收到的数据报装不下时截断。
+- `net_resolve(name, &address)` 接受点分十进制或主机名，`net_ping`、`net_info` 对应上面的命令，`net_parse_ipv4` / `net_format_ipv4` 转换文本，`net_error_text` 给出错误说明。
+
+地址是主机字节序的 32 位整数（10.0.2.15 为 0x0A00020F）。函数失败返回负的 `NET_ERROR_*`；netd 没有运行时，库最多等 2 秒（给开机时同时启动的服务留出时间）后返回 `NET_ERROR_NO_SERVICE`。库与 netd 之间的协议见 `user/net/netproto.h`：每个 socket 对应一条通道，建立 TCP 连接后通道里就是连接的字节流，netd 在两者之间转发。
+
+`scripts/test_network_qemu.py <arch>` 启动带 `network.img` 的系统，从宿主机配合检查 `netinfo`、`ping`、DNS、TCP 客户端、UDP 双向收发、`tcpserve` 同时处理两条连接和 netd 在客户端退出后继续服务，并打印回显速度。
 
 ## 系统随机源与用户态加密库
 
@@ -350,7 +355,7 @@ make ARCH=x86 TEST=0 crypto MBEDTLS_DIR=../mbedtls
 
 ## 可选 SSH 登录
 
-SSH 服务使用固定版本的 TinySSH。`tcpserve` 将每条连接交给独立的 `sshd` 进程，认证通过后由它创建 PTY 并启动 `/bin/sh`，最多同时四个会话。提供单个 `zonix` 登录名、一个授权 Ed25519 公钥、交互式 shell 和窗口尺寸更新。Zonix 目前是单用户系统，授权公钥持有者获得同本地 shell 一样的系统权限。三种架构都可以使用；`sshd` 依赖 VirtIO 随机源，QEMU 需要同时提供网卡和 `virtio-rng-pci`。
+SSH 服务使用固定版本的 TinySSH。`tcpserve` 通过 netd 接受连接，把每条连接交给独立的 `sshd` 进程，认证通过后由它创建 PTY 并启动 `/bin/sh`，最多同时四个会话。提供单个 `zonix` 登录名、一个授权 Ed25519 公钥、交互式 shell 和窗口尺寸更新。Zonix 目前是单用户系统，授权公钥持有者获得同本地 shell 一样的系统权限。三种架构都可以使用；`sshd` 依赖 VirtIO 随机源，QEMU 需要同时提供网卡和 `virtio-rng-pci`。
 
 准备好 `../lwip`、`../mbedtls` 和下列 TinySSH checkout。使用已有的 Ed25519 登录公钥文件，并在仓库外生成 SSH 主机密钥。
 
@@ -366,7 +371,7 @@ make ARCH=x86 TEST=0 qemu USER_DISK=bin/x86/ssh.img \
   QEMU_FLAGS='-object rng-builtin,id=entropy -device virtio-rng-pci,disable-legacy=on,rng=entropy -netdev user,id=net0,ipv6=off,restrict=on,hostfwd=tcp:127.0.0.1:2222-:22 -device virtio-net-pci,disable-legacy=on,netdev=net0'
 ```
 
-`ssh.img` 带有 `/opt/etc/services`，init 开机时在后台启动其中的 `/opt/bin/tcpserve 22 /opt/bin/sshd`，地址来自 DHCP。在宿主机预先登记主机公钥，再用 OpenSSH 登录。
+`ssh.img` 包含 `network.img` 的全部程序和 `sshd`，它的 `/opt/etc/services` 让 init 开机时依次启动 netd 和 `/opt/bin/tcpserve 22 /opt/bin/sshd`，地址来自 DHCP。在宿主机预先登记主机公钥，再用 OpenSSH 登录。
 
 ```sh
 known_hosts="$HOME/.config/zonix/known_hosts"

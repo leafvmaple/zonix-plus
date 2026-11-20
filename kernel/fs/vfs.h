@@ -11,6 +11,9 @@ struct BlockDevice;
 namespace pty {
 class Session;
 }
+namespace channel {
+class Listener;
+}
 
 namespace vfs {
 
@@ -77,6 +80,7 @@ public:
     virtual Result<bool> write_ready() { return Error::NotSupported; }
     virtual Error set_nonblocking(bool) { return Error::NotSupported; }
     virtual pty::Session* controlling_terminal() { return nullptr; }
+    virtual channel::Listener* channel_listener() { return nullptr; }
     virtual Error truncate(size_t size) {
         static_cast<void>(size);
         return Error::NotSupported;

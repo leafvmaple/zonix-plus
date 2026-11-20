@@ -4,6 +4,7 @@
 #include "drivers/intr.h"
 #include "lib/waitqueue.h"
 #include "sched/sched.h"
+#include <abi/channel.h>
 #include <sys/array.hpp>
 
 namespace pipe {
@@ -131,6 +132,55 @@ private:
     bool writer_;
     bool nonblocking_;
 };
+
+// One end of a bidirectional stream: it reads one buffer and writes the other.
+class DuplexEndpoint : public vfs::File {
+public:
+    DuplexEndpoint(BufferRef input, BufferRef output, bool nonblocking)
+        : input_(sys::move(input)), output_(sys::move(output)), nonblocking_(nonblocking) {
+        input_->open(false);
+        output_->open(true);
+    }
+    ~DuplexEndpoint() override {
+        input_->close(false);
+        if (!write_closed_)
+            output_->close(true);
+    }
+    bool is_stream() const override { return true; }
+    bool is_duplex() const override { return true; }
+    Error set_nonblocking(bool nonblocking) override {
+        intr::Guard guard;
+        nonblocking_ = nonblocking;
+        return Error::None;
+    }
+    Result<bool> read_ready() override { return input_->read_ready(); }
+    // A shut-down direction reports ready so that a writer sees its error.
+    Result<bool> write_ready() override { return write_closed_ || output_->write_ready(); }
+    Result<int> read(void* out, size_t size, size_t) override { return input_->read(out, size, nonblocking_); }
+    Result<int> write(const void* in, size_t size, size_t) override {
+        ENSURE(!write_closed_, Error::Io);
+        return output_->write(in, size, nonblocking_);
+    }
+    Error stat(vfs::Stat* st) override {
+        st->set(vfs::NodeType::Pipe, 0, 0);
+        return Error::None;
+    }
+    Error control(unsigned int request, void*) override {
+        ENSURE(request == CHANNEL_SHUTDOWN_WRITE, Error::NotSupported);
+        intr::Guard guard;
+        if (!write_closed_) {
+            write_closed_ = true;
+            output_->close(true);
+        }
+        return Error::None;
+    }
+
+private:
+    BufferRef input_;
+    BufferRef output_;
+    bool nonblocking_;
+    bool write_closed_{};
+};
 }  // namespace
 
 Result<Ends> create(bool nonblocking) {
@@ -141,6 +191,18 @@ Result<Ends> create(bool nonblocking) {
     ENSURE(ends.read, Error::NoMem);
     ends.write.reset(new (sys::nothrow) Endpoint(buffer->share(), true, nonblocking));
     ENSURE(ends.write, Error::NoMem);
+    return ends;
+}
+
+Result<DuplexEnds> create_duplex(bool nonblocking) {
+    BufferRef forward(new (sys::nothrow) Buffer());
+    BufferRef backward(new (sys::nothrow) Buffer());
+    ENSURE(forward && backward, Error::NoMem);
+    DuplexEnds ends;
+    ends.first.reset(new (sys::nothrow) DuplexEndpoint(backward->share(), forward->share(), nonblocking));
+    ENSURE(ends.first, Error::NoMem);
+    ends.second.reset(new (sys::nothrow) DuplexEndpoint(forward->share(), backward->share(), nonblocking));
+    ENSURE(ends.second, Error::NoMem);
     return ends;
 }
 }  // namespace pipe

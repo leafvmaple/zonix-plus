@@ -192,7 +192,8 @@ def run(arch, image, identity, host_key):
             console.expect("Zonix shell", "the shell to start", BOOT_TIMEOUT)
             console.prompt("the first prompt")
             # QEMU's user network hands out 10.0.2.15 over DHCP.
-            wait_for_text(console, f"tcpserve: listening on 10.0.2.15:{GUEST_PORT}", "the DHCP address")
+            wait_for_text(console, "netd: address 10.0.2.15", "the DHCP address")
+            wait_for_text(console, f"tcpserve: listening on port {GUEST_PORT}", "the SSH listener")
             first, elapsed = login(port, identity, known_hosts)
             sessions.append(first)
             print(f"INFO first login took {elapsed:.2f} s", flush=True)

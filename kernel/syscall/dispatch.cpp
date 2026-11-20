@@ -87,6 +87,13 @@ bool dispatch(Task* task, long nr, uintptr_t arg0, uintptr_t arg1, uintptr_t arg
         }
         case NR_OPENPTY: result = openpty(task, arg0, arg1); return true;
         case NR_PIPE2: result = pipe2(task, arg0, static_cast<long>(arg1)); return true;
+        case NR_CHANNEL_LISTEN:
+        case NR_CHANNEL_CONNECT:
+            result = channel_open(task, arg0, static_cast<long>(arg1), nr == NR_CHANNEL_LISTEN);
+            return true;
+        case NR_CHANNEL_ACCEPT:
+            result = channel_accept(task, static_cast<long>(arg0), static_cast<long>(arg1));
+            return true;
         case NR_DUP2: result = dup2(task, static_cast<long>(arg0), static_cast<long>(arg1)); return true;
         case NR_FCNTL:
             result = fcntl(task, static_cast<long>(arg0), static_cast<long>(arg1), static_cast<long>(arg2));

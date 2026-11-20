@@ -15,6 +15,8 @@ int init();
 int late_init();
 char getc();
 Result<char> read_input();
+// Whether read_input would return a byte at once; Access where it would fail with Access.
+Result<bool> input_ready();
 void putc(int c);
 void write_output(int c);
 void key_event(uint16_t code, int value);

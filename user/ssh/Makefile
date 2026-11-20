@@ -43,7 +43,7 @@ $(USER_BINDIR)/SSHD.ELF: $(SSH_OBJECTS) $(USER_BINDIR)/libzonixcrypto.a $(ZCC_RU
 .PHONY: ssh ssh-image
 ssh: $(USER_BINDIR)/SSHD.ELF
 
-ssh-image: $(USER_BINDIR)/TCPSERVE.ELF $(USER_BINDIR)/SSHD.ELF
+ssh-image: $(NET_ELFS) $(USER_BINDIR)/SSHD.ELF
 	$(Q)bash scripts/install_ssh_image.sh "$(BINDIR)/ssh.img" "$(SSH_HOSTKEY_DIR)" "$(SSH_AUTHORIZED_KEY)" \
 		"$(TINYSSH_SOURCE)/LICENSE.md" "$(MBEDTLS_SOURCE)/LICENSE" "$(LWIP_SOURCE)/COPYING" $^
 

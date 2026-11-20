@@ -39,6 +39,9 @@ long pipe2(Task* task, uintptr_t output, long flags);
 long openpty(Task* task, uintptr_t output, uintptr_t input);
 long dup2(Task* task, long old_fd, long new_fd);
 long fcntl(Task* task, long fd, long command, long argument);
+// Registers (listening) or connects to a named channel and returns its descriptor.
+long channel_open(Task* task, uintptr_t name, long flags, bool listening);
+long channel_accept(Task* task, long fd, long flags);
 // False means an unknown syscall number; result preserves the existing ABI.
 bool dispatch(Task* task, long nr, uintptr_t arg0, uintptr_t arg1, uintptr_t arg2, long& result);
 }  // namespace syscall

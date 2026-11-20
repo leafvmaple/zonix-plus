@@ -65,6 +65,9 @@ SP -> argc                64 位
 | wait_readable_for | 407 | 按 FD 位图等待读就绪，超时返回 0 |
 | getrandom | 408 | 读取系统随机字节，每次最多 256 字节，返回实际字节数或负 Error |
 | wait_io | 409 | 同时等待 FD 的读就绪和写就绪，超时返回 0 |
+| channel_listen | 412 | `sys_channel_listen(name, flags)` 占用一个通道名，返回监听 FD。见下文“命名本地通道” |
+| channel_connect | 413 | `sys_channel_connect(name, flags)` 连接通道名，返回双向流 FD |
+| channel_accept | 414 | `sys_channel_accept(fd, flags)` 从监听 FD 取出一条已连接的流 |
 
 进程、元数据、文件变更、同步和关机调用失败返回负的内核 `Error` 值，包括 NoMem=-2、Invalid=-3、NotFound=-4、Busy=-9、NoDevice=-10、NotSupported=-11、Full=-12、Access=-14、Interrupted=-15。它们不是 Linux 系统调用的兼容实现。`include/abi/process.h` 定义用户侧结构、常用错误和参数限制；结构中类型、长度和属性字段均为 32 位无符号整数。zcc 运行时的系统调用定义必须与内核完整一致，进程结构和文件标志也必须同步；ABI 检查不允许单方面新增调用。原有 `FileStat`（12 字节）、`DirectoryEntry`（44 字节）和旧 syscall 语义保持不变。
 
@@ -124,6 +127,16 @@ exec 把程序断点放在最高的 LOAD 段按页向上取整的末尾，堆起
 
 只有拥有者可 CANCEL 或 END。CANCEL 请求终止全部成员并封闭后续创建；END 可中断地等待所有成员结束，释放组，并在发生 Ctrl-C 时返回 Interrupted；主动 CANCEL 的错误清理不伪装成键盘中断。shell 仍逐个 wait 回收直接子进程，孤儿由 init 回收。拥有者退出时自动取消该组，终端不会依赖用户清理代码才能恢复。成员身份保存在任务中，只存 PID，不借用其他 Task 的指针。
 
+## 命名本地通道
+
+通道让互不相关的进程按名字建立双向字节流，常量在 `include/abi/channel.h`。名字为 1～31 个可打印 ASCII 字符（不含空格），全系统共享，最多同时 16 个。
+
+- `sys_channel_listen(name, flags)`（412）占用名字并返回监听 FD；名字已被占用返回 Exists，名字无效返回 Invalid，名字表满返回 Full。监听 FD 关闭时释放名字，还没被接受的流随之关闭，连接方读到 EOF。
+- `sys_channel_connect(name, flags)`（413）建立一条流，把一端放进监听者的队列并立即返回另一端；没有监听者返回 NotFound，队列已有 `CHANNEL_BACKLOG`（8）条流时返回 Full。连接成功不代表对方已接受，在接受之前写入的字节会留在流里。
+- `sys_channel_accept(fd, flags)`（414）取出最早的一条流；队列为空时阻塞，监听 FD 为非阻塞时返回 Busy。fd 不是监听 FD 返回 Invalid。
+
+三个调用的 flags 都接受 0 或 O_CLOEXEC / O_NONBLOCK 的组合，作用于返回的 FD；监听 FD 的非阻塞模式也可用 `F_SETFL` 修改。流的两个方向各有一个 4 KiB 缓冲，读写、非阻塞、就绪和关闭语义与下文的匿名管道相同（含非阻塞写入至多 4096 字节时整块写入或失败），`fstat` 类型同为 FILE_TYPE_PIPE。`ioctl(fd, CHANNEL_SHUTDOWN_WRITE, 0)`（0x5901）结束本端的写方向：对方读完缓冲后读到 EOF，本端之后的写入返回 -1，读方向不受影响。描述符关闭时两个方向都结束。
+
 ## 匿名管道 ABI
 
 `sys_pipe2(int ends[2], int flags)`（331）创建读端 ends[0]、写端 ends[1]；flags 接受 0 或 O_CLOEXEC / O_NONBLOCK 的组合。先验证完整可写输出范围和两个空 FD 槽，再分配端点/描述，失败回收全部资源；无效 flags/地址返回 Invalid，FD 不足返回 Full，分配失败返回 NoMem。每个进程仍最多 16 个 FD。`fstat` 类型为 FILE_TYPE_PIPE=4，size/device/inode 为 0；不表示磁盘文件。
@@ -132,7 +145,7 @@ exec 把程序断点放在最高的 LOAD 段按页向上取整的末尾，堆起
 
 `O_NONBLOCK` 由 `pipe2` 设置在两个端点上。`sys_fcntl(fd, F_SETFL, flags)` 接受 `0` 或 `O_NONBLOCK`，修改一个管道端点后续读写的模式，dup 和 spawn 共享该模式。其他文件类型返回 NotSupported。空管道仍有写端时，非阻塞 read 立即返回 -1。非阻塞写入不等待空间，至多 4096 字节的单次写入要么全部进入环形缓冲，要么返回 -1；更大的调用沿用 I/O 循环的分段与短写语义。最后写端关闭且数据读完后，读返回 0。
 
-每个进程最多 24 个描述符。`sys_wait_readable(long mask)` 接收当前进程非零的 24 位 FD 位图，阻塞至至少一项读就绪，返回所有当前就绪项的位图。管道读端及伪终端 master 有数据或 EOF 时均就绪，取得事件模式的显示描述符有待取事件时就绪，随后用 `DISPLAY_READ_EVENT` 读取。空位、超出范围的位返回 Invalid，其他文件类型返回 NotSupported，无访问权限返回 Access，终止请求可中断等待。就绪是快照，不为共享 FD 预留数据；多个进程读同一端点时仍需处理竞争。
+每个进程最多 24 个描述符。`sys_wait_readable(long mask)` 接收当前进程非零的 24 位 FD 位图，阻塞至至少一项读就绪，返回所有当前就绪项的位图。管道读端、通道流、伪终端 master 有数据或 EOF 时均就绪，通道监听 FD 有待接受的流时就绪，取得事件模式的显示描述符有待取事件时就绪，随后用 `DISPLAY_READ_EVENT` 读取。控制台和伪终端 slave 有输入时也就绪；它们沿用读取的规则，不允许读取的任务（例如后台任务）等待时返回 Access。注意控制台的 read 会等满请求的字节数，就绪后按 1 字节读取可以避免阻塞。空位、超出范围的位返回 Invalid，其他文件类型返回 NotSupported，无访问权限返回 Access，终止请求可中断等待。就绪是快照，不为共享 FD 预留数据；多个进程读同一端点时仍需处理竞争。
 
 `sys_wait_readable_for(long mask, long timeout_ms)` 采用相同的 FD 位图，超时返回 0。超时取 0～2147483647 毫秒，传 0 检查当前状态后立即返回。`sys_uptime_ms()` 返回启动后的单调毫秒数，精度取决于内核定时器。`sys_realtime()` 返回当前时间，为 UTC 的 Unix 秒数，不含时区。内核在第一次调用时读取一次平台的后备时钟（x86 的 CMOS 时钟、QEMU virt 上 aarch64 的 PL031 和 riscv64 的 Goldfish RTC），之后按开机时长推算，因此不会跟随之后对硬件时钟的修改；没有时钟的平台返回 NoDevice。x86 的 CMOS 时钟只有两位年份，按 20xx 解释，并假定它保存的是 UTC。
 
@@ -140,7 +153,7 @@ exec 把程序断点放在最高的 LOAD 段按页向上取整的末尾，堆起
 
 ## 原始以太网设备
 
-x86、aarch64 和 riscv64 探测到受支持的现代 VirtIO PCI 网卡后都提供 `/dev/net0`，一次只允许一个打开文件描述使用设备。`NET_GET_MAC`（0x5801）向调用者的可写缓冲复制六字节 MAC。
+x86、aarch64 和 riscv64 探测到受支持的现代 VirtIO PCI 网卡后都提供 `/dev/net0`，一次只允许一个打开文件描述使用设备。正常情况下由网络服务 netd 打开它，其他程序通过 netd 的 socket 接口联网（见 [USERSPACE.md](USERSPACE.md#联网)）。`NET_GET_MAC`（0x5801）向调用者的可写缓冲复制六字节 MAC。
 
 `read` 每次取一帧，缓冲须至少 1514 字节。接收队列有完成项时 FD 读就绪，可通过上述两种等待接口与其他 FD 一起等待。收到帧时网卡中断立即唤醒等待者；平台没有可用的中断线时退回定时器轮询。`write` 每次提交一个 14 至 1514 字节的以太网帧，字节数含以太网头，FCS 由链路处理；发送队列最多同时容纳 16 帧，队列满时等待完成，单次等候至多约一秒。read/write 失败沿用已有的 `-1` 返回约定。
 

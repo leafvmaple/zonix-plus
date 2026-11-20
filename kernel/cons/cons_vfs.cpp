@@ -33,6 +33,8 @@ public:
         return static_cast<int>(size);
     }
 
+    Result<bool> read_ready() override { return cons::input_ready(); }
+
     Error control(unsigned int request, void* value) override {
         if (request == TERMINAL_GET_SIZE) {
             *static_cast<TerminalSize*>(value) = cons::screen_size();

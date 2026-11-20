@@ -3,6 +3,7 @@
 #include <abi/terminal.h>
 #include <abi/display.h>
 #include <abi/net.h>
+#include <abi/channel.h>
 
 static_assert(sizeof(TerminalSize) == 8);
 
@@ -57,6 +58,11 @@ long syscall::ioctl(Task* task, long fd, long request, uintptr_t argument) {
         if (error != Error::None)
             return static_cast<long>(error);
         return static_cast<long>(entry->file()->control(TERMINAL_SET_SIZE, &size));
+    }
+    if (request == CHANNEL_SHUTDOWN_WRITE) {
+        if (argument != 0)
+            return static_cast<long>(Error::Invalid);
+        return static_cast<long>(entry->file()->control(CHANNEL_SHUTDOWN_WRITE, nullptr));
     }
     if (request == TERMINAL_SET_RAW || request == TERMINAL_JOB) {
         if (argument > (request == TERMINAL_JOB ? TERMINAL_JOB_CANCEL : 1))
