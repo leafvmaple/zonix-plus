@@ -10,16 +10,10 @@ namespace desktop_dock {
 using desktop::Point;
 using desktop::Rect;
 
-// An item is a program, or ITEM_EXIT to leave Desktop. Files and Settings
-// exist only in the Desktop suite, which is also what draws the terminal
-// in pixels.
+// An item is a program, or ITEM_EXIT to leave Desktop.
 inline constexpr int ITEM_EXIT = -2;
-#ifdef ZONIX_PIXEL_TERMINAL
 inline constexpr int ITEMS[] = {desktop_ipc::APP_TERMINAL, desktop_ipc::APP_FILES, desktop_ipc::APP_SETTINGS,
                                 ITEM_EXIT};
-#else
-inline constexpr int ITEMS[] = {desktop_ipc::APP_TERMINAL, ITEM_EXIT};
-#endif
 inline constexpr int ITEM_COUNT = sizeof(ITEMS) / sizeof(*ITEMS);
 inline constexpr int NO_ITEM = -1;
 

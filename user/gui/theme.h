@@ -1,7 +1,7 @@
 #pragma once
 
 // Colours shared by the Desktop compositor and the window clients, as XRGB8888.
-// This header has no engine dependency so the basic decorations can use it too.
+// This header has no engine dependency, so the compositor can use it too.
 namespace zonix_gui::theme {
 
 inline constexpr unsigned int DESKTOP_TOP = 0x34415E;

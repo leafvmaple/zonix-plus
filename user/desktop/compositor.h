@@ -2,7 +2,6 @@
 
 #include "desktop_icons.h"
 #include "dock.h"
-#include <kernel/psf.h>
 
 namespace desktop {
 
@@ -25,7 +24,6 @@ public:
         Rect icons;
         // The height of the menu bar, or 0 on a screen without one.
         int menu_height;
-        psf::Font font;
     };
 
     explicit Compositor(const Scene& scene) : scene_(scene) {}
@@ -40,7 +38,6 @@ private:
     unsigned int interior(int index, Point point, bool focused) const;
     unsigned int desk(Point point) const;
     unsigned int background(Point point) const;
-    unsigned int text_color(int index, int x, int y) const;
 
     Scene scene_;
 };

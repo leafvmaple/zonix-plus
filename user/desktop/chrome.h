@@ -13,7 +13,6 @@ inline constexpr int CLOSE_SIZE = 14;
 inline constexpr int CLOSE_MARGIN = (TITLE_HEIGHT - CLOSE_SIZE) / 2;
 inline constexpr int CLOSE_TOP = CLOSE_MARGIN;
 inline constexpr int CLOSE_LEFT = CLOSE_MARGIN;
-inline constexpr int LABEL_COLOR = zonix_gui::theme::TEXT;
 
 // The bar along the top of the screen. It names the system and the program
 // in front on the left and shows a clock on the right.

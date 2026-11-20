@@ -244,7 +244,7 @@ make ARCH=x86 TEST=0 qemu USER_DISK=bin/x86/desktop.img
 
 ### 图形终端
 
-在 Desktop 按 F2 打开或聚焦 Terminal 窗口。它在一个独立伪终端上启动基础 rootfs 的 `/bin/sh`。64×20 字符网格沿用现有 ASCII 字体、ANSI 光标和清屏语义，支持键入、光标移动、历史、滚屏、重定向和管道。x86 版在 Terminal 进程内把原有 PSF 字形转换为纹理。mini-cocos 批量绘制变化区域内的字形和光标，再通过与 Files 相同的管道发送局部像素矩形，Desktop 合成这些像素。通过 `desktop-image` 一起更新 Desktop 和 Terminal。三个架构的版本相同。
+在 Desktop 按 F2 打开或聚焦 Terminal 窗口。它在一个独立伪终端上启动基础 rootfs 的 `/bin/sh`。64×20 字符网格沿用现有 ASCII 字体、ANSI 光标和清屏语义，支持键入、光标移动、历史、滚屏、重定向和管道。Terminal 在自己的进程内把原有 PSF 字形转换为纹理。mini-cocos 批量绘制变化区域内的字形和光标，再通过与 Files 相同的管道发送局部像素矩形，Desktop 合成这些像素。通过 `desktop-image` 一起更新 Desktop 和 Terminal。
 
 Terminal 聚焦时，键盘 Ctrl-C 交给这个伪终端，取消输入行或中断该终端的前台命令或管道，Desktop 与原来的物理 shell 保持运行。关闭窗口会话挂断，回收本会话中的 shell 和命令。F12 可以随时退出并回到物理 shell。串口 Ctrl-C 仍由物理控制台处理。
 

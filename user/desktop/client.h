@@ -8,7 +8,6 @@ namespace desktop_ipc {
 // How a client exchanges input and output with Desktop.
 enum class Protocol {
     Frame,   // One small frame per input, scaled to the window.
-    Text,    // A character grid, sent whenever it changes.
     Pixels,  // A surface of the client's own size, updated in rectangles.
 };
 
@@ -29,12 +28,6 @@ inline constexpr int APP_COUNT = 7;
 // holds four of its own and two pipes per window, and starting a client needs
 // four more for a moment.
 inline constexpr int MAX_WINDOWS = 8;
-
-#ifdef ZONIX_PIXEL_TERMINAL
-inline constexpr Protocol TERMINAL_PROTOCOL = Protocol::Pixels;
-#else
-inline constexpr Protocol TERMINAL_PROTOCOL = Protocol::Text;
-#endif
 
 // Scancodes of the keys that open windows.
 inline constexpr unsigned int KEY_1 = 2;
@@ -67,7 +60,7 @@ struct AppSpec {
 inline constexpr AppSpec APPS[APP_COUNT] = {
     {"Example A", "A", "/opt/bin/deskapp", "a", Placement::Corner, KEY_1, Protocol::Frame},
     {"Example B", "B", "/opt/bin/deskapp", "b", Placement::Corner, KEY_2, Protocol::Frame},
-    {"Terminal", "Term", "/opt/bin/terminal", nullptr, Placement::Center, KEY_F2, TERMINAL_PROTOCOL, true},
+    {"Terminal", "Term", "/opt/bin/terminal", nullptr, Placement::Center, KEY_F2, Protocol::Pixels, true},
     {"mini-cocos", "Cocos", "/opt/bin/minicoco", "--window", Placement::Corner, KEY_F3, Protocol::Pixels, false, true},
     {"Files", "Files", "/opt/bin/files", "--window", Placement::Right, KEY_F4, Protocol::Pixels, true, true},
     {"Text Editor", "Editor", "/opt/bin/editor", nullptr, Placement::Center, 0, Protocol::Pixels, true, true, true},
@@ -89,7 +82,6 @@ public:
     bool alive() const { return pid_ > 0; }
     unsigned int mask() const;
     const Frame& frame() const { return frame_; }
-    const TextDamage& damage() const { return damage_; }
     bool receive_frame();
     PixelSurface::Result receive_pixels(PixelSurface& surface, unsigned int width, unsigned int height) {
         return surface.receive(output_fd_, width, height);
@@ -104,10 +96,9 @@ private:
     int input_fd_ = -1;
     int output_fd_ = -1;
     Protocol protocol_ = Protocol::Frame;
-    // Used by frame and text clients. Pixel clients draw into a surface.
+    // Used by frame clients. Pixel clients draw into a surface.
     Frame frame_{};
     Frame pending_{};
-    TextDamage damage_;
     unsigned int used_{};
     bool waiting_{};
     sys::array<Input, QUEUE_SIZE> queue_{};

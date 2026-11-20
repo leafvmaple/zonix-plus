@@ -99,11 +99,11 @@ $(USER_OBJDIR)/files/%.cpp.o: user/files/%.cpp $(MINICOCOS_CORE) $(ZCC_RUNTIME_S
 
 $(USER_OBJDIR)/desktop/%.cpp.o: user/desktop/%.cpp $(MINICOCOS_CORE) $(ZCC_RUNTIME_STAMP) user/gui/Makefile
 	$(Q)$(MKDIR) $(@D)
-	$(Q)$(CXX) $(MINICOCOS_CXXFLAGS) -DZONIX_PIXEL_TERMINAL $(DEPFLAGS) -c $< -o $@
+	$(Q)$(CXX) $(MINICOCOS_CXXFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(USER_OBJDIR)/terminal/%.cpp.o: user/terminal/%.cpp $(MINICOCOS_CORE) $(ZCC_RUNTIME_STAMP) user/gui/Makefile
 	$(Q)$(MKDIR) $(@D)
-	$(Q)$(CXX) $(MINICOCOS_CXXFLAGS) -DZONIX_PIXEL_TERMINAL $(DEPFLAGS) -c $< -o $@
+	$(Q)$(CXX) $(MINICOCOS_CXXFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(USER_BINDIR)/FILES.ELF: $(USER_OBJDIR)/files/files.cpp.o $(GUI_OBJDIR)/files_runtime.cpp.o
 $(USER_BINDIR)/DESKTOP.ELF: $(DESKTOP_OBJECTS) $(GUI_OBJDIR)/desktop_runtime.cpp.o

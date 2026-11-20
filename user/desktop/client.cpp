@@ -84,17 +84,14 @@ unsigned int Client::mask() const {
 }
 
 bool Client::receive_frame() {
-    if (!waiting_ && protocol_ != Protocol::Text)
+    if (!waiting_)
         return false;  // Unsolicited frame after initialization.
-    damage_ = {};
     auto* bytes = reinterpret_cast<char*>(pending_.data());
     long count = sys_read(output_fd_, bytes + used_, sizeof(Frame) - used_);
     if (count <= 0)
         return false;
     used_ += static_cast<unsigned int>(count);
     if (used_ == sizeof(Frame)) {
-        if (protocol_ == Protocol::Text)
-            damage_ = compare_text(frame_, pending_);
         frame_ = pending_;
         used_ = 0;
         waiting_ = false;

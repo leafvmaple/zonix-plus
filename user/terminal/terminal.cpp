@@ -3,22 +3,11 @@
 #include "../desktop/text_frame.h"
 #include <base/keyboard.h>
 #include <base/terminal_parser.h>
-
-#ifdef ZONIX_PIXEL_TERMINAL
 #include "grid_renderer.h"
-#endif
 
 namespace {
 
 using namespace desktop_ipc;
-
-#ifndef ZONIX_PIXEL_TERMINAL
-class GridRenderer {
-public:
-    long init() { return 0; }
-    long publish(const Frame& frame) { return command_write_all(STDOUT_FD, frame.data(), sizeof(frame)); }
-};
-#endif
 
 class Grid {
 public:

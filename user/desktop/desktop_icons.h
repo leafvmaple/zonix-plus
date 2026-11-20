@@ -24,13 +24,7 @@ inline constexpr Item ITEMS[] = {
     {"Home", "/home", Kind::Folder},
     {"Applications", "/opt", Kind::Folder},
 };
-// Files exists only in the Desktop suite, which is also what draws the
-// terminal in pixels. Without it the desktop has no icons.
-#ifdef ZONIX_PIXEL_TERMINAL
 inline constexpr int ITEM_COUNT = sizeof(ITEMS) / sizeof(*ITEMS);
-#else
-inline constexpr int ITEM_COUNT = 0;
-#endif
 inline constexpr int NO_ITEM = -1;
 
 // An item is a cell with the icon at the top and its label underneath.

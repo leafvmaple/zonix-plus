@@ -7,7 +7,6 @@ namespace desktop {
 namespace {
 
 using namespace desktop_ipc;
-using desktop_chrome::LABEL_COLOR;
 namespace theme = zonix_gui::theme;
 
 // Coverage of the pixels in a rounded corner, indexed by their distance from
@@ -193,10 +192,7 @@ unsigned int Compositor::interior(int index, Point point, bool focused) const {
     }
     if (x < FRAME || x >= window.width - FRAME || y >= window.height - FRAME)
         return theme::WINDOW_BACKGROUND;
-    auto protocol = scene_.windows[index].protocol();
-    if (protocol == Protocol::Text)
-        return text_color(index, x - FRAME, y - TITLE_HEIGHT);
-    if (protocol == Protocol::Pixels)
+    if (scene_.windows[index].protocol() == Protocol::Pixels)
         return scene_.surfaces[index].pixel(x - FRAME, y - TITLE_HEIGHT);
     Point sample = surface_point(window, point);
     return scene_.windows[index].client.frame()[sample.y * SURFACE_SIZE + sample.x];
@@ -215,17 +211,6 @@ unsigned int Compositor::background(Point point) const {
         pixel |= static_cast<unsigned int>((level + threshold) >> 8) << shift;
     }
     return pixel;
-}
-
-unsigned int Compositor::text_color(int index, int x, int y) const {
-    const auto* data = reinterpret_cast<const unsigned char*>(scene_.windows[index].client.frame().data());
-    int row = y / GLYPH_HEIGHT;
-    int col = x / GLYPH_WIDTH;
-    if (data[CURSOR_VISIBLE] && row == data[CURSOR_ROW] && col == data[CURSOR_COL] &&
-        y % GLYPH_HEIGHT >= GLYPH_HEIGHT - 2)
-        return theme::ACCENT;
-    auto* glyph = psf::glyph(&scene_.font, data[row * TERMINAL_COLS + col]);
-    return (glyph[y % GLYPH_HEIGHT] & (0x80U >> (x % GLYPH_WIDTH))) != 0 ? LABEL_COLOR : theme::WINDOW_BACKGROUND;
 }
 
 }  // namespace desktop

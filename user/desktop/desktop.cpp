@@ -1,13 +1,8 @@
 #include "../command.h"
 #include "compositor.h"
 #include "../gui/settings.h"
-#include <kernel/psf.h>
 #include <sys/algorithm.hpp>
 #include <sys/array.hpp>
-
-#ifndef ZONIX_PIXEL_TERMINAL
-extern "C" const unsigned char terminal_font[];
-#endif
 
 namespace {
 
@@ -19,7 +14,7 @@ using desktop_chrome::CLOSE_SIZE;
 // parts of the screen to repaint. The Compositor supplies the pixels.
 class Desktop {
 public:
-    Desktop(int fd, int width, int height, psf::Font font)
+    Desktop(int fd, int width, int height)
         : fd_(fd),
           screen_{{0, 0}, width, height},
           pointer_{width / 2, height / 2},
@@ -28,7 +23,7 @@ public:
           menu_height_(dock_.width != 0 ? desktop_chrome::MENU_HEIGHT : 0),
           // So does the column of desktop icons, between the two.
           icons_(menu_height_ != 0 ? desktop_icons::bounds(width, menu_height_, dock_.origin.y) : Rect{}),
-          compositor_({windows_, order_, surfaces_, chrome_, pointer_, screen_, dock_, icons_, menu_height_, font}) {
+          compositor_({windows_, order_, surfaces_, chrome_, pointer_, screen_, dock_, icons_, menu_height_}) {
         terminal_fits_ = width >= TERMINAL_OUTER_WIDTH && height >= TERMINAL_OUTER_HEIGHT;
         timezone_minutes_ = zonix_gui::Settings::load().timezone_minutes;
         for (int slot = 0; slot < MAX_WINDOWS; ++slot)
@@ -73,7 +68,7 @@ public:
                 if (has_pixels(index))
                     error = receive_pixels(index);
                 else
-                    error = window.client.receive_frame() ? repaint_client(index) : close_window(index);
+                    error = window.client.receive_frame() ? repaint(window.rect) : close_window(index);
             }
             if (error < 0 || (static_cast<unsigned long>(ready) & display_mask) == 0)
                 continue;
@@ -291,8 +286,6 @@ private:
     // Opens a file in an editor window, or finds the window that already
     // shows it. Returns the slot or a negative error.
     long edit_text(const char* path) {
-        if (TERMINAL_PROTOCOL != Protocol::Pixels)
-            return SYS_ERROR_NOT_SUPPORTED;
         for (int index = 0; index < MAX_WINDOWS; ++index) {
             auto& window = windows_[index];
             if (window.open() && window.app == APP_EDITOR &&
@@ -675,19 +668,6 @@ private:
         return 0;
     }
 
-    long repaint_client(int index) {
-        const auto& window = windows_[index];
-        if (window.protocol() != Protocol::Text)
-            return repaint(window.rect);
-        const auto& dirty = window.client.damage();
-        if (dirty.empty())
-            return 0;
-        Point origin = client_origin(window.rect);
-        return repaint({{origin.x + dirty.left * GLYPH_WIDTH, origin.y + dirty.top * GLYPH_HEIGHT},
-                        (dirty.right - dirty.left) * GLYPH_WIDTH,
-                        (dirty.bottom - dirty.top) * GLYPH_HEIGHT});
-    }
-
     long repaint(const Rect& damage) {
         int right = clamp(static_cast<long>(damage.origin.x) + damage.width, screen_.width);
         int bottom = clamp(static_cast<long>(damage.origin.y) + damage.height, screen_.height);
@@ -726,18 +706,13 @@ extern "C" int main(int argc, char**) {
     if (error == 0 && (mode.format != DISPLAY_FORMAT_XRGB8888 || mode.width < 160 || mode.height < 120 ||
                        mode.width > 0x7FFFFFFF || mode.height > 0x7FFFFFFF))
         error = SYS_ERROR_NOT_SUPPORTED;
-    psf::Font font{};
-#ifndef ZONIX_PIXEL_TERMINAL
-    if (error == 0 && (!psf::parse(terminal_font, &font) || font.width != GLYPH_WIDTH || font.height != GLYPH_HEIGHT))
-        error = SYS_ERROR_NOT_SUPPORTED;
-#endif
     if (error == 0)
         error = command_text(
             STDOUT_FD, "Desktop: click the Dock or press F2 Terminal, F4 Files, F12 exit. Shift opens another window.\n");
     if (error == 0)
         error = sys_ioctl(fd, DISPLAY_ACQUIRE, DISPLAY_ACQUIRE_EVENTS | DISPLAY_ACQUIRE_KEYBOARD_CTRL_C);
     if (error == 0) {
-        Desktop desktop(fd, static_cast<int>(mode.width), static_cast<int>(mode.height), font);
+        Desktop desktop(fd, static_cast<int>(mode.width), static_cast<int>(mode.height));
         error = desktop.run();
         long release = sys_ioctl(fd, DISPLAY_RELEASE, 0);
         if (error == 0)

@@ -2,7 +2,7 @@
 # Both share the existing startup, syscall wrappers, library and linker script.
 # Assembly register fixtures retain their dedicated entry points.
 BASE_PROGRAMS := init sh ls cat cp mkdir rm sync shutdown ps kill vi
-OPT_IN_PROGRAMS := gfxdemo desktop deskapp terminal ping
+OPT_IN_PROGRAMS := gfxdemo deskapp ping
 USER_DIR := user
 USER_BINDIR := $(BINDIR)/user
 USER_OBJDIR := $(OBJDIR)/user
@@ -32,16 +32,13 @@ USER_CFLAGS := -g -O2 -Wall -Wextra -std=c11 -ffreestanding -nostdinc \
                $(USER_ARCH_CFLAGS) -Iinclude -I$(ZCC_DIR)/src/runtime
 USER_ASFLAGS := -g -nostdinc -ffreestanding
 USER_PROGRAMS := $(notdir $(patsubst %/,%,$(dir $(wildcard $(USER_DIR)/*/*.S $(USER_DIR)/*/*.c $(USER_DIR)/*/*.cpp))))
-USER_PROGRAMS := $(filter-out zcc minicoco gui files editor settings net crypto ssh,$(sort $(USER_PROGRAMS)))
+# The Desktop suite (Desktop, Terminal, Files, Text Editor, Settings) is built
+# by user/gui/Makefile.
+USER_PROGRAMS := $(filter-out zcc minicoco gui desktop terminal files editor settings net crypto ssh,$(sort $(USER_PROGRAMS)))
 # Register-state fixtures are assembly for one architecture each. The
 # architecture Makefile names the ones it builds in USER_REGISTER_FIXTURES.
 REGISTER_FIXTURES := ssetest ssepeer fptest fppeer rvfptest rvfppeer
 USER_PROGRAMS := $(filter-out $(filter-out $(USER_REGISTER_FIXTURES),$(REGISTER_FIXTURES)),$(USER_PROGRAMS))
-# With the Desktop suite, Desktop and Terminal are mini-cocos programs built by
-# user/gui/Makefile instead of the basic character-grid versions.
-ifneq ($(GUI_PROCESSOR),)
-USER_PROGRAMS := $(filter-out desktop terminal,$(USER_PROGRAMS))
-endif
 ifneq ($(TEST),1)
 USER_PROGRAMS := $(filter-out p1life $(REGISTER_FIXTURES),$(USER_PROGRAMS))
 endif
@@ -65,7 +62,7 @@ $(USER_COMPILER_STAMP): FORCE
 
 define user_program_template
 _UP_C_$(1) := $$(wildcard $(USER_DIR)/$(1)/*.c)
-_UP_CXX_$(1) := $$(strip $$(filter-out $(USER_DIR)/terminal/grid_renderer.cpp,$$(wildcard $(USER_DIR)/$(1)/*.cpp)) $$(if $$(filter desktop,$(1)),$(USER_DIR)/desktop/chrome/basic.cpp))
+_UP_CXX_$(1) := $$(wildcard $(USER_DIR)/$(1)/*.cpp)
 _UP_ASM_$(1) := $$(wildcard $(USER_DIR)/$(1)/*.S)
 _UP_COMPILER_DEP_$(1) := $$(if $$(filter $(BASE_PROGRAMS) $(REGISTER_FIXTURES),$(1)),,$(USER_COMPILER_STAMP) $(USER_COMPILER_CHANGED))
 ifneq ($$(and $$(filter-out $(BASE_PROGRAMS) $(REGISTER_FIXTURES),$(1)),$$(filter zcc,$(USER_CC))),)
