@@ -90,6 +90,8 @@ public:
         write_error_ = error;
     }
     void set_write_hook(void (*hook)()) { write_hook_ = hook; }
+    // Sectors read from the data region, where clusters live.
+    size_t data_sectors_read() const { return data_sectors_read_; }
     Error flush_cache() override { return Error::None; }
     Error read_blocks(uint32_t block, void* buffer, size_t count) override {
         if (block > block_count || count > block_count - block) {
@@ -100,6 +102,9 @@ public:
         }
         if (read_error_ != Error::None && block == read_block_) {
             return read_error_;
+        }
+        if (block + count > data_start_lba()) {
+            data_sectors_read_ += block >= data_start_lba() ? count : block + count - data_start_lba();
         }
         memcpy(buffer, data_ + block * BLOCK_SIZE_BYTES, count * BLOCK_SIZE_BYTES);
         return Error::None;
@@ -137,6 +142,7 @@ private:
         bool partial{};
     };
     WriteFailure write_failures_[2]{};
+    size_t data_sectors_read_{};
     uint32_t read_block_{};
     uint32_t write_block_{};
     Error read_error_{Error::None};

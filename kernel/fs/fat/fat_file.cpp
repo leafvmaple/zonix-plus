@@ -30,13 +30,14 @@ Result<int> FatInfo::read_file(FatDirEntry* entry, uint8_t* io_buf, uint32_t off
 
     ClusterChain chain(*this, cluster);
     while (solve_bytes < size && (cluster = TRY(chain.next())) != 0) {
-        uint32_t sector = cluster_to_sector(cluster);
-        TRY(dev_->read(partition_start_lba_ + sector, cluster_buf, sectors_per_cluster_));
-
+        // Clusters before the offset are only followed through the FAT; their
+        // data is never read.
         if (offset >= bytes_per_cluster_) {
             offset -= bytes_per_cluster_;
             continue;
         }
+        uint32_t sector = cluster_to_sector(cluster);
+        TRY(dev_->read(partition_start_lba_ + sector, cluster_buf, sectors_per_cluster_));
 
         uint32_t cluster_offset = offset;
         uint32_t cluster_bytes = bytes_per_cluster_ - offset;

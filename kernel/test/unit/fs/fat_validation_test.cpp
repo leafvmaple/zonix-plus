@@ -87,6 +87,41 @@ void test_large_cluster_io() {
     TEST_END();
 }
 
+void test_offset_reads_skip_clusters() {
+    TEST_START("FAT reads at an offset read only the clusters they return");
+    FatImage image(1, 4);
+    FatInfo fs;
+    if (!image.ready()) {
+        TEST_ASSERT(false, "Allocated image");
+        TEST_END();
+        return;
+    }
+    // FILE.TXT spans clusters 3, 4 and 5; each byte names its cluster.
+    image.set_link(3, 4);
+    image.set_link(4, 5);
+    reinterpret_cast<FatDirEntry*>(image.cluster_data(2))->file_size = 3 * image.cluster_bytes();
+    for (uint32_t cluster = 3; cluster <= 5; ++cluster) {
+        memset(image.cluster_data(cluster), static_cast<int>(cluster), image.cluster_bytes());
+    }
+    TEST_ASSERT(fs.mount(&image) == Error::None, "Mounted three-cluster fixture");
+    FatDirEntry file{};
+    FatInfo::EntryLocation location{};
+    TEST_ASSERT(fs.find_file("FILE.TXT", &file, &location) == Error::None, "Found file");
+    uint8_t byte{};
+    size_t before = image.data_sectors_read();
+    auto last = fs.read_file(&file, &byte, 2 * image.cluster_bytes() + 5, 1);
+    TEST_ASSERT(last.ok() && last.value() == 1 && byte == 5, "Read in the third cluster returns its data");
+    TEST_ASSERT(image.data_sectors_read() - before == 1, "Only the cluster holding the offset is read");
+    uint8_t span[2]{};
+    before = image.data_sectors_read();
+    auto across = fs.read_file(&file, span, image.cluster_bytes() - 1, 2);
+    TEST_ASSERT(across.ok() && across.value() == 2 && span[0] == 3 && span[1] == 4 &&
+                    image.data_sectors_read() - before == 2,
+                "A read across a cluster boundary reads exactly the two clusters");
+    assert(fs.unmount() == Error::None);
+    TEST_END();
+}
+
 void test_directory_chains() {
     TEST_START("Cyclic and invalid directory links terminate with errors");
     FatImage image(1);
@@ -289,6 +324,7 @@ void test() {
     intr::Guard guard;
     test_geometry();
     test_large_cluster_io();
+    test_offset_reads_skip_clusters();
     test_directory_chains();
     test_cyclic_file_removal();
     test_device_errors();
