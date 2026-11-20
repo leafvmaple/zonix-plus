@@ -12,8 +12,8 @@ using desktop::Rect;
 
 // An item is a program, or ITEM_EXIT to leave Desktop.
 inline constexpr int ITEM_EXIT = -2;
-inline constexpr int ITEMS[] = {desktop_ipc::APP_TERMINAL, desktop_ipc::APP_FILES, desktop_ipc::APP_SETTINGS,
-                                ITEM_EXIT};
+inline constexpr int ITEMS[] = {desktop_ipc::APP_TERMINAL, desktop_ipc::APP_FILES, desktop_ipc::APP_EDITOR,
+                                desktop_ipc::APP_SETTINGS, ITEM_EXIT};
 inline constexpr int ITEM_COUNT = sizeof(ITEMS) / sizeof(*ITEMS);
 inline constexpr int NO_ITEM = -1;
 

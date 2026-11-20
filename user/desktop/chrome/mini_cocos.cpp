@@ -79,6 +79,15 @@ public:
                     shape({14.f, 14.f, 16.f, 16.f}, 8.f, Color::Text);
                     shape({18.f, 18.f, 8.f, 8.f}, 4.f, Color::Panel);
                     break;
+                case desktop_ipc::APP_EDITOR:
+                    // A page of text with a folded corner and a cursor.
+                    shape({10.f, 4.f, 24.f, 36.f}, 3.f, Color::File);
+                    shape({26.f, 32.f, 8.f, 8.f}, 3.f, Color::FileFold);
+                    shape({15.f, 26.f, 9.f, 2.f}, 0.f, Color::FileShade);
+                    shape({15.f, 20.f, 14.f, 2.f}, 0.f, Color::FileShade);
+                    shape({15.f, 14.f, 14.f, 2.f}, 0.f, Color::FileShade);
+                    shape({15.f, 7.f, 2.f, 5.f}, 0.f, Color::Accent);
+                    break;
                 case desktop_ipc::APP_FILES:
                     shape({7.f, 31.f, 15.f, 8.f}, 3.f, Color::FolderTab);
                     shape({5.f, 9.f, 34.f, 26.f}, 4.f, Color::FolderShade);

@@ -24,7 +24,7 @@ constexpr zocos::Color4B COLORS[] = {
     rgb(0x5E5E63),                      // Pressed
     rgb(0x333336),                      // Disabled
     rgb(0x1A1A1C),                      // Field
-    rgb(0x0A5BC4),                      // Selected
+    rgb(theme::SELECTION),              // Selected
     rgb(theme::ACCENT),                 // SelectedBorder
     rgb(theme::ACCENT),                 // Accent
     rgb(0x409CFF),                      // AccentPressed
