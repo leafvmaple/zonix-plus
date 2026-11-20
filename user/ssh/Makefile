@@ -37,7 +37,7 @@ $(SSH_OBJDIR)/%.o: user/ssh/%.c $(TINYSSH_SOURCE)/.prepared $(MBEDTLS_SOURCE)/.p
 	$(Q)$(CC) $(SSH_CFLAGS) $(DEPFLAGS) -c "$<" -o "$@"
 
 $(USER_BINDIR)/SSHD.ELF: $(SSH_OBJECTS) $(USER_BINDIR)/libzonixcrypto.a $(ZCC_RUNTIME_STAMP) | $(USER_BINDIR) check-syscall-abi
-	$(Q)$(LD) -nostdlib --no-relax --gc-sections -T $(ZCC_SYSROOT)/linker.ld $(ZCC_SYSROOT)/crt0.o \
+	$(Q)$(LD) -nostdlib --no-relax --gc-sections --strip-debug --discard-all -T $(ZCC_SYSROOT)/linker.ld $(ZCC_SYSROOT)/crt0.o \
 		$(filter %.o %.a,$^) $(ZCC_SYSROOT)/libzccrt.a -o "$@"
 
 .PHONY: ssh ssh-image

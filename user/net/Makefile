@@ -6,7 +6,7 @@ LWIP_SOURCE := $(TCP_OBJDIR)/source
 LWIP_CFLAGS = $(USER_CFLAGS) -ffunction-sections -fdata-sections -Iuser/net/port \
                -I"$(LWIP_SOURCE)/src/include" -isystem$(shell $(firstword $(CC)) -print-resource-dir)/include
 LWIP_FILES := core/init core/def core/inet_chksum core/ip core/mem core/memp core/netif core/pbuf \
-              core/tcp core/tcp_in core/tcp_out core/timeouts core/ipv4/etharp core/ipv4/ip4 \
+              core/tcp core/tcp_in core/tcp_out core/timeouts core/udp core/ipv4/dhcp core/ipv4/etharp core/ipv4/ip4 \
               core/ipv4/ip4_addr core/ipv4/icmp netif/ethernet
 LWIP_OBJECTS := $(addprefix $(TCP_OBJDIR)/lwip/,$(addsuffix .o,$(LWIP_FILES)))
 
@@ -32,7 +32,7 @@ $(TCP_OBJDIR)/tcpecho.o: user/net/tcpecho.c $(ZCC_RUNTIME_STAMP) user/net/Makefi
 $(USER_BINDIR)/TCPSERVE.ELF: $(TCP_OBJDIR)/tcpserve.o $(LWIP_OBJECTS)
 $(USER_BINDIR)/TCPECHO.ELF: $(TCP_OBJDIR)/tcpecho.o
 $(USER_BINDIR)/TCPSERVE.ELF $(USER_BINDIR)/TCPECHO.ELF: $(ZCC_RUNTIME_STAMP) | $(USER_BINDIR) check-syscall-abi
-	$(Q)$(LD) -nostdlib --no-relax --gc-sections -T $(ZCC_SYSROOT)/linker.ld $(ZCC_SYSROOT)/crt0.o \
+	$(Q)$(LD) -nostdlib --no-relax --gc-sections --strip-debug --discard-all -T $(ZCC_SYSROOT)/linker.ld $(ZCC_SYSROOT)/crt0.o \
 		$(filter %.o,$^) $(ZCC_SYSROOT)/libzccrt.a -o "$@"
 
 .PHONY: tcp-image

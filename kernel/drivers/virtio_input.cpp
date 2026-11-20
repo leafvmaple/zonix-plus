@@ -5,6 +5,7 @@
 #include "cons/cons.h"
 #include <abi/display.h>
 #include "drivers/intr.h"
+#include "drivers/pci.h"
 #include "lib/stdio.h"
 #include <asm/arch.h>
 #include <asm/page.h>
@@ -34,10 +35,13 @@ public:
     Error start(const pci::DeviceInfo& device) {
         ENSURE(state_ == State::Uninitialized, Error::Busy);
         pci::CommandGuard command(device, pci::CMD_MEMORY_SPACE | pci::CMD_BUS_MASTER);
-        uint16_t enabled =
-            static_cast<uint16_t>(pci::config_read32(device.bus, device.slot, device.function, pci::Command));
-        pci::config_write32(device.bus, device.slot, device.function, pci::Command, enabled & ~pci::CMD_INTX_DISABLE);
         Error error = prepare(device);
+        if (error == Error::None) {
+            auto irq = pci::attach_irq(device, interrupt, this);
+            error = irq.ok() ? Error::None : irq.error();
+            if (irq.ok())
+                irq_ = irq.value();
+        }
         if (error != Error::None) {
             if (stop() != Error::None) {
                 // DMA did not stop: retain mappings, queue and buffers together.
@@ -49,11 +53,16 @@ public:
         state_ = State::Ready;
         transport_.ready();
         command.commit();
-        arch_irq_enable_line(irq_);
         notification_.notify();
         klog::info("input: VirtIO device ready (eventq=%d, IRQ=%d)\n", queue_.size(), irq_);
         return Error::None;
     }
+
+private:
+    enum class State { Uninitialized, Ready, Quarantined };
+    static constexpr uint16_t MAX_QUEUE_SIZE = 64;
+
+    static void interrupt(void* context) { static_cast<Device*>(context)->intr(); }
 
     void intr() {
         uint8_t status = transport_.acknowledge_irq();
@@ -85,12 +94,6 @@ public:
         }
     }
 
-    int irq() const { return irq_; }
-
-private:
-    enum class State { Uninitialized, Ready, Quarantined };
-    static constexpr uint16_t MAX_QUEUE_SIZE = 64;
-
     static void dispatch(const InputEvent& input) {
         if (input.type == EV_KEY && input.value <= DISPLAY_KEY_REPEAT) {
             if (input.code >= DISPLAY_BUTTON_LEFT && input.code <= DISPLAY_BUTTON_MIDDLE) {
@@ -117,20 +120,11 @@ private:
             TRY(queue_.submit(i));
         }
         notification_ = TRY(transport_.configure_queue(0, queue_));
-        uint32_t interrupt = pci::config_read32(device.bus, device.slot, device.function, pci::Interrupt);
-        uint8_t pin = static_cast<uint8_t>(interrupt >> 8);
-        ENSURE(pin >= 1 && pin <= 4, Error::NotSupported);
-        irq_ = arch_pci_intx_to_irq(device.slot, pin);
-        if (irq_ < 0) {
-            // Platforms with firmware-assigned PCI lines use Interrupt Line.
-            uint8_t line = static_cast<uint8_t>(interrupt);
-            ENSURE(line != 0 && line != 0xFF, Error::NotSupported);
-            irq_ = line;
-        }
         return Error::None;
     }
 
     Error stop() {
+        pci::detach_irq(this);
         Error error = transport_.reset();
         if (error != Error::None) {
             state_ = State::Quarantined;
@@ -171,13 +165,6 @@ public:
         }
         return Error::Full;
     }
-    static void intr(unsigned int irq) {
-        for (auto& input : devices_) {
-            if (input.irq() >= 0 && static_cast<unsigned int>(input.irq()) == irq) {
-                input.intr();
-            }
-        }
-    }
 
 private:
     inline static sys::array<Device, 2> devices_{};
@@ -210,8 +197,5 @@ int Manager::init() {
 namespace virtio_input {
 int init() {
     return Manager::init();
-}
-void intr(unsigned int irq) {
-    Manager::intr(irq);
 }
 }  // namespace virtio_input

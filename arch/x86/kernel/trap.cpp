@@ -9,6 +9,7 @@
 
 #include "drivers/i8042.h"
 #include "drivers/ide.h"
+#include "drivers/pci.h"
 
 namespace {
 
@@ -96,7 +97,7 @@ bool arch_try_handle_irq(TrapFrame* tf) {
         case TRAP_VECTOR_IRQ_MOUSE: i8042::intr(); break;
         case TRAP_VECTOR_IRQ_IDE1: IdeManager::interrupt_handler(0); break;
         case TRAP_VECTOR_IRQ_IDE2: IdeManager::interrupt_handler(1); break;
-        default: break;
+        default: static_cast<void>(pci::dispatch_irq(static_cast<unsigned int>(tf->trapno - IRQ_OFFSET))); break;
     }
 
     return true;

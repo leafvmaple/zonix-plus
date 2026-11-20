@@ -302,9 +302,9 @@ Files 用管道后端接收窗口坐标中的键鼠事件，mini-cocos 将事件
 
 构建在对象目录展开固定版本源码，对副本应用 Zonix 的无 RTTI、字体、离屏视图和按钮绘制顺序兼容补丁。引擎和平台库使用项目的 `external/zstl` 静态链接到 GUI ELF。可选 GUI 软件及字体从应用盘安装，启动镜像和基础 rootfs 独立构建。套件的程序共用一份运行时分配器。堆从程序映像末尾开始，用 `sys_brk` 按需增长，每次至少 256 KiB；末尾空闲超过 1 MiB 时把多余部分还给内核。Desktop 的窗口画布在客户端报告尺寸时分配，窗口关闭时释放。
 
-## x86 QEMU 最小联网
+## 联网
 
-可选的网络应用盘安装 `ping`。内核探测到现代 VirtIO PCI 网卡时注册 `/dev/net0`。首版使用 QEMU 用户态网络，来宾 IPv4 固定为 `10.0.2.15/24`。
+可选的网络应用盘安装 `ping`。三种架构的内核探测到现代 VirtIO PCI 网卡时都注册 `/dev/net0`，收到帧时由网卡中断唤醒读者。`ping` 使用 QEMU 用户态网络，来宾 IPv4 固定为 `10.0.2.15/24`。下面以 x86 为例；aarch64 和 riscv64 把 `ARCH` 换掉，QEMU 参数相同。
 
 ```sh
 make ARCH=x86 TEST=0
@@ -317,7 +317,9 @@ make ARCH=x86 TEST=0 qemu USER_DISK=bin/x86/network.img \
 
 ### TCP 回显示例
 
-可选的 `tcp-image` 使用 Clang 和固定版本 lwIP 构建 `tcpserve` 与 `tcpecho`，单独打包到 `tcp.img`。`tcpserve` 在用户态运行 IPv4/TCP 协议栈，通过 `/dev/net0` 收发，每次处理一条连接。它使用普通管道把 TCP 字节流接到指定子进程的标准输入和输出。`tcpecho` 只用标准输入输出就能回显二进制数据。退出 `tcpserve` 后即可重新用网卡运行 `ping`。
+可选的 `tcp-image` 使用 Clang 和固定版本 lwIP 构建 `tcpserve` 与 `tcpecho`，单独打包到 `tcp.img`。`tcpserve` 在用户态运行 IPv4/TCP 协议栈，通过 `/dev/net0` 收发，最多同时处理四条连接，每条连接启动一个子进程，用普通管道把 TCP 字节流接到它的标准输入和输出；第五条连接会被拒绝。`tcpecho` 只用标准输入输出就能回显二进制数据。`tcpserve` 独占网卡，退出后才能用网卡运行 `ping`。
+
+`tcpserve [-a ADDRESS/PREFIX [-g GATEWAY]] <port> /absolute/worker-path`：不带 `-a` 时用 DHCP 取得地址，取得后打印 `tcpserve: listening on ADDRESS:PORT`；`-a 192.168.1.20/24 -g 192.168.1.1` 使用固定地址。它关闭 Nagle 算法，交互输入不等待对端确认。
 
 ```sh
 git clone --branch STABLE-2_2_1_RELEASE https://github.com/lwip-tcpip/lwip.git ../lwip
@@ -348,7 +350,7 @@ make ARCH=x86 TEST=0 crypto MBEDTLS_DIR=../mbedtls
 
 ## 可选 SSH 登录
 
-SSH 服务使用固定版本的 TinySSH。`tcpserve` 将每条连接交给独立的 `sshd` 进程，认证通过后由它创建 PTY 并启动 `/bin/sh`。首版提供单个 `zonix` 登录名、一个授权 Ed25519 公钥、交互式 shell 和窗口尺寸更新。Zonix 目前是单用户系统，授权公钥持有者获得同本地 shell 一样的系统权限。
+SSH 服务使用固定版本的 TinySSH。`tcpserve` 将每条连接交给独立的 `sshd` 进程，认证通过后由它创建 PTY 并启动 `/bin/sh`，最多同时四个会话。提供单个 `zonix` 登录名、一个授权 Ed25519 公钥、交互式 shell 和窗口尺寸更新。Zonix 目前是单用户系统，授权公钥持有者获得同本地 shell 一样的系统权限。三种架构都可以使用；`sshd` 依赖 VirtIO 随机源，QEMU 需要同时提供网卡和 `virtio-rng-pci`。
 
 准备好 `../lwip`、`../mbedtls` 和下列 TinySSH checkout。使用已有的 Ed25519 登录公钥文件，并在仓库外生成 SSH 主机密钥。
 
@@ -361,19 +363,25 @@ mkdir -p "$(dirname "$hostkeys")"
 make ARCH=x86 TEST=0 ssh-image SSH_HOSTKEY_DIR="$hostkeys" \
   SSH_AUTHORIZED_KEY="$HOME/.ssh/id_ed25519.pub"
 make ARCH=x86 TEST=0 qemu USER_DISK=bin/x86/ssh.img \
-  QEMU_FLAGS='-object rng-builtin,id=entropy -device virtio-rng-pci,disable-legacy=on,rng=entropy -netdev user,id=net0,ipv6=off,restrict=on,hostfwd=tcp:127.0.0.1:2222-:2222 -device virtio-net-pci,disable-legacy=on,netdev=net0'
+  QEMU_FLAGS='-object rng-builtin,id=entropy -device virtio-rng-pci,disable-legacy=on,rng=entropy -netdev user,id=net0,ipv6=off,restrict=on,hostfwd=tcp:127.0.0.1:2222-:22 -device virtio-net-pci,disable-legacy=on,netdev=net0'
 ```
 
-在 QEMU 窗口中运行 `tcpserve 2222 /opt/bin/sshd`。在宿主机预先登记主机公钥，再用 OpenSSH 登录。
+`ssh.img` 带有 `/opt/etc/services`，init 开机时在后台启动其中的 `/opt/bin/tcpserve 22 /opt/bin/sshd`，地址来自 DHCP。在宿主机预先登记主机公钥，再用 OpenSSH 登录。
 
 ```sh
 known_hosts="$HOME/.config/zonix/known_hosts"
 printf '[127.0.0.1]:2222 %s\n' "$(../tinyssh/tinysshd-printkey "$hostkeys")" > "$known_hosts"
 ssh -t -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$known_hosts" \
-  -o IdentitiesOnly=yes -i "$HOME/.ssh/id_ed25519" -p 2222 zonix@127.0.0.1
+  -o IdentitiesOnly=yes -o ObscureKeystrokeTiming=no -i "$HOME/.ssh/id_ed25519" -p 2222 zonix@127.0.0.1
 ```
 
-`ssh.img` 含来宾主机私钥，构建时将宿主文件权限设为 0600。退出远程 shell 或断开连接会回收该 PTY，来宾物理控制台按 Ctrl-C 停止监听。
+OpenSSH 9.5 起默认按 20 ms 的节拍发送按键来掩盖输入节奏，`ObscureKeystrokeTiming=no` 关掉它后按键回显约 5～10 ms。`ssh.img` 含来宾主机私钥，构建时将宿主文件权限设为 0600。退出远程 shell 或断开连接会回收该 PTY 和 `sshd`。要停止服务，用 `ps` 找到 `tcpserve` 的 PID 再 `kill`；init 不会自动重启它，需要时在 shell 中重新运行同一条命令。
+
+### 开机服务
+
+init 启动 shell 之前读取应用盘上的 `/opt/etc/services`（不存在时什么也不做）。每行是一条以绝对路径开头的命令，最多 8 个参数，以 `#` 开头的行是注释，最多启动 8 个服务。服务在后台运行，继承控制台作为标准输入输出，不占用前台；退出时 init 打印 `init: service PID exited (STATUS)`，不重新启动。基础 rootfs 不提供这个文件，没有应用盘时系统照常进入 shell。
+
+`scripts/test_ssh_qemu.py <arch> --host-key <SSH_HOSTKEY_DIR>/ed25519.pk` 用 OpenSSH 从宿主机登录 `make ssh-image` 生成的系统，检查开机服务、DHCP 地址、两个并发会话、关闭其中一个后另一个继续工作和再次登录，并打印按键回显延迟和两个方向的传输速度。它需要 `TEST=0` 内核、`ssh-image` 和对应的登录私钥（默认 `~/.ssh/id_ed25519`）。
 
 ## mini-cocos 软件渲染示例
 

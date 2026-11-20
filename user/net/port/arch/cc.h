@@ -6,6 +6,10 @@
 #define LWIP_NO_INTTYPES_H 1
 #define LWIP_NO_CTYPE_H    1
 
+// DHCP transaction identifiers only need to differ between attempts; the
+// server also matches replies by MAC address.
+#define LWIP_RAND() ((u32_t)sys_uptime_ms() * 2654435761U)
+
 #define LWIP_PLATFORM_DIAG(message)   printf message
 #define LWIP_PLATFORM_ASSERT(message) zonix_lwip_assert(message)
 

@@ -2,6 +2,7 @@
 #include "drivers/intr.h"
 #include "drivers/pci.h"
 #include "drivers/sdhci.h"
+#include "drivers/virtio_net.h"
 #include "drivers/virtio_rng.h"
 #include "cons/cons.h"
 #include "fs/vfs.h"
@@ -85,6 +86,7 @@ static const InitStep KERN_STEPS[] = {
     {"blk", blk::init, true},
     {"sdhci", sdhci::init, false},
     {"pci_reg", pci_registers, false},
+    {"virtio_net", virtio_net::init, false},
     {"virtio_rng", virtio_rng::init, false},
     {"pci_probe", probe_pci_devices, false},
 #ifdef TEST_MODE

@@ -81,6 +81,20 @@ void enable_bus_master(int bus, int slot, int function);
 
 // Restore command decoding on failed probes. Commit only after hardware is safe
 // to retain; DMA engines must be stopped explicitly before rollback.
+// Device interrupt handlers run in interrupt context with the device's
+// platform IRQ. INTx lines may be shared, so a handler must check its own
+// device's status and return when the interrupt was not its own.
+using IrqHandler = void (*)(void* context);
+
+// Routes the device's INTx pin to a platform IRQ, records the handler, unmasks
+// the line and enables INTx in the device's command register.
+Result<int> attach_irq(const DeviceInfo& device, IrqHandler handler, void* context);
+// Removes every handler recorded with this context. The line stays unmasked
+// for other devices that may share it.
+void detach_irq(void* context);
+// Runs the handlers attached to a platform IRQ; false when there are none.
+bool dispatch_irq(unsigned int irq);
+
 class CommandGuard {
 public:
     CommandGuard(const DeviceInfo& device, uint16_t enable_bits);

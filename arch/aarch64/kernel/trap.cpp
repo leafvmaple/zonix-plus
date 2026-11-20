@@ -16,7 +16,7 @@
 #include "drivers/gic.h"
 #include "drivers/pl011.h"
 #include "drivers/timer.h"
-#include "drivers/virtio_input.h"
+#include "drivers/pci.h"
 
 namespace {
 
@@ -70,7 +70,7 @@ bool arch_try_handle_irq(TrapFrame* tf) {
         pl011::intr();
         gic::send_eoi(iar);
     } else if (intid != TRAP_INTID_SPURIOUS) {
-        virtio_input::intr(intid);
+        static_cast<void>(pci::dispatch_irq(intid));
         gic::send_eoi(iar);
     }
 

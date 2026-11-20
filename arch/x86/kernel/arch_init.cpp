@@ -19,7 +19,6 @@
 #include "drivers/ahci.h"
 #include "drivers/i8259.h"
 #include "drivers/i8253.h"
-#include "drivers/virtio_net.h"
 
 // ============================================================================
 // Architecture initialization
@@ -62,7 +61,6 @@ const InitStep ARCH_STEPS[] = {
 
 const InitStep PCI_STEPS[] = {
     {"ahci", AhciManager::init, false},
-    {"virtio_net", virtio_net::init, false},
 };
 
 }  // namespace

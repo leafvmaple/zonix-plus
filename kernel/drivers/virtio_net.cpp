@@ -1,5 +1,6 @@
 #include "virtio_net.h"
 #include "drivers/intr.h"
+#include "drivers/pci.h"
 #include "drivers/virtio/pci_transport.h"
 #include "drivers/virtio/split_queue.h"
 #include "fs/vfs_fs.h"
@@ -19,10 +20,12 @@ constexpr uint16_t VIRTIO_NET_MODERN = 0x1041;
 constexpr uint32_t FEATURE_MAC = 1U << 5;
 constexpr uint16_t RX_QUEUE = 0;
 constexpr uint16_t TX_QUEUE = 1;
-constexpr uint16_t MAX_RX_BUFFERS = 8;
+constexpr uint16_t MAX_RX_BUFFERS = 16;
+constexpr uint16_t MAX_TX_BUFFERS = 16;
 constexpr size_t VIRTIO_HEADER_BYTES = 12;  // Modern VirtIO without offload metadata.
 constexpr size_t DMA_BUFFER_BYTES = VIRTIO_HEADER_BYTES + NET_FRAME_MAX;
 constexpr uint64_t IO_TIMEOUT_MS = 1000;
+constexpr uint8_t ISR_QUEUE = 1;
 
 class Device {
 public:
@@ -35,10 +38,14 @@ public:
                 command.commit();
             return error;
         }
-        state_ = State::Ready;
-        transport_.ready();
-        rx_notification_.notify();
+        {
+            intr::Guard guard;
+            state_ = State::Ready;
+            transport_.ready();
+            rx_notification_.notify();
+        }
         command.commit();
+        enable_interrupts(device);
         return Error::None;
     }
 
@@ -103,38 +110,36 @@ public:
         intr::Guard guard;
         uint64_t deadline = trap::uptime_ms() + IO_TIMEOUT_MS;
         TRY(check_io());
-        while (tx_busy_) {
-            auto completion = tx_.pop_used();
-            if (completion.ok()) {
-                tx_busy_ = false;
-                break;
-            }
-            if (completion.error() != Error::NotFound)
-                return invalid_queue();
+        TRY(reclaim_transmitted());
+        // Transmit completions do not interrupt; a full ring waits for the next tick.
+        while (tx_free_count_ == 0) {
             ENSURE(trap::uptime_ms() < deadline, Error::Timeout);
             progress_.sleep();
             TRY(check_io());
+            TRY(reclaim_transmitted());
         }
-        auto* data = tx_buffer_.data();
+        uint16_t id = tx_free_[--tx_free_count_];
+        auto* data = tx_buffers_[id].data();
         memset(data, 0, VIRTIO_HEADER_BYTES);
         memcpy(data + VIRTIO_HEADER_BYTES, buf, size);
-        TRY(tx_.set_buffer(0, virt_to_phys(data), static_cast<uint32_t>(VIRTIO_HEADER_BYTES + size), false));
-        TRY(tx_.submit(0));
-        tx_busy_ = true;
+        TRY(tx_.set_buffer(id, virt_to_phys(data), static_cast<uint32_t>(VIRTIO_HEADER_BYTES + size), false));
+        TRY(tx_.submit(id));
         tx_notification_.notify();
         return static_cast<int>(size);
     }
 
-    void tick() {
-        if (!progress_.empty())
-            progress_.wakeup_all();
-        if (opened_ && state_ == State::Ready && rx_.has_used() && !rx_announced_) {
-            rx_announced_ = true;
-            fd::Readiness::notify();
-        }
+    // The timer tick is the fallback when the device has no usable interrupt.
+    void tick() { signal(); }
+
+    static void interrupt(void* context) {
+        auto* device = static_cast<Device*>(context);
+        uint8_t status = device->transport_.acknowledge_irq();
+        if ((status & ISR_QUEUE) != 0 && device->state_ == State::Ready)
+            device->signal();
     }
 
     Error stop() {
+        pci::detach_irq(this);
         Error error = transport_.reset();
         if (error != Error::None) {
             state_ = State::Quarantined;
@@ -145,10 +150,11 @@ public:
         tx_.release();
         for (auto& buffer : rx_buffers_)
             buffer = KernelBuffer{};
-        tx_buffer_ = KernelBuffer{};
+        for (auto& buffer : tx_buffers_)
+            buffer = KernelBuffer{};
         rx_notification_ = {};
         tx_notification_ = {};
-        tx_busy_ = false;
+        tx_free_count_ = 0;
         rx_announced_ = false;
         transport_.release();
         state_ = State::Idle;
@@ -164,11 +170,16 @@ private:
         auto receive_size = TRY(transport_.queue_size(RX_QUEUE));
         if (receive_size > MAX_RX_BUFFERS)
             receive_size = MAX_RX_BUFFERS;
+        auto transmit_size = TRY(transport_.queue_size(TX_QUEUE));
+        if (transmit_size > MAX_TX_BUFFERS)
+            transmit_size = MAX_TX_BUFFERS;
         TRY(rx_.allocate(receive_size));
-        TRY(tx_.allocate(1));
-        rx_.suppress_interrupts();
+        TRY(tx_.allocate(transmit_size));
         tx_.suppress_interrupts();
-        tx_buffer_ = TRY(KernelBuffer::alloc(DMA_BUFFER_BYTES));
+        for (uint16_t i = 0; i < transmit_size; ++i) {
+            tx_buffers_[i] = TRY(KernelBuffer::alloc(DMA_BUFFER_BYTES));
+            tx_free_[tx_free_count_++] = i;
+        }
         for (uint16_t i = 0; i < receive_size; ++i) {
             rx_buffers_[i] = TRY(KernelBuffer::alloc(DMA_BUFFER_BYTES));
             TRY(rx_.set_buffer(i, virt_to_phys(rx_buffers_[i].data()), DMA_BUFFER_BYTES, true));
@@ -177,6 +188,37 @@ private:
         rx_notification_ = TRY(transport_.configure_queue(RX_QUEUE, rx_));
         tx_notification_ = TRY(transport_.configure_queue(TX_QUEUE, tx_));
         return Error::None;
+    }
+
+    // Receiving and the timer both wake blocked transmitters and announce frames.
+    void signal() {
+        if (!progress_.empty())
+            progress_.wakeup_all();
+        if (opened_ && state_ == State::Ready && rx_.has_used() && !rx_announced_) {
+            rx_announced_ = true;
+            fd::Readiness::notify();
+        }
+    }
+
+    void enable_interrupts(const pci::DeviceInfo& device) {
+        auto irq = pci::attach_irq(device, interrupt, this);
+        if (!irq.ok()) {
+            klog::warn("virtio_net: no interrupt line (%s), polling on the timer\n", error_str(irq.error()));
+            return;
+        }
+        klog::debug("virtio_net: IRQ %d\n", irq.value());
+    }
+
+    Error reclaim_transmitted() {
+        for (;;) {
+            auto completion = tx_.pop_used();
+            if (!completion.ok())
+                return completion.error() == Error::NotFound ? Error::None : invalid_queue();
+            uint32_t id = completion.value().id;
+            if (id >= tx_.size() || tx_free_count_ >= tx_.size())
+                return invalid_queue();
+            tx_free_[tx_free_count_++] = static_cast<uint16_t>(id);
+        }
     }
 
     Error check_io() const {
@@ -200,11 +242,12 @@ private:
     virtio::QueueNotification rx_notification_{};
     virtio::QueueNotification tx_notification_{};
     sys::array<KernelBuffer, MAX_RX_BUFFERS> rx_buffers_{};
-    KernelBuffer tx_buffer_{};
+    sys::array<KernelBuffer, MAX_TX_BUFFERS> tx_buffers_{};
+    sys::array<uint16_t, MAX_TX_BUFFERS> tx_free_{};
     sys::array<uint8_t, NET_MAC_SIZE> mac_{};
     WaitQueue progress_{};
     State state_{};
-    bool tx_busy_{};
+    uint16_t tx_free_count_{};
     bool opened_{};
     bool rx_announced_{};
 };

@@ -1,5 +1,6 @@
 #include "virtio_rng.h"
 #include "drivers/intr.h"
+#include "drivers/pci.h"
 #include "drivers/virtio/pci_transport.h"
 #include "drivers/virtio/split_queue.h"
 #include "lib/mutex.h"
@@ -33,6 +34,7 @@ public:
         state_ = State::Ready;
         klog::info("random: VirtIO entropy source ready\n");
         command.commit();
+        enable_interrupts(device);
         return Error::None;
     }
 
@@ -71,6 +73,7 @@ public:
         }
     }
 
+    // The timer tick is the fallback when the device has no usable interrupt.
     void tick() {
         if (!progress_.empty())
             progress_.wakeup_all();
@@ -78,11 +81,27 @@ public:
 
 private:
     enum class State { Offline, Ready, Quarantined };
+    static constexpr uint8_t ISR_QUEUE = 1;
+
+    static void interrupt(void* context) {
+        auto* device = static_cast<Device*>(context);
+        uint8_t status = device->transport_.acknowledge_irq();
+        if ((status & ISR_QUEUE) != 0 && !device->progress_.empty())
+            device->progress_.wakeup_all();
+    }
+
+    void enable_interrupts(const pci::DeviceInfo& device) {
+        auto irq = pci::attach_irq(device, interrupt, this);
+        if (!irq.ok()) {
+            klog::warn("virtio_rng: no interrupt line (%s), polling on the timer\n", error_str(irq.error()));
+            return;
+        }
+        klog::debug("virtio_rng: IRQ %d\n", irq.value());
+    }
 
     Error prepare(const pci::DeviceInfo& device) {
         TRY(transport_.initialize(device));
         TRY(queue_.allocate(1));
-        queue_.suppress_interrupts();
         buffer_ = TRY(KernelBuffer::alloc(virtio_rng::MAX_READ));
         memset(buffer_.data(), 0, buffer_.size());
         notification_ = TRY(transport_.configure_queue(REQUEST_QUEUE, queue_));
@@ -90,6 +109,7 @@ private:
     }
 
     Error stop() {
+        pci::detach_irq(this);
         Error error = transport_.reset();
         if (error != Error::None) {
             state_ = State::Quarantined;

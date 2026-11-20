@@ -53,15 +53,15 @@ def command(arch, directory, log):
 
 
 class Console:
-    def __init__(self, arch, directory, log):
+    def __init__(self, arch, directory, log, extra=()):
         self.log = log
         self.position = 0
         qmp_path = directory / "qmp.sock"
         log.unlink(missing_ok=True)
         self.output = open(log, "wb") if arch == "x86" else subprocess.DEVNULL
         self.process = subprocess.Popen(
-            command(arch, directory, log) + ["-display", "none", "-no-reboot", "-snapshot",
-                                             "-qmp", f"unix:{qmp_path},server=on,wait=off"],
+            command(arch, directory, log) + list(extra) +
+            ["-display", "none", "-no-reboot", "-snapshot", "-qmp", f"unix:{qmp_path},server=on,wait=off"],
             cwd=ROOT, stdin=subprocess.DEVNULL, stdout=self.output, stderr=subprocess.PIPE)
         deadline = time.monotonic() + 30
         while not qmp_path.exists():

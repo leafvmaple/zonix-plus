@@ -1,4 +1,5 @@
 #include "drivers/pci.h"
+#include "drivers/intr.h"
 #include <kernel/log.h>
 #include <debug/assert.h>
 #include <sys/inplace_vector.hpp>
@@ -24,6 +25,49 @@ class State {
     inline static sys::inplace_vector<const pci::Driver*, MAX_REGISTERED_DRIVERS> registered_drivers_{};
     inline static sys::array<int, MAX_ENUM_DEVICES> bound_driver_indexes_{};
     inline static bool scan_complete_{};
+};
+
+constexpr size_t MAX_IRQ_HANDLERS = 8;
+
+class IrqTable {
+public:
+    static Error add(int irq, pci::IrqHandler handler, void* context) {
+        intr::Guard guard;
+        ENSURE_LOG(handlers_.try_push_back({irq, handler, context}), Error::Full, "pci: interrupt table full, max=%d",
+                   static_cast<int>(MAX_IRQ_HANDLERS));
+        return Error::None;
+    }
+
+    static void remove(void* context) {
+        intr::Guard guard;
+        for (size_t i = 0; i < handlers_.size();) {
+            if (handlers_[i].context == context) {
+                handlers_[i] = handlers_.back();
+                handlers_.pop_back();
+            } else {
+                ++i;
+            }
+        }
+    }
+
+    static bool dispatch(unsigned int irq) {
+        bool handled = false;
+        for (const Entry& entry : handlers_) {
+            if (entry.irq >= 0 && static_cast<unsigned int>(entry.irq) == irq) {
+                entry.handler(entry.context);
+                handled = true;
+            }
+        }
+        return handled;
+    }
+
+private:
+    struct Entry {
+        int irq;
+        pci::IrqHandler handler;
+        void* context;
+    };
+    inline static sys::inplace_vector<Entry, MAX_IRQ_HANDLERS> handlers_{};
 };
 
 bool is_present(uint32_t id) {
@@ -172,6 +216,33 @@ void enable_bus_master(int bus, int slot, int function) {
     uint16_t cmd = static_cast<uint16_t>(config_read32(bus, slot, function, Command));
     cmd |= CMD_BUS_MASTER | CMD_MEMORY_SPACE;
     config_write32(bus, slot, function, Command, cmd);
+}
+
+Result<int> attach_irq(const DeviceInfo& device, IrqHandler handler, void* context) {
+    ENSURE(handler, Error::Invalid);
+    uint32_t interrupt = config_read32(device.bus, device.slot, device.function, Interrupt);
+    uint8_t pin = static_cast<uint8_t>(interrupt >> 8);
+    ENSURE(pin >= 1 && pin <= 4, Error::NotSupported);
+    int irq = arch_pci_intx_to_irq(device.slot, pin);
+    if (irq < 0) {
+        // Platforms with firmware-assigned PCI lines use Interrupt Line.
+        uint8_t line = static_cast<uint8_t>(interrupt);
+        ENSURE(line != 0 && line != 0xFF, Error::NotSupported);
+        irq = line;
+    }
+    TRY(IrqTable::add(irq, handler, context));
+    arch_irq_enable_line(irq);
+    uint16_t command = static_cast<uint16_t>(config_read32(device.bus, device.slot, device.function, Command));
+    config_write32(device.bus, device.slot, device.function, Command, command & ~CMD_INTX_DISABLE);
+    return irq;
+}
+
+void detach_irq(void* context) {
+    IrqTable::remove(context);
+}
+
+bool dispatch_irq(unsigned int irq) {
+    return IrqTable::dispatch(irq);
 }
 
 CommandGuard::CommandGuard(const DeviceInfo& device, uint16_t enable_bits)

@@ -9,6 +9,11 @@ void arch_port_write16_buffer(uint16_t port, void* buffer, size_t count);
 }  // namespace storage_host
 inline void arch_spin_hint() {}
 inline void arch_io_wait() {}
+// Storage probes poll; PCI interrupt routing is not part of this fixture.
+inline int arch_pci_intx_to_irq(uint8_t, uint8_t) {
+    return -1;
+}
+inline void arch_irq_enable_line(int) {}
 inline void arch_invalidate_tlb_range(uintptr_t va, size_t byte_count) {
     storage_host::arch_invalidate_tlb_range(va, byte_count);
 }
