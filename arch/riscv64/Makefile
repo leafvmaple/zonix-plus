@@ -20,15 +20,22 @@ CXX     := $(LLVM_BIN)clang++ --target=riscv64-none-elf
 LD      := $(LLD_BIN)ld.lld
 # Shared user-space runtime ABI, independent of the application compiler.
 USER_ARCH_CFLAGS := -march=rv64imac -mabi=lp64 -mno-relax
+# Instruction-generation flags for the TEST=1 user FP register fixtures.
+USER_TEST_CFLAGS := -g -O2 -march=rv64gc -mabi=lp64d -mno-relax -nostdinc -ffreestanding \
+                   -fno-builtin -fno-stack-protector -fno-pic -Iinclude
+USER_REGISTER_FIXTURES := rvfptest rvfppeer
+# Context switches save the user's FP state, but traps do not, so the kernel
+# is integer-only: no F/D extension and the lp64 ABI.
+KERNEL_ISA := -march=rv64imac_zicsr_zifencei -mabi=lp64
 CFLAGS  := -g -Wall $(KERNEL_OPT) -nostdinc -fno-builtin -fno-stack-protector \
-           -fno-pic -ffreestanding -gdwarf-2 -march=rv64gc -mabi=lp64d \
+           -fno-pic -ffreestanding -gdwarf-2 $(KERNEL_ISA) \
            -mcmodel=medany $(BOARD_DEFINE)
 CXXFLAGS := -g -Wall $(KERNEL_OPT) -nostdinc -nostdinc++ \
            -fno-builtin -fno-stack-protector -fno-pic -fno-exceptions -fno-rtti \
            -fno-use-cxa-atexit -fno-threadsafe-statics \
            -fno-asynchronous-unwind-tables -fno-unwind-tables \
            -ffreestanding -std=$(CXX_STANDARD) -gdwarf-2 \
-           -march=rv64gc -mabi=lp64d -mcmodel=medany $(BOARD_DEFINE)
+           $(KERNEL_ISA) -mcmodel=medany $(BOARD_DEFINE)
 
 # Board-specific kernel physical load address for the linker script
 ifeq ($(BOARD),visionfive2)
@@ -45,9 +52,9 @@ QEMU    := qemu-system-riscv64
 KSRCDIR := arch/riscv64/kernel arch/riscv64/kernel/drivers
 
 # ---------- embedded console font (PSF -> ELF .rodata via .incbin) ----------
-# objcopy creates an ELF without the RISC-V FP-ABI attribute, causing a linker
-# error when mixed with -mabi=lp64d objects.  Work around by generating a small
-# assembly wrapper that uses .incbin with the correct ABI.
+# objcopy creates an ELF without the RISC-V ABI attributes the kernel objects
+# carry, which the linker may reject.  Generate a small assembly wrapper that
+# uses .incbin and the kernel's own flags instead.
 FONT_PSF := fonts/console.psf
 FONT_OBJ := $(OBJDIR)/fonts/console.psf.o
 FONT_WRAPPER_S := $(OBJDIR)/fonts/console.psf.S
@@ -60,7 +67,7 @@ $(FONT_WRAPPER_S): $(FONT_PSF) | $$(dir $$@)
 	@echo ".globl _binary_fonts_console_psf_end"                >> $@
 	@echo "_binary_fonts_console_psf_end:"                      >> $@
 
-$(FONT_OBJ): $(FONT_WRAPPER_S) | $$(dir $$@)
+$(FONT_OBJ): $(FONT_WRAPPER_S) arch/riscv64/Makefile | $$(dir $$@)
 	$(Q)$(CC) $(CFLAGS) -D__ASSEMBLY__ -c $< -o $@
 
 ALLOBJS += $(FONT_OBJ)

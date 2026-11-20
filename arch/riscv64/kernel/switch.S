@@ -38,7 +38,13 @@
  *   0x58  s9   (x25)
  *   0x60  s10  (x26)
  *   0x68  s11  (x27)
- *   [total 0x70 = 112 bytes = CTX_SIZE]
+ *   0x70  f0-f31, then fcsr (CTX_FP)
+ *   [total CTX_SIZE]
+ *
+ * FP state is switched eagerly, including on switches from an IRQ or a
+ * syscall. The kernel is built for the integer-only lp64 ABI, so f0-f31 and
+ * fcsr still hold the outgoing task's values here. sstatus.FS is enabled for
+ * every task, which these instructions require.
  *
  * TrapFrame layout is defined by TF_* offsets in trapframe.h
  * (TF_SIZE = 288 = 0x120).
@@ -58,6 +64,83 @@
 .globl switch_to
 .type  switch_to, @function
 switch_to:
+    /* The kernel's own -march has no F/D extension. switch_to alone moves
+     * the FP state. */
+    .option push
+    .option arch, +d
+    addi t0, a0, CTX_FP
+    fsd  f0, (0)(t0)
+    fsd  f1, (8)(t0)
+    fsd  f2, (16)(t0)
+    fsd  f3, (24)(t0)
+    fsd  f4, (32)(t0)
+    fsd  f5, (40)(t0)
+    fsd  f6, (48)(t0)
+    fsd  f7, (56)(t0)
+    fsd  f8, (64)(t0)
+    fsd  f9, (72)(t0)
+    fsd  f10, (80)(t0)
+    fsd  f11, (88)(t0)
+    fsd  f12, (96)(t0)
+    fsd  f13, (104)(t0)
+    fsd  f14, (112)(t0)
+    fsd  f15, (120)(t0)
+    fsd  f16, (128)(t0)
+    fsd  f17, (136)(t0)
+    fsd  f18, (144)(t0)
+    fsd  f19, (152)(t0)
+    fsd  f20, (160)(t0)
+    fsd  f21, (168)(t0)
+    fsd  f22, (176)(t0)
+    fsd  f23, (184)(t0)
+    fsd  f24, (192)(t0)
+    fsd  f25, (200)(t0)
+    fsd  f26, (208)(t0)
+    fsd  f27, (216)(t0)
+    fsd  f28, (224)(t0)
+    fsd  f29, (232)(t0)
+    fsd  f30, (240)(t0)
+    fsd  f31, (248)(t0)
+    frcsr t1
+    sd   t1, FP_STATE_FCSR_OFFSET(t0)
+
+    addi t0, a1, CTX_FP
+    fld  f0, (0)(t0)
+    fld  f1, (8)(t0)
+    fld  f2, (16)(t0)
+    fld  f3, (24)(t0)
+    fld  f4, (32)(t0)
+    fld  f5, (40)(t0)
+    fld  f6, (48)(t0)
+    fld  f7, (56)(t0)
+    fld  f8, (64)(t0)
+    fld  f9, (72)(t0)
+    fld  f10, (80)(t0)
+    fld  f11, (88)(t0)
+    fld  f12, (96)(t0)
+    fld  f13, (104)(t0)
+    fld  f14, (112)(t0)
+    fld  f15, (120)(t0)
+    fld  f16, (128)(t0)
+    fld  f17, (136)(t0)
+    fld  f18, (144)(t0)
+    fld  f19, (152)(t0)
+    fld  f20, (160)(t0)
+    fld  f21, (168)(t0)
+    fld  f22, (176)(t0)
+    fld  f23, (184)(t0)
+    fld  f24, (192)(t0)
+    fld  f25, (200)(t0)
+    fld  f26, (208)(t0)
+    fld  f27, (216)(t0)
+    fld  f28, (224)(t0)
+    fld  f29, (232)(t0)
+    fld  f30, (240)(t0)
+    fld  f31, (248)(t0)
+    ld   t1, FP_STATE_FCSR_OFFSET(t0)
+    fscsr t1
+    .option pop
+
     /* Save callee-saved registers to *from */
     sd  ra,  CTX_RA (a0)
     sd  sp,  CTX_SP (a0)

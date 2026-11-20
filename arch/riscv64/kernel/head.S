@@ -1,6 +1,6 @@
 /**
  * @file head.S
- * @brief RISC-V (rv64gc) kernel entry point for UEFI boot.
+ * @brief RISC-V (rv64) kernel entry point for UEFI boot.
  *
  * The UEFI bootloader (BOOTRISCV64.EFI) loads the kernel ELF at
  * BOARD_KERNEL_PHYS, fills a boot_info structure, calls
@@ -30,6 +30,7 @@
 
 #include <asm/page.h>       /* PTE_V/R/W/X/A/D, SATP_SV39 */
 #include <asm/board.h>      /* BOARD_DRAM_BASE, BOARD_PGD_IDX_*, BOARD_KERNEL_PHYS */
+#include <asm/cpu.h>        /* SSTATUS_FS_* */
 
 #define BOOT_PERM  (PTE_V | PTE_R | PTE_W | PTE_X | PTE_A | PTE_D)  /* 0xCF */
 
@@ -45,6 +46,13 @@
 _start:
     /* Disable all interrupts (clear SIE in sstatus) */
     csrci sstatus, 2
+
+    /* Enable the FP unit whatever the firmware left. Every task runs with it
+     * on, so switch_to can save and restore FP state. */
+    li    t0, SSTATUS_FS_MASK
+    csrc  sstatus, t0
+    li    t0, SSTATUS_FS_INITIAL
+    csrs  sstatus, t0
 
     /*
      * Park secondary harts — only the first hart to arrive runs boot.

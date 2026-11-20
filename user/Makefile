@@ -35,7 +35,7 @@ USER_PROGRAMS := $(notdir $(patsubst %/,%,$(dir $(wildcard $(USER_DIR)/*/*.S $(U
 USER_PROGRAMS := $(filter-out zcc minicoco gui files editor settings net crypto ssh,$(sort $(USER_PROGRAMS)))
 # Register-state fixtures are assembly for one architecture each. The
 # architecture Makefile names the ones it builds in USER_REGISTER_FIXTURES.
-REGISTER_FIXTURES := ssetest ssepeer fptest fppeer
+REGISTER_FIXTURES := ssetest ssepeer fptest fppeer rvfptest rvfppeer
 USER_PROGRAMS := $(filter-out $(filter-out $(USER_REGISTER_FIXTURES),$(REGISTER_FIXTURES)),$(USER_PROGRAMS))
 ifeq ($(ARCH),x86)
 USER_PROGRAMS := $(filter-out desktop terminal,$(USER_PROGRAMS))

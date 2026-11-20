@@ -1,5 +1,7 @@
 #pragma once
 
+#include <asm/fpu.h>
+
 /* Byte offsets into struct Context — used by switch.S and C++ code alike.
  * These must be kept in sync with the field order below. */
 #define CTX_RA   0
@@ -16,7 +18,8 @@
 #define CTX_S9   88
 #define CTX_S10  96
 #define CTX_S11  104
-#define CTX_SIZE 112
+#define CTX_FP   112
+#define CTX_SIZE (CTX_FP + FP_STATE_SIZE)
 
 #ifndef __ASSEMBLY__
 
@@ -32,8 +35,9 @@
  *   s0-s1 (x8-x9)
  *   s2-s11 (x18-x27)
  *
- * switch_to() in switch.S saves/restores exactly these registers.
- * The layout here must match the offsets used in switch.S exactly.
+ * switch_to() in switch.S saves/restores exactly these registers, then the
+ * task's FP state. The layout here must match the offsets used in switch.S
+ * exactly.
  */
 struct Context {
     uint64_t ra{};  /* x1  — return address / entry point          */
@@ -51,11 +55,18 @@ struct Context {
     uint64_t s10{}; /* x26                                         */
     uint64_t s11{}; /* x27                                         */
 
+    // Each new task starts with clean FP state.
+    FloatingPointState floating_point{};
+
     void set_entry(uintptr_t entry_va) { ra = entry_va; }
     void set_stack(uintptr_t stack_va) { sp = stack_va; }
     [[nodiscard]] uintptr_t entry() const { return ra; }
     [[nodiscard]] uintptr_t stack() const { return sp; }
 };
+
+static_assert(__builtin_offsetof(Context, s11) == CTX_S11);
+static_assert(__builtin_offsetof(Context, floating_point) == CTX_FP);
+static_assert(sizeof(Context) == CTX_SIZE);
 
 /* Assembly interface (switch.S) */
 extern "C" void forkret(void);

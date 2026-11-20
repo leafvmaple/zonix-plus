@@ -113,8 +113,8 @@
             ],
             "compilerArgs": [
                 "--target=riscv64-none-elf",
-                "-march=rv64gc",
-                "-mabi=lp64d",
+                "-march=rv64imac_zicsr_zifencei",
+                "-mabi=lp64",
                 "-mcmodel=medany",
                 "-ffreestanding",
                 "-nostdinc",

@@ -6,6 +6,13 @@
  * Only the fields relevant to kernel S-mode operation are listed.
  */
 
+/* sstatus.FS (bits 14:13) gates the FP unit. Off makes every FP instruction
+ * illegal; Initial enables it. Tasks always run with it enabled, so user
+ * programs can use FP and switch_to can move their state. Shared with
+ * assembly. */
+#define SSTATUS_FS_MASK    0x6000
+#define SSTATUS_FS_INITIAL 0x2000
+
 #ifndef __ASSEMBLY__
 
 #include <base/types.h>
@@ -19,11 +26,12 @@ inline constexpr uint64_t SSTATUS_SUM = 1ULL << 18; /* permit supervisor user ac
 inline constexpr uint64_t SSTATUS_MXR = 1ULL << 19; /* make executable readable     */
 inline constexpr uint64_t SSTATUS_SD = 1ULL << 63;  /* FS/XS dirty summary          */
 
-/* sstatus bits that must be set when returning to user mode */
-inline constexpr uint64_t SSTATUS_USER = SSTATUS_SPIE; /* SPIE=1 so irqs re-enable on sret to U */
+/* sstatus bits that must be set when returning to user mode:
+ * SPIE=1 so irqs re-enable on sret to U, and the FP unit on */
+inline constexpr uint64_t SSTATUS_USER = SSTATUS_SPIE | SSTATUS_FS_INITIAL;
 
 /* sstatus bits for a kernel thread returning from interrupt */
-inline constexpr uint64_t SSTATUS_KERN = SSTATUS_SPP | SSTATUS_SPIE;
+inline constexpr uint64_t SSTATUS_KERN = SSTATUS_SPP | SSTATUS_SPIE | SSTATUS_FS_INITIAL;
 
 /* sie — Supervisor Interrupt-Enable Register */
 inline constexpr uint64_t SIE_SSIE = 1ULL << 1; /* software interrupt enable  */

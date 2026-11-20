@@ -93,7 +93,7 @@ void arch_setup_kthread_tf(TrapFrame* tf, uintptr_t entry_va, uintptr_t fn, uint
         return;
     }
     tf->sepc = entry_va;
-    tf->sstatus = SSTATUS_SPP | SSTATUS_SPIE; /* S-mode, IRQs on after sret */
+    tf->sstatus = SSTATUS_KERN; /* S-mode, IRQs on after sret */
     tf->regs[10] = fn;                        /* a0 */
     tf->regs[11] = arg;                       /* a1 */
     /* TF_SP (kernel sp) is filled in by process creation (copy_thread) */
@@ -120,6 +120,6 @@ void arch_setup_user_tf(TrapFrame* tf, uintptr_t entry_va, uintptr_t user_stack_
         return;
     }
     tf->sepc = entry_va;
-    tf->sstatus = SSTATUS_SPIE;  /* U-mode (SPP=0), IRQs enabled after sret */
+    tf->sstatus = SSTATUS_USER;  /* U-mode (SPP=0), IRQs enabled after sret */
     tf->regs[2] = user_stack_va; /* x2 = sp */
 }
