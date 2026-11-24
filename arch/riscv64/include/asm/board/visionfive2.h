@@ -53,3 +53,6 @@
  * memory around the SiFive composable cache, flushed through its controller. */
 #define BOARD_JH7110_DISPLAY 1
 #define BOARD_CCACHE_PHYS    0x02010000UL
+
+/* PCIe0 carries the VL805 USB 3 controller; firmware leaves it in reset */
+#define BOARD_JH7110_PCIE 1

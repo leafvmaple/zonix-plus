@@ -48,3 +48,6 @@
 /* UEFI provides the framebuffer; QEMU scanout is coherent */
 #define BOARD_JH7110_DISPLAY 0
 #define BOARD_CCACHE_PHYS    0UL
+
+/* PCI through the firmware-configured ECAM window */
+#define BOARD_JH7110_PCIE 0

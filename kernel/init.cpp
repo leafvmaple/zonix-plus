@@ -3,6 +3,7 @@
 #include "drivers/intr.h"
 #include "drivers/pci.h"
 #include "drivers/sd/sdhci.h"
+#include "drivers/usb/xhci.h"
 #include "drivers/virtio_net.h"
 #include "drivers/virtio_rng.h"
 #include "cons/cons.h"
@@ -87,6 +88,7 @@ static const InitStep KERN_STEPS[] = {
     {"pci_init", pci::init, false},
     {"blk", blk::init, true},
     {"sdhci", sdhci::init, false},
+    {"xhci", xhci::init, false},
     {"pci_reg", pci_registers, false},
     {"virtio_net", virtio_net::init, false},
     {"virtio_rng", virtio_rng::init, false},
@@ -100,6 +102,7 @@ static const InitStep KERN_STEPS[] = {
     {"apps", rootfs::init_apps, false},
     {"swap", swap::init, false},
     {"sched", sched::init, true},
+    {"usb", xhci::start_thread, false},
 };
 
 // ============================================================================

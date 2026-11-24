@@ -34,6 +34,10 @@ inline constexpr uint8_t SUBCLASS_SD_HOST = 0x05;
 inline constexpr uint8_t INTERFACE_SDHCI = 0x00;
 inline constexpr uint8_t INTERFACE_SDHCI_DMA = 0x01;
 
+inline constexpr uint8_t CLASS_SERIAL_BUS = 0x0C;
+inline constexpr uint8_t SUBCLASS_USB = 0x03;
+inline constexpr uint8_t INTERFACE_XHCI = 0x30;
+
 int init();
 
 // Configuration-space offset is measured in bytes.

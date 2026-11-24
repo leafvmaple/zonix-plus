@@ -8,6 +8,8 @@
 #include "drivers/fbcons.h"
 #include "drivers/virtio_net.h"
 #include "drivers/virtio_rng.h"
+#include "drivers/usb/usb_core.h"
+#include "drivers/usb/xhci.h"
 #include "fs/readiness.h"
 #include "mm/vmm.h"
 #include "sched/sched.h"
@@ -28,6 +30,8 @@ void handle_timer_tick() {
     fbcons::tick();
     virtio_net::tick();
     virtio_rng::tick();
+    xhci::tick();
+    usb::Core::tick();
     fd::Readiness::tick();
 }
 
