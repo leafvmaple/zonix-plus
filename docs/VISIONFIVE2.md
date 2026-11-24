@@ -42,10 +42,14 @@ TFTP 目录里放 `bin/riscv64/kernel`（改名 `KERNEL.ELF`）和 `bin/riscv64/
 （改名 `ZONIX.EFI`）。Windows 开发机可用 `scripts/tftpd.ps1`（只读，服务所在目录，
 需要放行 UDP 69 入站）。
 
+## 显示
+
+内核自己驱动 HDMI（固件不提供帧缓冲）：打开 PMU 的 VOUT 电源域和 SYSCRG/VOUTCRG 的显示时钟、解除复位，Innosilicon HDMI 发送器的 PHY 锁定后输出 1080p60，DC8200 从内存里的 XRGB8888 帧缓冲扫描输出；像素时钟取 PLL2（1188 MHz）÷ 8。显示控制器读内存不经过 CPU 缓存，CPU 写帧缓冲后经 L2 缓存控制器（`0x02010000` 的 Flush64）写回，写帧缓冲的代码都调用 `display::flush`。热插拔引脚没有接到发送器，内核不检测显示器是否连接，也不读 EDID，显示器须支持 1080p60。
+
 ## 已知情况
 
 - 只使用前 1 GB 内存：riscv64 直接映射只覆盖 DRAM 的第一个 1 GB，其余内存不交给分配器。
 - 引导程序读 `tp` 得到 hart 号；当前固件从 hart 1 启动，PLIC S 模式上下文为 2。
 - 串口是 DesignWare APB UART：内核不改固件设好的线路参数，并处理它的 busy-detect 中断。
 - `shutdown` 和 `reboot` 由 OpenSBI 经 I2C5 通知 AXP15060 PMIC 完成。U-Boot 启动 OS 时关掉了 I2C5 的时钟并把控制器复位成高速、10 位地址模式，而 OpenSBI 只设目标地址和使能位，所以内核在 SBI 复位前打开时钟、解除复位，并把控制器设回 7 位标准速率主机模式。
-- 尚无：网卡、USB、显示、PCIe 驱动，RTC。
+- 尚无：网卡、USB、PCIe 驱动，RTC。

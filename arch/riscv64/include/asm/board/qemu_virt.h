@@ -44,3 +44,7 @@
 #define BOARD_PMIC_I2C_PHYS  0UL
 #define BOARD_PMIC_I2C_CLOCK 0
 #define BOARD_PMIC_I2C_RESET 0
+
+/* UEFI provides the framebuffer; QEMU scanout is coherent */
+#define BOARD_JH7110_DISPLAY 0
+#define BOARD_CCACHE_PHYS    0UL

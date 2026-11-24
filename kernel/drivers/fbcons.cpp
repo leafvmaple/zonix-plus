@@ -57,6 +57,7 @@ public:
             for (uint32_t x = 0; x < width; x++)
                 pixel[x] = BG_COLOR;
         }
+        display::flush(0, 0, width, height);
 
         active_ = true;
         cursor_enabled_ = true;
@@ -172,6 +173,7 @@ public:
             erase_cursor();
         for (uint32_t y = 0; y < fb_height_; ++y)
             memset(reinterpret_cast<uint8_t*>(fb_base_) + static_cast<size_t>(y) * fb_pitch_, 0, fb_width_ * 4);
+        display::flush(0, 0, fb_width_, fb_height_);
         if (cursor_enabled_)
             draw_cursor();
     }
@@ -186,6 +188,7 @@ public:
             memset(reinterpret_cast<uint8_t*>(fb_base_) +
                        (static_cast<size_t>(cur_y_) * font_height_ + row) * fb_pitch_ + x * 4,
                    0, (fb_width_ - x) * 4);
+        display::flush(x, cur_y_ * font_height_, fb_width_ - x, font_height_);
         if (cursor_enabled_)
             draw_cursor();
     }
@@ -265,6 +268,7 @@ private:
                 pixel[col] = CURSOR_COLOR;
             }
         }
+        display::flush(x0, y0, font_width_, 2);
     }
 
     static void erase_cursor() {
@@ -279,6 +283,7 @@ private:
             for (int col = 0; col < font_width_; col++)
                 pixel[col] = cursor_pixels_[row * font_width_ + col];
         }
+        display::flush(x0, y0, font_width_, 2);
     }
 
     static void draw_char(uint32_t cx, uint32_t cy, int ch) {
@@ -294,12 +299,14 @@ private:
                 bits <<= 1;
             }
         }
+        display::flush(x0, y0, font_width_, font_height_);
     }
 
     static void clear_row(uint32_t cy) {
         uint32_t y0 = cy * font_height_;
         for (int row = 0; row < font_height_; row++)
             memset(reinterpret_cast<uint8_t*>(fb_base_) + (y0 + row) * fb_pitch_, 0, fb_width_ * 4);
+        display::flush(0, y0, fb_width_, font_height_);
     }
 
     static void scroll_up() {
@@ -308,6 +315,7 @@ private:
         uint8_t* src = dst + bytes_per_char_row;
         uint32_t total = bytes_per_char_row * (rows_ - 1);
         memmove(dst, src, total);
+        display::flush(0, 0, fb_width_, font_height_ * (rows_ - 1));
         clear_row(rows_ - 1);
     }
 };

@@ -5,6 +5,7 @@
 #include "mm/mmio.h"
 #include "mm/vmm.h"
 #include "sched/sched.h"
+#include <kernel/address.h>
 #include <kernel/log.h>
 
 extern BootInfo __kernel_boot_info;
@@ -16,7 +17,7 @@ public:
     static Error init() {
         const auto& boot = __kernel_boot_info;
         if (boot.framebuffer_type != 1 || boot.framebuffer_pa == 0)
-            return Error::None;
+            return init_platform();
         ENSURE(boot.framebuffer_bpp == 32 && boot.framebuffer_width != 0 && boot.framebuffer_height != 0 &&
                    (boot.framebuffer_format == FramebufferFormat::Xrgb8888 ||
                     boot.framebuffer_format == FramebufferFormat::Xbgr8888),
@@ -35,9 +36,40 @@ public:
     }
     static Surface surface() { return surface_; }
 
+    static void flush(uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
+        if (coherent_ || !surface_.pixels || x >= surface_.width || y >= surface_.height)
+            return;
+        width = width < surface_.width - x ? width : surface_.width - x;
+        height = height < surface_.height - y ? height : surface_.height - y;
+        const uintptr_t first = pa_ + static_cast<uintptr_t>(y) * surface_.stride + x * sizeof(uint32_t);
+        if (width == surface_.width) {
+            flush_platform(first, static_cast<size_t>(height) * surface_.stride);
+            return;
+        }
+        for (uint32_t row = 0; row < height; ++row)
+            flush_platform(first + static_cast<uintptr_t>(row) * surface_.stride, width * sizeof(uint32_t));
+    }
+
 private:
+    // RAM the kernel already maps directly; the platform driver owns it.
+    static Error init_platform() {
+        PlatformFramebuffer fb{};
+        Error error = probe_platform(fb);
+        if (error == Error::NoDevice)
+            return Error::None;
+        TRY(error);
+        ENSURE(fb.width != 0 && fb.height != 0 && fb.stride >= fb.width * sizeof(uint32_t), Error::Invalid);
+        surface_ = Surface{phys_to_virt<uint32_t>(fb.pa), fb.width, fb.height, fb.stride, fb.format};
+        pa_ = fb.pa;
+        coherent_ = fb.coherent;
+        klog::info("display: %ux%u from the platform display controller\n", fb.width, fb.height);
+        return Error::None;
+    }
+
     inline static vmm::MmioRegion mapping_;
     inline static Surface surface_{};
+    inline static uintptr_t pa_{};
+    inline static bool coherent_{true};
 };
 
 class DisplayFile : public vfs::File {
@@ -107,6 +139,10 @@ Surface surface() {
     return Screen::surface();
 }
 
+void flush(uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
+    Screen::flush(x, y, width, height);
+}
+
 Error info(DisplayInfo& out) {
     auto fb = surface();
     ENSURE(fb.pixels, Error::NoDevice);
@@ -134,6 +170,7 @@ Error present(const Blit& blit) {
                 dst[col] = ((pixel & 0xFF) << 16) | (pixel & 0xFF00) | ((pixel >> 16) & 0xFF);
             }
     }
+    flush(blit.x, blit.y, blit.width, blit.height);
     return Error::None;
 }
 }  // namespace display

@@ -1,5 +1,6 @@
 #include "mm/page_table.h"
 #include "drivers/fbcons.h"
+#include "drivers/display.h"
 #include "drivers/intr.h"
 #include "debug/assert.h"
 #include "lib/memory.h"
@@ -38,6 +39,9 @@ intr::Guard::~Guard() {
 void pmm::free_user_pgdir(pde_t*) {
     assert(false);
 }
+
+// The console publishes each drawn rectangle; this fixture's memory is coherent.
+void display::flush(uint32_t, uint32_t, uint32_t, uint32_t) {}
 
 extern "C" void* memmove(void* destination, const void* source, size_t size) {
     InterruptFixture::on_scroll();

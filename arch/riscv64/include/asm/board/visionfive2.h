@@ -48,3 +48,8 @@
 #define BOARD_PMIC_I2C_PHYS  0x12050000UL
 #define BOARD_PMIC_I2C_CLOCK 143 /* JH7110_SYSCLK_I2C5_APB */
 #define BOARD_PMIC_I2C_RESET 81  /* JH7110_SYSRST_I2C5_APB */
+
+/* The kernel drives HDMI itself (DC8200 + Innosilicon TX); the display reads
+ * memory around the SiFive composable cache, flushed through its controller. */
+#define BOARD_JH7110_DISPLAY 1
+#define BOARD_CCACHE_PHYS    0x02010000UL
