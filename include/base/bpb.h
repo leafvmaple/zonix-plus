@@ -57,6 +57,11 @@ inline constexpr uint8_t FAT_ATTR_DIRECTORY = 0x10;
 inline constexpr uint8_t FAT_ATTR_ARCHIVE = 0x20;
 inline constexpr uint8_t FAT_ATTR_LFN = 0x0F; /* Long file name */
 
+/* Windows NT stores an all-lowercase 8.3 name without a long name entry and
+ * marks the case in nt_reserved instead. */
+inline constexpr uint8_t FAT_NT_LOWER_BASE = 0x08;
+inline constexpr uint8_t FAT_NT_LOWER_EXT = 0x10;
+
 struct FatDirEntry {
     char name[8];                /* 0x00: File name (space padded) */
     char ext[3];                 /* 0x08: Extension */
@@ -94,18 +99,30 @@ struct FatDirEntry {
         first_cluster_low = static_cast<uint16_t>(cluster);
     }
 
-    void get_filename(char* buf, int bufsize) const {
+    // The stored 8.3 name, upper case as on disk; lookups compare this form.
+    void get_filename(char* buf, int bufsize) const { format_name(buf, bufsize, false); }
+
+    // The name to show, with the case Windows NT recorded in nt_reserved.
+    void get_display_name(char* buf, int bufsize) const { format_name(buf, bufsize, true); }
+
+private:
+    void format_name(char* buf, int bufsize, bool apply_case) const {
         if (!buf || bufsize < 13) {
             return;
         }
+        bool lower_base = apply_case && (nt_reserved & FAT_NT_LOWER_BASE) != 0;
+        bool lower_ext = apply_case && (nt_reserved & FAT_NT_LOWER_EXT) != 0;
+        auto cased = [](char ch, bool lower) {
+            return lower && ch >= 'A' && ch <= 'Z' ? static_cast<char>(ch + 32) : ch;
+        };
         int out{};
         for (int i = 0; i < 8 && name[i] != ' '; ++i) {
-            buf[out++] = name[i];
+            buf[out++] = cased(name[i], lower_base);
         }
         if (ext[0] != ' ') {
             buf[out++] = '.';
             for (int i = 0; i < 3 && ext[i] != ' '; ++i) {
-                buf[out++] = ext[i];
+                buf[out++] = cased(ext[i], lower_ext);
             }
         }
         buf[out] = '\0';

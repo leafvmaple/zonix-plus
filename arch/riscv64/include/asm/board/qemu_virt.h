@@ -34,3 +34,7 @@
 
 /* PCI ECAM size (1 MB, bus 0 only) */
 #define BOARD_PCI_ECAM_SIZE 0x00100000UL
+
+/* No DesignWare SD controller; SD cards sit behind PCI SDHCI */
+#define BOARD_SD_PHYS     0UL
+#define BOARD_SD_CLOCK_HZ 0ULL

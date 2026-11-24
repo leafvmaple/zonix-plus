@@ -65,7 +65,8 @@ QEMU_CMD=(
     "$qemu"
     -M virt
     -cpu cortex-a72
-    -m 256M
+    # More RAM than the kernel direct map covers, so pmm must leave the rest out.
+    -m 1536M
     -bios "$AAVMF"
     -display none
     -no-reboot

@@ -80,7 +80,8 @@ QEMU_CMD=(
     "$qemu"
     -M virt
     -cpu rv64
-    -m 256M
+    # More RAM than the kernel direct map covers, so pmm must leave the rest out.
+    -m 1536M
     -drive "if=pflash,format=raw,unit=0,file=${RISCV_FW},readonly=on"
     -drive "if=pflash,format=raw,unit=1,file=${vars_copy}"
     -display none

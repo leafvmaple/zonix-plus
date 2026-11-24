@@ -1,7 +1,7 @@
 #include "mm/page_table.h"
 #include "drivers/ahci.h"
 #include "drivers/ide.h"
-#include "drivers/sdhci.h"
+#include "drivers/sd/sdhci.h"
 #include "drivers/pci.h"
 #include "drivers/mmio.h"
 #include "drivers/intr.h"
@@ -60,7 +60,7 @@ public:
         bool fail_stop_after_command{};
         size_t accesses{};
         AhciDevice* initializing_ahci{};
-        SdDevice* initializing_sd{};
+        SdhciDevice* initializing_sd{};
         bool initializing_controller{};
         bool reenter_probe{};
     };
@@ -848,7 +848,7 @@ static void test_sd(const char* test) {
         return;
     }
     if (strcmp(test, "sd_independent") == 0) {
-        SdDevice second;
+        SdhciDevice second;
         assert(second.init(reinterpret_cast<volatile uint8_t*>(KERNEL_DEVIO_BASE + PG_SIZE), 1) == Error::None);
         test_concurrent_requests(device, &second, 0, 1, 2, true);
         second.shutdown();
@@ -990,7 +990,7 @@ static void test_ide(const char* test) {
 
 static void test_default_offline() {
     AhciDevice ahci_device;
-    SdDevice sd_device;
+    SdhciDevice sd_device;
     IdeDevice ide_device;
     BlockDevice* devices[]{&ahci_device, &sd_device, &ide_device};
     assert(ahci_device.state() == blk::DeviceState::Offline);
@@ -1037,7 +1037,7 @@ static void test_ahci_lifecycle() {
 static void test_sd_lifecycle() {
     using Fixture = HardwareFixture;
     Fixture::state().backend = Fixture::Backend::Sd;
-    SdDevice device;
+    SdhciDevice device;
     auto* base = reinterpret_cast<volatile uint8_t*>(KERNEL_DEVIO_BASE);
     assert(device.init(nullptr, 0) == Error::Invalid);
     assert(device.state() == blk::DeviceState::Offline && Fixture::state().accesses == 0);

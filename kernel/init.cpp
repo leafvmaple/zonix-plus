@@ -1,7 +1,8 @@
 #include "block/blk.h"
+#include "block/partition.h"
 #include "drivers/intr.h"
 #include "drivers/pci.h"
-#include "drivers/sdhci.h"
+#include "drivers/sd/sdhci.h"
 #include "drivers/virtio_net.h"
 #include "drivers/virtio_rng.h"
 #include "cons/cons.h"
@@ -90,6 +91,7 @@ static const InitStep KERN_STEPS[] = {
     {"virtio_net", virtio_net::init, false},
     {"virtio_rng", virtio_rng::init, false},
     {"pci_probe", probe_pci_devices, false},
+    {"partitions", blk::scan_partitions, false},
 #ifdef TEST_MODE
     {"rootfs", rootfs::init, false},
 #else

@@ -17,7 +17,7 @@ public:
         char short_name[13];
         const char* name = record.long_name;
         if (!name) {
-            record.entry.get_filename(short_name, sizeof(short_name));
+            record.entry.get_display_name(short_name, sizeof(short_name));
             name = short_name;
         }
         const auto& entry = record.entry;

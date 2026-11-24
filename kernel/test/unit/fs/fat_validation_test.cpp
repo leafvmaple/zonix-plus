@@ -1,6 +1,7 @@
 #include "test/test_defs.h"
 #include "fs/fat.h"
 #include "lib/memory.h"
+#include "lib/string.h"
 #include "drivers/intr.h"
 #include "test/unit/fs/fat_image.h"
 
@@ -316,6 +317,54 @@ void test_directory_extension_rollback() {
     TEST_END();
 }
 
+// Windows writes "bin" as the 8.3 name "BIN" with a lowercase flag and no
+// long name; the VisionFive 2 root file system was copied that way.
+void test_nt_lowercase_names() {
+    TEST_START("FAT shows the case Windows records for 8.3 names");
+    FatDirEntry entry{};
+    memcpy(entry.name, "KERNEL  ", sizeof(entry.name));
+    memcpy(entry.ext, "LOG", sizeof(entry.ext));
+    char shown[13]{};
+    entry.nt_reserved = FAT_NT_LOWER_BASE | FAT_NT_LOWER_EXT;
+    entry.get_display_name(shown, sizeof(shown));
+    TEST_ASSERT(strcmp(shown, "kernel.log") == 0, "Both lowercase flags lower the whole name");
+    entry.nt_reserved = FAT_NT_LOWER_EXT;
+    entry.get_display_name(shown, sizeof(shown));
+    TEST_ASSERT(strcmp(shown, "KERNEL.log") == 0, "Each flag covers only its own part");
+    entry.get_filename(shown, sizeof(shown));
+    TEST_ASSERT(strcmp(shown, "KERNEL.LOG") == 0, "Lookups keep the stored upper-case form");
+
+    // Names Zonix creates keep their case too: logd makes /var/log/kernel.log.
+    class Names : public FatInfo::DirVisitor {
+    public:
+        int visit(const FatInfo::DirectoryRecord& record) override {
+            char name[13]{};
+            record.entry.get_display_name(name, sizeof(name));
+            if (strcmp(name, "kernel.log") == 0 && !record.long_name)
+                lower_short = true;
+            if (record.long_name && strcmp(record.long_name, "Mixed.txt") == 0)
+                mixed_long = true;
+            return 0;
+        }
+        bool lower_short{};
+        bool mixed_long{};
+    };
+    FatImage image;
+    FatInfo fs;
+    if (image.ready() && fs.mount(&image) == Error::None) {
+        TEST_ASSERT(fs.create_file("kernel.log") == Error::None && fs.create_file("Mixed.txt") == Error::None,
+                    "Created a lowercase and a mixed-case file");
+        Names names;
+        TEST_ASSERT(fs.read_dir("", names).ok(), "Listed the root directory");
+        TEST_ASSERT(names.lower_short, "A lowercase 8.3 name is stored short and shown lowercase");
+        TEST_ASSERT(names.mixed_long, "A mixed-case name keeps its case in a long name");
+        assert(fs.unmount() == Error::None);
+    } else {
+        TEST_ASSERT(false, "Mounted name-case fixture");
+    }
+    TEST_END();
+}
+
 }  // namespace
 
 namespace fat_validation_test {
@@ -330,6 +379,7 @@ void test() {
     test_device_errors();
     test_mkdir_rollback();
     test_directory_extension_rollback();
+    test_nt_lowercase_names();
     TEST_SUMMARY("FAT validation");
 }
 }  // namespace fat_validation_test

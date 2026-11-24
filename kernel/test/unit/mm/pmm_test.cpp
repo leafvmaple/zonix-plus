@@ -132,8 +132,11 @@ static void test_direct_mapping() {
         Page* last = run + (count - 1);
         TEST_ASSERT(pmm::page_to_phys(last) - pmm::page_to_phys(run) == (count - 1) * PG_SIZE,
                     "The run is physically contiguous");
+        // The QEMU suites give the machine more RAM than the direct map covers.
+        bool mapped = pmm::page_to_phys(last) + PG_SIZE <= KERNEL_DIRECT_MAP_END_PA;
+        TEST_ASSERT(mapped, "RAM beyond the direct map is not handed out");
         TEST_ASSERT(page_is_writable(run), "Lowest page of the run reads back what was written");
-        TEST_ASSERT(page_is_writable(last), "Highest page of the run reads back what was written");
+        TEST_ASSERT(mapped && page_is_writable(last), "Highest page of the run reads back what was written");
         pmm::free_pages(run, count);
     }
     TEST_ASSERT(pmm::free_page_count() == free_before, "The run is returned in full");

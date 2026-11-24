@@ -382,15 +382,21 @@ static bool short_name_char(char ch) {
     return (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || strchr("$%'-_@~`!(){}^#&", ch);
 }
 
-static bool make_83_name(const char* name, char out_name[8], char out_ext[3]) {
+// Stores `name` as an 8.3 entry when it fits. Each part must be in one case:
+// an all-lowercase part is stored upper case with the Windows NT case flag,
+// and a part mixing cases needs a long name to keep it.
+static bool make_83_name(const char* name, char out_name[8], char out_ext[3], uint8_t& case_flags) {
     memset(out_name, ' ', 8);
     memset(out_ext, ' ', 3);
+    case_flags = 0;
 
     size_t length = strlen(name);
     if (length == 0 || name[0] == '.')
         return false;
     bool extension{};
     size_t index{};
+    bool upper[2]{};
+    bool lower[2]{};
     for (size_t i = 0; i < length; ++i) {
         char ch = to_upper(name[i]);
         if (ch == '.') {
@@ -402,8 +408,13 @@ static bool make_83_name(const char* name, char out_name[8], char out_ext[3]) {
         }
         if (!short_name_char(ch) || index >= (extension ? 3U : 8U))
             return false;
+        upper[extension] = upper[extension] || (name[i] >= 'A' && name[i] <= 'Z');
+        lower[extension] = lower[extension] || (name[i] >= 'a' && name[i] <= 'z');
         (extension ? out_ext : out_name)[index++] = ch;
     }
+    if ((upper[0] && lower[0]) || (upper[1] && lower[1]))
+        return false;
+    case_flags = static_cast<uint8_t>((lower[0] ? FAT_NT_LOWER_BASE : 0) | (lower[1] ? FAT_NT_LOWER_EXT : 0));
     return true;
 }
 
@@ -427,8 +438,9 @@ Error FatInfo::prepare_name(uint32_t dir_cluster, const char* name, FatDirEntry&
         ENSURE(error == Error::NotFound, error);
     }
 
-    entry.nt_reserved = 0;
-    use_long_name = !make_83_name(name, entry.name, entry.ext);
+    uint8_t case_flags{};
+    use_long_name = !make_83_name(name, entry.name, entry.ext, case_flags);
+    entry.nt_reserved = use_long_name ? 0 : case_flags;
     if (!use_long_name)
         return Error::None;
 

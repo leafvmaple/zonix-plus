@@ -42,6 +42,9 @@ protected:
     virtual Error write_blocks(uint32_t start_lba, const void* buf, size_t block_count) = 0;
     // Drivers must explicitly implement durable flush or a known cache-free completion.
     virtual Error flush_cache() { return Error::NotSupported; }
+
+    // A partition forwards to its disk inside the activity guard it already holds.
+    friend class PartitionDevice;
 };
 
 class BlockManager {

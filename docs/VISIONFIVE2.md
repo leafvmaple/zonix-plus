@@ -1,0 +1,51 @@
+# VisionFive 2 真机调试
+
+StarFive VisionFive 2（JH7110，8 GB 版本，PCB v1.3B）上运行 Zonix 的做法。内核用
+`BOARD=visionfive2` 构建，用户态与 QEMU 的 riscv64 完全相同。
+
+## 硬件连接
+
+- 串口：USB-TTL 模块选 3.3 V 电平，只接三根线：GND → 40 针排针 6 号，模块 RXD → 8 号
+  （GPIO5，板子 TX），模块 TXD → 10 号（GPIO6，板子 RX），不接电源线。115200 8N1。
+- 网线接第二个网口（`ethernet@16040000`），与开发机在同一局域网。
+- 启动拨码 `RGPIO_0`/`RGPIO_1` 都拨到 L：从板载 QSPI Flash 启动 SPL、OpenSBI 和 U-Boot。
+  这块板子的 BootROM 读不了 TF 卡（`dwmci_s: Response Timeout`），SD 启动模式不可用，
+  但 Flash 里的 U-Boot 读写 TF 卡正常。
+
+## TF 卡布局
+
+GPT，两个 FAT32 分区，类型都是普通数据（basic data）：
+
+| 分区 | 大小 | 卷标 | 内容 |
+|---|---|---|---|
+| 1 | 256 MB | ZBOOT | `ZONIX.EFI`、`KERNEL.ELF`、`dtbs/jh7110-starfive-visionfive-2-v1.3b.dtb` |
+| 2 | 8 GB | ZONIX | 基础 rootfs（`bin/riscv64/rootfs.img` 里的全部文件） |
+
+内核把 GPT 普通数据分区注册为 `mmc0p1`、`mmc0p2`，根文件系统挂载程序在其中找到带
+`/sbin/init` 的分区。
+
+## 网络加载内核
+
+U-Boot 环境（保存在 Flash）每次上电先用 TFTP 从开发机取内核，写进第 1 分区再启动；
+取不到时启动卡上已有的版本：
+
+```
+bootcmd=run zonix_net; run zonix_boot
+zonix_net=setenv autoload no; dhcp && setenv serverip <开发机地址> && tftpboot 0x50000000 KERNEL.ELF && fatwrite mmc 1:1 0x50000000 KERNEL.ELF ${filesize} && tftpboot 0x48000000 ZONIX.EFI && fatwrite mmc 1:1 0x48000000 ZONIX.EFI ${filesize}
+zonix_boot=fatload mmc 1:1 ${fdt_addr_r} dtbs/jh7110-starfive-visionfive-2-v1.3b.dtb && fatload mmc 1:1 0x48000000 ZONIX.EFI && bootefi 0x48000000 ${fdt_addr_r}
+```
+
+另设 `ethact=ethernet@16040000`、`netretry=no`、`tftptimeout=1000`、
+`tftptimeoutcountmax=4`。恢复出厂环境：`env default -a; saveenv`。
+
+TFTP 目录里放 `bin/riscv64/kernel`（改名 `KERNEL.ELF`）和 `bin/riscv64/BOOTRISCV64.EFI`
+（改名 `ZONIX.EFI`）。Windows 开发机可用 `scripts/tftpd.ps1`（只读，服务所在目录，
+需要放行 UDP 69 入站）。
+
+## 已知情况
+
+- 只使用前 1 GB 内存：riscv64 直接映射只覆盖 DRAM 的第一个 1 GB，其余内存不交给分配器。
+- 引导程序读 `tp` 得到 hart 号；当前固件从 hart 1 启动，PLIC S 模式上下文为 2。
+- 串口是 DesignWare APB UART：内核不改固件设好的线路参数，并处理它的 busy-detect 中断。
+- `shutdown` 不能断电：OpenSBI 要经 I2C 通知 PMIC，而 U-Boot 启动前关掉了那组 I2C 的时钟。
+- 尚无：网卡、USB、显示、PCIe 驱动，重启命令，RTC。

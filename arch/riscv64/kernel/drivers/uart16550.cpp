@@ -31,12 +31,15 @@ constexpr uint32_t REG_THR = 0; /* Transmit Holding Register (W) */
 constexpr uint32_t REG_IER = 1; /* Interrupt Enable Register     */
 constexpr uint32_t REG_IIR = 2; /* Interrupt Identification (R)  */
 constexpr uint32_t REG_FCR = 2; /* FIFO Control (W)              */
-constexpr uint32_t REG_LCR = 3; /* Line Control                  */
 constexpr uint32_t REG_LSR = 5; /* Line Status                   */
+/* DesignWare APB UART (VisionFive 2) status register; reading it clears a
+ * busy-detect interrupt. QEMU's 16550 has no such register, but never
+ * reports busy-detect either. */
+constexpr uint32_t REG_USR = 31;
 
-/* LCR bits */
-constexpr uint8_t LCR_8N1 = 0x03;  /* 8 data bits, no parity, 1 stop */
-constexpr uint8_t LCR_DLAB = 0x80; /* Divisor Latch Access Bit       */
+/* IIR interrupt identification (low four bits) */
+constexpr uint8_t IIR_ID_MASK = 0x0F;
+constexpr uint8_t IIR_BUSY_DETECT = 0x07; /* DesignWare: LCR written while busy */
 
 /* IER bits */
 constexpr uint8_t IER_RX = 0x01; /* Enable Received Data Avail IRQ */
@@ -59,27 +62,27 @@ static uint8_t read_reg(uint32_t offset) {
     return *reg(offset);
 }
 
+void clear_busy_detect() {
+    if ((read_reg(REG_IIR) & IIR_ID_MASK) == IIR_BUSY_DETECT)
+        static_cast<void>(read_reg(REG_USR));
+}
+
 }  // namespace
 
 namespace uart16550 {
 
 int init() {
-    /* QEMU's 16550 emulation starts up ready to use, but configure it
-     * properly anyway and enable RX interrupts. */
+    /* Firmware has already set the line to 115200 8N1; QEMU ignores it.
+     * Writing LCR while a DesignWare UART is transmitting is ignored and
+     * raises a busy-detect interrupt, so the line settings stay untouched. */
 
     /* Disable interrupts while initialising */
     write_reg(REG_IER, 0x00);
 
-    /* Set baud rate divisor = 1 (QEMU doesn't care about the value) */
-    write_reg(REG_LCR, LCR_DLAB);
-    write_reg(0, 0x01); /* DLL = 1 */
-    write_reg(1, 0x00); /* DLM = 0 */
-
-    /* 8N1, clear DLAB */
-    write_reg(REG_LCR, LCR_8N1);
-
     /* Enable and reset FIFOs */
     write_reg(REG_FCR, 0x07);
+
+    clear_busy_detect();
 
     /* Enable RX-ready interrupt */
     write_reg(REG_IER, IER_RX);
@@ -101,6 +104,7 @@ int getc_nonblock() {
 }
 
 void intr() {
+    clear_busy_detect();
     /* Drain all available bytes in the FIFO */
     while (read_reg(REG_LSR) & LSR_DR) {
         char c = static_cast<char>(read_reg(REG_RHR));

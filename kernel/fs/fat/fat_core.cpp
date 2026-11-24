@@ -50,7 +50,11 @@ Result<uint32_t> find_partition_start(BlockDevice* dev) {
 
         int32_t esp_lba = gpt.find_esp_lba(
             [dev](uint32_t lba, void* sector_buf) { return static_cast<int>(dev->read(lba, sector_buf, 1)); });
-        ENSURE_LOG(esp_lba >= 0, Error::NotFound, "fat_mount: ESP partition not found");
+        if (esp_lba < 0) {
+            // Its data partitions may still hold a file system of their own.
+            klog::debug("fat_mount: no EFI system partition\n");
+            return Error::NotFound;
+        }
 
         klog::debug("fat_mount: found ESP at LBA %d\n", static_cast<uint32_t>(esp_lba));
         return static_cast<uint32_t>(esp_lba);

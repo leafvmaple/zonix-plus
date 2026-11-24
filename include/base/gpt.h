@@ -29,6 +29,9 @@ struct GptGuid {
 } __attribute__((packed));
 
 inline constexpr GptGuid ESP_GUID = {0xC12A7328, 0xF81F, 0x11D2, {0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E, 0xC9, 0x3B}};
+// Microsoft basic data: FAT and other file systems that are not an ESP.
+inline constexpr GptGuid BASIC_DATA_GUID = {
+    0xEBD0A0A2, 0xB9E5, 0x4433, {0x87, 0xC0, 0x68, 0xB6, 0xB7, 0x26, 0x99, 0xC7}};
 
 struct GptPartitionEntry {
     GptGuid type_guid;      // Partition type GUID
@@ -46,6 +49,8 @@ struct GptPartitionEntry {
     [[nodiscard]] inline bool is_esp() const {  // EFI System Partition
         return type_guid == ESP_GUID;
     }
+
+    [[nodiscard]] inline bool is_basic_data() const { return type_guid == BASIC_DATA_GUID; }
 } __attribute__((packed));
 
 struct GptHeader {

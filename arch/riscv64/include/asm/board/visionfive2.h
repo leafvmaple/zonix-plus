@@ -20,8 +20,9 @@
 /* UART0 interrupt number on the PLIC */
 #define BOARD_UART_IRQ 32
 
-/* PLIC S-mode context index (hart 1 S-mode = context 3) */
-#define BOARD_PLIC_S_CONTEXT 3
+/* PLIC S-mode context index. Hart 0 (S7) has only an M-mode context (0),
+ * so hart 1 has M = 1 and S = 2, as in the JH7110 device tree. */
+#define BOARD_PLIC_S_CONTEXT 2
 
 /* Timer frequency in Hz (JH7110 RTC oscillator = 4 MHz) */
 #define BOARD_TIMER_FREQ_HZ 4000000ULL
@@ -34,3 +35,8 @@
 
 /* PCI ECAM size */
 #define BOARD_PCI_ECAM_SIZE 0UL
+
+/* TF card slot: DesignWare MSHC "sdio1", fed by a 49.5 MHz clock (PLL2 / 24)
+ * that firmware leaves enabled. */
+#define BOARD_SD_PHYS     0x16020000UL
+#define BOARD_SD_CLOCK_HZ 49500000ULL

@@ -25,7 +25,7 @@ class StorageDriverTests(unittest.TestCase):
         flags += ["-I" + str(ROOT / path) for path in includes]
         sources = ["arch/x86/test/host/storage_driver_contract_test.cpp", "kernel/mm/mmio.cpp",
                    "kernel/block/blk.cpp", "kernel/block/device.cpp", "kernel/sync/activity_gate.cpp",
-                   "kernel/drivers/pci.cpp", "kernel/drivers/sdhci.cpp",
+                   "kernel/drivers/pci.cpp", "kernel/drivers/sd/sd_card.cpp", "kernel/drivers/sd/sdhci.cpp",
                    "arch/x86/kernel/drivers/ahci.cpp", "arch/x86/kernel/drivers/ide.cpp"]
         result = subprocess.run([CLANG, *flags, *(str(ROOT / path) for path in sources), "-o", str(cls.binary)],
                                 capture_output=True, text=True, timeout=30)

@@ -5,7 +5,9 @@
 #define KERNEL_MEM_SIZE 0x38000000
 
 #ifndef __ASSEMBLY__
-#define KERNEL_DEVIO_BASE (KERNEL_BASE + (uintptr_t)0x40000000)  // Beyond the boot 1GB mapping.
+// Physical memory at or above this address has no direct-map address.
+#define KERNEL_DIRECT_MAP_END_PA KERNEL_MEM_SIZE
+#define KERNEL_DEVIO_BASE        (KERNEL_BASE + (uintptr_t)0x40000000)  // Beyond the boot 1GB mapping.
 #else
 #define KERNEL_DEVIO_BASE (KERNEL_BASE + 0x40000000)
 #endif

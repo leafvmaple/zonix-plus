@@ -15,13 +15,23 @@
 // Declared in head.S — kernel's own copy of boot_info
 extern struct BootInfo __kernel_boot_info;
 
+// Pages are reached through the direct map, so available RAM beyond it is
+// left out; firmware may report far more memory than the kernel maps.
 template<typename F>
 void traverse_boot_mmap(F&& callback) {
     struct BootInfo* bi = &__kernel_boot_info;
     auto* entries = reinterpret_cast<struct BootMemEntry*>(bi->mmap_pa + KERNEL_BASE);
     uint32_t count = bi->mmap_count;
     for (uint32_t i = 0; i < count; i++) {
-        callback(entries[i].base_pa, entries[i].size_bytes, entries[i].type);
+        uint64_t base_pa = entries[i].base_pa;
+        uint64_t size_bytes = entries[i].size_bytes;
+        if (entries[i].type == BOOT_MEM_AVAILABLE) {
+            if (base_pa >= KERNEL_DIRECT_MAP_END_PA)
+                continue;
+            if (size_bytes > KERNEL_DIRECT_MAP_END_PA - base_pa)
+                size_bytes = KERNEL_DIRECT_MAP_END_PA - base_pa;
+        }
+        callback(base_pa, size_bytes, entries[i].type);
     }
 }
 
@@ -110,6 +120,17 @@ static int page_init() {
         klog::error("pmm: boot memory map is empty\n");
         return -1;
     }
+
+    uint64_t unmapped_bytes{};
+    auto* entries = reinterpret_cast<struct BootMemEntry*>(bi->mmap_pa + KERNEL_BASE);
+    for (uint32_t i = 0; i < bi->mmap_count; i++) {
+        uint64_t end = entries[i].base_pa + entries[i].size_bytes;
+        if (entries[i].type == BOOT_MEM_AVAILABLE && end > KERNEL_DIRECT_MAP_END_PA)
+            unmapped_bytes +=
+                end - (entries[i].base_pa > KERNEL_DIRECT_MAP_END_PA ? entries[i].base_pa : KERNEL_DIRECT_MAP_END_PA);
+    }
+    if (unmapped_bytes != 0)
+        klog::info("memory: %lu MiB above the direct map left unused\n", unmapped_bytes / (1024 * 1024));
 
     uint64_t max_pa{};
     traverse_boot_mmap([&max_pa](uint64_t base_pa, uint64_t size_bytes, uint32_t type) {
