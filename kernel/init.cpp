@@ -16,6 +16,7 @@
 #include "lib/stdio.h"
 #include "lib/unistd.h"
 #include <kernel/boot_info.h>
+#include <kernel/boot_options.h>
 #include <kernel/log.h>
 #include <asm/arch.h>
 
@@ -124,6 +125,13 @@ extern "C" [[noreturn]] int kern_init(struct BootInfo* boot_info) {
 
 #ifdef TEST_MODE
     (void)sched::kernel_thread(test_run_all, nullptr);
+#else
+    // From here programs own the console. Kernel information that arrives
+    // later, such as USB devices finishing enumeration, would land in the
+    // middle of the shell's line, so only warnings and errors still show;
+    // everything stays in the log (/dev/kmsg, /var/log/kernel.log).
+    if constexpr (!BOOT_VERBOSE)
+        klog::set_console_level(klog::Level::Warn);
 #endif
 
     intr::enable();

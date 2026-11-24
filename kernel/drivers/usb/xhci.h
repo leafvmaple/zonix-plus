@@ -60,6 +60,7 @@ struct Slot {
     DmaBuffer input{};   // Input context for commands
     sys::array<Endpoint, MAX_ENDPOINTS> endpoints{};
     bool active{};
+    bool multi_tt{};  // A hub with a transaction translator per port
 };
 
 class Controller final : public usb::Host {
@@ -71,6 +72,8 @@ public:
     Error control(usb::Device& device, const usb::SetupPacket& setup, void* data) override;
     Error start_interrupt_in(usb::Device& device, const usb::EndpointDescriptor& endpoint, usb::ReportHandler handler,
                              void* context) override;
+    Error set_hub(usb::Device& hub, uint8_t ports, uint8_t think_time, bool multi_tt) override;
+    Error add_device(usb::Device& hub, uint8_t port, usb::Speed speed) override;
 
 private:
     struct Completion {
@@ -86,7 +89,7 @@ private:
     Error command(Trb trb, Completion& result);
     Error wait(Completion& completion, uint64_t timeout_ms);
     Error reset_port(uint8_t port, usb::Speed& speed);
-    Error address_device(uint8_t port, usb::Speed speed);
+    Error address_device(const usb::Topology& topology, uint8_t port, usb::Speed speed);
     Error update_ep0_packet_size(Slot& slot, uint16_t packet_size);
     Slot* slot_of(usb::Device& device);
     uint32_t* input_context(Slot& slot, size_t index);

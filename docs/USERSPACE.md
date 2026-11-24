@@ -45,7 +45,7 @@ QEMU 默认只接引导盘和基础 rootfs，只有指定 `USER_DISK` 才接入�
 
 | 对象 | 构建方式 |
 | --- | --- |
-| init、shell、ls/cat/cp/mkdir/rm/sync/shutdown/ps/kill/vi 等基础组件 | Clang 交叉编译，`USER_CC` 不改变基础组件的编译器 |
+| init、shell、ls/cat/cp/mkdir/rm/sync/shutdown/reboot/ps/kill/vi/dmesg 等基础组件 | Clang 交叉编译，`USER_CC` 不改变基础组件的编译器 |
 | 普通应用 | `USER_CC=zcc`（保留默认路径）、`USER_CC=clang`，或显式指定兼容的交叉 C 编译器命令 |
 | zcc 示例 | 显式 `zcc-examples` 目标，始终通过 zcc 前端 |
 
@@ -153,10 +153,12 @@ Ctrl-C 取消整个前台命令组，包括已继承成员身份的后代，唤�
 | `rm [-d] path...` | 默认删除文件；`-d` 也可删除空目录，不提供递归删除 |
 | `sync` | 同步已挂载文件系统及其设备缓存，失败返回非零状态 |
 | `shutdown` | 排空 I/O、同步文件与设备，再请求平台关机；失败恢复存储访问并返回 shell |
+| `reboot` | 与 `shutdown` 相同的同步，然后重启机器 |
 | `ps` | 按 PID 升序显示 PID、PPID、状态、用户/内核类型和名称；包括尚未回收的 zombie |
 | `kill PID...` | 对正十进制 PID 请求安全终止；不接受信号选项、进程组或广播语义 |
 | `vi [file]` | 精简全屏编辑器，普通/插入/命令模式；ASCII/LF，最大 64 KiB |
 | `logd` | 由 init 开机启动的日志进程，把内核日志写进 `/var/log/kernel.log`，见下文“日志文件” |
+| `dmesg [text]` | 打印内核环形缓冲中还保留的日志（最近 512 条，含调试级别）后退出；带参数时只打印包含该文字的行，例如 `dmesg usb` |
 
 命令成功返回 0，操作失败返回 1，用法错误返回 2；诊断写入 stderr。`cat` 的控制台输入采用共用行策略：Enter 提交带换行的一行，Ctrl-D 交付当前未完成行或在空行结束；键盘回显写 stderr，重定向文件只收到数据。交互输入每行最多 4094 字节，超长行排空后报错，不写入截断行；普通文件 stdin 不受此行长度限制。`cp` 处理短读写，发生错误时报告失败，但可能留下部分目标文件；它不是原子复制，也不隐式同步落盘。使用 `sync` 或正常 `shutdown` 确认数据持久化。
 

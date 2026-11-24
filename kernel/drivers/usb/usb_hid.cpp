@@ -178,7 +178,7 @@ Error attach(Device& device, const InterfaceDescriptor& interface, const Endpoin
     ENSURE(state, Error::Full);
     TRY(device.host->start_interrupt_in(device, *report, keyboard ? Registry::keyboard_report : Registry::mouse_report,
                                         state));
-    klog::info("usb: port %u: %s\n", device.port, keyboard ? "keyboard" : "mouse");
+    klog::info("usb %s: %s\n", location(device).text, keyboard ? "keyboard" : "mouse");
     return Error::None;
 }
 

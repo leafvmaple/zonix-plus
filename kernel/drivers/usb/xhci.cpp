@@ -95,6 +95,12 @@ constexpr uint32_t SLOT_SPEED_SHIFT = 20;
 constexpr uint32_t SLOT_ENTRIES_SHIFT = 27;
 constexpr uint32_t SLOT_ENTRIES_MASK = 0x1FU << SLOT_ENTRIES_SHIFT;
 constexpr uint32_t SLOT_PORT_SHIFT = 16;
+constexpr uint32_t SLOT_ROUTE_MASK = 0xFFFFF;
+constexpr uint32_t SLOT_MULTI_TT = 1U << 25;
+constexpr uint32_t SLOT_HUB = 1U << 26;
+constexpr uint32_t SLOT_HUB_PORTS_SHIFT = 24;
+constexpr uint32_t SLOT_TT_PORT_SHIFT = 8;
+constexpr uint32_t SLOT_TT_THINK_SHIFT = 16;
 constexpr uint32_t EP_ERROR_COUNT_3 = 3U << 1;
 constexpr uint32_t EP_TYPE_SHIFT = 3;
 constexpr uint32_t EP_TYPE_CONTROL = 4;
@@ -439,7 +445,7 @@ Error Controller::update_ep0_packet_size(Slot& slot, uint16_t packet_size) {
     return command({slot.input.pa(), 0, (TRB_EVALUATE_CONTEXT << TRB_TYPE_SHIFT) | (id << TRB_SLOT_SHIFT)}, done);
 }
 
-Error Controller::address_device(uint8_t port, usb::Speed speed) {
+Error Controller::address_device(const usb::Topology& topology, uint8_t port, usb::Speed speed) {
     Completion enabled{};
     TRY(command({0, 0, TRB_ENABLE_SLOT << TRB_TYPE_SHIFT}, enabled));
     ENSURE(enabled.slot != 0 && enabled.slot <= max_slots_, Error::Full);
@@ -454,8 +460,10 @@ Error Controller::address_device(uint8_t port, usb::Speed speed) {
     const uint16_t packet = default_ep0_packet(speed);
     input_context(slot, 0)[1] = (1U << 0) | (1U << CONTROL_DCI);
     uint32_t* slot_context = input_context(slot, 1);
-    slot_context[0] = (slot_speed(speed) << SLOT_SPEED_SHIFT) | (1U << SLOT_ENTRIES_SHIFT);
-    slot_context[1] = static_cast<uint32_t>(port) << SLOT_PORT_SHIFT;
+    slot_context[0] = (topology.route & SLOT_ROUTE_MASK) | (slot_speed(speed) << SLOT_SPEED_SHIFT) |
+                      (topology.multi_tt ? SLOT_MULTI_TT : 0) | (1U << SLOT_ENTRIES_SHIFT);
+    slot_context[1] = static_cast<uint32_t>(topology.root_port) << SLOT_PORT_SHIFT;
+    slot_context[2] = topology.tt_slot | (static_cast<uint32_t>(topology.tt_port) << SLOT_TT_PORT_SHIFT);
     uint32_t* ep0 = input_context(slot, CONTROL_DCI + 1);
     ep0[1] = EP_ERROR_COUNT_3 | (EP_TYPE_CONTROL << EP_TYPE_SHIFT) | (static_cast<uint32_t>(packet) << EP_PACKET_SHIFT);
     const uint64_t dequeue = slot.endpoints[CONTROL_DCI].ring.pa() | EP_DEQUEUE_CYCLE;
@@ -469,7 +477,7 @@ Error Controller::address_device(uint8_t port, usb::Speed speed) {
                 addressed));
 
     slot.active = true;
-    slot.device = usb::Device{this, enabled.slot, port, speed, {}};
+    slot.device = usb::Device{this, enabled.slot, port, speed, topology, {}};
     // Full-speed devices state their endpoint 0 packet size in the first
     // eight bytes of the device descriptor.
     if (speed == usb::Speed::Full) {
@@ -491,10 +499,55 @@ void Controller::enumerate_ports() {
         usb::Speed speed{};
         Error error = reset_port(port, speed);
         if (error == Error::None)
-            error = address_device(port, speed);
+            error = address_device(usb::Topology{port, 0, 0, 0, 0, false}, port, speed);
         if (error != Error::None)
             klog::warn("xhci: port %u: device not usable (%d)\n", port, static_cast<int>(error));
     }
+}
+
+// Configure Endpoint with only the slot context added updates the hub
+// fields the controller needs to schedule split transactions.
+Error Controller::set_hub(usb::Device& hub, uint8_t ports, uint8_t think_time, bool multi_tt) {
+    Slot* slot = slot_of(hub);
+    ENSURE(slot, Error::NoDevice);
+    slot->output.sync_for_cpu(0, context_size_);
+    memset(slot->input.data(), 0, slot->input.size());
+    input_context(*slot, 0)[1] = 1U << 0;
+    uint32_t* slot_context = input_context(*slot, 1);
+    memcpy(slot_context, slot->output.data(), context_size_);
+    slot_context[0] |= SLOT_HUB | (multi_tt ? SLOT_MULTI_TT : 0);
+    slot_context[1] =
+        (slot_context[1] & ~(0xFFU << SLOT_HUB_PORTS_SHIFT)) | (static_cast<uint32_t>(ports) << SLOT_HUB_PORTS_SHIFT);
+    slot_context[2] =
+        (slot_context[2] & ~(3U << SLOT_TT_THINK_SHIFT)) | (static_cast<uint32_t>(think_time) << SLOT_TT_THINK_SHIFT);
+    slot->input.sync_for_device(0, slot->input.size());
+    Completion done{};
+    TRY(command({slot->input.pa(), 0,
+                 (TRB_CONFIGURE_ENDPOINT << TRB_TYPE_SHIFT) | (static_cast<uint32_t>(hub.slot) << TRB_SLOT_SHIFT)},
+                done));
+    slot->multi_tt = multi_tt;
+    return Error::None;
+}
+
+Error Controller::add_device(usb::Device& hub, uint8_t port, usb::Speed speed) {
+    Slot* parent = slot_of(hub);
+    ENSURE(parent && port != 0 && port <= 15 && hub.topology.depth < usb::MAX_HUB_DEPTH, Error::Invalid);
+    usb::Topology topology = hub.topology;
+    topology.route |= static_cast<uint32_t>(port) << (4 * hub.topology.depth);
+    topology.depth = static_cast<uint8_t>(hub.topology.depth + 1);
+    // Low- and full-speed traffic below a high-speed hub goes through that
+    // hub's transaction translator; deeper full-speed hubs share it.
+    const bool slow = speed == usb::Speed::Low || speed == usb::Speed::Full;
+    if (slow && hub.speed == usb::Speed::High) {
+        topology.tt_slot = hub.slot;
+        topology.tt_port = port;
+        topology.multi_tt = parent->multi_tt;
+    } else if (!slow) {
+        topology.tt_slot = 0;
+        topology.tt_port = 0;
+        topology.multi_tt = false;
+    }
+    return address_device(topology, port, speed);
 }
 
 Slot* Controller::slot_of(usb::Device& device) {

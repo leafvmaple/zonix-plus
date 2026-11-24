@@ -1,5 +1,6 @@
 #include "drivers/usb/usb_core.h"
 #include "drivers/usb/usb_hid.h"
+#include "drivers/usb/usb_hub.h"
 #include "drivers/intr.h"
 #include "lib/memory.h"
 #include "trap/trap.h"
@@ -28,6 +29,23 @@ SetupPacket get_descriptor(uint8_t type, uint16_t length) {
 
 }  // namespace
 
+Location location(const Device& device) {
+    Location out{};
+    size_t used = 0;
+    auto append = [&](unsigned int value) {
+        if (value >= 10)
+            out.text[used++] = static_cast<char>('0' + value / 10);
+        out.text[used++] = static_cast<char>('0' + value % 10);
+    };
+    append(device.topology.root_port);
+    for (uint8_t tier = 0; tier < device.topology.depth && tier < MAX_HUB_DEPTH; ++tier) {
+        out.text[used++] = '.';
+        append((device.topology.route >> (4 * tier)) & 0xF);
+    }
+    out.text[used] = '\0';
+    return out;
+}
+
 Error Core::read_configuration(Device& device, uint8_t* buffer, size_t capacity, size_t& length) {
     ConfigurationDescriptor head{};
     TRY(device.host->control(device, get_descriptor(DESCRIPTOR_CONFIGURATION, sizeof(head)), &head));
@@ -45,8 +63,10 @@ void Core::bind_interfaces(Device& device, const uint8_t* configuration, size_t 
     EndpointDescriptor endpoints[MAX_INTERFACE_ENDPOINTS]{};
     size_t endpoint_count = 0;
     auto offer = [&] {
-        if (interface && interface->alternate == 0)
-            static_cast<void>(hid::attach(device, *interface, endpoints, endpoint_count));
+        if (!interface || interface->alternate != 0)
+            return;
+        if (hid::attach(device, *interface, endpoints, endpoint_count) == Error::NotSupported)
+            static_cast<void>(hub::attach(device, *interface));
     };
     for (size_t offset = 0; offset + 2 <= length;) {
         const uint8_t size = configuration[offset];
@@ -70,13 +90,13 @@ Error Core::attach(Device& device) {
     ENSURE(device.host, Error::Invalid);
     TRY_LOG(
         device.host->control(device, get_descriptor(DESCRIPTOR_DEVICE, sizeof(device.descriptor)), &device.descriptor),
-        "usb: port %u: no device descriptor", device.port);
-    klog::info("usb: port %u: %04x:%04x, %s speed\n", device.port, device.descriptor.vendor_id,
+        "usb %s: no device descriptor", location(device).text);
+    klog::info("usb %s: %04x:%04x, %s speed\n", location(device).text, device.descriptor.vendor_id,
                device.descriptor.product_id, speed_name(device.speed));
     uint8_t configuration[CONFIGURATION_CAPACITY];
     size_t length = 0;
     TRY_LOG(read_configuration(device, configuration, sizeof(configuration), length),
-            "usb: port %u: cannot configure the device", device.port);
+            "usb %s: cannot configure the device", location(device).text);
     bind_interfaces(device, configuration, length);
     return Error::None;
 }

@@ -96,13 +96,34 @@ using ReportHandler = void (*)(void* context, const uint8_t* data, size_t length
 
 class Host;
 
+// Where a device sits: the root port its path starts at, the hub ports
+// below it (four bits per tier, nearest the root first) and, for low- and
+// full-speed devices behind a high-speed hub, the hub port whose
+// transaction translator carries their traffic.
+struct Topology {
+    uint8_t root_port{};
+    uint32_t route{};
+    uint8_t depth{};  // Hubs between the root port and the device
+    uint8_t tt_slot{};
+    uint8_t tt_port{};
+    bool multi_tt{};
+};
+
+inline constexpr uint8_t MAX_HUB_DEPTH = 5;
+
+// A device's place for messages: the root port, then each hub port, as "5.1".
+struct Location {
+    char text[3 * (MAX_HUB_DEPTH + 1) + 1];
+};
+
 // One addressed device on a host controller. The host owns the
 // controller-side state behind `slot`.
 struct Device {
     Host* host{};
     uint8_t slot{};
-    uint8_t port{};
+    uint8_t port{};  // On its parent: a root port or a hub port
     Speed speed{};
+    Topology topology{};
     DeviceDescriptor descriptor{};
 };
 
@@ -115,9 +136,17 @@ public:
     // on it, calling `handler` with every report the device sends.
     virtual Error start_interrupt_in(Device& device, const EndpointDescriptor& endpoint, ReportHandler handler,
                                      void* context) = 0;
+    // Records that `hub` is a hub with `ports` downstream ports and the given
+    // transaction translator, before devices behind it are addressed.
+    virtual Error set_hub(Device& hub, uint8_t ports, uint8_t think_time, bool multi_tt) = 0;
+    // Addresses the device on `port` of `hub`, which the hub has reset, and
+    // enumerates it.
+    virtual Error add_device(Device& hub, uint8_t port, Speed speed) = 0;
 
 protected:
     ~Host() = default;
 };
+
+Location location(const Device& device);
 
 }  // namespace usb

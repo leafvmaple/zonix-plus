@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Boot the production system with an xHCI controller, a USB keyboard and a
-USB mouse, check that both enumerate, and type a shell command through the
-USB keyboard. Run after building with TEST=0."""
+"""Boot the production system with an xHCI controller, a USB hub with a
+keyboard behind it and a USB mouse, check that all enumerate, and type a
+shell command through the USB keyboard. Run after building with TEST=0."""
 import argparse
 import re
+import time
 from pathlib import Path
 import tempfile
 
@@ -11,7 +12,11 @@ import test_console_qemu as console_test
 
 CONSOLE_COMMAND = console_test.command
 
-USB_DEVICES = ["-device", "qemu-xhci,id=xhci", "-device", "usb-kbd,bus=xhci.0", "-device", "usb-mouse,bus=xhci.0"]
+# The keyboard sits behind a hub and the mouse on a root port, so both paths
+# are enumerated.
+ENUMERATION_SECONDS = 3
+USB_DEVICES = ["-device", "qemu-xhci,id=xhci", "-device", "usb-hub,bus=xhci.0,port=1",
+               "-device", "usb-kbd,bus=xhci.0,port=1.1", "-device", "usb-mouse,bus=xhci.0,port=2"]
 
 
 def without_virtio_input(arch, directory, log, rootfs=None):
@@ -39,16 +44,23 @@ def run(arch):
         console = console_test.Console(arch, Path(temporary), logs / "console.log", extra=USB_DEVICES)
         try:
             console.expect("Zonix shell", "the shell to start", console_test.BOOT_TIMEOUT)
-            console.expect("usb: port", "a USB device to enumerate", console_test.BOOT_TIMEOUT)
-            text = console.text()
-            deadline_marker = "mouse" in text and "keyboard" in text
-            if not deadline_marker:
-                console.expect("mouse", "the USB mouse to attach")
-            console_test.check("usb: port" in console.text() and "keyboard" in console.text(),
-                               "xHCI enumerates the USB keyboard and mouse")
+            console.prompt("the first prompt")
+            # Enumeration finishes in the background; keys sent before then are lost.
+            time.sleep(ENUMERATION_SECONDS)
             console.type("echo usb-typed\n")
             console.expect("usb-typed\n", "the shell echoing text typed on the USB keyboard")
             console_test.check(True, "Text typed on the USB keyboard reaches the shell")
+            console.prompt("a prompt after echo")
+            text = console.text()
+            shell_output = text[text.find("Zonix shell"):]
+            console_test.check("] [info] usb" not in shell_output,
+                               "USB information arriving after boot stays off the shell's console")
+            # The hub on root port 1 enumerates before the keyboard on its port 1.
+            console.type("dmesg usb\n")
+            console.expect("dmesg usb\n", "the shell running dmesg")
+            log = console.expect("\n/ $ ", "the USB lines of the kernel log")
+            console_test.check("hub with" in log and ".1: keyboard" in log and ": mouse" in log,
+                               "dmesg shows the hub, the keyboard behind it and the mouse")
         finally:
             console.close()
 
