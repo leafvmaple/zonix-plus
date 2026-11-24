@@ -121,7 +121,8 @@ struct Location {
 struct Device {
     Host* host{};
     uint8_t slot{};
-    uint8_t port{};  // On its parent: a root port or a hub port
+    uint8_t parent_slot{};  // The hub it hangs from; 0 on a root port
+    uint8_t port{};         // On its parent: a root port or a hub port
     Speed speed{};
     Topology topology{};
     DeviceDescriptor descriptor{};
@@ -142,6 +143,15 @@ public:
     // Addresses the device on `port` of `hub`, which the hub has reset, and
     // enumerates it.
     virtual Error add_device(Device& hub, uint8_t port, Speed speed) = 0;
+    // Brings a root port up to date after a change: enumerates a device that
+    // arrived and removes one that left.
+    virtual void root_port_changed(uint8_t port) = 0;
+    // Detaches a device and everything behind it, then frees its slot.
+    virtual void remove_device(Device& device) = 0;
+    // The device on a port of the hub in `parent_slot` (0: a root port), and
+    // the device in a slot, or null.
+    virtual Device* child(uint8_t parent_slot, uint8_t port) = 0;
+    virtual Device* device(uint8_t slot) = 0;
 
 protected:
     ~Host() = default;

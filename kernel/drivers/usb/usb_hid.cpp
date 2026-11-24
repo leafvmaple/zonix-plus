@@ -44,6 +44,7 @@ constexpr uint8_t KEY_CODES[] = {
 enum class Kind : uint8_t { Keyboard, Mouse };
 
 struct Interface {
+    Device* device{};  // Null while the entry is free
     Kind kind{};
     uint8_t modifiers{};
     uint8_t keys[KEY_SLOTS]{};
@@ -61,14 +62,37 @@ bool contains(const uint8_t* keys, uint8_t usage) {
 
 class Registry {
 public:
-    static Interface* add(Kind kind) {
+    static Interface* add(Device& device, Kind kind) {
         intr::Guard guard;
-        if (count_ == interfaces_.size())
-            return nullptr;
-        Interface* interface = &interfaces_[count_++];
-        *interface = Interface{};
-        interface->kind = kind;
-        return interface;
+        for (Interface& interface : interfaces_) {
+            if (interface.device)
+                continue;
+            interface = Interface{};
+            interface.device = &device;
+            interface.kind = kind;
+            return &interface;
+        }
+        return nullptr;
+    }
+
+    // Releases what the departing device still held down, so no key or
+    // button stays pressed, and frees its entries.
+    static void remove(Device& device) {
+        intr::Guard guard;
+        for (Interface& state : interfaces_) {
+            if (state.device != &device)
+                continue;
+            for (unsigned int bit = 0; bit < 8; ++bit)
+                if ((state.modifiers & (1U << bit)) != 0)
+                    cons::key_event(MODIFIER_CODES[bit], DISPLAY_KEY_RELEASE);
+            for (uint8_t usage : state.keys)
+                if (uint16_t code = key_code(usage); code != 0)
+                    cons::key_event(code, DISPLAY_KEY_RELEASE);
+            for (unsigned int bit = 0; bit < 3; ++bit)
+                if ((state.buttons & (1U << bit)) != 0)
+                    cons::pointer_event(DISPLAY_EVENT_BUTTON, BUTTON_CODES[bit], 0);
+            state = Interface{};
+        }
     }
 
     static void keyboard_report(void* context, const uint8_t* data, size_t length) {
@@ -134,9 +158,8 @@ public:
     static void tick() {
         intr::Guard guard;
         const uint64_t now = trap::uptime_ms();
-        for (size_t i = 0; i < count_; ++i) {
-            Interface& state = interfaces_[i];
-            if (state.kind != Kind::Keyboard || state.repeat_code == 0 || now < state.repeat_at)
+        for (Interface& state : interfaces_) {
+            if (!state.device || state.kind != Kind::Keyboard || state.repeat_code == 0 || now < state.repeat_at)
                 continue;
             cons::key_event(state.repeat_code, DISPLAY_KEY_REPEAT);
             state.repeat_at = now + REPEAT_INTERVAL_MS;
@@ -145,7 +168,6 @@ public:
 
 private:
     inline static sys::array<Interface, 8> interfaces_{};
-    inline static size_t count_{};
 };
 
 }  // namespace
@@ -174,12 +196,20 @@ Error attach(Device& device, const InterfaceDescriptor& interface, const Endpoin
     static_cast<void>(device.host->control(device, {request, REQUEST_SET_IDLE, 0, interface.number, 0}, nullptr));
 
     const bool keyboard = interface.interface_protocol == PROTOCOL_KEYBOARD;
-    Interface* state = Registry::add(keyboard ? Kind::Keyboard : Kind::Mouse);
+    Interface* state = Registry::add(device, keyboard ? Kind::Keyboard : Kind::Mouse);
     ENSURE(state, Error::Full);
-    TRY(device.host->start_interrupt_in(device, *report, keyboard ? Registry::keyboard_report : Registry::mouse_report,
-                                        state));
+    Error error = device.host->start_interrupt_in(device, *report,
+                                                  keyboard ? Registry::keyboard_report : Registry::mouse_report, state);
+    if (error != Error::None) {
+        Registry::remove(device);
+        return error;
+    }
     klog::info("usb %s: %s\n", location(device).text, keyboard ? "keyboard" : "mouse");
     return Error::None;
+}
+
+void detach(Device& device) {
+    Registry::remove(device);
 }
 
 void tick() {

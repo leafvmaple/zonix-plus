@@ -66,7 +66,7 @@ void Core::bind_interfaces(Device& device, const uint8_t* configuration, size_t 
         if (!interface || interface->alternate != 0)
             return;
         if (hid::attach(device, *interface, endpoints, endpoint_count) == Error::NotSupported)
-            static_cast<void>(hub::attach(device, *interface));
+            static_cast<void>(hub::attach(device, *interface, endpoints, endpoint_count));
     };
     for (size_t offset = 0; offset + 2 <= length;) {
         const uint8_t size = configuration[offset];
@@ -99,6 +99,50 @@ Error Core::attach(Device& device) {
             "usb %s: cannot configure the device", location(device).text);
     bind_interfaces(device, configuration, length);
     return Error::None;
+}
+
+void Core::detach(Device& device) {
+    hid::detach(device);
+    klog::info("usb %s: removed\n", location(device).text);
+}
+
+void Core::port_changed(Host& host, uint8_t hub_slot, uint8_t port) {
+    intr::Guard guard;
+    for (size_t i = 0; i < event_count_; ++i)
+        if (events_[i].host == &host && events_[i].hub_slot == hub_slot && events_[i].port == port)
+            return;  // Already queued: the handler reads the port's current state.
+    if (event_count_ == events_.size()) {
+        klog::warn("usb: port change queue full\n");
+        return;
+    }
+    events_[event_count_++] = {&host, hub_slot, port};
+    events_waiting_.wakeup_all();
+}
+
+bool Core::next_event(PortEvent& event) {
+    intr::Guard guard;
+    while (event_count_ == 0)
+        events_waiting_.sleep();
+    event = events_[0];
+    for (size_t i = 1; i < event_count_; ++i)
+        events_[i - 1] = events_[i];
+    --event_count_;
+    return true;
+}
+
+void Core::run() {
+    for (;;) {
+        PortEvent event{};
+        if (!next_event(event))
+            continue;
+        if (event.hub_slot == 0) {
+            event.host->root_port_changed(event.port);
+            continue;
+        }
+        // The hub may have left since the change was queued.
+        if (Device* hub = event.host->device(event.hub_slot))
+            hub::port_changed(*hub, event.port);
+    }
 }
 
 void Core::sleep_ms(uint64_t ms) {

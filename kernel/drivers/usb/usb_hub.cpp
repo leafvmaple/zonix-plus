@@ -20,11 +20,19 @@ constexpr uint16_t FEATURE_PORT_RESET = 4;
 constexpr uint16_t FEATURE_PORT_POWER = 8;
 constexpr uint16_t FEATURE_C_PORT_CONNECTION = 16;
 constexpr uint16_t FEATURE_C_PORT_RESET = 20;
+// Change bits 0-4 are cleared with features 16-20 (connection, enable,
+// suspend, over-current, reset).
+constexpr uint16_t FEATURE_FIRST_CHANGE = 16;
+constexpr uint16_t CHANGE_BITS = 5;
 
 constexpr uint16_t STATUS_CONNECTION = 1U << 0;
 constexpr uint16_t STATUS_ENABLE = 1U << 1;
+constexpr uint16_t STATUS_OVER_CURRENT = 1U << 3;
+constexpr uint16_t STATUS_POWER = 1U << 8;
 constexpr uint16_t STATUS_LOW_SPEED = 1U << 9;
 constexpr uint16_t STATUS_HIGH_SPEED = 1U << 10;
+constexpr uint16_t CHANGE_CONNECTION = 1U << 0;
+constexpr uint16_t CHANGE_OVER_CURRENT = 1U << 3;
 constexpr uint16_t CHANGE_RESET = 1U << 4;
 
 constexpr uint16_t CHARACTERISTICS_THINK_TIME_SHIFT = 5;
@@ -36,6 +44,8 @@ constexpr uint64_t MIN_POWER_GOOD_MS = 100;
 constexpr uint64_t CONNECT_WINDOW_MS = 1500;
 constexpr uint64_t CONNECT_POLL_MS = 50;
 constexpr uint64_t CONNECT_STABLE_MS = 400;
+// A newly connected device must stay connected this long before its reset.
+constexpr uint64_t DEBOUNCE_MS = 100;
 
 struct HubDescriptor {
     uint8_t length;
@@ -80,9 +90,59 @@ Error reset_port(Device& hub, uint8_t port, Speed& speed) {
     return Error::None;
 }
 
+// Each status report is a bitmap: bit 0 for the hub, bit n for port n.
+void status_report(void* context, const uint8_t* data, size_t length) {
+    auto* hub = static_cast<Device*>(context);
+    for (uint8_t port = 1; port < 16 && port / 8 < length; ++port)
+        if ((data[port / 8] & (1U << (port % 8))) != 0)
+            Core::port_changed(*hub->host, hub->slot, port);
+}
+
 }  // namespace
 
-Error attach(Device& device, const InterfaceDescriptor& interface) {
+void port_changed(Device& hub, uint8_t port) {
+    PortStatus status{};
+    if (port_status(hub, port, status) != Error::None)
+        return;
+    for (uint16_t bit = 0; bit < CHANGE_BITS; ++bit)
+        if ((status.change & (1U << bit)) != 0)
+            static_cast<void>(port_feature(hub, REQUEST_CLEAR_FEATURE, FEATURE_FIRST_CHANGE + bit, port));
+    // The hub cuts power to a port that drew too much current; give it back
+    // once the condition has cleared. Hubs also report a passing over-current
+    // change when their ports are first powered, so only one that persists is
+    // a warning.
+    if ((status.change & CHANGE_OVER_CURRENT) != 0) {
+        if ((status.status & STATUS_OVER_CURRENT) != 0)
+            klog::warn("usb %s.%u: over-current\n", location(hub).text, port);
+        if ((status.status & (STATUS_OVER_CURRENT | STATUS_POWER)) == 0) {
+            static_cast<void>(port_feature(hub, REQUEST_SET_FEATURE, FEATURE_PORT_POWER, port));
+            Core::sleep_ms(MIN_POWER_GOOD_MS);
+            if (port_status(hub, port, status) != Error::None)
+                return;
+            klog::debug("usb %s.%u: powered again, status 0x%x\n", location(hub).text, port, status.status);
+        }
+    }
+    Device* child = hub.host->child(hub.slot, port);
+    const bool connected = (status.status & STATUS_CONNECTION) != 0;
+    if (child && (!connected || (status.change & CHANGE_CONNECTION) != 0)) {
+        hub.host->remove_device(*child);
+        child = nullptr;
+    }
+    if (!connected || child)
+        return;
+    Core::sleep_ms(DEBOUNCE_MS);
+    if (port_status(hub, port, status) != Error::None || (status.status & STATUS_CONNECTION) == 0)
+        return;
+    Speed speed{};
+    Error error = reset_port(hub, port, speed);
+    if (error == Error::None)
+        error = hub.host->add_device(hub, port, speed);
+    if (error != Error::None)
+        klog::warn("usb %s.%u: device not usable (%d)\n", location(hub).text, port, static_cast<int>(error));
+}
+
+Error attach(Device& device, const InterfaceDescriptor& interface, const EndpointDescriptor* endpoints,
+             size_t endpoint_count) {
     ENSURE(interface.interface_class == CLASS_HUB, Error::NotSupported);
     ENSURE_LOG(device.speed != Speed::Super, Error::NotSupported, "usb %s: USB 3 hubs are not supported",
                location(device).text);
@@ -125,20 +185,20 @@ Error attach(Device& device, const InterfaceDescriptor& interface) {
         }
         Core::sleep_ms(CONNECT_POLL_MS);
     }
-
     for (uint8_t port = 1; port <= descriptor.port_count; ++port) {
         PortStatus status{};
-        const bool read = port_status(device, port, status) == Error::None;
-        klog::debug("usb %s.%u: status 0x%x change 0x%x\n", location(device).text, port, status.status, status.change);
-        if (!read || (connected & (1U << port)) == 0 || (status.status & STATUS_CONNECTION) == 0)
-            continue;
-        Speed speed{};
-        Error error = reset_port(device, port, speed);
-        if (error == Error::None)
-            error = device.host->add_device(device, port, speed);
-        if (error != Error::None)
-            klog::warn("usb %s.%u: device not usable (%d)\n", location(device).text, port, static_cast<int>(error));
+        if (port_status(device, port, status) == Error::None)
+            klog::debug("usb %s.%u: status 0x%x change 0x%x\n", location(device).text, port, status.status,
+                        status.change);
+        port_changed(device, port);
     }
+
+    // Later arrivals, departures and over-current come as status reports.
+    for (size_t i = 0; i < endpoint_count; ++i)
+        if ((endpoints[i].address & ENDPOINT_IN) != 0 &&
+            (endpoints[i].attributes & ENDPOINT_TRANSFER_MASK) == ENDPOINT_INTERRUPT)
+            return device.host->start_interrupt_in(device, endpoints[i], status_report, &device);
+    klog::warn("usb %s: hub has no status endpoint; later changes are missed\n", location(device).text);
     return Error::None;
 }
 

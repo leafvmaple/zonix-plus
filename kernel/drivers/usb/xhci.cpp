@@ -49,6 +49,7 @@ constexpr uint64_t ERDP_BUSY = 1U << 3;
 constexpr uint32_t PORT_CONNECTED = 1U << 0;
 constexpr uint32_t PORT_ENABLED = 1U << 1;
 constexpr uint32_t PORT_RESET = 1U << 4;
+constexpr uint32_t PORT_CONNECT_CHANGE = 1U << 17;
 constexpr uint32_t PORT_RESET_CHANGE = 1U << 21;
 constexpr uint32_t PORT_CHANGE_BITS = 0x7FU << 17;  // Write 1 to clear
 constexpr uint32_t PORT_SPEED_SHIFT = 10;
@@ -86,6 +87,8 @@ constexpr uint32_t TRB_CONFIGURE_ENDPOINT = 12;
 constexpr uint32_t TRB_EVALUATE_CONTEXT = 13;
 constexpr uint32_t TRB_TRANSFER_EVENT = 32;
 constexpr uint32_t TRB_COMMAND_COMPLETION = 33;
+constexpr uint32_t TRB_PORT_STATUS_CHANGE = 34;
+constexpr uint32_t TRB_DISABLE_SLOT = 10;
 
 constexpr uint8_t COMPLETION_SUCCESS = 1;
 constexpr uint8_t COMPLETION_SHORT_PACKET = 13;
@@ -116,6 +119,9 @@ constexpr uint64_t COMMAND_TIMEOUT_MS = 1000;
 constexpr uint64_t TRANSFER_TIMEOUT_MS = 1000;
 constexpr uint64_t PORT_RESET_TIMEOUT_MS = 500;
 constexpr uint64_t RESET_RECOVERY_MS = 20;
+// A newly connected device must stay connected this long before its reset.
+constexpr uint64_t DEBOUNCE_MS = 100;
+constexpr uint32_t PORT_EVENT_PORT_SHIFT = 24;
 constexpr int REGISTER_POLLS = 10000000;  // Poll budget; not a wall-clock duration
 
 void write64(uintptr_t base, uintptr_t offset, uint64_t value) {
@@ -337,8 +343,12 @@ void Controller::handle_event(const Trb& event) {
             command_done_ = {true, code, slot, 0};
         return;
     }
+    if (type == TRB_PORT_STATUS_CHANGE) {
+        usb::Core::port_changed(*this, 0, static_cast<uint8_t>(event.parameter >> PORT_EVENT_PORT_SHIFT));
+        return;
+    }
     if (type != TRB_TRANSFER_EVENT)
-        return;  // Port changes: devices are enumerated once at start.
+        return;
     const uint32_t remaining = event.status & 0xFFFFFF;
     if (event.parameter == awaited_transfer_) {
         transfer_done_ = {true, code, slot, remaining};
@@ -445,7 +455,7 @@ Error Controller::update_ep0_packet_size(Slot& slot, uint16_t packet_size) {
     return command({slot.input.pa(), 0, (TRB_EVALUATE_CONTEXT << TRB_TYPE_SHIFT) | (id << TRB_SLOT_SHIFT)}, done);
 }
 
-Error Controller::address_device(const usb::Topology& topology, uint8_t port, usb::Speed speed) {
+Error Controller::address_device(const usb::Topology& topology, uint8_t parent_slot, uint8_t port, usb::Speed speed) {
     Completion enabled{};
     TRY(command({0, 0, TRB_ENABLE_SLOT << TRB_TYPE_SHIFT}, enabled));
     ENSURE(enabled.slot != 0 && enabled.slot <= max_slots_, Error::Full);
@@ -477,7 +487,7 @@ Error Controller::address_device(const usb::Topology& topology, uint8_t port, us
                 addressed));
 
     slot.active = true;
-    slot.device = usb::Device{this, enabled.slot, port, speed, topology, {}};
+    slot.device = usb::Device{this, enabled.slot, parent_slot, port, speed, topology, {}};
     // Full-speed devices state their endpoint 0 packet size in the first
     // eight bytes of the device descriptor.
     if (speed == usb::Speed::Full) {
@@ -492,17 +502,69 @@ Error Controller::address_device(const usb::Topology& topology, uint8_t port, us
 }
 
 void Controller::enumerate_ports() {
-    for (uint8_t port = 1; port <= max_ports_; ++port) {
-        const uint32_t status = mmio::read32(operational_, OP_PORTSC + (port - 1) * PORT_STRIDE);
-        if ((status & PORT_CONNECTED) == 0)
-            continue;
-        usb::Speed speed{};
-        Error error = reset_port(port, speed);
-        if (error == Error::None)
-            error = address_device(usb::Topology{port, 0, 0, 0, 0, false}, port, speed);
-        if (error != Error::None)
-            klog::warn("xhci: port %u: device not usable (%d)\n", port, static_cast<int>(error));
+    for (uint8_t port = 1; port <= max_ports_; ++port)
+        root_port_changed(port);
+}
+
+void Controller::root_port_changed(uint8_t port) {
+    if (port == 0 || port > max_ports_)
+        return;
+    const uintptr_t portsc = OP_PORTSC + (port - 1) * PORT_STRIDE;
+    uint32_t status = mmio::read32(operational_, portsc);
+    // Acknowledge the changes; the port's current state decides what to do.
+    mmio::write32(operational_, portsc, (status & ~(PORT_ENABLED | PORT_CHANGE_BITS)) | (status & PORT_CHANGE_BITS));
+    usb::Device* child = this->child(0, port);
+    const bool connected = (status & PORT_CONNECTED) != 0;
+    if (child && (!connected || (status & PORT_CONNECT_CHANGE) != 0)) {
+        remove_device(*child);
+        child = nullptr;
     }
+    if (!connected || child)
+        return;
+    usb::Core::sleep_ms(DEBOUNCE_MS);
+    if ((mmio::read32(operational_, portsc) & PORT_CONNECTED) == 0)
+        return;
+    usb::Speed speed{};
+    Error error = reset_port(port, speed);
+    if (error == Error::None)
+        error = address_device(usb::Topology{port, 0, 0, 0, 0, false}, 0, port, speed);
+    if (error != Error::None)
+        klog::warn("usb %u: device not usable (%d)\n", port, static_cast<int>(error));
+}
+
+void Controller::remove_device(usb::Device& device) {
+    Slot* slot = slot_of(device);
+    if (!slot)
+        return;
+    for (size_t id = 1; id <= max_slots_; ++id)
+        if (slots_[id].active && slots_[id].device.parent_slot == device.slot)
+            remove_device(slots_[id].device);
+    usb::Core::detach(device);
+    const uint8_t id = device.slot;
+    {
+        // No more reports reach class drivers once the slot is inactive.
+        intr::Guard guard;
+        slot->active = false;
+        for (Endpoint& endpoint : slot->endpoints)
+            endpoint.handler = nullptr;
+    }
+    Completion disabled{};
+    static_cast<void>(command(
+        {0, 0, (TRB_DISABLE_SLOT << TRB_TYPE_SHIFT) | (static_cast<uint32_t>(id) << TRB_SLOT_SHIFT)}, disabled));
+    static_cast<uint64_t*>(dcbaa_.data())[id] = 0;
+    dcbaa_.sync_for_device(id * sizeof(uint64_t), sizeof(uint64_t));
+    *slot = Slot{};
+}
+
+usb::Device* Controller::child(uint8_t parent_slot, uint8_t port) {
+    for (size_t id = 1; id <= max_slots_; ++id)
+        if (slots_[id].active && slots_[id].device.parent_slot == parent_slot && slots_[id].device.port == port)
+            return &slots_[id].device;
+    return nullptr;
+}
+
+usb::Device* Controller::device(uint8_t slot) {
+    return slot != 0 && slot <= max_slots_ && slots_[slot].active ? &slots_[slot].device : nullptr;
 }
 
 // Configure Endpoint with only the slot context added updates the hub
@@ -547,7 +609,7 @@ Error Controller::add_device(usb::Device& hub, uint8_t port, usb::Speed speed) {
         topology.tt_port = 0;
         topology.multi_tt = false;
     }
-    return address_device(topology, port, speed);
+    return address_device(topology, hub.slot, port, speed);
 }
 
 Slot* Controller::slot_of(usb::Device& device) {
@@ -696,7 +758,7 @@ Error Manager::probe_callback(const pci::DeviceInfo* device, const pci::DriverId
 }
 
 // Controllers start and devices enumerate in a kernel thread, where waits
-// for resets and transfers may sleep.
+// for resets and transfers may sleep; it then stays to follow port changes.
 int Manager::thread(void*) {
     for (size_t i = 0; i < count_; ++i) {
         Controller& controller = controllers_[i];
@@ -708,7 +770,7 @@ int Manager::thread(void*) {
         }
         controller.enumerate_ports();
     }
-    return 0;
+    usb::Core::run();
 }
 
 int Manager::start_thread() {

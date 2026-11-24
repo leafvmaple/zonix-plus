@@ -74,6 +74,10 @@ public:
                              void* context) override;
     Error set_hub(usb::Device& hub, uint8_t ports, uint8_t think_time, bool multi_tt) override;
     Error add_device(usb::Device& hub, uint8_t port, usb::Speed speed) override;
+    void root_port_changed(uint8_t port) override;
+    void remove_device(usb::Device& device) override;
+    usb::Device* child(uint8_t parent_slot, uint8_t port) override;
+    usb::Device* device(uint8_t slot) override;
 
 private:
     struct Completion {
@@ -89,7 +93,7 @@ private:
     Error command(Trb trb, Completion& result);
     Error wait(Completion& completion, uint64_t timeout_ms);
     Error reset_port(uint8_t port, usb::Speed& speed);
-    Error address_device(const usb::Topology& topology, uint8_t port, usb::Speed speed);
+    Error address_device(const usb::Topology& topology, uint8_t parent_slot, uint8_t port, usb::Speed speed);
     Error update_ep0_packet_size(Slot& slot, uint16_t packet_size);
     Slot* slot_of(usb::Device& device);
     uint32_t* input_context(Slot& slot, size_t index);
@@ -130,7 +134,7 @@ public:
     static void tick();
 
 private:
-    static int thread(void*);
+    [[noreturn]] static int thread(void*);
 
     inline static sys::array<Controller, MAX_CONTROLLERS> controllers_{};
     inline static sys::array<vmm::MmioRegion, MAX_CONTROLLERS> mappings_{};

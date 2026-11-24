@@ -11,6 +11,8 @@ namespace usb::hid {
 // Claims a boot keyboard or mouse interface; NotSupported for others.
 Error attach(Device& device, const InterfaceDescriptor& interface, const EndpointDescriptor* endpoints,
              size_t endpoint_count);
+// Forgets a departing device's interfaces, releasing keys it held.
+void detach(Device& device);
 // Timer tick: repeats a held key, as USB keyboards do not.
 void tick();
 
