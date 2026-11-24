@@ -38,3 +38,9 @@
 /* No DesignWare SD controller; SD cards sit behind PCI SDHCI */
 #define BOARD_SD_PHYS     0UL
 #define BOARD_SD_CLOCK_HZ 0ULL
+
+/* SBI system reset needs no board preparation */
+#define BOARD_SYSCRG_PHYS    0UL
+#define BOARD_PMIC_I2C_PHYS  0UL
+#define BOARD_PMIC_I2C_CLOCK 0
+#define BOARD_PMIC_I2C_RESET 0

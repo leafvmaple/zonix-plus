@@ -138,6 +138,23 @@ class Console:
         self.prompt("a prompt after ps")
         return program in table
 
+    def shutdown_reasons(self, timeout):
+        """Waits for QEMU to exit and returns the reasons of its SHUTDOWN events."""
+        self.client.settimeout(timeout)
+        reasons = []
+        try:
+            for line in self.stream:
+                message = json.loads(line)
+                if message.get("event") == "SHUTDOWN":
+                    reasons.append(message.get("data", {}).get("reason"))
+        except (socket.timeout, OSError):
+            pass
+        try:
+            self.process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"QEMU kept running; shutdown events: {reasons}")
+        return reasons
+
     def close(self):
         try:
             self.client.close()
@@ -199,6 +216,11 @@ def run(arch):
             console.prompt("a prompt after cat")
             check(not console.running("/bin/vi"),
                   "Raw mode passes Ctrl-C to the application, which keeps running until it exits")
+
+            # With -no-reboot, QEMU exits when the guest resets the machine.
+            console.type("reboot\n")
+            reasons = console.shutdown_reasons(STEP_TIMEOUT)
+            check("guest-reset" in reasons, "reboot resets the machine after syncing storage")
         finally:
             console.close()
 

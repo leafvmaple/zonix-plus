@@ -4,3 +4,4 @@
 
 // Final platform power request. Storage must already be quiesced and durable.
 Error arch_power_off();
+Error arch_reboot();

@@ -39,4 +39,9 @@ Error shutdown() {
     return arch_power_off();
 }
 
+Error reboot() {
+    auto guard = TRY(prepare_shutdown());
+    return arch_reboot();
+}
+
 }  // namespace power

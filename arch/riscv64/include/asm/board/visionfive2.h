@@ -40,3 +40,11 @@
  * that firmware leaves enabled. */
 #define BOARD_SD_PHYS     0x16020000UL
 #define BOARD_SD_CLOCK_HZ 49500000ULL
+
+/* OpenSBI powers off and resets the board through the AXP15060 PMIC on I2C5.
+ * Starting the OS gates that controller's APB clock and resets its
+ * configuration, so the kernel restores both before an SBI system reset. */
+#define BOARD_SYSCRG_PHYS    0x13020000UL
+#define BOARD_PMIC_I2C_PHYS  0x12050000UL
+#define BOARD_PMIC_I2C_CLOCK 143 /* JH7110_SYSCLK_I2C5_APB */
+#define BOARD_PMIC_I2C_RESET 81  /* JH7110_SYSRST_I2C5_APB */

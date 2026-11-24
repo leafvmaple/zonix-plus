@@ -54,6 +54,7 @@
 #define NR_CHANNEL_LISTEN 412
 #define NR_CHANNEL_CONNECT 413
 #define NR_CHANNEL_ACCEPT 414
+#define NR_REBOOT 415
 
 /* ---- Stdout / Stderr fd constants ---- */
 #define STDIN_FD  0

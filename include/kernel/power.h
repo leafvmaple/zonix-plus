@@ -27,4 +27,7 @@ Result<ShutdownGuard> prepare_shutdown();
 // returns; failure resumes storage and restores the caller's interrupt state.
 Error shutdown();
 
+// Like shutdown, then resets the machine instead of removing power.
+Error reboot();
+
 }  // namespace power

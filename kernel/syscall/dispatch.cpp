@@ -48,6 +48,7 @@ bool dispatch(Task* task, long nr, uintptr_t arg0, uintptr_t arg1, uintptr_t arg
         case NR_FTRUNCATE: result = ftruncate(task, static_cast<int>(arg0), static_cast<long>(arg1)); return true;
         case NR_SYNC: result = static_cast<long>(vfs::sync()); return true;
         case NR_SHUTDOWN: result = static_cast<long>(power::shutdown()); return true;
+        case NR_REBOOT: result = static_cast<long>(power::reboot()); return true;
         case NR_STAT: result = stat(task, reinterpret_cast<const char*>(arg0), arg1); return true;
         case NR_READDIR:
             result = readdir(task, reinterpret_cast<const char*>(arg0), static_cast<long>(arg1), arg2);

@@ -68,6 +68,7 @@ SP -> argc                64 位
 | channel_listen | 412 | `sys_channel_listen(name, flags)` 占用一个通道名，返回监听 FD。见下文“命名本地通道” |
 | channel_connect | 413 | `sys_channel_connect(name, flags)` 连接通道名，返回双向流 FD |
 | channel_accept | 414 | `sys_channel_accept(fd, flags)` 从监听 FD 取出一条已连接的流 |
+| reboot | 415 | 与 shutdown 相同的有序同步，然后重启机器；成功不返回，失败返回负 Error 并恢复存储访问 |
 
 进程、元数据、文件变更、同步和关机调用失败返回负的内核 `Error` 值，包括 NoMem=-2、Invalid=-3、NotFound=-4、Busy=-9、NoDevice=-10、NotSupported=-11、Full=-12、Access=-14、Interrupted=-15。它们不是 Linux 系统调用的兼容实现。`include/abi/process.h` 定义用户侧结构、常用错误和参数限制；结构中类型、长度和属性字段均为 32 位无符号整数。zcc 运行时的系统调用定义必须与内核完整一致，进程结构和文件标志也必须同步；ABI 检查不允许单方面新增调用。原有 `FileStat`（12 字节）、`DirectoryEntry`（44 字节）和旧 syscall 语义保持不变。
 

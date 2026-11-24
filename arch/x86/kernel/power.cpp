@@ -16,6 +16,16 @@ constexpr uint16_t PM1_CONTROL_OFFSET = 0x04;
 constexpr uint16_t PM1_SLEEP_TYPE_MASK = 7U << 10;
 constexpr uint16_t PM1_SLEEP_ENABLE = 1U << 13;
 
+// Reset Control Register of the PIIX/ICH chipsets, then the 8042 keyboard
+// controller's pulse-reset command as the fallback every PC keeps.
+constexpr uint16_t RESET_CONTROL_PORT = 0xCF9;
+constexpr uint8_t RESET_SYSTEM = 0x02;
+constexpr uint8_t RESET_FULL = 0x04;
+constexpr uint16_t KBC_COMMAND_PORT = 0x64;
+constexpr uint8_t KBC_INPUT_FULL = 0x02;
+constexpr uint8_t KBC_PULSE_RESET = 0xFE;
+constexpr int KBC_POLLS = 100000;
+
 }  // namespace
 
 Error arch_power_off() {
@@ -36,5 +46,17 @@ Error arch_power_off() {
             arch_halt_forever();
         }
     }
+    return Error::NotSupported;
+}
+
+Error arch_reboot() {
+    intr::Guard guard;
+    arch_port_write8(RESET_CONTROL_PORT, RESET_SYSTEM);
+    arch_port_write8(RESET_CONTROL_PORT, RESET_SYSTEM | RESET_FULL);
+    for (int i = 0; i < KBC_POLLS && (arch_port_read8(KBC_COMMAND_PORT) & KBC_INPUT_FULL) != 0; ++i)
+        arch_spin_hint();
+    arch_port_write8(KBC_COMMAND_PORT, KBC_PULSE_RESET);
+    for (int i = 0; i < KBC_POLLS; ++i)
+        arch_spin_hint();
     return Error::NotSupported;
 }
