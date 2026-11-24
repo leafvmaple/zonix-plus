@@ -41,7 +41,10 @@ public:
         for (const auto& entry : State::devices()) {
             if (strcmp(entry.name, relpath) == 0) {
                 ENSURE((flags & (O_CREAT | O_EXCL)) != (O_CREAT | O_EXCL), Error::Exists);
-                ENSURE((flags & (O_TRUNC | O_APPEND)) == 0, Error::NotSupported);
+                // As on POSIX, truncating a device does nothing, so shell redirection
+                // such as "> /dev/kmsg" works. Append would route writes through
+                // File::append, which devices do not provide.
+                ENSURE((flags & O_APPEND) == 0, Error::NotSupported);
                 auto file = TRY(entry.create());
                 ENSURE(file, Error::Io);
                 return file;

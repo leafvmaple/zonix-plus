@@ -81,6 +81,7 @@ static const InitStep KERN_STEPS[] = {
     {"pmm", pmm::init, true},
     {"vmm", vmm::init, true},
     {"vfs", vfs::init, true},
+    {"kmsg", klog::init_device, false},
     {"cons_late", cons::late_init, false},
     {"pci_init", pci::init, false},
     {"blk", blk::init, true},

@@ -160,6 +160,9 @@ ZSTL_DIR := external/zstl
 KERNEL_SEMANTICS := -fno-strict-aliasing -fno-delete-null-pointer-checks -fno-finite-loops -fwrapv
 CFLAGS   += $(KERNEL_SEMANTICS)
 CXXFLAGS += $(KERNEL_SEMANTICS)
+# Panics and faults walk the frame-pointer chain to print a backtrace.
+CFLAGS   += -fno-omit-frame-pointer
+CXXFLAGS += -fno-omit-frame-pointer
 CXXFLAGS += $(addprefix -I,$(INCLUDE)) -Werror=unused-result \
             -I$(ZSTL_DIR)/include -DCONFIG_BOOT_VERBOSE=$(BOOT_VERBOSE)
 

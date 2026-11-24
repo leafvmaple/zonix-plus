@@ -32,17 +32,29 @@ def firmware(kind):
     ).strip()
 
 
-def command(arch, directory, log):
-    """The QEMU command `make qemu` uses for this architecture, with the serial console in `log`."""
+def command(arch, directory, log, rootfs=None):
+    """The QEMU command `make qemu` uses for this architecture, with the serial console in `log`.
+
+    With `rootfs`, that image replaces the built one and keeps what the guest
+    writes, while every other disk stays a snapshot."""
     if arch == "x86":
         combined = directory / "firmware.fd"
         subprocess.run(["bash", str(ROOT / "scripts/qemu_firmware.sh"), "x86-bios", firmware("x86"),
                         str(combined)], check=True)
+        disk = f"file={rootfs},snapshot=off" if rootfs else "file=bin/x86/rootfs.img"
         # qemu-uefi.cfg connects the serial port to QEMU's standard output.
         return ["qemu-system-x86_64", "-bios", str(combined), "-readconfig", "qemu-uefi.cfg",
-                "-drive", "file=bin/x86/rootfs.img,format=raw,if=none,id=data0",
+                "-drive", f"{disk},format=raw,if=none,id=data0",
                 "-device", "ide-hd,bus=ahci0.1,drive=data0"]
-    serial = ["-readconfig", f"qemu-uefi-{arch}.cfg", "-serial", f"file:{log}"]
+    config = f"qemu-uefi-{arch}.cfg"
+    if rootfs:
+        built = f'file = "bin/{arch}/rootfs.img"'
+        text = (ROOT / config).read_text()
+        if built not in text:
+            raise RuntimeError(f"{config} does not name {built}")
+        config = directory / "qemu.cfg"
+        config.write_text(text.replace(built, f'file = "{rootfs}"\nsnapshot = "off"'))
+    serial = ["-readconfig", str(config), "-serial", f"file:{log}"]
     if arch == "aarch64":
         return ["qemu-system-aarch64", "-cpu", "cortex-a72", "-bios", firmware(arch)] + serial
     variables = directory / "vars.fd"
@@ -53,14 +65,15 @@ def command(arch, directory, log):
 
 
 class Console:
-    def __init__(self, arch, directory, log, extra=()):
+    def __init__(self, arch, directory, log, extra=(), rootfs=None):
         self.log = log
         self.position = 0
         qmp_path = directory / "qmp.sock"
+        qmp_path.unlink(missing_ok=True)
         log.unlink(missing_ok=True)
         self.output = open(log, "wb") if arch == "x86" else subprocess.DEVNULL
         self.process = subprocess.Popen(
-            command(arch, directory, log) + list(extra) +
+            command(arch, directory, log, rootfs) + list(extra) +
             ["-display", "none", "-no-reboot", "-snapshot", "-qmp", f"unix:{qmp_path},server=on,wait=off"],
             cwd=ROOT, stdin=subprocess.DEVNULL, stdout=self.output, stderr=subprocess.PIPE)
         deadline = time.monotonic() + 30

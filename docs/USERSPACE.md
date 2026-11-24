@@ -156,6 +156,7 @@ Ctrl-C 取消整个前台命令组，包括已继承成员身份的后代，唤�
 | `ps` | 按 PID 升序显示 PID、PPID、状态、用户/内核类型和名称；包括尚未回收的 zombie |
 | `kill PID...` | 对正十进制 PID 请求安全终止；不接受信号选项、进程组或广播语义 |
 | `vi [file]` | 精简全屏编辑器，普通/插入/命令模式；ASCII/LF，最大 64 KiB |
+| `logd` | 由 init 开机启动的日志进程，把内核日志写进 `/var/log/kernel.log`，见下文“日志文件” |
 
 命令成功返回 0，操作失败返回 1，用法错误返回 2；诊断写入 stderr。`cat` 的控制台输入采用共用行策略：Enter 提交带换行的一行，Ctrl-D 交付当前未完成行或在空行结束；键盘回显写 stderr，重定向文件只收到数据。交互输入每行最多 4094 字节，超长行排空后报错，不写入截断行；普通文件 stdin 不受此行长度限制。`cp` 处理短读写，发生错误时报告失败，但可能留下部分目标文件；它不是原子复制，也不隐式同步落盘。使用 `sync` 或正常 `shutdown` 确认数据持久化。
 
@@ -168,6 +169,14 @@ Ctrl-C 取消整个前台命令组，包括已继承成员身份的后代，唤�
 `ps` 的 U/S/R/R+/Z 分别表示未初始化、睡眠、可运行、运行中和 zombie。每条元数据在关中断保护下复制，不暴露地址空间、内核栈或对象指针；多次读取不构成整张进程表的原子快照。
 
 P1-2 的基础 CLI 功能已实现；本地验收与当前提交状态见 [TODO.md](TODO.md#p1-2完整-cli-基础系统)。
+
+## 日志文件
+
+init 在启动 shell 和开机服务之前启动基础系统的 `/bin/logd`。logd 从 `/dev/kmsg` 读取内核日志（含程序写入的记录），追加到 `/var/log/kernel.log`，每次开机先写一行 `---- boot, UTC time 秒数 ----`。新记录最迟 1 秒内同步到磁盘，warn 和 error 立即同步，所以即使系统卡死或断电，文件里也保留着出事前约 1 秒以内的记录。文件超过 1 MiB 时改名为 `kernel.old`（覆盖旧的）并重新开始。用 `cat /var/log/kernel.log` 查看；`/dev/kmsg` 的格式和级别见 [USER_ABI.md](USER_ABI.md#内核日志)。
+
+程序可以用 `user/command.h` 的 `command_log(priority, text)` 写一条记录（3 error、4 warn、6 info、7 debug），shell 里也可以 `echo 文字 > /dev/kmsg`。init 记录开机服务的启动和退出，netd 记录取得的地址。程序崩溃时内核记录程序名、PID 和出错地址；内核 panic 时记录原因和调用栈，把日志中的地址交给宿主机的 `scripts/symbolize.py bin/<arch>/kernel 日志文件` 即可看到函数名和源码行。panic 那一刻的信息只在屏幕上，来不及写盘，可以拍照后用同一个脚本解析。
+
+`scripts/test_log_qemu.py <arch>` 在 rootfs 的副本上启动系统，检查日志文件里有开机标记、带时间戳的内核记录和从 shell 写入的记录，然后不关机直接结束 QEMU，再次启动后检查上一次开机的记录仍在。
 
 ## 全屏编辑器 vi
 

@@ -121,3 +121,20 @@ static inline long command_read_line(char* line, long capacity, int* skip_lf) {
         }
     }
 }
+
+/* Adds one record to the kernel log, which logd keeps in /var/log/kernel.log.
+ * priority: 3 error, 4 warning, 6 information, 7 debug. Failure is ignored. */
+static inline void command_log(int priority, const char* text) {
+    char line[256];
+    long size = 0;
+    line[size++] = '<';
+    line[size++] = (char)('0' + (priority & 7));
+    line[size++] = '>';
+    while (*text && size < (long)sizeof(line))
+        line[size++] = *text++;
+    int fd = sys_open((char*)"/dev/kmsg", O_WRONLY | O_CLOEXEC);
+    if (fd < 0)
+        return;
+    sys_write(fd, line, size);
+    sys_close(fd);
+}

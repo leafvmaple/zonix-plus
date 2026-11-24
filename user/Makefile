@@ -1,7 +1,7 @@
 # Base components use Clang; applications can select zcc or a native C compiler.
 # Both share the existing startup, syscall wrappers, library and linker script.
 # Assembly register fixtures retain their dedicated entry points.
-BASE_PROGRAMS := init sh ls cat cp mkdir rm sync shutdown ps kill vi
+BASE_PROGRAMS := init sh ls cat cp mkdir rm sync shutdown ps kill vi logd
 OPT_IN_PROGRAMS := gfxdemo deskapp
 USER_DIR := user
 USER_BINDIR := $(BINDIR)/user

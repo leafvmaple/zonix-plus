@@ -3,9 +3,13 @@
 #include "drivers/intr.h"
 
 #include "assert.h"
+#include "backtrace.h"
 #include "cons/cons.h"
+#include <kernel/log.h>
 
 namespace {
+
+constexpr size_t PANIC_MESSAGE_SIZE = 200;
 
 class Panic {
 public:
@@ -26,13 +30,17 @@ void panic_at(const char* file, int line, const char* fmt, ...) {
     if (Panic::enter()) {
         cons::emergency_restore();
 
+        // The report goes into the kernel log as well as the console, so it is
+        // kept with the records that led up to it.
+        char message[PANIC_MESSAGE_SIZE];
         va_list ap;
         va_start(ap, fmt);
-        cprintf("kernel panic at %s:%d:\n    ", file, line);
-        vcprintf(fmt, ap);
-        cprintf("\n");
-
+        sys::vsnprintf(message, sizeof(message), fmt, ap);
         va_end(ap);
+        klog::error("kernel panic at %s:%d:\n", file, line);
+        klog::error("    %s\n", message);
+        debug::log_backtrace("panic called from", reinterpret_cast<uintptr_t>(__builtin_return_address(0)),
+                             reinterpret_cast<uintptr_t>(__builtin_frame_address(0)));
     }
 
     intr::disable();

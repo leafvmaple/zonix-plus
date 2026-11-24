@@ -58,6 +58,8 @@ struct TrapFrame {
     uint64_t stval{};
 
     [[nodiscard]] bool from_user() const { return (sstatus & SSTATUS_SPP) == 0; }
+    [[nodiscard]] uintptr_t instruction_pointer() const { return sepc; }
+    [[nodiscard]] uintptr_t frame_pointer() const { return regs[8]; } /* s0 */
 
     void print() const;
     void print_pgfault() const;

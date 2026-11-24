@@ -151,6 +151,17 @@ exec 把程序断点放在最高的 LOAD 段按页向上取整的末尾，堆起
 
 `sys_wait_io(long read_mask, long write_mask, long timeout_ms)` 可在同一次调用中等待两个 24 位位图。返回值第 0～23 位为读就绪，第 24～47 位为写就绪。任一位图可为空，合并后至少需要一个 FD。管道写端和 PTY master 在可以写入至少一个字节或对端关闭时报告写就绪。就绪只反映当前状态，调用者仍需处理短写、竞争和关闭。
 
+## 内核日志
+
+内核日志保存在固定大小的环形缓冲里（512 条，每条至多 256 字节），每条带开机以来的毫秒数和级别。`/dev/kmsg` 让程序读取和追加日志：
+
+- 每次 open 得到独立的读取位置，从缓冲中最早的一条开始。read 每次返回若干完整的行，格式与控制台相同：`[  秒.毫秒] [级别] 内容`；缓冲须至少 288 字节，否则返回 Invalid。读到最新时阻塞，非阻塞模式下返回 -1；有新记录时读就绪，可以和其他 FD 一起等待。读取速度跟不上、记录已被覆盖时，先返回一行 `kmsg: N records lost` 再从现存最早的一条继续。
+- 每次 write 追加一条记录，内容前自动加上 `程序名[PID]: `，末尾换行可有可无。开头写 `<N>` 选择级别：0～3 为 error，4 为 warn，5～6 为 info，7 为 debug，默认 info。程序的记录只有 warn 及以上会同时显示在控制台上。
+
+`/dev` 下的设备接受 `O_TRUNC` 并忽略它（与 POSIX 相同），所以 shell 的 `echo 文字 > /dev/kmsg` 可以使用；`O_APPEND` 仍返回 NotSupported。
+
+内核 panic 时，panic 的位置、原因和调用栈（`panic called from 0x…` 及 `#N 0x…` 返回地址）也写进日志；内核态异常导致的 panic 之前还会记录出错位置的调用栈（`faulting context: pc 0x…`）。普通程序因页错误或异常被终止时记录一条 warn：`程序名[PID]: page fault at 0x… , pc 0x…; killed`。调用栈沿帧指针回溯，内核为此用 `-fno-omit-frame-pointer` 编译；在宿主机用 `scripts/symbolize.py bin/<arch>/kernel 日志文件` 可把地址换成函数名和源码行，需要用同一次构建的内核 ELF。
+
 ## 原始以太网设备
 
 x86、aarch64 和 riscv64 探测到受支持的现代 VirtIO PCI 网卡后都提供 `/dev/net0`，一次只允许一个打开文件描述使用设备。正常情况下由网络服务 netd 打开它，其他程序通过 netd 的 socket 接口联网（见 [USERSPACE.md](USERSPACE.md#联网)）。`NET_GET_MAC`（0x5801）向调用者的可写缓冲复制六字节 MAC。

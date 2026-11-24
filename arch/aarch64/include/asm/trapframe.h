@@ -23,6 +23,8 @@ struct TrapFrame {
     uint64_t far{};    /* FAR_EL1  (fault address register)   */
 
     [[nodiscard]] bool from_user() const { return (pstate & PSTATE_MODE_MASK) == PSTATE_EL0T; }
+    [[nodiscard]] uintptr_t instruction_pointer() const { return pc; }
+    [[nodiscard]] uintptr_t frame_pointer() const { return regs[29]; }
 
     uint64_t vector{ARM64_TRAP_VECTOR_SYNC};
     uint64_t padding{};  // Keep the exception stack aligned to 16 bytes.

@@ -29,6 +29,8 @@ private:
 };
 
 int handle_page_fault(TrapFrame* tf, uint32_t err, uintptr_t fault_addr);
+// Logs which user program is about to be killed for a fault, and where.
+void report_user_crash(const TrapFrame* tf, const char* what, uintptr_t address);
 // Panics with the task's identity if a kernel fault at `address` hit the guard
 // page below the current task's stack. Returns for any other address.
 void check_stack_overflow(uintptr_t address);

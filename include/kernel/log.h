@@ -10,6 +10,8 @@ enum class Level : uint8_t { Debug, Info, Warn, Error };
 // independent of the console threshold. Ordinary console/test output uses cprintf.
 void write(Level level, const char* fmt, ...);
 void dump();
+// Registers /dev/kmsg, through which programs read the log and add records.
+int init_device();
 void set_console_level(Level level);
 Level console_level();
 const char* level_name(Level level);

@@ -12,6 +12,8 @@
 #include "mm/vmm.h"
 #include "sched/sched.h"
 #include "debug/assert.h"
+#include "debug/backtrace.h"
+#include <kernel/log.h>
 #include <abi/process.h>
 
 namespace trap {
@@ -43,6 +45,12 @@ int handle_page_fault(TrapFrame* tf, uint32_t err, uintptr_t fault_va) {
     }
 
     return vmm::pg_fault(current->memory(), err, fault_va);
+}
+
+void report_user_crash(const TrapFrame* tf, const char* what, uintptr_t address) {
+    Task* current = sched::current();
+    klog::warn("%s[%d]: %s 0x%lx, pc 0x%lx; killed\n", current ? current->name() : "?", current ? current->pid : -1,
+               what, address, tf->instruction_pointer());
 }
 
 void check_stack_overflow(uintptr_t address) {
@@ -84,9 +92,11 @@ extern "C" void trap_dispatch(TrapFrame* tf) {
         uintptr_t fault_va = trap::arch_page_fault_address(tf);
         if (trap::handle_page_fault(tf, err, fault_va) != 0) {
             if (err & 4) {
+                trap::report_user_crash(tf, "page fault at", fault_va);
                 sched::exit(-1);
             }
             trap::check_stack_overflow(fault_va);
+            debug::log_backtrace("faulting context: pc", tf->instruction_pointer(), tf->frame_pointer());
             PANIC("unrecoverable kernel page fault at 0x%lx", fault_va);
         }
         trap::arch_post_dispatch(tf);
@@ -101,8 +111,10 @@ extern "C" void trap_dispatch(TrapFrame* tf) {
     } else {
         trap::arch_on_unhandled(tf);
         if (tf->from_user()) {
+            trap::report_user_crash(tf, "fatal exception at", tf->instruction_pointer());
             sched::exit(-1);
         }
+        debug::log_backtrace("faulting context: pc", tf->instruction_pointer(), tf->frame_pointer());
         PANIC("unhandled kernel exception");
     }
 

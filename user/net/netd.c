@@ -640,6 +640,14 @@ static void announce(void) {
     net_format_ipv4(host_order(netif_ip4_addr(&interface)), address);
     net_format_ipv4(host_order(ip_2_ip4(dns_getserver(0))), dns);
     printf("netd: address %s, DNS %s\n", address, dns);
+    char text[64];
+    const char* parts[] = {"netd: address ", address, ", DNS ", dns};
+    long size = 0;
+    for (int i = 0; i < 4; ++i)
+        for (const char* c = parts[i]; *c; ++c)
+            text[size++] = *c;
+    text[size] = 0;
+    command_log(6, text);
 }
 
 static void serve(int network, int service, int dynamic) {

@@ -37,6 +37,8 @@ struct TrapFrame {
     uint64_t ss{};   // always present in 64-bit mode
 
     [[nodiscard]] bool from_user() const { return (cs & SELECTOR_RPL_MASK) == DPL_USER; }
+    [[nodiscard]] uintptr_t instruction_pointer() const { return rip; }
+    [[nodiscard]] uintptr_t frame_pointer() const { return regs.rbp; }
 
     void print() const;
     void print_pgfault() const;
