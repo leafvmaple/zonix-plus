@@ -9,11 +9,13 @@
 // device's boot reports into key and pointer events. Afterwards it keeps a
 // low-duty scan running, which brings back bonded devices that dropped
 // their link, as they do when idle, with the bonded key, and pairs devices
-// put in pairing mode later.
+// put in pairing mode later. Bonds are kept in a file, so that devices come
+// back after a restart too.
 //
 // hci.cpp holds the controller, its commands, events, scanning and the
 // thread; hci_link.cpp connections, ACL data and L2CAP; hci_pairing.cpp
-// SMP; and hci_gatt.cpp the GATT client for the HID service.
+// SMP; hci_gatt.cpp the GATT client for the HID service; and hci_bonds.cpp
+// the bond file.
 
 #include <base/types.h>
 #include "drivers/boot_input.h"
@@ -232,6 +234,10 @@ private:
                            size_t& length);
     static Error find_reports(Controller& controller, Device& device);
     static Error subscribe(Controller& controller, Device& device);
+
+    // hci_bonds.cpp: bonds kept across restarts.
+    static void load_bonds(Controller& controller);
+    static void save_bonds(Controller& controller);
 
     inline static sys::array<Controller, MAX_CONTROLLERS> controllers_{};
     inline static uint32_t generations_{};

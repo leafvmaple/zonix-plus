@@ -437,6 +437,8 @@ Error Hci::add_device(Controller& controller, const Peer& candidate) {
         error = find_reports(controller, *device);
     if (error == Error::None)
         error = subscribe(controller, *device);
+    if (error == Error::None)
+        save_bonds(controller);
     if (error == Error::None || error == Error::NoDevice)
         return error;
     drop(controller, *device);
@@ -462,8 +464,11 @@ Error Hci::resume(Controller& controller, Device& device) {
     if (error == Error::Access) {
         klog::warn("bluetooth hci%u: %s no longer has our key; pair it again\n", controller.index,
                    address_text(device.bond.address).text);
-        intr::Guard guard;
-        device.used = false;
+        {
+            intr::Guard guard;
+            device.used = false;
+        }
+        save_bonds(controller);
     }
     return error;
 }
@@ -495,6 +500,7 @@ void Hci::bring_up(Controller& controller) {
             klog::warn("bluetooth hci%u: controller not usable (%d)\n", controller.index, static_cast<int>(error));
         return;
     }
+    load_bonds(controller);
     if (scan(controller) == Error::NoDevice)
         return;
     for (;;) {
@@ -638,22 +644,21 @@ void Hci::advertising_reports(Controller& controller, const uint8_t* parameters,
 
         const bool connectable = event_type == ADV_CONNECTABLE || event_type == ADV_DIRECTED;
         const DataFields fields = parse_fields(data, data_length);
-        if (controller.watching) {
-            // A bonded device advertises, often directly to us, to come back.
-            bool bonded = false;
-            for (Device& device : controller.devices) {
-                if (device.used && device.bond.valid && !device.link.connected &&
-                    memcmp(address, device.bond.address, ADDRESS_BYTES) == 0) {
-                    bonded = true;
-                    if (connectable) {
-                        device.seen = true;
-                        waiting_.wakeup_all();
-                    }
+        // A bonded device advertises, often directly to us, to come back;
+        // seen during the first scan, it is reconnected right after it.
+        bool bonded = false;
+        for (Device& device : controller.devices) {
+            if (device.used && device.bond.valid && !device.link.connected &&
+                memcmp(address, device.bond.address, ADDRESS_BYTES) == 0) {
+                bonded = true;
+                if (connectable) {
+                    device.seen = true;
+                    waiting_.wakeup_all();
                 }
             }
-            if (bonded)
-                continue;
         }
+        if (bonded && controller.watching)
+            continue;
         bool changed = false;
         Peer* found = peer(controller, address, true, changed);
         if (!found)

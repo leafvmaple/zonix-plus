@@ -81,6 +81,10 @@ void panic_at(const char*, int line, const char* format, ...) {
 void cons::key_event(uint16_t, int) {}
 void cons::pointer_event(unsigned int, unsigned int, int) {}
 
+// The bond file lives on a file system this harness does not have.
+void bluetooth::Hci::load_bonds(Controller&) {}
+void bluetooth::Hci::save_bonds(Controller&) {}
+
 namespace usb {
 
 Location location(const Device&) {
