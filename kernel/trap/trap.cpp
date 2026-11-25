@@ -8,6 +8,7 @@
 #include "drivers/fbcons.h"
 #include "drivers/virtio_net.h"
 #include "drivers/virtio_rng.h"
+#include "drivers/bluetooth/hci.h"
 #include "drivers/usb/usb_core.h"
 #include "drivers/usb/xhci.h"
 #include "fs/readiness.h"
@@ -32,6 +33,7 @@ void handle_timer_tick() {
     virtio_rng::tick();
     xhci::tick();
     usb::Core::tick();
+    bluetooth::Hci::tick();
     fd::Readiness::tick();
 }
 

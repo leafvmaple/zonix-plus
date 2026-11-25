@@ -1,4 +1,5 @@
 #include "drivers/usb/usb_core.h"
+#include "drivers/usb/usb_bluetooth.h"
 #include "drivers/usb/usb_hid.h"
 #include "drivers/usb/usb_hub.h"
 #include "drivers/intr.h"
@@ -11,6 +12,11 @@ namespace {
 
 constexpr size_t CONFIGURATION_CAPACITY = 512;
 constexpr size_t MAX_INTERFACE_ENDPOINTS = 4;
+
+// Class drivers in the order interfaces are offered; the first that does not
+// answer NotSupported owns the interface.
+using ClassAttach = Error (*)(Device&, const InterfaceDescriptor&, const EndpointDescriptor*, size_t);
+constexpr ClassAttach CLASS_DRIVERS[] = {hid::attach, hub::attach, bluetooth::attach};
 
 const char* speed_name(Speed speed) {
     switch (speed) {
@@ -65,8 +71,9 @@ void Core::bind_interfaces(Device& device, const uint8_t* configuration, size_t 
     auto offer = [&] {
         if (!interface || interface->alternate != 0)
             return;
-        if (hid::attach(device, *interface, endpoints, endpoint_count) == Error::NotSupported)
-            static_cast<void>(hub::attach(device, *interface, endpoints, endpoint_count));
+        for (ClassAttach attach : CLASS_DRIVERS)
+            if (attach(device, *interface, endpoints, endpoint_count) != Error::NotSupported)
+                return;
     };
     for (size_t offset = 0; offset + 2 <= length;) {
         const uint8_t size = configuration[offset];
@@ -103,6 +110,7 @@ Error Core::attach(Device& device) {
 
 void Core::detach(Device& device) {
     hid::detach(device);
+    bluetooth::detach(device);
     klog::info("usb %s: removed\n", location(device).text);
 }
 
