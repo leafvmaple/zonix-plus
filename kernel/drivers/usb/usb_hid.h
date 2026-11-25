@@ -16,7 +16,4 @@ void detach(Device& device);
 // Timer tick: repeats a held key, as USB keyboards do not.
 void tick();
 
-// Boot keyboard usage IDs to the key codes of the display ABI; 0 = none.
-uint16_t key_code(uint8_t usage);
-
 }  // namespace usb::hid

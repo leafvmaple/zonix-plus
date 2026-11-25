@@ -27,6 +27,7 @@ inline constexpr uint8_t REQUEST_INTERFACE = 0x01;
 inline constexpr uint8_t ENDPOINT_IN = 0x80;
 inline constexpr uint8_t ENDPOINT_NUMBER_MASK = 0x0F;
 inline constexpr uint8_t ENDPOINT_TRANSFER_MASK = 0x03;
+inline constexpr uint8_t ENDPOINT_BULK = 0x02;
 inline constexpr uint8_t ENDPOINT_INTERRUPT = 0x03;
 
 struct SetupPacket {
@@ -91,7 +92,8 @@ struct EndpointDescriptor {
 } __attribute__((packed));
 static_assert(sizeof(EndpointDescriptor) == 7);
 
-// Called in interrupt context with each completed interrupt IN report.
+// Called in interrupt context with the data of each packet an IN endpoint
+// delivers.
 using ReportHandler = void (*)(void* context, const uint8_t* data, size_t length);
 
 class Host;
@@ -133,10 +135,15 @@ public:
     // Issues a control transfer on endpoint 0. `data` holds setup.length
     // bytes in the direction of setup.request_type.
     virtual Error control(Device& device, const SetupPacket& setup, void* data) = 0;
-    // Configures an interrupt IN endpoint and keeps a report request queued
-    // on it, calling `handler` with every report the device sends.
-    virtual Error start_interrupt_in(Device& device, const EndpointDescriptor& endpoint, ReportHandler handler,
-                                     void* context) = 0;
+    // Configures an interrupt or bulk IN endpoint and keeps requests queued
+    // on it, calling `handler` with every packet the device sends.
+    virtual Error start_in(Device& device, const EndpointDescriptor& endpoint, ReportHandler handler,
+                           void* context) = 0;
+    // Configures an interrupt or bulk OUT endpoint for send.
+    virtual Error open_out(Device& device, const EndpointDescriptor& endpoint) = 0;
+    // Sends `length` bytes on an endpoint open_out configured and waits until
+    // they have gone. Runs in a kernel thread.
+    virtual Error send(Device& device, uint8_t endpoint_address, const void* data, size_t length) = 0;
     // Records that `hub` is a hub with `ports` downstream ports and the given
     // transaction translator, before devices behind it are addressed.
     virtual Error set_hub(Device& hub, uint8_t ports, uint8_t think_time, bool multi_tt) = 0;

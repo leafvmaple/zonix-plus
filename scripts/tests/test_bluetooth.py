@@ -20,7 +20,9 @@ class BluetoothTransportTests(unittest.TestCase):
                      "-fdata-sections", "-Wl,--gc-sections", "-Werror=unused-result"]
             flags += ["-I" + str(ROOT / path) for path in ["kernel", "include", "arch/x86/include"]]
             sources = ["kernel/test/host/bluetooth_contract_test.cpp", "kernel/drivers/usb/usb_bluetooth.cpp",
-                       "kernel/drivers/bluetooth/hci.cpp"]
+                       "kernel/drivers/bluetooth/hci.cpp", "kernel/drivers/bluetooth/hci_link.cpp",
+                       "kernel/drivers/bluetooth/hci_pairing.cpp", "kernel/drivers/bluetooth/hci_gatt.cpp",
+                       "kernel/drivers/boot_keyboard.cpp"]
             result = subprocess.run([CLANG, *flags, *(str(ROOT / path) for path in sources), "-o", str(binary)],
                                     capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)

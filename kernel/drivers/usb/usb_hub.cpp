@@ -197,7 +197,7 @@ Error attach(Device& device, const InterfaceDescriptor& interface, const Endpoin
     for (size_t i = 0; i < endpoint_count; ++i)
         if ((endpoints[i].address & ENDPOINT_IN) != 0 &&
             (endpoints[i].attributes & ENDPOINT_TRANSFER_MASK) == ENDPOINT_INTERRUPT)
-            return device.host->start_interrupt_in(device, endpoints[i], status_report, &device);
+            return device.host->start_in(device, endpoints[i], status_report, &device);
     klog::warn("usb %s: hub has no status endpoint; later changes are missed\n", location(device).text);
     return Error::None;
 }

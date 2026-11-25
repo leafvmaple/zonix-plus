@@ -2,6 +2,7 @@
 // adapters produce, including ones QEMU cannot (it has no Bluetooth adapter),
 // and checks the events the HCI layer receives through what it logs.
 #include "drivers/bluetooth/hci.h"
+#include "cons/cons.h"
 #include "drivers/intr.h"
 #include "drivers/usb/usb_bluetooth.h"
 #include "debug/assert.h"
@@ -76,6 +77,9 @@ void panic_at(const char*, int line, const char* format, ...) {
     exit(line);
 }
 
+// Keyboard reports are not part of these sequences.
+void cons::key_event(uint16_t, int) {}
+
 namespace usb {
 
 Location location(const Device&) {
@@ -89,12 +93,17 @@ namespace {
 class FakeHost final : public usb::Host {
 public:
     Error control(usb::Device&, const usb::SetupPacket&, void*) override { return Error::None; }
-    Error start_interrupt_in(usb::Device&, const usb::EndpointDescriptor&, usb::ReportHandler handler,
-                             void* context) override {
-        handler_ = handler;
-        context_ = context;
+    // Keeps the event endpoint's handler; the ACL endpoints are not exercised.
+    Error start_in(usb::Device&, const usb::EndpointDescriptor& endpoint, usb::ReportHandler handler,
+                   void* context) override {
+        if ((endpoint.attributes & usb::ENDPOINT_TRANSFER_MASK) == usb::ENDPOINT_INTERRUPT) {
+            handler_ = handler;
+            context_ = context;
+        }
         return Error::None;
     }
+    Error open_out(usb::Device&, const usb::EndpointDescriptor&) override { return Error::None; }
+    Error send(usb::Device&, uint8_t, const void*, size_t) override { return Error::None; }
     Error set_hub(usb::Device&, uint8_t, uint8_t, bool) override { return Error::NotSupported; }
     Error add_device(usb::Device&, uint8_t, usb::Speed) override { return Error::NotSupported; }
     void root_port_changed(uint8_t) override {}

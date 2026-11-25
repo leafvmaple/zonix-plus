@@ -107,6 +107,9 @@ constexpr uint32_t SLOT_TT_THINK_SHIFT = 16;
 constexpr uint32_t EP_ERROR_COUNT_3 = 3U << 1;
 constexpr uint32_t EP_TYPE_SHIFT = 3;
 constexpr uint32_t EP_TYPE_CONTROL = 4;
+constexpr uint32_t EP_TYPE_BULK_OUT = 2;
+constexpr uint32_t EP_TYPE_INTERRUPT_OUT = 3;
+constexpr uint32_t EP_TYPE_BULK_IN = 6;
 constexpr uint32_t EP_TYPE_INTERRUPT_IN = 7;
 constexpr uint32_t EP_PACKET_SHIFT = 16;
 constexpr uint32_t EP_INTERVAL_SHIFT = 16;
@@ -114,7 +117,8 @@ constexpr uint64_t EP_DEQUEUE_CYCLE = 1;
 constexpr uint32_t CONTROL_DCI = 1;
 
 constexpr size_t CONTROL_DATA_BYTES = PG_SIZE;
-constexpr size_t REPORT_STRIDE = 64;
+constexpr size_t REPORT_ALIGN = 64;  // IN buffers start this far apart at least
+constexpr size_t OUT_BYTES = PG_SIZE;
 constexpr uint64_t COMMAND_TIMEOUT_MS = 1000;
 constexpr uint64_t TRANSFER_TIMEOUT_MS = 1000;
 constexpr uint64_t PORT_RESET_TIMEOUT_MS = 500;
@@ -179,6 +183,13 @@ uint32_t interrupt_interval(usb::Speed speed, uint8_t interval) {
     while (units < 10 && (2U << units) <= frames * 8)
         ++units;
     return units;
+}
+
+// Frees a slot's buffers and starts it afresh in place: a temporary Slot,
+// with its 32 endpoints, would take kilobytes of the USB thread's stack.
+void renew(Slot& slot) {
+    slot.~Slot();
+    new (&slot) Slot{};
 }
 
 bool completed(uint8_t code) {
@@ -358,6 +369,10 @@ void Controller::handle_event(const Trb& event) {
     if (slot == 0 || slot > max_slots_ || !slots_[slot].active)
         return;
     Endpoint& endpoint = slots_[slot].endpoints[dci];
+    if (endpoint.awaited_trb != 0 && endpoint.awaited_trb == event.parameter) {
+        endpoint.sent = {true, code, slot, remaining};
+        return;
+    }
     if (!endpoint.handler || endpoint.reports.empty())
         return;
     // The event names the TRB; each queued TRB carries its buffer's address,
@@ -371,9 +386,9 @@ void Controller::handle_event(const Trb& event) {
             return;
         }
         const size_t length = remaining < endpoint.report_size ? endpoint.report_size - remaining : 0;
-        endpoint.reports.sync_for_cpu(buffer * REPORT_STRIDE, endpoint.report_size);
+        endpoint.reports.sync_for_cpu(buffer * endpoint.stride, endpoint.report_size);
         endpoint.handler(endpoint.context,
-                         static_cast<const uint8_t*>(endpoint.reports.data()) + buffer * REPORT_STRIDE, length);
+                         static_cast<const uint8_t*>(endpoint.reports.data()) + buffer * endpoint.stride, length);
         queue_report(slots_[slot], static_cast<uint8_t>(dci), buffer);
         return;
     }
@@ -381,8 +396,9 @@ void Controller::handle_event(const Trb& event) {
 
 void Controller::queue_report(Slot& slot, uint8_t dci, size_t buffer) {
     Endpoint& endpoint = slot.endpoints[dci];
-    endpoint.trb_pa[buffer] = endpoint.ring.push({endpoint.reports.pa() + buffer * REPORT_STRIDE, endpoint.report_size,
-                                                  (TRB_NORMAL << TRB_TYPE_SHIFT) | TRB_IOC | TRB_ISP});
+    endpoint.trb_pa[buffer] =
+        endpoint.ring.push({endpoint.reports.pa() + buffer * endpoint.stride, endpoint.report_size,
+                            (TRB_NORMAL << TRB_TYPE_SHIFT) | TRB_IOC | TRB_ISP});
     ring_doorbell(static_cast<uint8_t>(&slot - slots_.data()), dci);
 }
 
@@ -461,7 +477,7 @@ Error Controller::address_device(const usb::Topology& topology, uint8_t parent_s
     TRY(command({0, 0, TRB_ENABLE_SLOT << TRB_TYPE_SHIFT}, enabled));
     ENSURE(enabled.slot != 0 && enabled.slot <= max_slots_, Error::Full);
     Slot& slot = slots_[enabled.slot];
-    slot = Slot{};
+    renew(slot);
     slot.output = TRY(DmaBuffer::alloc(context_size_ * MAX_ENDPOINTS));
     slot.input = TRY(DmaBuffer::alloc(context_size_ * (MAX_ENDPOINTS + 1)));
     TRY(slot.endpoints[CONTROL_DCI].ring.allocate());
@@ -554,7 +570,7 @@ void Controller::remove_device(usb::Device& device) {
         {0, 0, (TRB_DISABLE_SLOT << TRB_TYPE_SHIFT) | (static_cast<uint32_t>(id) << TRB_SLOT_SHIFT)}, disabled));
     static_cast<uint64_t*>(dcbaa_.data())[id] = 0;
     dcbaa_.sync_for_device(id * sizeof(uint64_t), sizeof(uint64_t));
-    *slot = Slot{};
+    renew(*slot);
 }
 
 usb::Device* Controller::child(uint8_t parent_slot, uint8_t port) {
@@ -658,46 +674,97 @@ Error Controller::control(usb::Device& device, const usb::SetupPacket& setup, vo
     return Error::None;
 }
 
-Error Controller::start_interrupt_in(usb::Device& device, const usb::EndpointDescriptor& descriptor,
-                                     usb::ReportHandler handler, void* context) {
+// Configure Endpoint copies the current slot context and adds endpoint
+// `dci`, whose ring must already exist.
+Error Controller::configure_endpoint(Slot& slot, const usb::EndpointDescriptor& descriptor, uint8_t dci,
+                                     uint32_t type) {
+    const uint16_t packet = descriptor.max_packet_size & 0x7FF;
+    const bool periodic = type == EP_TYPE_INTERRUPT_IN || type == EP_TYPE_INTERRUPT_OUT;
+    slot.output.sync_for_cpu(0, context_size_);
+    memset(slot.input.data(), 0, slot.input.size());
+    input_context(slot, 0)[1] = (1U << 0) | (1U << dci);
+    uint32_t* slot_context = input_context(slot, 1);
+    memcpy(slot_context, slot.output.data(), context_size_);
+    const uint32_t entries = (slot_context[0] & SLOT_ENTRIES_MASK) >> SLOT_ENTRIES_SHIFT;
+    if (dci > entries)
+        slot_context[0] = (slot_context[0] & ~SLOT_ENTRIES_MASK) | (static_cast<uint32_t>(dci) << SLOT_ENTRIES_SHIFT);
+    uint32_t* ep = input_context(slot, dci + 1);
+    ep[0] = periodic ? interrupt_interval(slot.device.speed, descriptor.interval) << EP_INTERVAL_SHIFT : 0;
+    ep[1] = EP_ERROR_COUNT_3 | (type << EP_TYPE_SHIFT) | (static_cast<uint32_t>(packet) << EP_PACKET_SHIFT);
+    const uint64_t dequeue = slot.endpoints[dci].ring.pa() | EP_DEQUEUE_CYCLE;
+    ep[2] = static_cast<uint32_t>(dequeue);
+    ep[3] = static_cast<uint32_t>(dequeue >> 32);
+    // Average TRB length, and for periodic endpoints the payload per service interval.
+    ep[4] = packet | (periodic ? static_cast<uint32_t>(packet) << 16 : 0);
+    slot.input.sync_for_device(0, slot.input.size());
+    Completion configured{};
+    return command(
+        {slot.input.pa(), 0,
+         (TRB_CONFIGURE_ENDPOINT << TRB_TYPE_SHIFT) | (static_cast<uint32_t>(slot.device.slot) << TRB_SLOT_SHIFT)},
+        configured);
+}
+
+Error Controller::start_in(usb::Device& device, const usb::EndpointDescriptor& descriptor, usb::ReportHandler handler,
+                           void* context) {
     Slot* slot = slot_of(device);
-    ENSURE(slot && handler, Error::Invalid);
+    ENSURE(slot && handler && (descriptor.address & usb::ENDPOINT_IN) != 0, Error::Invalid);
+    const uint8_t transfer = descriptor.attributes & usb::ENDPOINT_TRANSFER_MASK;
+    ENSURE(transfer == usb::ENDPOINT_INTERRUPT || transfer == usb::ENDPOINT_BULK, Error::NotSupported);
     const auto dci = static_cast<uint8_t>((descriptor.address & usb::ENDPOINT_NUMBER_MASK) * 2 + 1);
     Endpoint& endpoint = slot->endpoints[dci];
     const uint16_t packet = descriptor.max_packet_size & 0x7FF;
     ENSURE(packet != 0, Error::Invalid);
     TRY(endpoint.ring.allocate());
-    endpoint.reports = TRY(DmaBuffer::alloc(REPORT_BUFFERS * REPORT_STRIDE));
-    endpoint.report_size = packet < REPORT_STRIDE ? packet : REPORT_STRIDE;
-
-    // Configure Endpoint copies the current slot context and adds this one.
-    slot->output.sync_for_cpu(0, context_size_);
-    memset(slot->input.data(), 0, slot->input.size());
-    input_context(*slot, 0)[1] = (1U << 0) | (1U << dci);
-    uint32_t* slot_context = input_context(*slot, 1);
-    memcpy(slot_context, slot->output.data(), context_size_);
-    const uint32_t entries = (slot_context[0] & SLOT_ENTRIES_MASK) >> SLOT_ENTRIES_SHIFT;
-    if (dci > entries)
-        slot_context[0] = (slot_context[0] & ~SLOT_ENTRIES_MASK) | (static_cast<uint32_t>(dci) << SLOT_ENTRIES_SHIFT);
-    uint32_t* ep = input_context(*slot, dci + 1);
-    ep[0] = interrupt_interval(device.speed, descriptor.interval) << EP_INTERVAL_SHIFT;
-    ep[1] =
-        EP_ERROR_COUNT_3 | (EP_TYPE_INTERRUPT_IN << EP_TYPE_SHIFT) | (static_cast<uint32_t>(packet) << EP_PACKET_SHIFT);
-    const uint64_t dequeue = endpoint.ring.pa() | EP_DEQUEUE_CYCLE;
-    ep[2] = static_cast<uint32_t>(dequeue);
-    ep[3] = static_cast<uint32_t>(dequeue >> 32);
-    ep[4] = packet | (static_cast<uint32_t>(packet) << 16);  // Average TRB length, max ESIT payload
-    slot->input.sync_for_device(0, slot->input.size());
-    Completion configured{};
-    TRY(command({slot->input.pa(), 0,
-                 (TRB_CONFIGURE_ENDPOINT << TRB_TYPE_SHIFT) | (static_cast<uint32_t>(device.slot) << TRB_SLOT_SHIFT)},
-                configured));
+    // Each request holds one whole packet; a device must not send more.
+    endpoint.report_size = packet;
+    endpoint.stride = static_cast<uint16_t>((packet + REPORT_ALIGN - 1) / REPORT_ALIGN * REPORT_ALIGN);
+    endpoint.reports = TRY(DmaBuffer::alloc(REPORT_BUFFERS * endpoint.stride));
+    TRY(configure_endpoint(*slot, descriptor, dci,
+                           transfer == usb::ENDPOINT_INTERRUPT ? EP_TYPE_INTERRUPT_IN : EP_TYPE_BULK_IN));
 
     intr::Guard guard;
     endpoint.context = context;
     endpoint.handler = handler;
     for (size_t buffer = 0; buffer < REPORT_BUFFERS; ++buffer)
         queue_report(*slot, dci, buffer);
+    return Error::None;
+}
+
+Error Controller::open_out(usb::Device& device, const usb::EndpointDescriptor& descriptor) {
+    Slot* slot = slot_of(device);
+    ENSURE(slot && (descriptor.address & usb::ENDPOINT_IN) == 0 && (descriptor.max_packet_size & 0x7FF) != 0,
+           Error::Invalid);
+    const uint8_t transfer = descriptor.attributes & usb::ENDPOINT_TRANSFER_MASK;
+    ENSURE(transfer == usb::ENDPOINT_INTERRUPT || transfer == usb::ENDPOINT_BULK, Error::NotSupported);
+    const auto dci = static_cast<uint8_t>((descriptor.address & usb::ENDPOINT_NUMBER_MASK) * 2);
+    Endpoint& endpoint = slot->endpoints[dci];
+    TRY(endpoint.ring.allocate());
+    endpoint.out = TRY(DmaBuffer::alloc(OUT_BYTES));
+    return configure_endpoint(*slot, descriptor, dci,
+                              transfer == usb::ENDPOINT_INTERRUPT ? EP_TYPE_INTERRUPT_OUT : EP_TYPE_BULK_OUT);
+}
+
+Error Controller::send(usb::Device& device, uint8_t endpoint_address, const void* data, size_t length) {
+    Slot* slot = slot_of(device);
+    ENSURE(slot && data && length != 0 && length <= OUT_BYTES, Error::Invalid);
+    const auto dci = static_cast<uint8_t>((endpoint_address & usb::ENDPOINT_NUMBER_MASK) * 2);
+    Endpoint& endpoint = slot->endpoints[dci];
+    ENSURE(!endpoint.out.empty(), Error::Invalid);
+    sys::lock_guard<Mutex> serialized(send_mutex_);
+    memcpy(endpoint.out.data(), data, length);
+    endpoint.out.sync_for_device(0, length);
+    {
+        intr::Guard guard;
+        endpoint.sent = {};
+        endpoint.awaited_trb = endpoint.ring.push(
+            {endpoint.out.pa(), static_cast<uint32_t>(length), (TRB_NORMAL << TRB_TYPE_SHIFT) | TRB_IOC});
+    }
+    ring_doorbell(device.slot, dci);
+    Error error = wait(endpoint.sent, TRANSFER_TIMEOUT_MS);
+    intr::Guard guard;
+    endpoint.awaited_trb = 0;
+    TRY(error);
+    ENSURE(completed(endpoint.sent.code), Error::Io);
     return Error::None;
 }
 

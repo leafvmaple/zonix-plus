@@ -1,4 +1,5 @@
 #include "drivers/bluetooth/hci.h"
+#include "drivers/bluetooth/hci_defs.h"
 #include "drivers/intr.h"
 #include "lib/memory.h"
 #include "sched/sched.h"
@@ -8,7 +9,6 @@
 namespace bluetooth {
 namespace {
 
-// Opcodes: command group in the top six bits, command in the rest.
 constexpr uint16_t OP_INQUIRY = 0x0401;
 constexpr uint16_t OP_REMOTE_NAME_REQUEST = 0x0419;
 constexpr uint16_t OP_SET_EVENT_MASK = 0x0C01;
@@ -16,9 +16,9 @@ constexpr uint16_t OP_RESET = 0x0C03;
 constexpr uint16_t OP_READ_LOCAL_NAME = 0x0C14;
 constexpr uint16_t OP_WRITE_INQUIRY_MODE = 0x0C45;
 constexpr uint16_t OP_READ_LOCAL_VERSION = 0x1001;
+constexpr uint16_t OP_READ_BUFFER_SIZE = 0x1005;
 constexpr uint16_t OP_READ_BD_ADDR = 0x1009;
-constexpr uint16_t OP_LE_SET_SCAN_PARAMETERS = 0x200B;
-constexpr uint16_t OP_LE_SET_SCAN_ENABLE = 0x200C;
+constexpr uint16_t OP_LE_READ_BUFFER_SIZE = 0x2002;
 
 constexpr uint8_t EVENT_INQUIRY_COMPLETE = 0x01;
 constexpr uint8_t EVENT_INQUIRY_RESULT = 0x02;
@@ -27,22 +27,18 @@ constexpr uint8_t EVENT_COMMAND_COMPLETE = 0x0E;
 constexpr uint8_t EVENT_COMMAND_STATUS = 0x0F;
 constexpr uint8_t EVENT_INQUIRY_RESULT_RSSI = 0x22;
 constexpr uint8_t EVENT_EXTENDED_INQUIRY_RESULT = 0x2F;
-constexpr uint8_t EVENT_LE_META = 0x3E;
 constexpr uint8_t LE_ADVERTISING_REPORT = 0x02;
-constexpr uint8_t STATUS_SUCCESS = 0;
 
-// Events enabled for scanning: the controller's default set (bits 0-44),
-// Extended Inquiry Result (bit 46) and LE Meta (bit 61), least significant
-// byte first.
-constexpr uint8_t SCAN_EVENT_MASK[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x5F, 0x00, 0x20};
+// Events enabled: the controller's default set (bits 0-44, which include
+// disconnection, encryption change and completed packets), Extended Inquiry
+// Result (bit 46) and LE Meta (bit 61), least significant byte first.
+constexpr uint8_t EVENT_MASK[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x5F, 0x00, 0x20};
 constexpr uint8_t INQUIRY_MODE_EXTENDED = 2;
 // The general inquiry access code, then 8 x 1.28 s and no response limit.
 constexpr uint8_t INQUIRY_PARAMETERS[] = {0x33, 0x8B, 0x9E, 8, 0};
 constexpr uint64_t SCAN_MS = 10240;
 // Active LE scan, 30 ms interval and window, public address, no filter.
 constexpr uint8_t LE_SCAN_PARAMETERS[] = {1, 0x30, 0x00, 0x30, 0x00, 0, 0};
-constexpr uint8_t LE_SCAN_ON[] = {1, 1};  // Enabled, duplicates filtered
-constexpr uint8_t LE_SCAN_OFF[] = {0, 0};
 constexpr uint16_t CLOCK_OFFSET_VALID = 0x8000;
 constexpr size_t MAX_NAME_REQUESTS = 8;
 
@@ -54,9 +50,15 @@ constexpr uint64_t NAME_TIMEOUT_MS = 6000;
 constexpr size_t LOCAL_NAME_BYTES = 248;
 
 // Extended inquiry response and advertising data fields.
+constexpr uint8_t AD_FLAGS = 0x01;
 constexpr uint8_t AD_SHORT_NAME = 0x08;
 constexpr uint8_t AD_COMPLETE_NAME = 0x09;
 constexpr uint8_t AD_APPEARANCE = 0x19;
+constexpr uint8_t AD_FLAGS_DISCOVERABLE = 0x03;  // Limited or general discoverable mode
+
+// LE advertising report event types that accept a connection.
+constexpr uint8_t ADV_CONNECTABLE = 0x00;
+constexpr uint8_t ADV_DIRECTED = 0x01;
 
 // Class of device: peripheral major class, and its keyboard/pointer bits.
 constexpr uint32_t COD_MAJOR_SHIFT = 8;
@@ -75,33 +77,14 @@ constexpr uint16_t APPEARANCE_MOUSE = 0x03C2;
 constexpr const char* VERSION_NAMES[] = {"1.0b", "1.1", "1.2", "2.0", "2.1", "3.0", "4.0", "4.1",
                                          "4.2",  "5.0", "5.1", "5.2", "5.3", "5.4", "6.0", "6.1"};
 
-uint16_t read16(const uint8_t* bytes) {
-    return static_cast<uint16_t>(bytes[0] | (bytes[1] << 8));
-}
-
-struct AddressText {
-    char text[3 * ADDRESS_BYTES];
-};
-
-AddressText address_text(const uint8_t* address) {
-    constexpr char digits[] = "0123456789ABCDEF";
-    AddressText out{};
-    size_t used = 0;
-    for (size_t i = ADDRESS_BYTES; i-- > 0;) {
-        out.text[used++] = digits[address[i] >> 4];
-        out.text[used++] = digits[address[i] & 0xF];
-        out.text[used++] = i == 0 ? '\0' : ':';
-    }
-    return out;
-}
-
-// The name and appearance fields of extended inquiry response or
+// The name, appearance and flags fields of extended inquiry response or
 // advertising data: length-prefixed type/value records.
 struct DataFields {
     const uint8_t* name{};
     size_t name_length{};
     bool complete_name{};
     uint16_t appearance{};
+    uint8_t flags{};
 };
 
 DataFields parse_fields(const uint8_t* data, size_t length) {
@@ -119,6 +102,8 @@ DataFields parse_fields(const uint8_t* data, size_t length) {
             fields.complete_name = type == AD_COMPLETE_NAME;
         } else if (type == AD_APPEARANCE && value_length >= 2) {
             fields.appearance = read16(value);
+        } else if (type == AD_FLAGS && value_length >= 1) {
+            fields.flags = value[0];
         }
         at += 1U + size;
     }
@@ -139,13 +124,17 @@ bool set_name(Peer& peer, const uint8_t* name, size_t length) {
     return true;
 }
 
+bool input_device(const Peer& peer) {
+    return peer.low_energy && (peer.appearance & APPEARANCE_CATEGORY_MASK) == APPEARANCE_HID;
+}
+
 const char* peer_kind(const Peer& peer) {
     if (peer.low_energy) {
         if (peer.appearance == APPEARANCE_KEYBOARD)
             return "keyboard";
         if (peer.appearance == APPEARANCE_MOUSE)
             return "mouse";
-        return (peer.appearance & APPEARANCE_CATEGORY_MASK) == APPEARANCE_HID ? "input device" : nullptr;
+        return input_device(peer) ? "input device" : nullptr;
     }
     switch ((peer.device_class >> COD_MAJOR_SHIFT) & COD_MAJOR_MASK) {
         case COD_MAJOR_COMPUTER: return "computer";
@@ -162,7 +151,27 @@ const char* peer_kind(const Peer& peer) {
     }
 }
 
+// Starts an entry afresh in place: a temporary the size of a controller
+// would sit on the caller's stack, and attach and detach run on the USB
+// thread's, which is already deep.
+void renew(Controller& controller) {
+    controller.~Controller();
+    new (&controller) Controller{};
+}
+
 }  // namespace
+
+AddressText address_text(const uint8_t* address) {
+    constexpr char digits[] = "0123456789ABCDEF";
+    AddressText out{};
+    size_t used = 0;
+    for (size_t i = ADDRESS_BYTES; i-- > 0;) {
+        out.text[used++] = digits[address[i] >> 4];
+        out.text[used++] = digits[address[i] & 0xF];
+        out.text[used++] = i == 0 ? '\0' : ':';
+    }
+    return out;
+}
 
 Controller* Hci::find(Transport& transport) {
     for (Controller& controller : controllers_)
@@ -173,8 +182,7 @@ Controller* Hci::find(Transport& transport) {
 
 Error Hci::command(Controller& controller, uint16_t opcode, const uint8_t* parameters, uint8_t length, Reply& reply) {
     uint8_t packet[COMMAND_HEADER + MAX_PARAMETERS];
-    packet[0] = static_cast<uint8_t>(opcode);
-    packet[1] = static_cast<uint8_t>(opcode >> 8);
+    write16(packet, opcode);
     packet[2] = length;
     if (length != 0)
         memcpy(packet + COMMAND_HEADER, parameters, length);
@@ -213,9 +221,10 @@ Error Hci::command(Controller& controller, uint16_t opcode, const uint8_t* param
 
 // Arms the wait for an event a command will cause, before the command is
 // sent so that a quick event is not missed; 0 disarms it.
-void Hci::expect_event(Controller& controller, uint8_t code) {
+void Hci::expect_event(Controller& controller, uint8_t code, uint8_t subevent) {
     intr::Guard guard;
     controller.awaited_event = code;
+    controller.awaited_subevent = subevent;
     controller.event_seen = false;
 }
 
@@ -251,7 +260,8 @@ Error Hci::identify(Controller& controller) {
 
     TRY(command(controller, OP_READ_BD_ADDR, nullptr, 0, reply));
     ENSURE(reply.length >= 1 + ADDRESS_BYTES, Error::Io);
-    const AddressText address = address_text(reply.data + 1);
+    memcpy(controller.address, reply.data + 1, ADDRESS_BYTES);
+    const AddressText address = address_text(controller.address);
 
     if (version < sizeof(VERSION_NAMES) / sizeof(VERSION_NAMES[0]))
         klog::info("bluetooth hci%u: %s, Bluetooth %s, manufacturer 0x%04x, subversion 0x%04x\n", controller.index,
@@ -259,6 +269,26 @@ Error Hci::identify(Controller& controller) {
     else
         klog::info("bluetooth hci%u: %s, HCI version 0x%02x, manufacturer 0x%04x, subversion 0x%04x\n",
                    controller.index, address.text, version, manufacturer, subversion);
+
+    // LE data buffers; a controller with none of its own shares the classic ones.
+    TRY(command(controller, OP_LE_READ_BUFFER_SIZE, nullptr, 0, reply));
+    ENSURE(reply.length >= 4, Error::Io);
+    uint16_t mtu = read16(reply.data + 1);
+    uint16_t buffers = reply.data[3];
+    if (mtu == 0 || buffers == 0) {
+        TRY(command(controller, OP_READ_BUFFER_SIZE, nullptr, 0, reply));
+        ENSURE(reply.length >= 6, Error::Io);
+        mtu = read16(reply.data + 1);
+        buffers = read16(reply.data + 4);
+    }
+    ENSURE_LOG(mtu >= ATT_DEFAULT_MTU + L2CAP_HEADER && buffers != 0, Error::NotSupported,
+               "bluetooth hci%u: unusable ACL buffers (%u x %u bytes)", controller.index, buffers, mtu);
+    {
+        intr::Guard guard;
+        controller.acl_mtu = mtu;
+        controller.acl_buffers = buffers;
+        controller.acl_credits = buffers;
+    }
 
     // The name is optional information; a controller that refuses it still works.
     if (command(controller, OP_READ_LOCAL_NAME, nullptr, 0, reply) == Error::None &&
@@ -269,6 +299,8 @@ Error Hci::identify(Controller& controller) {
         if (name[0] != '\0')
             klog::info("bluetooth hci%u: name \"%s\"\n", controller.index, name);
     }
+    TRY(command(controller, OP_SET_EVENT_MASK, EVENT_MASK, sizeof(EVENT_MASK), reply));
+    check_aes(controller);
     return Error::None;
 }
 
@@ -279,9 +311,9 @@ Error Hci::scan(Controller& controller) {
     {
         intr::Guard guard;
         generation = controller.generation;
+        controller.peer_count = 0;
     }
     Reply reply{};
-    TRY(command(controller, OP_SET_EVENT_MASK, SCAN_EVENT_MASK, sizeof(SCAN_EVENT_MASK), reply));
     // Results then carry the name most devices put in their response.
     static_cast<void>(command(controller, OP_WRITE_INQUIRY_MODE, &INQUIRY_MODE_EXTENDED, 1, reply));
     bool low_energy = command(controller, OP_LE_SET_SCAN_PARAMETERS, LE_SCAN_PARAMETERS, sizeof(LE_SCAN_PARAMETERS),
@@ -307,9 +339,9 @@ Error Hci::scan(Controller& controller) {
         static_cast<void>(command(controller, OP_LE_SET_SCAN_ENABLE, LE_SCAN_OFF, sizeof(LE_SCAN_OFF), reply));
     request_names(controller, generation);
     intr::Guard guard;
-    if (controller.generation == generation)
-        klog::info("bluetooth hci%u: scan finished, %u devices\n", controller.index,
-                   static_cast<unsigned int>(controller.peer_count));
+    ENSURE(controller.generation == generation, Error::NoDevice);
+    klog::info("bluetooth hci%u: scan finished, %u devices\n", controller.index,
+               static_cast<unsigned int>(controller.peer_count));
     return Error::None;
 }
 
@@ -327,9 +359,7 @@ void Hci::request_names(Controller& controller, uint32_t generation) {
             memcpy(parameters, peer.address, ADDRESS_BYTES);
             parameters[ADDRESS_BYTES] = peer.page_scan_mode;
             parameters[ADDRESS_BYTES + 1] = 0;
-            const uint16_t clock = peer.clock_offset | CLOCK_OFFSET_VALID;
-            parameters[ADDRESS_BYTES + 2] = static_cast<uint8_t>(clock);
-            parameters[ADDRESS_BYTES + 3] = static_cast<uint8_t>(clock >> 8);
+            write16(parameters + ADDRESS_BYTES + 2, peer.clock_offset | CLOCK_OFFSET_VALID);
         }
         ++requests;
         Reply event{};
@@ -354,6 +384,95 @@ void Hci::request_names(Controller& controller, uint32_t generation) {
     }
 }
 
+// The first LE keyboard or mouse the scan saw that accepts connections and
+// is discoverable, which for these devices means pairing mode.
+bool Hci::choose_keyboard(Controller& controller, Peer& keyboard) {
+    intr::Guard guard;
+    for (size_t i = 0; i < controller.peer_count; ++i) {
+        const Peer& peer = controller.peers[i];
+        if (input_device(peer) && peer.connectable && peer.discoverable) {
+            keyboard = peer;
+            return true;
+        }
+    }
+    return false;
+}
+
+// Brings a controller up, then pairs with a keyboard in pairing mode and
+// keeps serving it, reconnecting whenever the keyboard comes back.
+void Hci::bring_up(Controller& controller) {
+    Error error = identify(controller);
+    if (error != Error::None) {
+        if (error != Error::NoDevice)
+            klog::warn("bluetooth hci%u: controller not usable (%d)\n", controller.index, static_cast<int>(error));
+        return;
+    }
+    for (;;) {
+        bool bonded = false;
+        {
+            intr::Guard guard;
+            bonded = controller.bond.valid;
+        }
+        if (bonded) {
+            error = wait_for_bond(controller);
+            if (error == Error::None)
+                error = connect(controller, controller.bond.address, controller.bond.address_type);
+            if (error == Error::None)
+                error = encrypt(controller, controller.bond.ltk, controller.bond.ediv, controller.bond.rand);
+            if (error == Error::Access) {
+                klog::warn("bluetooth hci%u: the keyboard no longer has our key; pair it again\n", controller.index);
+                intr::Guard guard;
+                controller.bond = Bond{};
+            }
+        } else {
+            error = scan(controller);
+            Peer keyboard{};
+            if (error == Error::None && !choose_keyboard(controller, keyboard)) {
+                klog::info("bluetooth hci%u: no keyboard in pairing mode; replug the adapter to scan again\n",
+                           controller.index);
+                return;
+            }
+            if (error == Error::None) {
+                klog::info("bluetooth hci%u: connecting to %s\n", controller.index,
+                           address_text(keyboard.address).text);
+                error = connect(controller, keyboard.address, keyboard.address_type);
+            }
+            if (error == Error::None)
+                error = pair(controller, keyboard);
+            if (error == Error::None)
+                error = find_keyboard_reports(controller);
+        }
+        if (error == Error::None)
+            error = subscribe(controller);
+        if (error == Error::None)
+            error = serve(controller);
+        if (error == Error::NoDevice)
+            return;
+        // A link that is still up after a failure is no use: drop it.
+        uint8_t parameters[3]{};
+        bool connected = false;
+        {
+            intr::Guard guard;
+            connected = controller.link.connected;
+            write16(parameters, controller.link.handle);
+        }
+        if (connected) {
+            parameters[2] = REASON_USER_TERMINATED;
+            Reply reply{};
+            Frame ignored{};
+            static_cast<void>(command(controller, OP_DISCONNECT, parameters, sizeof(parameters), reply));
+            static_cast<void>(wait_frame(controller, 0, COMMAND_TIMEOUT_MS, ignored));
+        }
+        // Without a bond only a dropped link is worth another attempt.
+        intr::Guard guard;
+        if (!controller.bond.valid) {
+            klog::warn("bluetooth hci%u: pairing failed (%d); replug the adapter to try again\n", controller.index,
+                       static_cast<int>(error));
+            return;
+        }
+    }
+}
+
 Error Hci::attach(Transport& transport) {
     Controller* controller = nullptr;
     {
@@ -361,7 +480,7 @@ Error Hci::attach(Transport& transport) {
         for (size_t i = 0; i < controllers_.size(); ++i) {
             if (controllers_[i].transport)
                 continue;
-            controllers_[i] = Controller{};
+            renew(controllers_[i]);
             controllers_[i].transport = &transport;
             controllers_[i].index = static_cast<uint8_t>(i);
             controllers_[i].generation = ++generations_;
@@ -389,9 +508,12 @@ Error Hci::attach(Transport& transport) {
 
 void Hci::detach(Transport& transport) {
     intr::Guard guard;
-    for (Controller& controller : controllers_)
-        if (controller.transport == &transport)
-            controller = Controller{};
+    for (Controller& controller : controllers_) {
+        if (controller.transport != &transport)
+            continue;
+        controller.link.keyboard.release();
+        renew(controller);
+    }
     waiting_.wakeup_all();  // Waits on its commands end now
 }
 
@@ -447,6 +569,7 @@ void Hci::advertising_reports(Controller& controller, const uint8_t* parameters,
     for (uint8_t report = 0; report < parameters[0]; ++report) {
         if (at + 2 + ADDRESS_BYTES + 1 > length)
             return;
+        const uint8_t event_type = parameters[at];
         const uint8_t address_type = parameters[at + 1];
         const uint8_t* address = parameters + at + 2;
         const uint8_t data_length = parameters[at + 2 + ADDRESS_BYTES];
@@ -455,13 +578,26 @@ void Hci::advertising_reports(Controller& controller, const uint8_t* parameters,
             return;
         at += 3 + ADDRESS_BYTES + data_length + 1;
 
+        const bool connectable = event_type == ADV_CONNECTABLE || event_type == ADV_DIRECTED;
+        if (controller.watching_for_bond) {
+            // A bonded keyboard advertises, often directly to us, to come back.
+            if (connectable && memcmp(address, controller.bond.address, ADDRESS_BYTES) == 0) {
+                controller.bond_seen = true;
+                waiting_.wakeup_all();
+            }
+            continue;
+        }
         const size_t known = controller.peer_count;
         Peer* found = peer(controller, address, true);
         if (!found)
             continue;
         bool changed = controller.peer_count != known;
         found->address_type = address_type;
+        if (connectable)
+            found->connectable = true;
         const DataFields fields = parse_fields(data, data_length);
+        if ((fields.flags & AD_FLAGS_DISCOVERABLE) != 0)
+            found->discoverable = true;
         if (fields.appearance != 0 && fields.appearance != found->appearance) {
             found->appearance = fields.appearance;
             changed = true;
@@ -501,7 +637,8 @@ void Hci::event_received(Transport& transport, const uint8_t* event, size_t leng
         waiting_.wakeup_all();
         return;
     }
-    if (controller->awaited_event != 0 && code == controller->awaited_event) {
+    if (controller->awaited_event != 0 && code == controller->awaited_event &&
+        (code != EVENT_LE_META || (size >= 1 && parameters[0] == controller->awaited_subevent))) {
         controller->event_length = size;
         memcpy(controller->event, parameters, size);
         controller->event_seen = true;
@@ -534,20 +671,18 @@ void Hci::event_received(Transport& transport, const uint8_t* event, size_t leng
                 inquiry_result(*controller, parameters + 1, parameters[7], parameters + 9, parameters + 12,
                                parameters + 15, size - 15U);
             return;
+        case EVENT_DISCONNECTION_COMPLETE:
+            // Status, handle, reason.
+            if (size >= 4 && parameters[0] == STATUS_SUCCESS)
+                link_lost(*controller, read16(parameters + 1) & ACL_HANDLE_MASK, parameters[3]);
+            return;
+        case EVENT_PACKETS_COMPLETED: packets_completed(*controller, parameters, size); return;
         case EVENT_LE_META:
             if (size >= 1 && parameters[0] == LE_ADVERTISING_REPORT)
                 advertising_reports(*controller, parameters + 1, size - 1U);
             return;
         default: klog::debug("bluetooth hci%u: event 0x%02x\n", controller->index, code); return;
     }
-}
-
-void Hci::bring_up(Controller& controller) {
-    const Error error = identify(controller);
-    if (error == Error::None)
-        static_cast<void>(scan(controller));
-    else if (error != Error::NoDevice)
-        klog::warn("bluetooth hci%u: controller not usable (%d)\n", controller.index, static_cast<int>(error));
 }
 
 int Hci::thread(void*) {
@@ -569,6 +704,11 @@ Controller* Hci::next_pending() {
 }
 
 void Hci::tick() {
+    intr::Guard guard;
+    const uint64_t now = trap::uptime_ms();
+    for (Controller& controller : controllers_)
+        if (controller.link.connected)
+            controller.link.keyboard.tick(now);
     if (!waiting_.empty())
         waiting_.wakeup_all();
 }

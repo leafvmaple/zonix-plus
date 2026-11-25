@@ -3,7 +3,7 @@
 // xHCI (USB 3) host controller driver: one event ring polled from the timer
 // tick, a command ring, and a transfer ring per endpoint in use. Control
 // transfers and commands run in kernel threads, which may sleep, one at a
-// time each; interrupt IN reports complete from the tick.
+// time each, as are OUT transfers; IN packets complete from the tick.
 
 #include <base/types.h>
 #include "drivers/usb/usb.h"
@@ -23,7 +23,7 @@ namespace xhci {
 inline constexpr size_t RING_TRBS = 256;
 inline constexpr size_t MAX_SLOTS = 16;
 inline constexpr size_t MAX_ENDPOINTS = 32;  // Device context indices
-inline constexpr size_t REPORT_BUFFERS = 4;  // Interrupt IN requests kept queued
+inline constexpr size_t REPORT_BUFFERS = 4;  // IN requests kept queued
 
 struct Trb {
     uint64_t parameter;
@@ -46,13 +46,27 @@ private:
     bool cycle_{true};
 };
 
+// How a waited-for command or transfer ended.
+struct Completion {
+    bool done{};
+    uint8_t code{};
+    uint8_t slot{};
+    uint32_t remaining{};
+};
+
 struct Endpoint {
     Ring ring{};
+    // IN: the handler, and buffers of `report_size` bytes `stride` apart.
     usb::ReportHandler handler{};
     void* context{};
     DmaBuffer reports{};
     uintptr_t trb_pa[REPORT_BUFFERS]{};  // The TRB queued for each report buffer
     uint16_t report_size{};
+    uint16_t stride{};
+    // OUT: the data being sent and its TRB.
+    DmaBuffer out{};
+    uintptr_t awaited_trb{};
+    Completion sent{};
 };
 
 struct Slot {
@@ -71,8 +85,10 @@ public:
     void poll();
 
     Error control(usb::Device& device, const usb::SetupPacket& setup, void* data) override;
-    Error start_interrupt_in(usb::Device& device, const usb::EndpointDescriptor& endpoint, usb::ReportHandler handler,
-                             void* context) override;
+    Error start_in(usb::Device& device, const usb::EndpointDescriptor& endpoint, usb::ReportHandler handler,
+                   void* context) override;
+    Error open_out(usb::Device& device, const usb::EndpointDescriptor& endpoint) override;
+    Error send(usb::Device& device, uint8_t endpoint_address, const void* data, size_t length) override;
     Error set_hub(usb::Device& hub, uint8_t ports, uint8_t think_time, bool multi_tt) override;
     Error add_device(usb::Device& hub, uint8_t port, usb::Speed speed) override;
     void root_port_changed(uint8_t port) override;
@@ -81,13 +97,6 @@ public:
     usb::Device* device(uint8_t slot) override;
 
 private:
-    struct Completion {
-        bool done{};
-        uint8_t code{};
-        uint8_t slot{};
-        uint32_t remaining{};
-    };
-
     Error reset();
     void take_ownership();
     Error setup_scratchpad(uint32_t count);
@@ -96,6 +105,7 @@ private:
     Error reset_port(uint8_t port, usb::Speed& speed);
     Error address_device(const usb::Topology& topology, uint8_t parent_slot, uint8_t port, usb::Speed speed);
     Error update_ep0_packet_size(Slot& slot, uint16_t packet_size);
+    Error configure_endpoint(Slot& slot, const usb::EndpointDescriptor& descriptor, uint8_t dci, uint32_t type);
     Slot* slot_of(usb::Device& device);
     uint32_t* input_context(Slot& slot, size_t index);
     void handle_event(const Trb& event);
@@ -121,6 +131,7 @@ private:
     // completion: each kind runs one at a time.
     Mutex control_mutex_{};
     Mutex command_mutex_{};
+    Mutex send_mutex_{};
     DmaBuffer control_data_{};
     Completion command_done_{};
     Completion transfer_done_{};
