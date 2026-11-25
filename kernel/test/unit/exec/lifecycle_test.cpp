@@ -2,7 +2,9 @@
 #include "test/test_main.h"
 #include "exec/exec.h"
 #include "sched/sched.h"
+#include "mm/page_table.h"
 #include "mm/pmm.h"
+#include "mm/vmm.h"
 #include "drivers/intr.h"
 #include "fs/vfs.h"
 #include <abi/process.h>
@@ -12,6 +14,14 @@ static int tests_failed = 0;
 
 namespace {
 constexpr const char* PROGRAM = "/mnt/P1LIFE.ELF";
+
+// Free pages, counting as free those that became tables of the kernel's own
+// page table: guarding a new kernel stack can split a large block of the
+// direct mapping, and the kernel keeps that table for good wherever the
+// stack happened to land. A process's own tables and pages still count.
+size_t free_pages_without_kernel_tables() {
+    return pmm::free_page_count() + pmm::table_page_count(vmm::Manager::kernel_pgdir());
+}
 
 Result<sys::unique_ptr<exec::Arguments>> arguments(const char* mode = nullptr) {
     auto args = sys::unique_ptr<exec::Arguments>(new (sys::nothrow) exec::Arguments());
@@ -52,7 +62,7 @@ void test_user_lifecycle() {
         TEST_END();
         return;
     }
-    const size_t before_pages = pmm::free_page_count();
+    const size_t before_pages = free_pages_without_kernel_tables();
     const int before_tasks = TaskManager::process_count();
     const size_t before_fds = sched::current()->files().size();
     auto parent = exec::spawn(PROGRAM, *parent_args.value());
@@ -65,7 +75,8 @@ void test_user_lifecycle() {
     }
     TEST_ASSERT(TaskManager::process_count() == before_tasks && sched::current()->files().size() == before_fds,
                 "Reaping restores task and parent descriptor counts");
-    TEST_ASSERT(pmm::free_page_count() == before_pages, "Address spaces, stacks and descriptions return all pages");
+    TEST_ASSERT(free_pages_without_kernel_tables() == before_pages,
+                "Address spaces, stacks and descriptions return all pages");
     TEST_ASSERT(vfs::unlink("/P1FD.TMP") == Error::None && vfs::unlink("/P1BAD.TMP") == Error::None,
                 "Exited processes leave no file handles pinning their test artifacts");
     TEST_END();
@@ -120,7 +131,7 @@ void test_pty_job_control() {
         TEST_END();
         return;
     }
-    const size_t before_pages = pmm::free_page_count();
+    const size_t before_pages = free_pages_without_kernel_tables();
     const int before_tasks = TaskManager::process_count();
     auto driver = exec::spawn(PROGRAM, *args.value());
     TEST_ASSERT(driver.ok(), "Started the pseudo-terminal driver");
@@ -133,7 +144,7 @@ void test_pty_job_control() {
                     "Output, resize, Ctrl-C, cancel, input delivery, raw mode and hangup behave in user mode");
     }
     TEST_ASSERT(TaskManager::process_count() == before_tasks, "The session leaves no tasks behind");
-    TEST_ASSERT(pmm::free_page_count() == before_pages, "The session and its tasks return all pages");
+    TEST_ASSERT(free_pages_without_kernel_tables() == before_pages, "The session and its tasks return all pages");
     TEST_END();
 }
 }  // namespace

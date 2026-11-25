@@ -77,8 +77,9 @@ void panic_at(const char*, int line, const char* format, ...) {
     exit(line);
 }
 
-// Keyboard reports are not part of these sequences.
+// Input reports are not part of these sequences.
 void cons::key_event(uint16_t, int) {}
+void cons::pointer_event(unsigned int, unsigned int, int) {}
 
 namespace usb {
 

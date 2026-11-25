@@ -85,7 +85,7 @@ ifeq ($(TEST),1)
 	           kernel/test/unit/sched kernel/test/unit/mm kernel/test/shell \
 	           kernel/test/unit/lib kernel/test/unit/block \
 	           kernel/test/unit/exec kernel/test/unit/cons \
-	           kernel/test/unit/fs
+	           kernel/test/unit/fs kernel/test/unit/input
 	CFLAGS   += -DTEST_MODE=1
 	CXXFLAGS += -DTEST_MODE=1
 	ifeq ($(ARCH),x86)

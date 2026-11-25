@@ -22,4 +22,7 @@ Result<void*> user_address(pde_t* pgdir, uintptr_t user_va, bool write);
 // Free entire user address space (lower-half page tables + mapped pages + pgdir)
 void free_user_pgdir(pde_t* pgdir);
 
+// Counts the page-table pages below a root, not the root itself.
+size_t table_page_count(const pde_t* pgdir);
+
 }  // namespace pmm

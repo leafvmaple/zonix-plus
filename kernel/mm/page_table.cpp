@@ -129,7 +129,30 @@ static void free_user_pt_subtree(pde_t* table, int depth) {
     }
 }
 
+// Tables below `table`, whose entries are leaves when depth is 0.
+size_t count_tables(const pde_t* table, int depth) {
+    if (depth == 0)
+        return 0;
+    size_t count = 0;
+    for (int i = 0; i < ENTRY_NUM; i++) {
+        const pde_t entry = table[i];
+        if (pte_present(entry) && !pte_is_block(entry))
+            count += 1 + count_tables(phys_to_virt<pde_t>(pte_addr(entry)), depth - 1);
+    }
+    return count;
+}
+
 }  // namespace
+
+size_t pmm::table_page_count(const pde_t* pgdir) {
+    size_t count = 0;
+    for (int i = 0; i < ENTRY_NUM; i++) {
+        const pde_t entry = pgdir[i];
+        if (pte_present(entry) && !pte_is_block(entry))
+            count += 1 + count_tables(phys_to_virt<pde_t>(pte_addr(entry)), PT_WALK_LEVELS - 2);
+    }
+    return count;
+}
 
 /*
  * Walk the multi-level page table and return a pointer to the leaf PTE

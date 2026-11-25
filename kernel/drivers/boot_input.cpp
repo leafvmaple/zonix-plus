@@ -1,4 +1,4 @@
-#include "drivers/boot_keyboard.h"
+#include "drivers/boot_input.h"
 #include "cons/cons.h"
 #include "lib/memory.h"
 #include "trap/trap.h"
@@ -8,6 +8,8 @@ namespace input {
 namespace {
 
 constexpr uint8_t USAGE_ROLLOVER = 0x01;  // Too many keys down at once
+constexpr uint16_t BUTTON_CODES[] = {DISPLAY_BUTTON_LEFT, DISPLAY_BUTTON_RIGHT, DISPLAY_BUTTON_MIDDLE};
+constexpr size_t BOOT_MOUSE_REPORT = 3;  // Buttons, X, Y; a wheel byte may follow
 // Left/right Control, Shift, Alt and Meta, in modifier-bit order.
 constexpr uint16_t MODIFIER_CODES[] = {29, 42, 56, 125, 97, 54, 100, 126};
 
@@ -93,6 +95,43 @@ void BootKeyboard::tick(uint64_t now_ms) {
         return;
     cons::key_event(repeat_code_, DISPLAY_KEY_REPEAT);
     repeat_at_ = now_ms + REPEAT_INTERVAL_MS;
+}
+
+void Mouse::apply(uint8_t buttons, int32_t dx, int32_t dy, int32_t wheel) {
+    for (unsigned int bit = 0; bit < BUTTONS; ++bit) {
+        const bool was = (buttons_ & (1U << bit)) != 0;
+        const bool now = (buttons & (1U << bit)) != 0;
+        if (was != now)
+            cons::pointer_event(DISPLAY_EVENT_BUTTON, BUTTON_CODES[bit], now ? 1 : 0);
+    }
+    buttons_ = buttons;
+    if (dx != 0)
+        cons::pointer_event(DISPLAY_EVENT_REL, DISPLAY_REL_X, dx);
+    if (dy != 0)
+        cons::pointer_event(DISPLAY_EVENT_REL, DISPLAY_REL_Y, dy);
+    if (wheel != 0)
+        cons::pointer_event(DISPLAY_EVENT_REL, DISPLAY_REL_WHEEL, wheel);
+}
+
+void Mouse::boot_report(const uint8_t* data, size_t length) {
+    if (length < BOOT_MOUSE_REPORT)
+        return;
+    const int32_t wheel = length > BOOT_MOUSE_REPORT ? static_cast<int8_t>(data[BOOT_MOUSE_REPORT]) : 0;
+    apply(data[0], static_cast<int8_t>(data[1]), static_cast<int8_t>(data[2]), wheel);
+}
+
+void Mouse::report(const MouseLayout& layout, const uint8_t* data, size_t length) {
+    if (!layout.valid)
+        return;
+    apply(static_cast<uint8_t>(field_value(layout.buttons, data, length)), field_value(layout.x, data, length),
+          field_value(layout.y, data, length), field_value(layout.wheel, data, length));
+}
+
+void Mouse::release() {
+    for (unsigned int bit = 0; bit < BUTTONS; ++bit)
+        if ((buttons_ & (1U << bit)) != 0)
+            cons::pointer_event(DISPLAY_EVENT_BUTTON, BUTTON_CODES[bit], 0);
+    buttons_ = 0;
 }
 
 }  // namespace input

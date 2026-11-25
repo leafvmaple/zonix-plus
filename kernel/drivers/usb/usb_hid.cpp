@@ -1,9 +1,7 @@
 #include "drivers/usb/usb_hid.h"
-#include "cons/cons.h"
-#include "drivers/boot_keyboard.h"
+#include "drivers/boot_input.h"
 #include "drivers/intr.h"
 #include "trap/trap.h"
-#include <abi/display.h>
 #include <kernel/log.h>
 #include <sys/array.hpp>
 
@@ -18,15 +16,13 @@ constexpr uint8_t REQUEST_SET_IDLE = 0x0A;
 constexpr uint8_t REQUEST_SET_PROTOCOL = 0x0B;
 constexpr uint16_t BOOT_PROTOCOL = 0;
 
-constexpr uint16_t BUTTON_CODES[] = {DISPLAY_BUTTON_LEFT, DISPLAY_BUTTON_RIGHT, DISPLAY_BUTTON_MIDDLE};
-
 enum class Kind : uint8_t { Keyboard, Mouse };
 
 struct Interface {
     Device* device{};  // Null while the entry is free
     Kind kind{};
     input::BootKeyboard keyboard{};
-    uint8_t buttons{};
+    input::Mouse mouse{};
 };
 
 class Registry {
@@ -52,9 +48,7 @@ public:
             if (state.device != &device)
                 continue;
             state.keyboard.release();
-            for (unsigned int bit = 0; bit < 3; ++bit)
-                if ((state.buttons & (1U << bit)) != 0)
-                    cons::pointer_event(DISPLAY_EVENT_BUTTON, BUTTON_CODES[bit], 0);
+            state.mouse.release();
             state = Interface{};
         }
     }
@@ -63,27 +57,8 @@ public:
         static_cast<Interface*>(context)->keyboard.report(data, length);
     }
 
-    // Boot mouse: buttons, X and Y deltas, then a wheel delta most mice add.
     static void mouse_report(void* context, const uint8_t* data, size_t length) {
-        auto* state = static_cast<Interface*>(context);
-        if (length < 3)
-            return;
-        const uint8_t buttons = data[0];
-        for (unsigned int bit = 0; bit < 3; ++bit) {
-            const bool was = (state->buttons & (1U << bit)) != 0;
-            const bool now = (buttons & (1U << bit)) != 0;
-            if (was != now)
-                cons::pointer_event(DISPLAY_EVENT_BUTTON, BUTTON_CODES[bit], now ? 1 : 0);
-        }
-        state->buttons = buttons;
-        const auto dx = static_cast<int8_t>(data[1]);
-        const auto dy = static_cast<int8_t>(data[2]);
-        if (dx != 0)
-            cons::pointer_event(DISPLAY_EVENT_REL, DISPLAY_REL_X, dx);
-        if (dy != 0)
-            cons::pointer_event(DISPLAY_EVENT_REL, DISPLAY_REL_Y, dy);
-        if (length >= 4 && data[3] != 0)
-            cons::pointer_event(DISPLAY_EVENT_REL, DISPLAY_REL_WHEEL, static_cast<int8_t>(data[3]));
+        static_cast<Interface*>(context)->mouse.boot_report(data, length);
     }
 
     static void tick() {

@@ -108,12 +108,12 @@ void Hci::check_aes(Controller& controller) {
 
 // Starts encryption with `ltk`, then waits for the controller to report it on.
 // Access when the keyboard refuses the key.
-Error Hci::encrypt(Controller& controller, const uint8_t* ltk, uint16_t ediv, const uint8_t* rand) {
+Error Hci::encrypt(Controller& controller, Device& device, const uint8_t* ltk, uint16_t ediv, const uint8_t* rand) {
     uint8_t parameters[2 + 8 + 2 + KEY_BYTES];
     {
         intr::Guard guard;
-        ENSURE(controller.link.connected, Error::Interrupted);
-        write16(parameters, controller.link.handle);
+        ENSURE(device.link.connected, Error::Interrupted);
+        write16(parameters, device.link.handle);
     }
     memcpy(parameters + 2, rand, 8);
     write16(parameters + 10, ediv);
@@ -134,15 +134,15 @@ Error Hci::encrypt(Controller& controller, const uint8_t* ltk, uint16_t ediv, co
     return Error::None;
 }
 
-Error Hci::pair(Controller& controller, const Peer& keyboard) {
-    TRY(send_frame(controller, CHANNEL_SMP, PAIRING_REQUEST, sizeof(PAIRING_REQUEST)));
+Error Hci::pair(Controller& controller, Device& device, const Peer& peer) {
+    TRY(send_frame(controller, device, CHANNEL_SMP, PAIRING_REQUEST, sizeof(PAIRING_REQUEST)));
     // The keyboard may ask for security first; its answer to the request
     // follows.
     Frame frame{};
     do {
-        TRY(wait_frame(controller, CHANNEL_SMP, SMP_TIMEOUT_MS, frame));
+        TRY(wait_frame(controller, &device, CHANNEL_SMP, SMP_TIMEOUT_MS, frame));
         ENSURE_LOG(frame.data[0] != SMP_PAIRING_FAILED, Error::Access,
-                   "bluetooth hci%u: the keyboard refused pairing (reason 0x%02x)", controller.index,
+                   "bluetooth hci%u: the device refused pairing (reason 0x%02x)", controller.index,
                    frame.length >= 2 ? frame.data[1] : 0);
     } while (frame.data[0] != SMP_PAIRING_RESPONSE);
     ENSURE(frame.length >= PAIRING_FEATURES, Error::Io);
@@ -157,28 +157,28 @@ Error Hci::pair(Controller& controller, const Peer& keyboard) {
     TRY(random(controller, local_random, KEY_BYTES));
     uint8_t message[1 + KEY_BYTES] = {SMP_PAIRING_CONFIRM};
     TRY(confirm_value(controller, local_random, PAIRING_REQUEST, response, ADDRESS_PUBLIC, controller.address,
-                      keyboard.address_type, keyboard.address, message + 1));
-    TRY(send_frame(controller, CHANNEL_SMP, message, sizeof(message)));
-    TRY(wait_frame(controller, CHANNEL_SMP, SMP_TIMEOUT_MS, frame));
+                      peer.address_type, peer.address, message + 1));
+    TRY(send_frame(controller, device, CHANNEL_SMP, message, sizeof(message)));
+    TRY(wait_frame(controller, &device, CHANNEL_SMP, SMP_TIMEOUT_MS, frame));
     ENSURE_LOG(frame.data[0] == SMP_PAIRING_CONFIRM && frame.length >= 1 + KEY_BYTES, Error::Access,
                "bluetooth hci%u: pairing stopped (0x%02x)", controller.index, frame.data[0]);
     uint8_t remote_confirm[KEY_BYTES];
     memcpy(remote_confirm, frame.data + 1, KEY_BYTES);
     message[0] = SMP_PAIRING_RANDOM;
     memcpy(message + 1, local_random, KEY_BYTES);
-    TRY(send_frame(controller, CHANNEL_SMP, message, sizeof(message)));
-    TRY(wait_frame(controller, CHANNEL_SMP, SMP_TIMEOUT_MS, frame));
+    TRY(send_frame(controller, device, CHANNEL_SMP, message, sizeof(message)));
+    TRY(wait_frame(controller, &device, CHANNEL_SMP, SMP_TIMEOUT_MS, frame));
     ENSURE_LOG(frame.data[0] == SMP_PAIRING_RANDOM && frame.length >= 1 + KEY_BYTES, Error::Access,
                "bluetooth hci%u: pairing stopped (0x%02x)", controller.index, frame.data[0]);
     uint8_t remote_random[KEY_BYTES];
     memcpy(remote_random, frame.data + 1, KEY_BYTES);
     uint8_t expected[KEY_BYTES];
     TRY(confirm_value(controller, remote_random, PAIRING_REQUEST, response, ADDRESS_PUBLIC, controller.address,
-                      keyboard.address_type, keyboard.address, expected));
+                      peer.address_type, peer.address, expected));
     if (memcmp(expected, remote_confirm, KEY_BYTES) != 0) {
         const uint8_t failed[2] = {SMP_PAIRING_FAILED, SMP_CONFIRM_VALUE_FAILED};
-        static_cast<void>(send_frame(controller, CHANNEL_SMP, failed, sizeof(failed)));
-        klog::warn("bluetooth hci%u: the keyboard's confirm value does not match\n", controller.index);
+        static_cast<void>(send_frame(controller, device, CHANNEL_SMP, failed, sizeof(failed)));
+        klog::warn("bluetooth hci%u: the device's confirm value does not match\n", controller.index);
         return Error::Access;
     }
 
@@ -190,16 +190,16 @@ Error Hci::pair(Controller& controller, const Peer& keyboard) {
     TRY(aes(controller, ZERO_KEY, short_term_key, short_term_key));
     memset(short_term_key + key_size, 0, KEY_BYTES - key_size);
     const uint8_t no_rand[8] = {};
-    TRY(encrypt(controller, short_term_key, 0, no_rand));
+    TRY(encrypt(controller, device, short_term_key, 0, no_rand));
 
     // Over the encrypted link the keyboard hands out its long-term key.
     Bond bond{};
-    memcpy(bond.address, keyboard.address, ADDRESS_BYTES);
-    bond.address_type = keyboard.address_type;
+    memcpy(bond.address, peer.address, ADDRESS_BYTES);
+    bond.address_type = peer.address_type;
     bool have_key = false;
     bool have_identity = false;
     while ((response[RESPONDER_KEYS] & KEY_DISTRIBUTION_ENCRYPTION) != 0 && !(have_key && have_identity)) {
-        TRY(wait_frame(controller, CHANNEL_SMP, SMP_TIMEOUT_MS, frame));
+        TRY(wait_frame(controller, &device, CHANNEL_SMP, SMP_TIMEOUT_MS, frame));
         if (frame.data[0] == SMP_ENCRYPTION_INFORMATION && frame.length >= 1 + KEY_BYTES) {
             memcpy(bond.ltk, frame.data + 1, KEY_BYTES);
             have_key = true;
@@ -211,8 +211,8 @@ Error Hci::pair(Controller& controller, const Peer& keyboard) {
     }
     intr::Guard guard;
     bond.valid = have_key && have_identity;
-    controller.bond = bond;
-    klog::info("bluetooth hci%u: paired with %s%s\n", controller.index, address_text(keyboard.address).text,
+    device.bond = bond;
+    klog::info("bluetooth hci%u: paired with %s%s\n", controller.index, address_text(peer.address).text,
                bond.valid ? "" : " (no key for reconnecting)");
     return Error::None;
 }

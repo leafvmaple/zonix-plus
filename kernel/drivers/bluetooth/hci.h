@@ -1,20 +1,22 @@
 #pragma once
 
 // Bluetooth host: the controller interface (HCI) every adapter speaks,
-// whatever carries it, and the LE protocols above it that a keyboard needs.
-// A transport driver (USB today) moves packets. A Bluetooth kernel thread
-// brings each controller up, scans for nearby devices, then connects to an
-// LE keyboard in pairing mode: it pairs (SMP legacy pairing, Just Works),
-// finds the HID service over GATT and turns the keyboard's boot reports into
-// key events. When the keyboard drops the link, as it does when idle, the
-// thread waits for it to advertise again and resumes with the bonded key.
+// whatever carries it, and the LE protocols above it that keyboards and mice
+// need. A transport driver (USB today) moves packets. A Bluetooth kernel
+// thread brings each controller up and scans for nearby devices. It then
+// connects to every LE keyboard or mouse in pairing mode: it pairs (SMP
+// legacy pairing, Just Works), finds the HID service over GATT and turns the
+// device's boot reports into key and pointer events. Afterwards it keeps a
+// low-duty scan running, which brings back bonded devices that dropped
+// their link, as they do when idle, with the bonded key, and pairs devices
+// put in pairing mode later.
 //
-// hci.cpp holds the controller, its commands, events and scanning;
-// hci_link.cpp the connection, ACL data and L2CAP; hci_pairing.cpp SMP; and
-// hci_gatt.cpp the GATT client for the HID service.
+// hci.cpp holds the controller, its commands, events, scanning and the
+// thread; hci_link.cpp connections, ACL data and L2CAP; hci_pairing.cpp
+// SMP; and hci_gatt.cpp the GATT client for the HID service.
 
 #include <base/types.h>
-#include "drivers/boot_keyboard.h"
+#include "drivers/boot_input.h"
 #include "lib/result.h"
 #include "lib/waitqueue.h"
 #include <sys/array.hpp>
@@ -39,6 +41,7 @@ inline constexpr size_t ADDRESS_BYTES = 6;
 inline constexpr size_t KEY_BYTES = 16;
 inline constexpr size_t PEER_NAME_CAPACITY = 32;
 inline constexpr size_t MAX_PEERS = 32;
+inline constexpr size_t MAX_DEVICES = 4;
 // L2CAP payloads kept for the thread: ATT with the default 23-byte MTU,
 // SMP and signaling all fit.
 inline constexpr size_t FRAME_CAPACITY = 64;
@@ -52,6 +55,7 @@ struct Peer {
     uint8_t address_type{};  // LE: public or random
     bool connectable{};      // LE: it accepts connections
     bool discoverable{};     // LE: it wants to be found, as in pairing mode
+    uint8_t attempts{};      // Pairings tried with it
     // Classic: class of device and what a name request needs.
     uint32_t device_class{};
     uint8_t page_scan_mode{};
@@ -67,7 +71,10 @@ struct Frame {
     uint8_t data[FRAME_CAPACITY]{};
 };
 
-// What pairing leaves for reconnecting: the key the keyboard handed out and
+// Where an input report's notifications go.
+enum class ReportKind : uint8_t { Keyboard, Mouse };
+
+// What pairing leaves for reconnecting: the key the device handed out and
 // where its reports are.
 struct Bond {
     bool valid{};
@@ -79,24 +86,38 @@ struct Bond {
     uint16_t protocol_mode{};         // Handle of Protocol Mode in boot mode, else 0
     uint16_t reports[MAX_REPORTS]{};  // Input report value handles
     uint16_t configs[MAX_REPORTS]{};  // Their client characteristic configurations
+    ReportKind kinds[MAX_REPORTS]{};
     size_t report_count{};
+    input::MouseLayout mouse_layout{};  // Valid when mouse reports use the report descriptor's layout
 };
 
-// The controller's LE connection.
+// An LE connection.
 struct Link {
     bool connected{};
     uint16_t handle{};
-    uint8_t disconnect_reason{};
+    uint16_t in_flight{};  // ACL packets the controller still holds
     // The L2CAP frame being put together from ACL fragments: header, then payload.
     uint8_t assembly[4 + FRAME_CAPACITY]{};
     size_t assembled{};
     size_t expected{};  // 0: between frames
     sys::array<Frame, FRAME_QUEUE> frames{};
     size_t frame_count{};
-    // Notifications from these attribute handles are keyboard reports.
+    // Notifications from these attribute handles are input reports.
     uint16_t reports[MAX_REPORTS]{};
+    ReportKind kinds[MAX_REPORTS]{};
     size_t report_count{};
+    input::MouseLayout mouse_layout{};
     input::BootKeyboard keyboard{};
+    input::Mouse mouse{};
+};
+
+// A keyboard or mouse being paired with, or bonded.
+struct Device {
+    bool used{};
+    bool seen{};  // Advertised while disconnected
+    uint16_t appearance{};
+    Bond bond{};
+    Link link{};
 };
 
 // One controller the HCI layer has brought up.
@@ -124,10 +145,9 @@ struct Controller {
     uint8_t event[HCI_MAX_PARAMETERS]{};
     sys::array<Peer, MAX_PEERS> peers{};
     size_t peer_count{};
-    bool watching_for_bond{};  // Scanning only for the bonded device
-    bool bond_seen{};
-    Link link{};
-    Bond bond{};
+    bool watching{};        // The background scan runs
+    bool candidate_seen{};  // It found an input device in pairing mode
+    sys::array<Device, MAX_DEVICES> devices{};
 };
 
 // Parameters returned by a command or carried by an event.
@@ -163,10 +183,14 @@ private:
     static void bring_up(Controller& controller);
     static Error scan(Controller& controller);
     static void request_names(Controller& controller, uint32_t generation);
-    static bool choose_keyboard(Controller& controller, Peer& keyboard);
+    static bool next_candidate(Controller& controller, Peer& candidate);
+    static bool known(const Controller& controller, const uint8_t* address);
+    static Error add_device(Controller& controller, const Peer& candidate);
+    static Error resume(Controller& controller, Device& device);
+    static void drop(Controller& controller, Device& device);
 
     static Controller* find(Transport& transport);
-    static Peer* peer(Controller& controller, const uint8_t* address, bool low_energy);
+    static Peer* peer(Controller& controller, const uint8_t* address, bool low_energy, bool& added);
     static void inquiry_result(Controller& controller, const uint8_t* address, uint8_t page_scan_mode,
                                const uint8_t* device_class, const uint8_t* clock_offset, const uint8_t* eir,
                                size_t eir_length);
@@ -176,20 +200,24 @@ private:
     [[noreturn]] static int thread(void*);
     static Controller* next_pending();
 
-    // hci_link.cpp: the connection, ACL data and L2CAP.
-    static Error connect(Controller& controller, const uint8_t* address, uint8_t address_type);
-    static Error wait_for_bond(Controller& controller);
-    static Error send_frame(Controller& controller, uint16_t channel, const uint8_t* payload, size_t length);
-    static Error wait_frame(Controller& controller, uint16_t channel, uint64_t timeout_ms, Frame& frame);
-    static bool answer_request(Controller& controller, const Frame& frame);
-    static Error serve(Controller& controller);
-    static void frame_received(Controller& controller, uint16_t channel, const uint8_t* payload, size_t length);
+    // hci_link.cpp: connections, ACL data and L2CAP.
+    static Error connect(Controller& controller, Device& device, const uint8_t* address, uint8_t address_type);
+    static Error watch(Controller& controller);
+    static Error send_frame(Controller& controller, Device& device, uint16_t channel, const uint8_t* payload,
+                            size_t length);
+    static Error wait_frame(Controller& controller, Device* device, uint16_t channel, uint64_t timeout_ms,
+                            Frame& frame);
+    static bool answer_request(Controller& controller, Device& device, const Frame& frame);
+    static Device* connected_device(Controller& controller, uint16_t handle);
+    static void frame_received(Controller& controller, Link& link, uint16_t channel, const uint8_t* payload,
+                               size_t length);
     static void link_lost(Controller& controller, uint16_t handle, uint8_t reason);
     static void packets_completed(Controller& controller, const uint8_t* parameters, size_t length);
 
     // hci_pairing.cpp: SMP legacy pairing and link encryption.
-    static Error pair(Controller& controller, const Peer& keyboard);
-    static Error encrypt(Controller& controller, const uint8_t* ltk, uint16_t ediv, const uint8_t* rand);
+    static Error pair(Controller& controller, Device& device, const Peer& peer);
+    static Error encrypt(Controller& controller, Device& device, const uint8_t* ltk, uint16_t ediv,
+                         const uint8_t* rand);
     static Error aes(Controller& controller, const uint8_t* key, const uint8_t* plaintext, uint8_t* out);
     static Error confirm_value(Controller& controller, const uint8_t* random, const uint8_t* request,
                                const uint8_t* response, uint8_t initiator_type, const uint8_t* initiator,
@@ -198,9 +226,12 @@ private:
     static void check_aes(Controller& controller);
 
     // hci_gatt.cpp: the GATT client for the HID service.
-    static Error attribute_request(Controller& controller, const uint8_t* request, size_t length, Frame& response);
-    static Error find_keyboard_reports(Controller& controller);
-    static Error subscribe(Controller& controller);
+    static Error attribute_request(Controller& controller, Device& device, const uint8_t* request, size_t length,
+                                   Frame& response);
+    static Error read_long(Controller& controller, Device& device, uint16_t handle, uint8_t* value, size_t capacity,
+                           size_t& length);
+    static Error find_reports(Controller& controller, Device& device);
+    static Error subscribe(Controller& controller, Device& device);
 
     inline static sys::array<Controller, MAX_CONTROLLERS> controllers_{};
     inline static uint32_t generations_{};

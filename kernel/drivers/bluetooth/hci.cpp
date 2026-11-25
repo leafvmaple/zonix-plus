@@ -56,6 +56,8 @@ constexpr uint8_t AD_COMPLETE_NAME = 0x09;
 constexpr uint8_t AD_APPEARANCE = 0x19;
 constexpr uint8_t AD_FLAGS_DISCOVERABLE = 0x03;  // Limited or general discoverable mode
 
+constexpr uint8_t MAX_PAIRING_ATTEMPTS = 2;
+
 // LE advertising report event types that accept a connection.
 constexpr uint8_t ADV_CONNECTABLE = 0x00;
 constexpr uint8_t ADV_DIRECTED = 0x01;
@@ -384,22 +386,108 @@ void Hci::request_names(Controller& controller, uint32_t generation) {
     }
 }
 
-// The first LE keyboard or mouse the scan saw that accepts connections and
-// is discoverable, which for these devices means pairing mode.
-bool Hci::choose_keyboard(Controller& controller, Peer& keyboard) {
+bool Hci::known(const Controller& controller, const uint8_t* address) {
+    for (const Device& device : controller.devices)
+        if (device.used && memcmp(device.bond.address, address, ADDRESS_BYTES) == 0)
+            return true;
+    return false;
+}
+
+// The next LE keyboard or mouse a scan saw that accepts connections and is
+// discoverable, which for these devices means pairing mode, and that has
+// not been paired with or tried too often.
+bool Hci::next_candidate(Controller& controller, Peer& candidate) {
     intr::Guard guard;
     for (size_t i = 0; i < controller.peer_count; ++i) {
-        const Peer& peer = controller.peers[i];
-        if (input_device(peer) && peer.connectable && peer.discoverable) {
-            keyboard = peer;
-            return true;
-        }
+        Peer& peer = controller.peers[i];
+        if (!input_device(peer) || !peer.connectable || !peer.discoverable || peer.attempts >= MAX_PAIRING_ATTEMPTS ||
+            known(controller, peer.address))
+            continue;
+        ++peer.attempts;
+        candidate = peer;
+        return true;
     }
     return false;
 }
 
-// Brings a controller up, then pairs with a keyboard in pairing mode and
-// keeps serving it, reconnecting whenever the keyboard comes back.
+// Connects to a device in pairing mode, pairs and subscribes to its reports.
+Error Hci::add_device(Controller& controller, const Peer& candidate) {
+    Device* device = nullptr;
+    {
+        intr::Guard guard;
+        for (Device& entry : controller.devices) {
+            if (entry.used)
+                continue;
+            entry = Device{};
+            entry.used = true;
+            entry.appearance = candidate.appearance;
+            memcpy(entry.bond.address, candidate.address, ADDRESS_BYTES);
+            device = &entry;
+            break;
+        }
+    }
+    ENSURE_LOG(device, Error::Full, "bluetooth hci%u: no room for another device", controller.index);
+    const char* kind = peer_kind(candidate);
+    klog::info("bluetooth hci%u: connecting to %s (%s)\n", controller.index, address_text(candidate.address).text,
+               kind ? kind : "input device");
+    Error error = connect(controller, *device, candidate.address, candidate.address_type);
+    if (error == Error::None)
+        error = pair(controller, *device, candidate);
+    if (error == Error::None)
+        error = find_reports(controller, *device);
+    if (error == Error::None)
+        error = subscribe(controller, *device);
+    if (error == Error::None || error == Error::NoDevice)
+        return error;
+    drop(controller, *device);
+    intr::Guard guard;
+    klog::warn("bluetooth hci%u: could not add %s (%d)\n", controller.index, address_text(candidate.address).text,
+               static_cast<int>(error));
+    // A bonded device with a passing failure comes back when it advertises.
+    if (!device->bond.valid || device->bond.report_count == 0)
+        device->used = false;
+    return error;
+}
+
+// Reconnects a bonded device that came back, with its key.
+Error Hci::resume(Controller& controller, Device& device) {
+    Error error = connect(controller, device, device.bond.address, device.bond.address_type);
+    if (error == Error::None)
+        error = encrypt(controller, device, device.bond.ltk, device.bond.ediv, device.bond.rand);
+    if (error == Error::None)
+        error = subscribe(controller, device);
+    if (error == Error::None || error == Error::NoDevice)
+        return error;
+    drop(controller, device);
+    if (error == Error::Access) {
+        klog::warn("bluetooth hci%u: %s no longer has our key; pair it again\n", controller.index,
+                   address_text(device.bond.address).text);
+        intr::Guard guard;
+        device.used = false;
+    }
+    return error;
+}
+
+// Ends a device's connection, if it has one, and waits for it to go.
+void Hci::drop(Controller& controller, Device& device) {
+    uint8_t parameters[3]{};
+    {
+        intr::Guard guard;
+        if (!device.link.connected)
+            return;
+        write16(parameters, device.link.handle);
+    }
+    parameters[2] = REASON_USER_TERMINATED;
+    Reply reply{};
+    if (command(controller, OP_DISCONNECT, parameters, sizeof(parameters), reply) != Error::None)
+        return;
+    Frame ignored{};
+    // Ends early once the controller reports the link gone.
+    static_cast<void>(wait_frame(controller, &device, 0, COMMAND_TIMEOUT_MS, ignored));
+}
+
+// Brings a controller up, then pairs with input devices in pairing mode and
+// keeps serving them, reconnecting each whenever it comes back.
 void Hci::bring_up(Controller& controller) {
     Error error = identify(controller);
     if (error != Error::None) {
@@ -407,69 +495,25 @@ void Hci::bring_up(Controller& controller) {
             klog::warn("bluetooth hci%u: controller not usable (%d)\n", controller.index, static_cast<int>(error));
         return;
     }
+    if (scan(controller) == Error::NoDevice)
+        return;
     for (;;) {
-        bool bonded = false;
-        {
-            intr::Guard guard;
-            bonded = controller.bond.valid;
-        }
-        if (bonded) {
-            error = wait_for_bond(controller);
-            if (error == Error::None)
-                error = connect(controller, controller.bond.address, controller.bond.address_type);
-            if (error == Error::None)
-                error = encrypt(controller, controller.bond.ltk, controller.bond.ediv, controller.bond.rand);
-            if (error == Error::Access) {
-                klog::warn("bluetooth hci%u: the keyboard no longer has our key; pair it again\n", controller.index);
-                intr::Guard guard;
-                controller.bond = Bond{};
-            }
-        } else {
-            error = scan(controller);
-            Peer keyboard{};
-            if (error == Error::None && !choose_keyboard(controller, keyboard)) {
-                klog::info("bluetooth hci%u: no keyboard in pairing mode; replug the adapter to scan again\n",
-                           controller.index);
+        Peer candidate{};
+        while (next_candidate(controller, candidate))
+            if (add_device(controller, candidate) == Error::NoDevice)
                 return;
+        for (Device& device : controller.devices) {
+            bool due = false;
+            {
+                intr::Guard guard;
+                due = device.used && device.bond.valid && !device.link.connected && device.seen;
+                device.seen = false;
             }
-            if (error == Error::None) {
-                klog::info("bluetooth hci%u: connecting to %s\n", controller.index,
-                           address_text(keyboard.address).text);
-                error = connect(controller, keyboard.address, keyboard.address_type);
-            }
-            if (error == Error::None)
-                error = pair(controller, keyboard);
-            if (error == Error::None)
-                error = find_keyboard_reports(controller);
+            if (due && resume(controller, device) == Error::NoDevice)
+                return;
         }
-        if (error == Error::None)
-            error = subscribe(controller);
-        if (error == Error::None)
-            error = serve(controller);
-        if (error == Error::NoDevice)
+        if (watch(controller) == Error::NoDevice)
             return;
-        // A link that is still up after a failure is no use: drop it.
-        uint8_t parameters[3]{};
-        bool connected = false;
-        {
-            intr::Guard guard;
-            connected = controller.link.connected;
-            write16(parameters, controller.link.handle);
-        }
-        if (connected) {
-            parameters[2] = REASON_USER_TERMINATED;
-            Reply reply{};
-            Frame ignored{};
-            static_cast<void>(command(controller, OP_DISCONNECT, parameters, sizeof(parameters), reply));
-            static_cast<void>(wait_frame(controller, 0, COMMAND_TIMEOUT_MS, ignored));
-        }
-        // Without a bond only a dropped link is worth another attempt.
-        intr::Guard guard;
-        if (!controller.bond.valid) {
-            klog::warn("bluetooth hci%u: pairing failed (%d); replug the adapter to try again\n", controller.index,
-                       static_cast<int>(error));
-            return;
-        }
     }
 }
 
@@ -511,25 +555,40 @@ void Hci::detach(Transport& transport) {
     for (Controller& controller : controllers_) {
         if (controller.transport != &transport)
             continue;
-        controller.link.keyboard.release();
+        for (Device& device : controller.devices) {
+            device.link.keyboard.release();
+            device.link.mouse.release();
+        }
         renew(controller);
     }
     waiting_.wakeup_all();  // Waits on its commands end now
 }
 
-Peer* Hci::peer(Controller& controller, const uint8_t* address, bool low_energy) {
+// The entry for a device, made if it is new. A full table gives up an entry
+// that is not an input device, so that the background scan, which runs for
+// as long as the controller does, keeps finding keyboards and mice.
+Peer* Hci::peer(Controller& controller, const uint8_t* address, bool low_energy, bool& added) {
+    added = false;
     for (size_t i = 0; i < controller.peer_count; ++i) {
         Peer& known = controller.peers[i];
         if (known.low_energy == low_energy && memcmp(known.address, address, ADDRESS_BYTES) == 0)
             return &known;
     }
-    if (controller.peer_count == controller.peers.size())
-        return nullptr;
-    Peer& added = controller.peers[controller.peer_count++];
-    added = Peer{};
-    memcpy(added.address, address, ADDRESS_BYTES);
-    added.low_energy = low_energy;
-    return &added;
+    Peer* entry = nullptr;
+    if (controller.peer_count < controller.peers.size()) {
+        entry = &controller.peers[controller.peer_count++];
+    } else {
+        for (size_t i = 0; i < controller.peer_count && !entry; ++i)
+            if (!input_device(controller.peers[i]))
+                entry = &controller.peers[i];
+        if (!entry)
+            return nullptr;
+    }
+    *entry = Peer{};
+    memcpy(entry->address, address, ADDRESS_BYTES);
+    entry->low_energy = low_energy;
+    added = true;
+    return entry;
 }
 
 void Hci::log_peer(const Controller& controller, const Peer& peer) {
@@ -542,11 +601,10 @@ void Hci::log_peer(const Controller& controller, const Peer& peer) {
 void Hci::inquiry_result(Controller& controller, const uint8_t* address, uint8_t page_scan_mode,
                          const uint8_t* device_class, const uint8_t* clock_offset, const uint8_t* eir,
                          size_t eir_length) {
-    const size_t known = controller.peer_count;
-    Peer* found = peer(controller, address, false);
+    bool added = false;
+    Peer* found = peer(controller, address, false, added);
     if (!found)
         return;
-    const bool added = controller.peer_count != known;
     found->page_scan_mode = page_scan_mode;
     found->device_class = device_class[0] | (device_class[1] << 8) | (static_cast<uint32_t>(device_class[2]) << 16);
     found->clock_offset = read16(clock_offset);
@@ -579,23 +637,30 @@ void Hci::advertising_reports(Controller& controller, const uint8_t* parameters,
         at += 3 + ADDRESS_BYTES + data_length + 1;
 
         const bool connectable = event_type == ADV_CONNECTABLE || event_type == ADV_DIRECTED;
-        if (controller.watching_for_bond) {
-            // A bonded keyboard advertises, often directly to us, to come back.
-            if (connectable && memcmp(address, controller.bond.address, ADDRESS_BYTES) == 0) {
-                controller.bond_seen = true;
-                waiting_.wakeup_all();
+        const DataFields fields = parse_fields(data, data_length);
+        if (controller.watching) {
+            // A bonded device advertises, often directly to us, to come back.
+            bool bonded = false;
+            for (Device& device : controller.devices) {
+                if (device.used && device.bond.valid && !device.link.connected &&
+                    memcmp(address, device.bond.address, ADDRESS_BYTES) == 0) {
+                    bonded = true;
+                    if (connectable) {
+                        device.seen = true;
+                        waiting_.wakeup_all();
+                    }
+                }
             }
-            continue;
+            if (bonded)
+                continue;
         }
-        const size_t known = controller.peer_count;
-        Peer* found = peer(controller, address, true);
+        bool changed = false;
+        Peer* found = peer(controller, address, true, changed);
         if (!found)
             continue;
-        bool changed = controller.peer_count != known;
         found->address_type = address_type;
         if (connectable)
             found->connectable = true;
-        const DataFields fields = parse_fields(data, data_length);
         if ((fields.flags & AD_FLAGS_DISCOVERABLE) != 0)
             found->discoverable = true;
         if (fields.appearance != 0 && fields.appearance != found->appearance) {
@@ -604,8 +669,14 @@ void Hci::advertising_reports(Controller& controller, const uint8_t* parameters,
         }
         if (fields.name && set_name(*found, fields.name, fields.name_length))
             changed = true;
-        if (changed)
+        // The background scan names only input devices, not every passer-by.
+        if (changed && (!controller.watching || input_device(*found)))
             log_peer(controller, *found);
+        if (controller.watching && input_device(*found) && found->connectable && found->discoverable &&
+            found->attempts < MAX_PAIRING_ATTEMPTS && !Hci::known(controller, found->address)) {
+            controller.candidate_seen = true;
+            waiting_.wakeup_all();
+        }
     }
 }
 
@@ -707,8 +778,9 @@ void Hci::tick() {
     intr::Guard guard;
     const uint64_t now = trap::uptime_ms();
     for (Controller& controller : controllers_)
-        if (controller.link.connected)
-            controller.link.keyboard.tick(now);
+        for (Device& device : controller.devices)
+            if (device.link.connected)
+                device.link.keyboard.tick(now);
     if (!waiting_.empty())
         waiting_.wakeup_all();
 }

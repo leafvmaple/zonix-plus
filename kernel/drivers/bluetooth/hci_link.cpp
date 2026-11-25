@@ -1,6 +1,7 @@
-// The LE connection: creating it, ACL data with the controller's flow
-// control, L2CAP frames on the fixed channels, and the requests a keyboard
-// sends its host (ATT requests and connection parameter updates).
+// LE connections: creating them, the background scan that finds devices to
+// connect, ACL data with the controller's flow control, L2CAP frames on the
+// fixed channels, and the requests a keyboard or mouse sends its host (ATT
+// requests and connection parameter updates).
 #include "drivers/bluetooth/hci.h"
 #include "drivers/bluetooth/hci_defs.h"
 #include "drivers/intr.h"
@@ -16,12 +17,14 @@ namespace {
 // no latency, a 5 s supervision timeout and no event length hint.
 constexpr uint8_t CONNECT_SCAN[] = {0x60, 0x00, 0x30, 0x00, 0};
 constexpr uint8_t CONNECT_TIMING[] = {0, 0x18, 0x00, 0x28, 0x00, 0x00, 0x00, 0xF4, 0x01, 0x00, 0x00, 0x00, 0x00};
-// Passive scan while waiting for the bonded keyboard: 60 ms interval, 30 ms window.
-constexpr uint8_t WATCH_SCAN_PARAMETERS[] = {0, 0x60, 0x00, 0x30, 0x00, 0, 0};
+// The background scan: active, as many devices give their appearance only
+// in the scan response, with a 11.25 ms window every 60 ms so that connected
+// devices keep most of the radio's time.
+constexpr uint8_t WATCH_SCAN_PARAMETERS[] = {1, 0x60, 0x00, 0x12, 0x00, 0, 0};
 constexpr uint64_t CONNECT_TIMEOUT_MS = 10000;
 constexpr uint64_t CANCEL_TIMEOUT_MS = 2000;
 constexpr uint64_t CREDIT_TIMEOUT_MS = 2000;
-constexpr uint64_t SERVE_POLL_MS = 1000;
+constexpr uint64_t WATCH_POLL_MS = 500;
 
 // L2CAP signaling.
 constexpr uint8_t SIGNAL_COMMAND_REJECT = 0x01;
@@ -37,9 +40,20 @@ bool client_request(uint8_t opcode) {
     return (opcode & 1) == 0 && opcode >= ATT_MTU_REQUEST && opcode < ATT_NOTIFICATION;
 }
 
+// Whether the background scan has found something to do: a bonded device
+// back, or a new one in pairing mode.
+bool watch_done(const Controller& controller) {
+    if (controller.candidate_seen)
+        return true;
+    for (const Device& device : controller.devices)
+        if (device.used && device.bond.valid && !device.link.connected && device.seen)
+            return true;
+    return false;
+}
+
 }  // namespace
 
-Error Hci::connect(Controller& controller, const uint8_t* address, uint8_t address_type) {
+Error Hci::connect(Controller& controller, Device& device, const uint8_t* address, uint8_t address_type) {
     uint8_t parameters[sizeof(CONNECT_SCAN) + 1 + ADDRESS_BYTES + sizeof(CONNECT_TIMING)];
     memcpy(parameters, CONNECT_SCAN, sizeof(CONNECT_SCAN));
     parameters[sizeof(CONNECT_SCAN)] = address_type;
@@ -68,45 +82,47 @@ Error Hci::connect(Controller& controller, const uint8_t* address, uint8_t addre
     ENSURE_LOG(event.data[1] == STATUS_SUCCESS, Error::Io, "bluetooth hci%u: connection failed (status 0x%02x)",
                controller.index, event.data[1]);
     intr::Guard guard;
-    controller.link = Link{};
-    controller.link.connected = true;
-    controller.link.handle = read16(event.data + 2) & ACL_HANDLE_MASK;
-    controller.acl_credits = controller.acl_buffers;
+    device.link = Link{};
+    device.link.connected = true;
+    device.link.handle = read16(event.data + 2) & ACL_HANDLE_MASK;
     klog::info("bluetooth hci%u: connected to %s\n", controller.index, address_text(address).text);
     return Error::None;
 }
 
-// Scans until the bonded keyboard advertises.
-Error Hci::wait_for_bond(Controller& controller) {
+// Runs the background scan, serving connected devices meanwhile, until a
+// bonded device comes back or a new one is in pairing mode.
+Error Hci::watch(Controller& controller) {
     Reply reply{};
     TRY(command(controller, OP_LE_SET_SCAN_PARAMETERS, WATCH_SCAN_PARAMETERS, sizeof(WATCH_SCAN_PARAMETERS), reply));
     {
         intr::Guard guard;
-        controller.watching_for_bond = true;
-        controller.bond_seen = false;
+        controller.watching = true;
+        controller.candidate_seen = false;
     }
     Error error = command(controller, OP_LE_SET_SCAN_ENABLE, LE_SCAN_ON, sizeof(LE_SCAN_ON), reply);
-    if (error == Error::None) {
-        intr::Guard guard;
-        const uint32_t generation = controller.generation;
-        while (!controller.bond_seen && error == Error::None) {
-            if (controller.generation != generation)
-                return Error::NoDevice;
-            waiting_.sleep();
+    while (error == Error::None) {
+        {
+            intr::Guard guard;
+            if (watch_done(controller))
+                break;
         }
+        Frame ignored{};
+        error = wait_frame(controller, nullptr, 0, WATCH_POLL_MS, ignored);
+        if (error == Error::Timeout)
+            error = Error::None;
     }
     {
         intr::Guard guard;
-        controller.watching_for_bond = false;
+        controller.watching = false;
     }
-    if (error == Error::None)
-        error = command(controller, OP_LE_SET_SCAN_ENABLE, LE_SCAN_OFF, sizeof(LE_SCAN_OFF), reply);
-    return error;
+    if (error == Error::NoDevice)
+        return error;
+    return command(controller, OP_LE_SET_SCAN_ENABLE, LE_SCAN_OFF, sizeof(LE_SCAN_OFF), reply);
 }
 
 // Sends one L2CAP frame in one ACL packet, once the controller has a free
 // buffer for it.
-Error Hci::send_frame(Controller& controller, uint16_t channel, const uint8_t* payload, size_t length) {
+Error Hci::send_frame(Controller& controller, Device& device, uint16_t channel, const uint8_t* payload, size_t length) {
     uint8_t packet[ACL_HEADER + L2CAP_HEADER + FRAME_CAPACITY];
     ENSURE(length <= FRAME_CAPACITY, Error::Invalid);
     Transport* transport = nullptr;
@@ -119,15 +135,16 @@ Error Hci::send_frame(Controller& controller, uint16_t channel, const uint8_t* p
         while (controller.acl_credits == 0) {
             if (controller.generation != generation)
                 return Error::NoDevice;
-            ENSURE(controller.link.connected, Error::Interrupted);
+            ENSURE(device.link.connected, Error::Interrupted);
             ENSURE_LOG(trap::uptime_ms() < deadline, Error::Timeout, "bluetooth hci%u: no free ACL buffer",
                        controller.index);
             waiting_.sleep();
         }
-        ENSURE(controller.link.connected, Error::Interrupted);
+        ENSURE(device.link.connected, Error::Interrupted);
         --controller.acl_credits;
+        ++device.link.in_flight;
         transport = controller.transport;
-        write16(packet, controller.link.handle | (ACL_FIRST_NON_FLUSHABLE << ACL_BOUNDARY_SHIFT));
+        write16(packet, device.link.handle | (ACL_FIRST_NON_FLUSHABLE << ACL_BOUNDARY_SHIFT));
     }
     write16(packet + 2, static_cast<uint16_t>(L2CAP_HEADER + length));
     write16(packet + 4, static_cast<uint16_t>(length));
@@ -136,34 +153,44 @@ Error Hci::send_frame(Controller& controller, uint16_t channel, const uint8_t* p
     return transport->send_acl(packet, ACL_HEADER + L2CAP_HEADER + length);
 }
 
-// Waits for a frame on `channel`, answering the keyboard's own requests
-// meanwhile. Channel 0 waits for nothing: it only answers requests until
-// the timeout. Interrupted when the link drops.
-Error Hci::wait_frame(Controller& controller, uint16_t channel, uint64_t timeout_ms, Frame& frame) {
+// Waits for a frame on `channel` of `device`'s link, answering every
+// device's own requests meanwhile. With no device or channel 0 it waits for
+// nothing and only answers requests until the timeout. Interrupted when
+// `device`'s link drops.
+Error Hci::wait_frame(Controller& controller, Device* device, uint16_t channel, uint64_t timeout_ms, Frame& frame) {
     const uint64_t deadline = trap::uptime_ms() + timeout_ms;
     for (;;) {
         Frame next{};
+        Device* source = nullptr;
         {
             intr::Guard guard;
             const uint32_t generation = controller.generation;
-            while (controller.link.frame_count == 0) {
+            for (;;) {
                 if (controller.generation != generation)
                     return Error::NoDevice;
-                if (!controller.link.connected)
+                for (Device& candidate : controller.devices) {
+                    Link& link = candidate.link;
+                    if (link.frame_count == 0)
+                        continue;
+                    next = link.frames[0];
+                    for (size_t i = 1; i < link.frame_count; ++i)
+                        link.frames[i - 1] = link.frames[i];
+                    --link.frame_count;
+                    source = &candidate;
+                    break;
+                }
+                if (source)
+                    break;
+                if (device && !device->link.connected)
                     return Error::Interrupted;
                 if (trap::uptime_ms() >= deadline)
                     return Error::Timeout;
                 waiting_.sleep();
             }
-            Link& link = controller.link;
-            next = link.frames[0];
-            for (size_t i = 1; i < link.frame_count; ++i)
-                link.frames[i - 1] = link.frames[i];
-            --link.frame_count;
         }
-        if (answer_request(controller, next))
+        if (answer_request(controller, *source, next))
             continue;
-        if (channel != 0 && next.channel == channel) {
+        if (source == device && channel != 0 && next.channel == channel) {
             frame = next;
             return Error::None;
         }
@@ -172,9 +199,9 @@ Error Hci::wait_frame(Controller& controller, uint16_t channel, uint64_t timeout
     }
 }
 
-// Answers what the keyboard asks of its host; false for frames that are not
+// Answers what a device asks of its host; false for frames that are not
 // requests.
-bool Hci::answer_request(Controller& controller, const Frame& frame) {
+bool Hci::answer_request(Controller& controller, Device& device, const Frame& frame) {
     if (frame.length == 0)
         return false;
     const uint8_t code = frame.data[0];
@@ -182,12 +209,12 @@ bool Hci::answer_request(Controller& controller, const Frame& frame) {
         if (code == ATT_MTU_REQUEST) {
             uint8_t response[3] = {ATT_MTU_RESPONSE};
             write16(response + 1, ATT_DEFAULT_MTU);
-            static_cast<void>(send_frame(controller, CHANNEL_ATT, response, sizeof(response)));
+            static_cast<void>(send_frame(controller, device, CHANNEL_ATT, response, sizeof(response)));
             return true;
         }
         if (code == ATT_INDICATION) {
             const uint8_t confirmation = ATT_CONFIRMATION;
-            static_cast<void>(send_frame(controller, CHANNEL_ATT, &confirmation, 1));
+            static_cast<void>(send_frame(controller, device, CHANNEL_ATT, &confirmation, 1));
             return true;
         }
         if (code == ATT_WRITE_COMMAND || code == ATT_SIGNED_WRITE_COMMAND || code == ATT_CONFIRMATION)
@@ -200,7 +227,7 @@ bool Hci::answer_request(Controller& controller, const Frame& frame) {
         uint8_t error[5] = {ATT_ERROR, code, 0, 0, discovery ? ATT_ERROR_NOT_FOUND : ATT_ERROR_REQUEST_NOT_SUPPORTED};
         if (frame.length >= 3)
             write16(error + 2, read16(frame.data + 1));
-        static_cast<void>(send_frame(controller, CHANNEL_ATT, error, sizeof(error)));
+        static_cast<void>(send_frame(controller, device, CHANNEL_ATT, error, sizeof(error)));
         return true;
     }
     if (frame.channel == CHANNEL_SIGNALING) {
@@ -208,14 +235,14 @@ bool Hci::answer_request(Controller& controller, const Frame& frame) {
             return true;
         const uint8_t identifier = frame.data[1];
         if (code == SIGNAL_PARAMETER_UPDATE_REQUEST && frame.length >= 12) {
-            // Accept the keyboard's timing (interval range, latency,
-            // timeout) and have the controller apply it.
+            // Accept the device's timing (interval range, latency, timeout)
+            // and have the controller apply it.
             const uint8_t response[6] = {SIGNAL_PARAMETER_UPDATE_RESPONSE, identifier, 2, 0, 0, 0};
-            static_cast<void>(send_frame(controller, CHANNEL_SIGNALING, response, sizeof(response)));
+            static_cast<void>(send_frame(controller, device, CHANNEL_SIGNALING, response, sizeof(response)));
             uint8_t update[14]{};
             {
                 intr::Guard guard;
-                write16(update, controller.link.handle);
+                write16(update, device.link.handle);
             }
             memcpy(update + 2, frame.data + 4, 8);
             Reply reply{};
@@ -226,22 +253,18 @@ bool Hci::answer_request(Controller& controller, const Frame& frame) {
                               code == SIGNAL_CREDIT_CONNECTION_RESPONSE || code == SIGNAL_RECONFIGURE_RESPONSE;
         if (!response) {
             const uint8_t reject[6] = {SIGNAL_COMMAND_REJECT, identifier, 2, 0, 0, 0};  // Not understood
-            static_cast<void>(send_frame(controller, CHANNEL_SIGNALING, reject, sizeof(reject)));
+            static_cast<void>(send_frame(controller, device, CHANNEL_SIGNALING, reject, sizeof(reject)));
         }
         return true;
     }
     return false;
 }
 
-// Keeps the connection served while it lasts; keyboard reports go straight
-// to the console as they arrive.
-Error Hci::serve(Controller& controller) {
-    for (;;) {
-        Frame ignored{};
-        const Error error = wait_frame(controller, 0, SERVE_POLL_MS, ignored);
-        if (error != Error::Timeout)
-            return error;
-    }
+Device* Hci::connected_device(Controller& controller, uint16_t handle) {
+    for (Device& device : controller.devices)
+        if (device.link.connected && device.link.handle == handle)
+            return &device;
+    return nullptr;
 }
 
 void Hci::acl_received(Transport& transport, const uint8_t* packet, size_t length) {
@@ -249,13 +272,14 @@ void Hci::acl_received(Transport& transport, const uint8_t* packet, size_t lengt
         return;
     intr::Guard guard;
     Controller* controller = find(transport);
-    if (!controller || !controller->link.connected)
+    if (!controller)
         return;
-    Link& link = controller->link;
     const uint16_t header = read16(packet);
     const size_t data_length = read16(packet + 2);
-    if ((header & ACL_HANDLE_MASK) != link.handle || ACL_HEADER + data_length > length)
+    Device* device = connected_device(*controller, header & ACL_HANDLE_MASK);
+    if (!device || ACL_HEADER + data_length > length)
         return;
+    Link& link = device->link;
     const uint8_t* data = packet + ACL_HEADER;
     const uint16_t boundary = (header >> ACL_BOUNDARY_SHIFT) & ACL_BOUNDARY_MASK;
     if (boundary == ACL_FIRST) {
@@ -278,18 +302,25 @@ void Hci::acl_received(Transport& transport, const uint8_t* packet, size_t lengt
         return;
     const size_t payload = link.expected - L2CAP_HEADER;
     link.expected = 0;
-    frame_received(*controller, read16(link.assembly + 2), link.assembly + L2CAP_HEADER, payload);
+    frame_received(*controller, link, read16(link.assembly + 2), link.assembly + L2CAP_HEADER, payload);
 }
 
-// Keyboard reports are handled at once; anything else waits for the thread.
+// Input reports are handled at once; anything else waits for the thread.
 // Runs with interrupts disabled.
-void Hci::frame_received(Controller& controller, uint16_t channel, const uint8_t* payload, size_t length) {
-    Link& link = controller.link;
+void Hci::frame_received(Controller& controller, Link& link, uint16_t channel, const uint8_t* payload, size_t length) {
     if (channel == CHANNEL_ATT && length >= 3 && (payload[0] == ATT_NOTIFICATION || payload[0] == ATT_INDICATION)) {
         const uint16_t handle = read16(payload + 1);
-        for (size_t i = 0; i < link.report_count; ++i)
-            if (link.reports[i] == handle)
+        for (size_t i = 0; i < link.report_count; ++i) {
+            if (link.reports[i] != handle)
+                continue;
+            if (link.kinds[i] == ReportKind::Keyboard)
                 link.keyboard.report(payload + 3, length - 3);
+            else if (link.mouse_layout.valid) {
+                link.mouse.report(link.mouse_layout, payload + 3, length - 3);
+            } else {
+                link.mouse.boot_report(payload + 3, length - 3);
+            }
+        }
         if (payload[0] == ATT_NOTIFICATION)
             return;  // Indications still need the thread's confirmation
     }
@@ -305,16 +336,20 @@ void Hci::frame_received(Controller& controller, uint16_t channel, const uint8_t
 }
 
 void Hci::link_lost(Controller& controller, uint16_t handle, uint8_t reason) {
-    Link& link = controller.link;
-    if (!link.connected || link.handle != handle)
+    Device* device = connected_device(controller, handle);
+    if (!device)
         return;
+    Link& link = device->link;
     link.keyboard.release();
+    link.mouse.release();
     link.connected = false;
-    link.disconnect_reason = reason;
     link.report_count = 0;
     // The controller frees the buffers of a link that is gone.
-    controller.acl_credits = controller.acl_buffers;
-    klog::info("bluetooth hci%u: disconnected (reason 0x%02x)\n", controller.index, reason);
+    const uint32_t credits = controller.acl_credits + link.in_flight;
+    controller.acl_credits = static_cast<uint16_t>(credits < controller.acl_buffers ? credits : controller.acl_buffers);
+    link.in_flight = 0;
+    klog::info("bluetooth hci%u: %s disconnected (reason 0x%02x)\n", controller.index,
+               address_text(device->bond.address).text, reason);
     waiting_.wakeup_all();
 }
 
@@ -327,7 +362,10 @@ void Hci::packets_completed(Controller& controller, const uint8_t* parameters, s
     if (length < 1 + 4 * handles)
         return;
     for (size_t i = 0; i < handles; ++i) {
-        const uint32_t credits = controller.acl_credits + read16(parameters + 1 + 2 * handles + 2 * i);
+        const uint16_t completed = read16(parameters + 1 + 2 * handles + 2 * i);
+        if (Device* device = connected_device(controller, read16(parameters + 1 + 2 * i) & ACL_HANDLE_MASK))
+            device->link.in_flight = completed < device->link.in_flight ? device->link.in_flight - completed : 0;
+        const uint32_t credits = controller.acl_credits + completed;
         controller.acl_credits =
             static_cast<uint16_t>(credits < controller.acl_buffers ? credits : controller.acl_buffers);
     }
