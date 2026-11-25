@@ -17,12 +17,10 @@ constexpr size_t MAX_EVENT = 2 + ::bluetooth::Hci::MAX_PARAMETERS;
 
 class Adapter final : public ::bluetooth::Transport {
 public:
-    Error send_command(const uint8_t* packet, size_t length) override {
+    Error send_command(uint8_t* packet, size_t length) override {
         ENSURE(device_ && length <= MAX_COMMAND, Error::Invalid);
-        uint8_t data[MAX_COMMAND];
-        memcpy(data, packet, length);
         // Commands are class requests to the device, request 0.
-        return device_->host->control(*device_, {REQUEST_CLASS, 0, 0, 0, static_cast<uint16_t>(length)}, data);
+        return device_->host->control(*device_, {REQUEST_CLASS, 0, 0, 0, static_cast<uint16_t>(length)}, packet);
     }
 
     // Events longer than the endpoint's packet size arrive in pieces; the
@@ -30,6 +28,12 @@ public:
     static void event_report(void* context, const uint8_t* data, size_t length) {
         auto* adapter = static_cast<Adapter*>(context);
         if (!adapter->device_ || length == 0)
+            return;
+        // An event that fills its last packet is ended by an empty packet;
+        // on the VisionFive 2 (33FA:0012 behind a VL805) that arrives as one
+        // zero byte. No event has code 0, so such a byte between events only
+        // ends the previous one.
+        if (adapter->event_length_ == 0 && length == 1 && data[0] == 0)
             return;
         if (adapter->event_length_ + length > MAX_EVENT) {
             adapter->event_length_ = 0;  // Lost track of the event boundary

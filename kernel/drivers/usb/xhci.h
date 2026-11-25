@@ -2,11 +2,12 @@
 
 // xHCI (USB 3) host controller driver: one event ring polled from the timer
 // tick, a command ring, and a transfer ring per endpoint in use. Control
-// transfers and commands run in the USB kernel thread, which may sleep;
-// interrupt IN reports complete from the tick.
+// transfers and commands run in kernel threads, which may sleep, one at a
+// time each; interrupt IN reports complete from the tick.
 
 #include <base/types.h>
 #include "drivers/usb/usb.h"
+#include "lib/mutex.h"
 #include "lib/result.h"
 #include "mm/dma.h"
 #include "mm/mmio.h"
@@ -116,6 +117,10 @@ private:
     DmaBuffer event_segments_{};
     size_t event_dequeue_{};
     bool event_cycle_{true};
+    // Control transfers share one data buffer and completion, commands one
+    // completion: each kind runs one at a time.
+    Mutex control_mutex_{};
+    Mutex command_mutex_{};
     DmaBuffer control_data_{};
     Completion command_done_{};
     Completion transfer_done_{};

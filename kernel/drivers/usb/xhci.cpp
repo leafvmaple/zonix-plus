@@ -402,6 +402,7 @@ Error Controller::wait(Completion& completion, uint64_t timeout_ms) {
 }
 
 Error Controller::command(Trb trb, Completion& result) {
+    sys::lock_guard<Mutex> serialized(command_mutex_);
     {
         intr::Guard guard;
         command_done_ = {};
@@ -622,6 +623,7 @@ Error Controller::control(usb::Device& device, const usb::SetupPacket& setup, vo
     Slot* slot = slot_of(device);
     ENSURE(slot, Error::NoDevice);
     ENSURE(setup.length <= CONTROL_DATA_BYTES && (setup.length == 0 || data), Error::Invalid);
+    sys::lock_guard<Mutex> serialized(control_mutex_);
     const bool in = (setup.request_type & usb::REQUEST_IN) != 0;
     if (setup.length != 0 && !in) {
         memcpy(control_data_.data(), data, setup.length);
