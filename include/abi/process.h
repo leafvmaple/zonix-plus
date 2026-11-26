@@ -5,6 +5,11 @@
 #define PROCESS_MAX_ARG_BYTES 4096
 #define PROCESS_MAX_PATH      128
 #define PROCESS_STATUS_KILLED (-128)
+/* Scheduling priorities a process may give itself or its children; a lower
+ * value runs first. Kernel tasks may use higher ones. */
+#define PROCESS_PRIORITY_HIGHEST 5
+#define PROCESS_PRIORITY_DEFAULT 10
+#define PROCESS_PRIORITY_LOWEST  20
 
 #define PROCESS_NAME_CAPACITY 32
 #define PROCESS_STATE_UNINIT   0

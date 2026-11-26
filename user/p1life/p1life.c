@@ -308,6 +308,20 @@ int main(int argc, char** argv) {
         if (!check(pid > 0 && sys_wait((int)pid, &status) == pid && status == 7, "100 spawn/wait cycles"))
             return 1;
     }
+    /* Priorities: only the user range, only for itself or its children. */
+    if (!check(sys_set_priority(0, PROCESS_PRIORITY_HIGHEST - 1) == SYS_ERROR_INVALID &&
+                   sys_set_priority(0, PROCESS_PRIORITY_LOWEST + 1) == SYS_ERROR_INVALID &&
+                   sys_set_priority(1, PROCESS_PRIORITY_DEFAULT) == SYS_ERROR_NOT_FOUND,
+               "priority limits"))
+        return 1;
+    pid = sys_spawn(self, 2, short_args);
+    if (!check(pid > 0 && sys_set_priority((int)pid, PROCESS_PRIORITY_LOWEST) == 0 &&
+                   sys_wait((int)pid, &status) == pid && status == 7,
+               "child priority"))
+        return 1;
+    if (!check(sys_set_priority(0, PROCESS_PRIORITY_HIGHEST) == 0 && sys_set_priority(0, PROCESS_PRIORITY_DEFAULT) == 0,
+               "own priority"))
+        return 1;
     char* done = "P1_1_USER_LIFECYCLE_OK\n";
     sys_write(STDOUT_FD, done, strlen(done));
     return 0;

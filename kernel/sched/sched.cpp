@@ -41,6 +41,12 @@ void Scheduler::schedule() {
     }
 }
 
+void Scheduler::task_woken(Task& task) {
+    intr::Guard guard;
+    if (current_ && &task != current_ && policy_.preempts(task, *current_, TaskManager::idle_task()))
+        current_->need_resched = 1;
+}
+
 void Scheduler::print_stats() {
     cprintf("sched policy: %s\n", policy_.name());
     cprintf("sched stats: ticks=%lu schedule_calls=%lu need_resched_events=%lu\n", tick_count_, schedule_calls_,

@@ -20,6 +20,7 @@ long brk(Task* task, uintptr_t end);
 long spawn(Task* task, const char* path, long argc, uintptr_t argv, bool foreground = false);
 long wait(Task* task, long pid, uintptr_t status);
 long process_next(Task* task, long after_pid, uintptr_t output);
+long set_priority(Task* task, long pid, long priority);
 long mkdir(Task* task, const char* path);
 long rename(Task* task, const char* path, uintptr_t new_name);
 long unlink(Task* task, const char* path);

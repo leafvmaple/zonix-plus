@@ -907,6 +907,11 @@ extern "C" int main(int argc, char**) {
             STDOUT_FD, "Desktop: click the Dock or press F2 Terminal, F4 Files, F12 exit. Shift opens another window.\n");
     if (error == 0)
         error = sys_ioctl(fd, DISPLAY_ACQUIRE, DISPLAY_ACQUIRE_EVENTS | DISPLAY_ACQUIRE_KEYBOARD_CTRL_C);
+    // Ahead of its applications, the compositor answers input as soon as it
+    // arrives, even while one of them is busy; each application it starts is
+    // put back to the default priority.
+    if (error == 0)
+        error = sys_set_priority(0, PROCESS_PRIORITY_HIGHEST);
     if (error == 0) {
         Desktop desktop(fd, static_cast<int>(mode.width), static_cast<int>(mode.height));
         error = desktop.run();

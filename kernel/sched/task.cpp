@@ -29,6 +29,7 @@ void Task::wakeup() {
     assert(state_ != TaskState::Zombie);
     if (state_ != TaskState::Runnable) {
         state_ = TaskState::Runnable;
+        Scheduler::task_woken(*this);
     }
 }
 

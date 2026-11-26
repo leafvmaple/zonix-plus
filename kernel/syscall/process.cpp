@@ -4,6 +4,7 @@
 #include "lib/kernel_buffer.h"
 #include "fs/vfs.h"
 #include <abi/process.h>
+#include "drivers/intr.h"
 
 static_assert(sizeof(ProcessInfo) == 48);
 static_assert(exec::MAX_ARGS == PROCESS_MAX_ARGS && exec::MAX_ARG_BYTES == PROCESS_MAX_ARG_BYTES);
@@ -166,6 +167,29 @@ long syscall::wait(Task* task, long pid, uintptr_t status) {
     }
     auto reaped = sched::wait(ready.value(), nullptr);
     return reaped.ok() ? reaped.value() : static_cast<long>(reaped.error());
+}
+
+static_assert(PROCESS_PRIORITY_DEFAULT == sched_prio::DEFAULT &&
+              PROCESS_PRIORITY_LOWEST == sched_prio::LOWEST_PRIORITY &&
+              PROCESS_PRIORITY_HIGHEST > sched_prio::HIGHEST_PRIORITY);
+
+// A process sets its own priority (pid 0) or that of a child it started, as a
+// compositor keeps itself ahead of its applications.
+long syscall::set_priority(Task* task, long pid, long priority) {
+    if (!task || pid < 0 || pid > 0x7FFFFFFF || priority < PROCESS_PRIORITY_HIGHEST ||
+        priority > PROCESS_PRIORITY_LOWEST)
+        return static_cast<long>(Error::Invalid);
+    intr::Guard guard;
+    Task* target = pid == 0 ? task : TaskManager::find_process(static_cast<int>(pid));
+    // A child that has exited but is not reaped yet is still the caller's.
+    if (!target || (target != task && target->parent != task))
+        return static_cast<long>(Error::NotFound);
+    const int previous = target->priority;
+    target->priority = static_cast<int>(priority);
+    // Lowering itself, the caller gives way to anything that now outranks it.
+    if (target == task && priority > previous)
+        task->need_resched = 1;
+    return 0;
 }
 
 long syscall::process_next(Task* task, long after_pid, uintptr_t output) {

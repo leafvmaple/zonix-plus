@@ -50,6 +50,8 @@ long Client::start(const AppSpec& spec, const char* extra) {
     }
     if (pid >= 0)
         pid = sys_spawn(path, argc, argv);
+    if (pid > 0)
+        static_cast<void>(sys_set_priority(static_cast<int>(pid), PROCESS_PRIORITY_DEFAULT));
     long restored_in = sys_dup2(STDERR_FD, STDIN_FD);
     long restored_out = sys_dup2(saved_out.get(), STDOUT_FD);
     if (pid < 0)

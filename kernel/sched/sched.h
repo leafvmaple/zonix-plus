@@ -33,7 +33,9 @@ inline constexpr int DEFAULT = 10;          // Normal processes
 inline constexpr int LOWEST_PRIORITY = 20;  // Lowest priority
 inline constexpr int IDLE_PRIO = 31;        // Idle process only
 
-inline constexpr int BASE_TIMESLICE = 10;  // 100ms default
+// Quantum at the default priority, in ticks (30 ms). Waking tasks of higher
+// priority do not wait for it to run out.
+inline constexpr int BASE_TIMESLICE = 3;
 }  // namespace sched_prio
 
 struct Task;
@@ -147,6 +149,9 @@ public:
     [[nodiscard]] const char* name() const;
     [[nodiscard]] int calc_time_slice(int priority) const;
     void tick(Task* current, Task* idle) const;
+    // Whether `woken`, just made runnable, should take the CPU from `current`
+    // now rather than when its quantum ends.
+    [[nodiscard]] bool preempts(const Task& woken, const Task& current, const Task* idle) const;
     [[nodiscard]] Task* pick_next(TaskList& proc_list, Task* idle, Task* current = nullptr);
     void task_removed(const Task& task);
 
@@ -164,6 +169,8 @@ public:
     static void task_removed(const Task& task) { policy_.task_removed(task); }
     static void schedule();
     static void tick();
+    // A task became runnable; asks the running one to give way if it should.
+    static void task_woken(Task& task);
     static void print_stats();
 
 private:

@@ -426,6 +426,48 @@ static void test_policy_removal_and_current() {
     TEST_END();
 }
 
+// ============================================================================
+// Wakeup preemption: a woken task that outranks the running one asks it to
+// give way at once; one of equal or lower priority waits for the quantum.
+static void test_wakeup_preemption() {
+    TEST_START("Wakeup preemption by priority");
+    SchedulerPolicy policy;
+    Task* idle = TaskManager::idle_task();
+    Task* running = new Task();
+    Task* woken = new Task();
+    if (!running || !woken) {
+        TEST_ASSERT(false, "Allocated preemption fixtures");
+        delete running;
+        delete woken;
+        TEST_END();
+        return;
+    }
+    running->priority = sched_prio::DEFAULT;
+    woken->priority = sched_prio::DEFAULT - 1;
+    TEST_ASSERT(policy.preempts(*woken, *running, idle), "A higher-priority task preempts");
+    woken->priority = sched_prio::DEFAULT;
+    TEST_ASSERT(!policy.preempts(*woken, *running, idle), "An equal-priority task waits for the quantum");
+    TEST_ASSERT(policy.preempts(*woken, *idle, idle), "Any task preempts idle");
+
+    // Through the live scheduler: the fixtures never enter the task list, and
+    // interrupts stay off, so only the running task's flag is affected.
+    Task* current = Scheduler::current();
+    const int saved = current->need_resched;
+    current->need_resched = 0;
+    woken->priority = current->priority - 1;
+    woken->wakeup();
+    TEST_ASSERT(current->priority == sched_prio::HIGHEST_PRIORITY || current->need_resched == 1,
+                "Waking a higher-priority task asks the running one to give way");
+    current->need_resched = 0;
+    running->priority = current->priority + 1;
+    running->wakeup();
+    TEST_ASSERT(current->need_resched == 0, "Waking a lower-priority task does not");
+    current->need_resched = saved;
+    delete running;
+    delete woken;
+    TEST_END();
+}
+
 // Main Test Runner
 // ============================================================================
 
@@ -456,6 +498,7 @@ void test() {
     test_process_destruction();
 
     test_policy_removal_and_current();
+    test_wakeup_preemption();
 
     // Print summary
     cprintf("\n========================================\n");

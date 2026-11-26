@@ -24,6 +24,13 @@ void SchedulerPolicy::tick(Task* current, Task* idle) const {
     }
 }
 
+// A task that wakes with a higher priority than the running one, such as a
+// compositor receiving input, runs at the next trap return instead of
+// waiting out the running task's quantum. Anything preempts the idle task.
+bool SchedulerPolicy::preempts(const Task& woken, const Task& current, const Task* idle) const {
+    return &current == idle || woken.priority < current.priority;
+}
+
 void SchedulerPolicy::task_removed(const Task& task) {
     if (cursor_ == &task) {
         cursor_ = nullptr;

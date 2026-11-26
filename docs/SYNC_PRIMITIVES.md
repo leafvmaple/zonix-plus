@@ -270,10 +270,10 @@ Scheduler::schedule()
 │     next->time_slice = calc_timeslice(next->priority)
 │     │
 │     └─ calc_timeslice(prio):
-│         slice = BASE(10) × (21 - prio) / 11
-│         ├─ prio 0  (最高) → ~19 ticks (190ms)
-│         ├─ prio 10 (默认) → 10 ticks (100ms)
-│         └─ prio 20 (最低) → ~1 tick  (10ms)
+│         slice = BASE(3) × (21 - prio) / 11，至少 1 tick
+│         ├─ prio 0  (最高) → 5 ticks (50ms)
+│         ├─ prio 10 (默认) → 3 ticks (30ms)
+│         └─ prio 20 (最低) → 1 tick  (10ms)
 │
 ├─ Step 5: 上下文切换
 │   if (next != current_)
@@ -293,6 +293,18 @@ Scheduler::schedule()
 │
 └─ 返回 (或切换到 next 的上下文)
 ```
+
+### 唤醒抢占
+
+`Task::wakeup()` 把任务从等待改为 Runnable 时调用 `Scheduler::task_woken()`。策略的
+`preempts()` 判断被唤醒的任务是否应立即运行：当前是 idle，或被唤醒任务的优先级数值更小
+（更高）时，给当前任务置 `need_resched`，在下一次中断或系统调用返回时切换，不必等到当前
+任务的时间片用完。同优先级的任务仍按时间片轮转。
+
+用户态通过 `set_priority`（416）调整自己（pid 0）或自己启动的子进程的优先级，范围是
+`PROCESS_PRIORITY_HIGHEST`（5）到 `PROCESS_PRIORITY_LOWEST`（20），0–4 不对用户态开放。
+Desktop 启动后把自己设为最高，把它启动的程序设回默认，所以程序忙时 Desktop 仍能及时
+响应输入。
 
 ---
 
