@@ -242,6 +242,47 @@ static EFI_STATUS uefi_load_kernel_file(EFI_BOOT_SERVICES* boot_services, EFI_HA
     return status;
 }
 
+static bool uefi_same_guid(const EFI_GUID& a, const EFI_GUID& b) {
+    if (a.Data1 != b.Data1 || a.Data2 != b.Data2 || a.Data3 != b.Data3) {
+        return false;
+    }
+    for (int i = 0; i < 8; i++) {
+        if (a.Data4[i] != b.Data4[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Copies firmware's device tree into loader pages below `limit_pa`, which the
+// kernel keeps reserved, and returns their address, or 0 without a tree.
+static uint64_t uefi_copy_device_tree(EFI_SYSTEM_TABLE* system_table, uint64_t limit_pa) {
+    constexpr uint32_t fdt_magic = 0xD00DFEED;
+    auto* tables = static_cast<EFI_CONFIGURATION_TABLE*>(system_table->ConfigurationTable);
+    for (uintptr_t i = 0; i < system_table->NumberOfTableEntries; i++) {
+        if (!uefi_same_guid(tables[i].VendorGuid, EFI_DTB_TABLE_GUID)) {
+            continue;
+        }
+        const auto* blob = static_cast<const uint8_t*>(tables[i].VendorTable);
+        auto be32 = [&](int offset) {
+            return (static_cast<uint32_t>(blob[offset]) << 24) | (static_cast<uint32_t>(blob[offset + 1]) << 16) |
+                   (static_cast<uint32_t>(blob[offset + 2]) << 8) | blob[offset + 3];
+        };
+        if (!blob || be32(0) != fdt_magic) {
+            return 0;
+        }
+        const uint32_t size = be32(4);
+        EFI_PHYSICAL_ADDRESS copy_pa = limit_pa - 1;
+        if (EFI_ERROR(system_table->BootServices->AllocatePages(AllocateMaxAddress, EfiLoaderData,
+                                                                (size + 4095) / 4096, &copy_pa))) {
+            return 0;
+        }
+        memcpy(reinterpret_cast<void*>(static_cast<uintptr_t>(copy_pa)), blob, size);
+        return copy_pa;
+    }
+    return 0;
+}
+
 static void uefi_get_graphics_info(EFI_BOOT_SERVICES* boot_services, struct BootInfo* boot_info) {
     EFI_GRAPHICS_OUTPUT_PROTOCOL* gop{};
     EFI_GUID gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
@@ -308,6 +349,10 @@ EFI_STATUS uefi_boot_setup(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_tab
     memset(boot_info, 0, sizeof(BootInfo));
     boot_info->magic = BOOT_INFO_MAGIC;
     boot_info->mmap_pa = config.memory_map_pa;
+    // Before the memory map is taken, so that it shows the copy as in use.
+    if (config.device_tree_limit_pa != 0) {
+        boot_info->device_tree_pa = uefi_copy_device_tree(system_table, config.device_tree_limit_pa);
+    }
 
     if constexpr (BOOT_VERBOSE) {
         uefi_print(system_table, uefi_string(L"Getting memory map...\r\n"));

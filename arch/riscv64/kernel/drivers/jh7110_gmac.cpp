@@ -4,6 +4,7 @@
 // sure its bus clocks and resets are on and hands it to the generic driver.
 
 #include "jh7110_gmac.h"
+#include "drivers/device_tree.h"
 #include "drivers/mmio.h"
 #include "drivers/net/dwc_eqos.h"
 #include <kernel/log.h>
@@ -34,6 +35,23 @@ constexpr uintptr_t RESET_ASSERT_OFFSET = 0x2F8;
     arch_mb();
 }
 
+// U-Boot writes the address it read from the board's EEPROM into the device
+// tree it passes on; the controller's own address register is cleared when
+// U-Boot stops the port before starting the OS.
+[[maybe_unused]] const uint8_t* board_address() {
+    auto tree = device_tree::firmware();
+    if (!tree.ok())
+        return nullptr;
+    constexpr const char* names[] = {"local-mac-address", "mac-address"};
+    for (const char* name : names) {
+        auto value = tree.value().property(BOARD_GMAC_DT_NODE, name);
+        if (value.ok() && value.value().size == dwc_eqos::MAC_BYTES)
+            return value.value().data;
+    }
+    klog::warn("net: device tree has no address for %s\n", BOARD_GMAC_DT_NODE);
+    return nullptr;
+}
+
 }  // namespace
 
 namespace jh7110_gmac {
@@ -41,7 +59,7 @@ namespace jh7110_gmac {
 int init() {
     if constexpr (BOARD_JH7110_GMAC) {
         enable_bus();
-        Error error = dwc_eqos::attach(BOARD_GMAC_PHYS + KERNEL_BASE);
+        Error error = dwc_eqos::attach(BOARD_GMAC_PHYS + KERNEL_BASE, board_address());
         if (error != Error::None)
             klog::warn("net: GMAC1 not attached (%s)\n", error_str(error));
         return static_cast<int>(error);

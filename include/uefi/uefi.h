@@ -54,6 +54,10 @@ inline constexpr EFI_GUID EFI_FILE_INFO_ID =
 inline constexpr EFI_GUID EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID =
     make_guid(0x9042a9de, 0x23dc, 0x4a38, 0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a);
 
+// Configuration table holding the flattened device tree (UEFI 2.10, 4.6.1.3).
+inline constexpr EFI_GUID EFI_DTB_TABLE_GUID =
+    make_guid(0xb1b621d5, 0xf19c, 0x41a5, 0x83, 0x0b, 0xd9, 0x15, 0x2c, 0x69, 0xaa, 0xe0);
+
 // =============================================================================
 // Memory Types
 // =============================================================================
@@ -175,6 +179,11 @@ struct EFI_SYSTEM_TABLE {
     EFI_BOOT_SERVICES* BootServices;
     uintptr_t NumberOfTableEntries;
     void* ConfigurationTable;
+};
+
+struct EFI_CONFIGURATION_TABLE {
+    EFI_GUID VendorGuid;
+    void* VendorTable;
 };
 
 inline constexpr uint64_t EFI_FILE_MODE_READ = 0x0000000000000001ULL;

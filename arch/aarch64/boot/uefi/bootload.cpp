@@ -18,6 +18,7 @@ extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE*
         .upper_memory_start_pa = 0,
         .kernel_alloc_pa = 0x40080000ULL,
         .kernel_page_count = 256, /* 1 MB */
+        .device_tree_limit_pa = 0,
     };
 
     BootInfo* bi = nullptr;

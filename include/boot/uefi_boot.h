@@ -14,6 +14,7 @@ struct UefiBootConfig {
     uint64_t upper_memory_start_pa;        // min addr for upper memory accounting
     EFI_PHYSICAL_ADDRESS kernel_alloc_pa;  // 0 to skip AllocatePages
     uintptr_t kernel_page_count;           // number of pages to allocate
+    uint64_t device_tree_limit_pa;         // copy firmware's device tree below this; 0 to skip
 };
 
 EFI_STATUS uefi_boot_setup(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE* system_table, const UefiBootConfig& config,

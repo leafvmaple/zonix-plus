@@ -45,6 +45,11 @@ struct BootInfo {
     FramebufferFormat framebuffer_format;
 
     char     loader_name[32];        // "Zonix BIOS" or "Zonix UEFI"
+
+    uint64_t device_tree_pa;         // Flattened device tree from firmware, 0 if none
 } __attribute__((packed));
+
+// Each architecture's entry code copies this many bytes of the loader's copy.
+static_assert(sizeof(BootInfo) <= 128, "BootInfo outgrew the copy made at kernel entry");
 
 using KernelEntry = void (*)(BootInfo *info);

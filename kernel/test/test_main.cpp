@@ -100,6 +100,10 @@ namespace display_cursor_test {
 void test();
 }
 
+namespace device_tree_test {
+void test();
+}
+
 // QEMU ISA debug exit port (configured via -device isa-debug-exit,iobase=0xf4,iosize=0x04)
 static constexpr uint16_t QEMU_EXIT_PORT = 0xf4;
 
@@ -134,6 +138,7 @@ static const TestSuite SUITES[] = {
     {"HID reports", hid_report_test::test},
     {"Bluetooth bonds", bond_store_test::test},
     {"Display cursor", display_cursor_test::test},
+    {"Device tree", device_tree_test::test},
     {"Shell", shell_test::test},
     {"Exec (E2E)", exec_test::test},
     {"P1-1 user lifecycle", lifecycle_test::test},

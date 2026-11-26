@@ -141,19 +141,21 @@ constexpr size_t TX_COUNT = PER_LINE;
 constexpr size_t BUFFER_BYTES = 2048;
 static_assert(RX_COUNT % PER_LINE == 0 && NET_FRAME_MAX + FCS_BYTES <= BUFFER_BYTES);
 
+static_assert(dwc_eqos::MAC_BYTES == NET_MAC_SIZE);
+
 constexpr int POLL_LIMIT = 1000000;
 constexpr uint64_t IO_TIMEOUT_MS = 1000;
 constexpr uint64_t LINK_POLL_MS = 1000;
 
 class Device {
 public:
-    Error start(uintptr_t base) {
+    Error start(uintptr_t base, const sys::array<uint8_t, dwc_eqos::MAC_BYTES>* board_mac) {
         ENSURE(base_ == 0, Error::Busy);
         base_ = base;
         const uint32_t version = mmio::read32(base_, reg::MAC_VERSION);
-        // Firmware that used the controller left its address in it; the
-        // software reset clears it.
-        read_firmware_address();
+        // Firmware that used the controller may have left its address in it;
+        // the software reset clears it.
+        choose_address(board_mac);
         mmio::write32(base_, reg::DMA_MODE, DMA_SOFTWARE_RESET);
         int polls = 0;
         while ((mmio::read32(base_, reg::DMA_MODE) & DMA_SOFTWARE_RESET) != 0 && polls < POLL_LIMIT) {
@@ -291,22 +293,33 @@ private:
     Descriptor& rx_descriptor(size_t index) { return static_cast<Descriptor*>(rx_ring_.data())[index]; }
     Descriptor& tx_descriptor(size_t index) { return static_cast<Descriptor*>(tx_ring_.data())[index]; }
 
-    void read_firmware_address() {
+    static bool usable(const sys::array<uint8_t, dwc_eqos::MAC_BYTES>& mac) {
+        bool zero = true;
+        bool ones = true;
+        for (uint8_t byte : mac) {
+            zero = zero && byte == 0;
+            ones = ones && byte == 0xFF;
+        }
+        return !zero && !ones && (mac[0] & 1) == 0;
+    }
+
+    // The board's address from firmware, else the one left in the
+    // controller, else a fixed locally administered unicast address.
+    void choose_address(const sys::array<uint8_t, dwc_eqos::MAC_BYTES>* board_mac) {
+        if (board_mac && usable(*board_mac)) {
+            mac_ = *board_mac;
+            return;
+        }
         const uint32_t low = mmio::read32(base_, reg::MAC_ADDRESS0_LOW);
         const uint32_t high = mmio::read32(base_, reg::MAC_ADDRESS0_HIGH);
         for (size_t i = 0; i < 4; ++i)
             mac_[i] = static_cast<uint8_t>(low >> (8 * i));
         mac_[4] = static_cast<uint8_t>(high);
         mac_[5] = static_cast<uint8_t>(high >> 8);
-        bool zero = true;
-        bool ones = true;
-        for (uint8_t byte : mac_) {
-            zero = zero && byte == 0;
-            ones = ones && byte == 0xFF;
-        }
-        // Without one, a fixed locally administered unicast address.
-        if (zero || ones || (mac_[0] & 1) != 0)
+        if (!usable(mac_)) {
             mac_ = {0x02, 0x00, 0x5A, 0x6F, 0x6E, 0x01};
+            klog::warn("dwc_eqos: no address from firmware, using a fixed one\n");
+        }
     }
 
     Error allocate() {
@@ -520,10 +533,13 @@ private:
 
 class Manager {
 public:
-    static Error attach(uintptr_t base) {
+    static Error attach(uintptr_t base, const uint8_t* mac) {
         ENSURE(base_ == 0, Error::Busy);
         TRY(vfs::register_char_dev("net0", open));
         base_ = base;
+        board_mac_known_ = mac != nullptr;
+        if (mac)
+            memcpy(board_mac_.data(), mac, board_mac_.size());
         klog::info("net: DesignWare Ethernet at /dev/net0, started when opened\n");
         return Error::None;
     }
@@ -535,7 +551,7 @@ private:
     // fault in it cannot stop the system from booting.
     static Result<vfs::FileHandle> open() {
         if (!device_.started())
-            TRY(device_.start(base_));
+            TRY(device_.start(base_, board_mac_known_ ? &board_mac_ : nullptr));
         TRY(device_.acquire());
         vfs::FileHandle file(new (sys::nothrow) NetFile(device_));
         if (!file) {
@@ -547,14 +563,16 @@ private:
 
     inline static Device device_{};
     inline static uintptr_t base_{};
+    inline static sys::array<uint8_t, dwc_eqos::MAC_BYTES> board_mac_{};
+    inline static bool board_mac_known_{};
 };
 
 }  // namespace
 
 namespace dwc_eqos {
 
-Error attach(uintptr_t base) {
-    return Manager::attach(base);
+Error attach(uintptr_t base, const uint8_t* mac) {
+    return Manager::attach(base, mac);
 }
 
 void tick() {

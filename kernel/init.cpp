@@ -5,6 +5,7 @@
 #include "drivers/sd/sdhci.h"
 #include "drivers/usb/xhci.h"
 #include "drivers/virtio_net.h"
+#include "drivers/device_tree.h"
 #include "drivers/entropy.h"
 #include "drivers/virtio_rng.h"
 #include "drivers/watchdog.h"
@@ -120,6 +121,7 @@ extern "C" [[noreturn]] int kern_init(struct BootInfo* boot_info) {
     }
 
     cxx_init();
+    device_tree::set_firmware_address(static_cast<uintptr_t>(boot_info->device_tree_pa));
 
     if (cons::init() != 0) {
         arch_halt();

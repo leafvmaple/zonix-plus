@@ -17,6 +17,8 @@ extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE*
         .upper_memory_start_pa = 0,
         .kernel_alloc_pa = BOARD_KERNEL_PHYS,
         .kernel_page_count = 512, /* 2 MB */
+        /* The kernel reads the tree through its direct map of the first GiB. */
+        .device_tree_limit_pa = BOARD_DRAM_BASE + 0x40000000ULL,
     };
 
     BootInfo* bi = nullptr;
