@@ -12,6 +12,7 @@
 #include "drivers/timer.h"
 #include "drivers/uart16550.h"
 #include "drivers/virtio_input.h"
+#include "drivers/jh7110_gmac.h"
 #include "lib/stdio.h"
 
 /* kernel_trap_vec / user_trap_vec are in trapentry.S */
@@ -43,6 +44,7 @@ const InitStep ARCH_STEPS[] = {
 
 const InitStep PCI_STEPS[] = {
     {"virtio_input", virtio_input::init, false},
+    {"gmac", jh7110_gmac::init, false},
 };
 constexpr size_t PCI_STEPS_COUNT = sys::size(PCI_STEPS);
 

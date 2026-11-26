@@ -52,6 +52,14 @@ TFTP 目录里放 `bin/riscv64/kernel`（改名 `KERNEL.ELF`）和 `bin/riscv64/
 
 在 shell 里执行 `desktop` 启动，用蓝牙或 USB 键鼠操作，F12 退出。更新单个程序不必拔卡：在 U-Boot 里 `run zonix_net` 后 `tftpboot 0x50000000 <文件>`，再 `fatwrite mmc 1:3 0x50000000 bin/desktop ${filesize}`。`desktop --bench` 不读输入，自己打开 Terminal 和 Files、拖动窗口、移动指针各 120 步后退出，结果写进内核日志（`dmesg` 中的 `desktop bench:` 行，依次是项目、次数、总毫秒数、最慢一次的毫秒数），可以经串口完成整轮测量。1080p 下的一次结果：整屏重画 110 ms；打开 Terminal 480 ms、Files 570 ms 后画面稳定，期间最慢的一次重画 40 ms；拖动窗口每步约 21 ms。
 
+## 以太网
+
+内核把 U-Boot 用来 TFTP 的那个网口（GMAC1，`0x16040000`，Synopsys DesignWare Ethernet QoS 5.20）作为 `/dev/net0` 交给 netd，用法与 QEMU 的 VirtIO 网卡相同。U-Boot 已经按板子配好了 RGMII、PHY 的时钟延迟和由 PHY 提供的发送时钟，内核只确认 GMAC1 的总线时钟和复位打开，其余沿用固件的设置；没有经过 U-Boot 网络启动时这些设置可能缺失，驱动在软件复位处超时并报告。启动时只登记设备，第一次打开 `/dev/net0`（例如启动 netd）时才复位并配置控制器，所以驱动出问题不会影响开机。
+
+驱动用一个 DMA 通道，32 个接收描述符、4 个发送描述符，每个缓冲 2 KiB，由时钟节拍轮询，不用中断。这个控制器的 DMA 不经过 CPU 缓存，而一个 64 字节缓存行里有 4 个描述符：接收描述符整行一起交还控制器，发送一次只有一帧在途，避免 CPU 写回缓存行时覆盖控制器刚写的描述符。MAC 地址取固件留在 `MAC_ADDRESS0` 里的值（软件复位前读出），没有时用 `02:00:5a:6f:6e:01`。PHY 通过 MDIO 扫描找到，每秒读一次标准寄存器，按协商结果设置 10/100/1000 和双工。寄存器信息取自 NetBSD 的 BSD 许可 `dwc_eqos` 驱动，板级地址、时钟和复位编号取自 Linux 的双许可设备树。
+
+网络程序（netd、ping、netinfo、fetch、nc、tcpserve、sshd）用 `make ARCH=riscv64 ssh-image ...`（参数与 x86 相同，主机密钥目录单独为板子生成）生成，放进 ZAPPS 的 `/bin`，主机密钥和登录公钥放进 `/ssh`，`/etc/services` 写上 netd 和 SSH 服务后开机自动启动。
+
 ## USB
 
 4 个 USB-A 口来自 PCIe0 上的 VIA VL805。固件不初始化 PCIe0，内核打开 STG 时钟、解除复位、经 GPIO26 释放 PERST#，等待链路建立后给 VL805 分配 32 位内存窗口（`0x30000000` 起）里的 BAR，再由通用 xHCI 驱动接管。PCIe 设备的 DMA 与 CPU 缓存一致。VL805 的 USB 2.0 一侧是它内置的 4 口集线器（2109:3431），USB 2.0/1.1 设备都接在集线器后面，内核的集线器驱动会给它们分配地址（例如 ROG 无线接收器显示为 `usb 1.3`）。设备可以在运行中插拔（`dmesg usb` 查看枚举和移除记录）。集线器刚上电时各口会报告一次过流变化，只记调试日志；1.1 口开机时未供电，原因待查。不支持 USB 3 集线器。

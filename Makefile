@@ -77,7 +77,7 @@ include arch/$(ARCH)/Makefile
 # Shared kernel sources; each architecture's Makefile lists only its own
 # directories. Objects are sorted before linking, so this order does not matter.
 KSRCDIR += kernel kernel/debug kernel/cons kernel/cons/cmd kernel/trap \
-           kernel/drivers kernel/drivers/bluetooth kernel/drivers/display kernel/drivers/sd kernel/drivers/usb kernel/drivers/virtio kernel/block kernel/sched \
+           kernel/drivers kernel/drivers/bluetooth kernel/drivers/display kernel/drivers/net kernel/drivers/sd kernel/drivers/usb kernel/drivers/virtio kernel/block kernel/sched \
            kernel/mm kernel/fs kernel/fs/fat kernel/exec kernel/sync kernel/syscall
 
 ifeq ($(TEST),1)

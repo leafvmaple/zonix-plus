@@ -59,3 +59,11 @@
 #define BOARD_WATCHDOG_CORE_CLOCK 0
 #define BOARD_WATCHDOG_APB_RESET  0
 #define BOARD_WATCHDOG_CORE_RESET 0
+
+/* Networking is VirtIO */
+#define BOARD_JH7110_GMAC      0
+#define BOARD_GMAC_PHYS        0UL
+#define BOARD_GMAC_AHB_CLOCK   0
+#define BOARD_GMAC_AXI_CLOCK   0
+#define BOARD_GMAC_AXI_RESET   0
+#define BOARD_GMAC_AHB_RESET   0
