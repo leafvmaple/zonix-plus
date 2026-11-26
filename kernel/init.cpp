@@ -6,6 +6,7 @@
 #include "drivers/usb/xhci.h"
 #include "drivers/virtio_net.h"
 #include "drivers/virtio_rng.h"
+#include "drivers/watchdog.h"
 #include "cons/cons.h"
 #include "fs/vfs.h"
 #include "fs/rootfs.h"
@@ -104,6 +105,7 @@ static const InitStep KERN_STEPS[] = {
     {"swap", swap::init, false},
     {"sched", sched::init, true},
     {"usb", xhci::start_thread, false},
+    {"watchdog", watchdog::init, false},
 };
 
 // ============================================================================

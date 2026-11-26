@@ -56,3 +56,12 @@
 
 /* PCIe0 carries the VL805 USB 3 controller; firmware leaves it in reset */
 #define BOARD_JH7110_PCIE 1
+
+/* The SoC watchdog resets the whole chip, so a board that stops answering
+ * boots again from its firmware. */
+#define BOARD_JH7110_WATCHDOG 1
+#define BOARD_WATCHDOG_PHYS   0x13070000UL
+#define BOARD_WATCHDOG_APB_CLOCK  122 /* JH7110_SYSCLK_WDT_APB */
+#define BOARD_WATCHDOG_CORE_CLOCK 123 /* JH7110_SYSCLK_WDT_CORE */
+#define BOARD_WATCHDOG_APB_RESET  109 /* JH7110_SYSRST_WDT_APB */
+#define BOARD_WATCHDOG_CORE_RESET 110 /* JH7110_SYSRST_WDT_CORE */

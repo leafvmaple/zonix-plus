@@ -51,3 +51,11 @@
 
 /* PCI through the firmware-configured ECAM window */
 #define BOARD_JH7110_PCIE 0
+
+/* No watchdog is driven */
+#define BOARD_JH7110_WATCHDOG 0
+#define BOARD_WATCHDOG_PHYS   0UL
+#define BOARD_WATCHDOG_APB_CLOCK  0
+#define BOARD_WATCHDOG_CORE_CLOCK 0
+#define BOARD_WATCHDOG_APB_RESET  0
+#define BOARD_WATCHDOG_CORE_RESET 0

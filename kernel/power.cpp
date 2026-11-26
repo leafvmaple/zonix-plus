@@ -2,6 +2,7 @@
 #include <asm/power.h>
 #include "fs/vfs.h"
 #include "block/blk.h"
+#include "drivers/watchdog.h"
 
 namespace power {
 
@@ -36,6 +37,8 @@ Result<ShutdownGuard> prepare_shutdown() {
 
 Error shutdown() {
     auto guard = TRY(prepare_shutdown());
+    // A machine that is off must stay off rather than be reset back on.
+    watchdog::stop();
     return arch_power_off();
 }
 
