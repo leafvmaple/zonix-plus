@@ -58,7 +58,8 @@ Error BlockManager::flush_all() {
     Error first = Error::None;
     for (auto* device : devices_) {
         Error error = device->flush();
-        if (first == Error::None) {
+        // An offline device must not hide a real failure on another one.
+        if (first == Error::None || (first == Error::NoDevice && error != Error::None)) {
             first = error;
         }
     }

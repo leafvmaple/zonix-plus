@@ -35,6 +35,7 @@ private:
 
     Error start_locked(const char* prefix, int index);
     void shutdown_locked();
+    Error recover_locked();
     Error command(uint8_t index, uint32_t argument, SdResponseType response, uint32_t* reply = nullptr);
     Error identify();
     Error read_csd();
@@ -44,6 +45,7 @@ private:
     SdHost& host_;
     Mutex io_mutex_{};
     blk::DeviceState state_{blk::DeviceState::Offline};
+    uint32_t cid_[4]{};  // Card identification, to recognise the card after a reset
     uint16_t rca_{};
     bool sdhc_{};
     bool wide_bus_{};

@@ -182,8 +182,8 @@ int program_path(char* name, char* path) {
 }
 
 static int is_builtin(char* name) {
-    return !strcmp(name, "exit") || !strcmp(name, "status") || !strcmp(name, "help") ||
-           !strcmp(name, "pwd") || !strcmp(name, "cd") || !strcmp(name, "echo");
+    return !strcmp(name, "exit") || !strcmp(name, "status") || !strcmp(name, "help") || !strcmp(name, "pwd") ||
+           !strcmp(name, "cd") || !strcmp(name, "echo") || !strcmp(name, "shutdown") || !strcmp(name, "reboot");
 }
 
 static int run(struct Command* command, int previous, int* quit, int* interrupted) {
@@ -204,8 +204,8 @@ static int run(struct Command* command, int previous, int* quit, int* interrupte
         return previous;
     }
     if (!strcmp(args[0], "help")) {
-        if (printf("help pwd cd [directory] echo [args] status exit [code]\n") < 0 ||
-            printf("Base commands: ls cat cp mkdir rm sync shutdown reboot ps kill vi\n") < 0 ||
+        if (printf("help pwd cd [directory] echo [args] status exit [code] shutdown reboot\n") < 0 ||
+            printf("Base commands: ls cat cp mkdir rm sync ps kill vi\n") < 0 ||
             printf("Programs: name (search /bin, /opt/bin), ./name or /absolute/path\n") < 0 ||
             printf("Quotes and backslash escape arguments. Foreground execution only.\n") < 0 ||
             printf("Edit: Left/Right, Home/End, Delete/Backspace; Up/Down history (16 lines).\n") < 0 ||
@@ -234,6 +234,15 @@ static int run(struct Command* command, int previous, int* quit, int* interrupte
                 return command_error("sh", 0, SYS_ERROR_IO);
         }
         return command_text(STDOUT_FD, "\n") < 0 ? command_error("sh", 0, SYS_ERROR_IO) : 0;
+    }
+    /* Built in so they need no program from disk: they still work after the
+     * root disk has failed and nothing else can be loaded. */
+    if (!strcmp(args[0], "shutdown") || !strcmp(args[0], "reboot")) {
+        int reboot = args[0][0] == 'r';
+        if (argc != 1)
+            return command_usage(reboot ? "Usage: reboot\n" : "Usage: shutdown\n");
+        long error = reboot ? sys_reboot() : sys_shutdown();
+        return error < 0 ? command_error(args[0], 0, error) : 0;
     }
     char path[PROCESS_MAX_PATH];
     long pid = program_path(args[0], path);

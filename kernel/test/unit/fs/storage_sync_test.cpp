@@ -44,9 +44,16 @@ public:
     }
     bool has_held_write() const { return held_; }
     void cancel_hold() { write_ready_ = write_release_ = nullptr; }
+    // Answers like a driver whose card has gone offline.
+    void set_offline(bool offline) { offline_ = offline; }
 
 private:
+    Error read_blocks(uint32_t start_lba, void* bytes, size_t count) override {
+        ENSURE(!offline_, Error::NoDevice);
+        return FatImage::read_blocks(start_lba, bytes, count);
+    }
     Error write_blocks(uint32_t start_lba, const void* bytes, size_t count) override {
+        ENSURE(!offline_, Error::NoDevice);
         TRY(FatImage::write_blocks(start_lba, bytes, count));
         if (write_ready_) {
             Semaphore* ready = write_ready_;
@@ -60,6 +67,7 @@ private:
     }
     Error flush_cache() override {
         ++flush_calls_;
+        ENSURE(!offline_, Error::NoDevice);
         if (flush_error_ != Error::None)
             return flush_error_;
         return FatImage::read_blocks(0, durable_.data(), block_count);
@@ -70,6 +78,7 @@ private:
     Semaphore* write_ready_{};
     Semaphore* write_release_{};
     bool held_{};
+    bool offline_{};
 };
 
 class SyncVolume {
@@ -227,6 +236,28 @@ void test_failed_shutdown() {
     volume.disk.fail_flush(Error::None);
     TEST_ASSERT(vfs::sync() == Error::None && volume.disk.is_durable(),
                 "Standalone sync commits the recovered state without requiring handle closure");
+    TEST_END();
+}
+
+void test_offline_storage_shutdown() {
+    TEST_START("Shutdown proceeds past storage that is already offline");
+    SyncVolume volume;
+    TEST_ASSERT(volume.ready(), "Mounted volume whose disk will go offline");
+    if (!volume.ready()) {
+        TEST_END();
+        return;
+    }
+    auto file = open_file("/mnt/STATE.BIN", O_CREAT | O_RDWR);
+    TEST_ASSERT(file && wrote(file.get(), "lost", 4), "Left unsynchronized data on the volume");
+    volume.disk.set_offline(true);
+    TEST_ASSERT(vfs::sync() == Error::NoDevice, "Sync reports the offline device");
+    {
+        auto prepared = power::prepare_shutdown();
+        TEST_ASSERT(prepared.ok() && vfs::is_frozen() && BlockManager::is_frozen(),
+                    "Preparation succeeds although the offline volume cannot be synchronized");
+    }
+    TEST_ASSERT(!vfs::is_frozen() && !BlockManager::is_frozen(), "Cancelling the lease reopens storage");
+    volume.disk.set_offline(false);
     TEST_END();
 }
 
@@ -459,6 +490,7 @@ void test() {
     test_metadata_sync_failure();
     test_flush_capability();
     test_failed_shutdown();
+    test_offline_storage_shutdown();
     test_prepared_shutdown();
     test_reentrant_shutdown();
     test_drain(true);

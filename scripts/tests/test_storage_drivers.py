@@ -43,7 +43,7 @@ class StorageDriverTests(unittest.TestCase):
         self.assertIn("storage contract passed", result.stdout)
 
     def test_cache_flush_capability_and_non_data_commands(self):
-        for case in ["flush_capability", "flush_ahci", "flush_ahci_io", "flush_ahci_timeout", "flush_sd", "flush_ide"]:
+        for case in ["flush_capability", "flush_all", "flush_ahci", "flush_ahci_io", "flush_ahci_timeout", "flush_sd", "flush_ide"]:
             with self.subTest(case=case):
                 self.run_case(case)
 

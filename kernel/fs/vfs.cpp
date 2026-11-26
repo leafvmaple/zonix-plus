@@ -190,7 +190,8 @@ Error sync() {
     }
     for (auto& mount : mounts) {
         Error error = mount->fs->sync();
-        if (first == Error::None) {
+        // A volume whose device is offline must not hide a real failure on another one.
+        if (first == Error::None || (first == Error::NoDevice && error != Error::None)) {
             first = error;
         }
     }

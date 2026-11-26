@@ -342,8 +342,9 @@ These are device completion guarantees, not guarantees about host storage or
 sudden power loss.
 
 `sync` calls `vfs::sync()`: pin each live mount, invoke every filesystem outside
-the registry interrupt guard, and return the first error. Mount transitions
-report `Busy`. Existing open handles do not prevent synchronization.
+the registry interrupt guard, and return the first error. `NoDevice` (a volume
+whose device is already offline) gives way to a later real error, so an offline
+device cannot hide a failure elsewhere. Mount transitions report `Busy`. Existing open handles do not prevent synchronization.
 
 `power::prepare_shutdown()` returns a move-only, task-affine `ShutdownGuard`:
 
@@ -353,7 +354,11 @@ report `Busy`. Existing open handles do not prevent synchronization.
 2. Close block admission, drain raw requests, then allow only the coordinator's
    internal synchronization I/O. Device registration is also frozen.
 3. Run `vfs::sync()` and flush all registered devices, including raw/swap devices;
-   attempt the remaining barriers after an error, preserving the first error.
+   attempt the remaining barriers after an error, preserving the first error,
+   with `NoDevice` giving way to a later real error. When the only failures are
+   `NoDevice`, log a warning and continue: storage that is already offline
+   cannot be saved, and refusing would leave a machine whose root disk failed
+   with no way to restart except power. Any other error stops preparation.
 4. Close the coordinator's I/O exemption and retain both freezes until platform
    power-off. Console I/O remains available throughout.
 
@@ -632,8 +637,11 @@ a substitute for locking. Read/write and initialization must recheck state while
 holding the device/channel mutex. A ready or quarantined object rejects duplicate
 initialization with `Busy` before any hardware access. Explicit AHCI `detect` or
 SDHCI `init` may restore a safely offline object when its caller still owns the
-valid mapping/configuration. No automatic reset, hot-unplug or IDE channel
-recovery is provided.
+valid mapping/configuration. SD is the one automatic reset: when a block
+transfer fails, `SdCard` restarts the host, identifies the card again and, only
+if its CID, capacity and addressing match, retries that block, at most once per
+request and still holding the device lock. Otherwise the card goes offline as
+above. No hot-unplug or IDE channel recovery is provided.
 
 `vmm::map_mmio` returns an owner, preserves an unaligned physical byte offset,
 checks range overflow, and rolls back partial mappings on allocation failure.

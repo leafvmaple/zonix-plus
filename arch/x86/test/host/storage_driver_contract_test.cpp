@@ -45,6 +45,9 @@ public:
         int sd_busy_polls{};
         int sd_status_polls{};
         int sd_command[2]{};
+        uint32_t sd_data_faults{};  // Bit 0 set: the next data command fails
+        bool sd_failing[2]{};       // The current command on this controller fails
+        uint32_t sd_csd{1U << 22};  // CSD bits [127:96] as the controller stores them
         uint16_t command{1};
         uint32_t bar{0x100008};
         bool echoed_status{};
@@ -256,7 +259,7 @@ uint32_t read32(uintptr_t address) {
             }
         }
         if (offset == 0x1C && Fixture::state().sd_command[controller] == 9) {
-            return 1U << 22;  // CSD v2, 1024 sectors.
+            return Fixture::state().sd_csd;  // By default CSD v2, 1024 sectors.
         }
         if (offset == 0x20 && StorageConcurrency::active()) {
             uint32_t lba = Fixture::state().registers[(controller * PG_SIZE + 0x08) / 4];
@@ -274,6 +277,9 @@ uint16_t read16(uintptr_t address) {
             return Fixture::state().fault == Fixture::Fault::Clock ? 0 : 3;
         }
         if (offset == 0x30) {
+            if (Fixture::state().sd_failing[(address - KERNEL_DEVIO_BASE) / PG_SIZE]) {
+                return 0x8000;
+            }
             if (StorageConcurrency::command_error() == Error::Io) {
                 return 0x8000;
             }
@@ -401,9 +407,17 @@ void write16(uintptr_t address, uint16_t value) {
     if (HardwareFixture::state().backend == HardwareFixture::Backend::Sd &&
         (address - KERNEL_DEVIO_BASE) % PG_SIZE == 0x0E) {
         size_t controller = (address - KERNEL_DEVIO_BASE) / PG_SIZE;
-        HardwareFixture::state().sd_command[controller] = value >> 8;
-        if (StorageConcurrency::active()) {
-            assert((value >> 8) == 17 || (value >> 8) == 24);
+        int index = value >> 8;
+        bool data = index == 17 || index == 24;
+        auto& faults = HardwareFixture::state().sd_data_faults;
+        HardwareFixture::state().sd_command[controller] = index;
+        HardwareFixture::state().sd_failing[controller] = data && (faults & 1U) != 0;
+        if (data) {
+            faults >>= 1;
+        }
+        // A failed transfer resets and identifies the card again before the
+        // request ends; only data commands move the request forward.
+        if (StorageConcurrency::active() && data) {
             uint32_t lba = HardwareFixture::state().registers[(controller * PG_SIZE + 0x08) / 4];
             StorageConcurrency::command(controller, lba, 1);
         }
@@ -528,6 +542,34 @@ public:
     Error read_blocks(uint32_t, void*, size_t) override { return Error::None; }
     Error write_blocks(uint32_t, const void*, size_t) override { return Error::None; }
 };
+
+class FlushDevice : public BlockDevice {
+public:
+    Error result{Error::None};
+
+private:
+    Error read_blocks(uint32_t, void*, size_t) override { return Error::None; }
+    Error write_blocks(uint32_t, const void*, size_t) override { return Error::None; }
+    Error flush_cache() override { return result; }
+};
+
+// An offline device (NoDevice) must not hide a real failure on another one.
+static void test_flush_all() {
+    FlushDevice devices[3];
+    for (auto& device : devices) {
+        assert(blk::register_device(&device) == Error::None);
+    }
+    assert(BlockManager::flush_all() == Error::None);
+    devices[0].result = Error::NoDevice;
+    assert(BlockManager::flush_all() == Error::NoDevice);
+    devices[2].result = Error::Timeout;
+    assert(BlockManager::flush_all() == Error::Timeout);
+    devices[1].result = Error::Io;
+    assert(BlockManager::flush_all() == Error::Io);
+    devices[0].result = Error::None;
+    devices[1].result = Error::NoDevice;
+    assert(BlockManager::flush_all() == Error::Timeout);
+}
 
 static void fill_registry() {
     static DummyDevice devices[BlockManager::MAX_DEVICES];
@@ -874,6 +916,30 @@ static void test_sd(const char* test) {
     assert(device->read(0, buffer, 1) == Error::NoDevice);
     assert(device->init(reinterpret_cast<volatile uint8_t*>(KERNEL_DEVIO_BASE), 0) == Error::None);
     assert(device->read(0, buffer, 1) == Error::None);  // Explicit reset can restore this stable object.
+
+    // A failed block resets the card, which identifies as the same card, and
+    // the block is transferred again. Every request may reset the card once.
+    uint8_t blocks[2 * 512]{};
+    Fixture::state().sd_data_faults = 0b1;
+    assert(device->read(0, blocks, 2) == Error::None && device->state() == blk::DeviceState::Ready);
+    Fixture::state().sd_data_faults = 0b1;
+    assert(device->write(0, buffer, 1) == Error::None && device->state() == blk::DeviceState::Ready);
+    // A block that fails again after the reset takes the card offline, and so
+    // does a later block of the same request.
+    const uint32_t patterns[]{0b11U, 0b101U};
+    for (uint32_t faults : patterns) {
+        Fixture::state().sd_data_faults = faults;
+        assert(device->read(0, blocks, 2) == Error::Io && device->state() == blk::DeviceState::Offline);
+        assert(Fixture::state().sd_data_faults == 0);
+        assert(device->init(reinterpret_cast<volatile uint8_t*>(KERNEL_DEVIO_BASE), 0) == Error::None);
+    }
+    // A different card answering after the reset is never used in place of
+    // the old one.
+    Fixture::state().sd_data_faults = 0b1;
+    Fixture::state().sd_csd = 0;
+    assert(device->read(0, buffer, 1) == Error::Io && device->state() == blk::DeviceState::Offline);
+    assert(device->block_count == 0);
+    Fixture::state().sd_csd = 1U << 22;
 }
 
 static void test_ide(const char* test) {
@@ -1143,6 +1209,8 @@ extern "C" int main(int argc, char** argv) {
             guard.commit();
         }
         assert(HardwareFixture::state().command == 3 && !HardwareFixture::state().echoed_status);
+    } else if (strcmp(test, "flush_all") == 0) {
+        test_flush_all();
     } else if (strcmp(test, "registry") == 0) {
         DummyDevice devices[5];
         assert(blk::register_device(nullptr) == Error::Invalid);

@@ -25,6 +25,8 @@ Result<ShutdownGuard> prepare_shutdown();
 
 // Drain I/O and synchronize storage before platform power-off. Success never
 // returns; failure resumes storage and restores the caller's interrupt state.
+// Storage that is already offline (Error::NoDevice) cannot be synchronized
+// and does not stop it; any other synchronization failure does.
 Error shutdown();
 
 // Like shutdown, then resets the machine instead of removing power.

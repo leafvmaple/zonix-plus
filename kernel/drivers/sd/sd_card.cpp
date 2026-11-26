@@ -1,4 +1,5 @@
 #include "drivers/sd/sd_card.h"
+#include <sys/iterator.hpp>
 #include <kernel/log.h>
 #include "lib/stdio.h"
 #include <asm/arch.h>
@@ -34,6 +35,8 @@ constexpr uint32_t CARD_STATE_TRANSFER = 4U << 9;
 constexpr uint32_t TRANSFER_CLOCK_HZ = 25000000;  // Default-speed limit
 constexpr int OP_COND_RETRIES = 1000;
 constexpr int STATUS_POLL_LIMIT = 1000000;  // Poll budget; not a wall-clock duration
+// Card resets one request may spend on failed blocks before the card goes offline.
+constexpr int RECOVERY_ATTEMPTS = 1;
 
 }  // namespace
 
@@ -110,6 +113,8 @@ Error SdCard::identify() {
     cid.index = CMD2_ALL_SEND_CID;
     cid.response = SdResponseType::R2;
     TRY_LOG(host_.execute(cid), "sd: CMD2 failed");
+    for (size_t i = 0; i < sys::size(cid_); ++i)
+        cid_[i] = cid.reply[i];
 
     uint32_t published{};
     TRY_LOG(command(CMD3_SEND_RCA, 0, SdResponseType::R6, &published), "sd: CMD3 failed");
@@ -167,8 +172,30 @@ void SdCard::shutdown_locked() {
     rca_ = 0;
     sdhc_ = false;
     wide_bus_ = false;
+    for (auto& word : cid_)
+        word = 0;
     block_count = 0;
     state_ = blk::DeviceState::Offline;
+}
+
+// A data error can be transient: a glitch on the bus, or a host that timed out
+// while the CPU was held elsewhere. Reset the controller and identify the card
+// again. It must be the same card with the same capacity and addressing;
+// anything else could put blocks of one card at the wrong place on another.
+Error SdCard::recover_locked() {
+    const uint32_t capacity = block_count;
+    const bool sdhc = sdhc_;
+    constexpr size_t cid_words = sizeof(cid_) / sizeof(cid_[0]);
+    uint32_t cid[cid_words];
+    for (size_t i = 0; i < cid_words; ++i)
+        cid[i] = cid_[i];
+    TRY(host_.start());
+    TRY(identify());
+    bool same = block_count == capacity && sdhc_ == sdhc;
+    for (size_t i = 0; i < cid_words; ++i)
+        same = same && cid_[i] == cid[i];
+    ENSURE_LOG(same, Error::Io, "sd: %s: a different card answered after reset", name);
+    return configure_bus();
 }
 
 Error SdCard::read_blocks(uint32_t start_lba, void* buf, size_t count) {
@@ -202,6 +229,7 @@ Error SdCard::transfer_blocks(uint32_t start_lba, void* buf, size_t count, bool 
     ENSURE(buf || count == 0, Error::Invalid);
     ENSURE(sdhc_ || (start_lba <= (1U << 23) && count <= (1U << 23) - start_lba), Error::Invalid);
     auto* data = static_cast<uint8_t*>(buf);
+    int recoveries = RECOVERY_ATTEMPTS;
     for (size_t i = 0; i < count; ++i) {
         uint32_t lba = start_lba + static_cast<uint32_t>(i);
         SdCommand cmd{};
@@ -211,7 +239,27 @@ Error SdCard::transfer_blocks(uint32_t start_lba, void* buf, size_t count, bool 
         cmd.data = data + i * SdCommand::BLOCK_BYTES;
         cmd.write = write;
         Error error = host_.execute(cmd);
+        if (error != Error::None && recoveries > 0) {
+            --recoveries;
+            klog::warn("sd: %s: block %u %s failed (%d), resetting the card\n", name, lba, write ? "write" : "read",
+                       static_cast<int>(error));
+            Error recovered = recover_locked();
+            if (recovered == Error::None) {
+                SdCommand retry{};
+                retry.index = cmd.index;
+                retry.argument = cmd.argument;
+                retry.response = cmd.response;
+                retry.data = cmd.data;
+                retry.write = write;
+                error = host_.execute(retry);
+            } else {
+                klog::error("sd: %s: reset failed (%d)\n", name, static_cast<int>(recovered));
+            }
+        }
         if (error != Error::None) {
+            // A card that fails again after a reset stays offline until it
+            // is explicitly started again.
+            klog::error("sd: %s: taking the card offline\n", name);
             shutdown_locked();
             return error;
         }

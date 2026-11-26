@@ -62,6 +62,9 @@ class VfsOwnershipTests(unittest.TestCase):
     def test_device_factories_propagate_errors_and_registry_visitors_use_snapshot(self):
         self.run_case("devices")
 
+    def test_sync_reports_real_failures_before_offline_devices(self):
+        self.run_case("sync")
+
 
 if __name__ == "__main__":
     unittest.main()

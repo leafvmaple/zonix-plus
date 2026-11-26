@@ -3,6 +3,7 @@
 #include "fs/vfs.h"
 #include "block/blk.h"
 #include "drivers/watchdog.h"
+#include <kernel/log.h>
 
 namespace power {
 
@@ -25,12 +26,21 @@ Result<ShutdownGuard> prepare_shutdown() {
     guard.files_frozen_ = true;
     TRY(BlockManager::quiesce());
     guard.blocks_frozen_ = true;
-    Error error = vfs::sync();
+    Error files = vfs::sync();
     Error devices = BlockManager::flush_all();
-    if (error != Error::None) {
-        return error;
+    // NoDevice means storage that has already gone offline. What it held is
+    // lost whether or not the machine restarts, and refusing would leave a
+    // machine whose root disk failed with no way to restart but power. Any
+    // other failure means data could still be saved, so it stops shutdown.
+    const Error results[]{files, devices};
+    for (Error error : results) {
+        if (error != Error::None && error != Error::NoDevice) {
+            return error;
+        }
     }
-    TRY(devices);
+    if (files == Error::NoDevice || devices == Error::NoDevice) {
+        klog::warn("power: storage that is offline was not synchronized\n");
+    }
     BlockManager::finish_sync();
     return guard;
 }

@@ -37,7 +37,8 @@ struct SdCommand {
 class SdHost {
 public:
     // Resets the controller, selects an identification clock of at most
-    // 400 kHz on a 1-bit bus and powers the card.
+    // 400 kHz on a 1-bit bus and powers the card. SdCard calls it again on a
+    // started host to recover from a failed transfer.
     virtual Error start() = 0;
     // Disables signals, the card clock and card power. Never touches
     // registers when the host is not attached.

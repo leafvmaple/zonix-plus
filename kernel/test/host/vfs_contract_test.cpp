@@ -82,6 +82,8 @@ public:
     const char* expected_path{};
     bool allocation_fails{};
     bool mount_fails{};
+    Error mnt_sync{Error::None};   // What sync() of the filesystem mounted at /mnt returns
+    Error root_sync{Error::None};  // The same for /
     int pin_checks{};
     int transition_checks{};
     int files() const { return files_; }
@@ -122,7 +124,10 @@ public:
         VfsFixture::active().check_transition(mount_point_);
         return Error::None;
     }
-    Error sync() override { return Error::None; }
+    Error sync() override {
+        auto& fixture = VfsFixture::active();
+        return strcmp(mount_point_, "/mnt") == 0 ? fixture.mnt_sync : fixture.root_sync;
+    }
     Result<vfs::FileHandle> open(const char* path, int) override {
         VfsFixture::active().check_path(mount_point_, path);
         if (strcmp(path, "empty") == 0)
@@ -404,6 +409,33 @@ void WaitQueue::sleep() {
 }
 void WaitQueue::wakeup_all() {}
 
+// /mnt syncs before /. A volume on an offline device (NoDevice) must not hide
+// a real failure on another, wherever either is.
+void test_sync(VfsFixture& fixture) {
+    fixture.mount_point = "/mnt";
+    assert(vfs::mount("/mnt", nullptr, "contract") == Error::None);
+    fixture.mount_point = "/";
+    assert(vfs::mount("/", nullptr, "contract") == Error::None);
+    struct Case {
+        Error mnt, root, result;
+    };
+    const Case cases[]{
+        {Error::None, Error::None, Error::None},           {Error::NoDevice, Error::None, Error::NoDevice},
+        {Error::None, Error::NoDevice, Error::NoDevice},   {Error::NoDevice, Error::Io, Error::Io},
+        {Error::Timeout, Error::NoDevice, Error::Timeout}, {Error::Io, Error::Timeout, Error::Io},
+    };
+    for (const auto& c : cases) {
+        fixture.mnt_sync = c.mnt;
+        fixture.root_sync = c.root;
+        assert(vfs::sync() == c.result);
+    }
+    fixture.mnt_sync = fixture.root_sync = Error::None;
+    fixture.mount_point = "/";
+    assert(vfs::umount("/") == Error::None);
+    fixture.mount_point = "/mnt";
+    assert(vfs::umount("/mnt") == Error::None);
+}
+
 extern "C" int main(int argc, char** argv) {
     assert(argc == 2);
     VfsFixture fixture;
@@ -417,6 +449,8 @@ extern "C" int main(int argc, char** argv) {
         test_paths(fixture);
     else if (strcmp(mode, "devices") == 0)
         test_devices(fixture);
+    else if (strcmp(mode, "sync") == 0)
+        test_sync(fixture);
     else
         test_open(fixture, mode);
     cprintf("[OK] VFS resource contract: %s\n", mode);
