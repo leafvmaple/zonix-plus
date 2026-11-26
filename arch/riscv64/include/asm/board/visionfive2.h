@@ -59,8 +59,8 @@
 
 /* The SoC watchdog resets the whole chip, so a board that stops answering
  * boots again from its firmware. */
-#define BOARD_JH7110_WATCHDOG 1
-#define BOARD_WATCHDOG_PHYS   0x13070000UL
+#define BOARD_JH7110_WATCHDOG     1
+#define BOARD_WATCHDOG_PHYS       0x13070000UL
 #define BOARD_WATCHDOG_APB_CLOCK  122 /* JH7110_SYSCLK_WDT_APB */
 #define BOARD_WATCHDOG_CORE_CLOCK 123 /* JH7110_SYSCLK_WDT_CORE */
 #define BOARD_WATCHDOG_APB_RESET  109 /* JH7110_SYSRST_WDT_APB */
@@ -68,9 +68,9 @@
 
 /* GMAC1 (the Ethernet port U-Boot uses) left running by firmware, with its
  * PHY configured for RGMII and its transmit clock taken from the PHY. */
-#define BOARD_JH7110_GMAC      1
-#define BOARD_GMAC_PHYS        0x16040000UL
-#define BOARD_GMAC_AHB_CLOCK   97 /* JH7110_SYSCLK_GMAC1_AHB */
-#define BOARD_GMAC_AXI_CLOCK   98 /* JH7110_SYSCLK_GMAC1_AXI */
-#define BOARD_GMAC_AXI_RESET   66 /* JH7110_SYSRST_GMAC1_AXI */
-#define BOARD_GMAC_AHB_RESET   67 /* JH7110_SYSRST_GMAC1_AHB */
+#define BOARD_JH7110_GMAC    1
+#define BOARD_GMAC_PHYS      0x16040000UL
+#define BOARD_GMAC_AHB_CLOCK 97 /* JH7110_SYSCLK_GMAC1_AHB */
+#define BOARD_GMAC_AXI_CLOCK 98 /* JH7110_SYSCLK_GMAC1_AXI */
+#define BOARD_GMAC_AXI_RESET 66 /* JH7110_SYSRST_GMAC1_AXI */
+#define BOARD_GMAC_AHB_RESET 67 /* JH7110_SYSRST_GMAC1_AHB */
