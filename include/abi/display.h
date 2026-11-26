@@ -7,6 +7,8 @@
 #define DISPLAY_PRESENT    0x5704
 #define DISPLAY_READ_EVENT 0x5705
 #define DISPLAY_READ_TIMED_EVENT 0x5706
+#define DISPLAY_SET_CURSOR       0x5707
+#define DISPLAY_MOVE_CURSOR      0x5708
 
 #define DISPLAY_ACQUIRE_EVENTS          1
 #define DISPLAY_ACQUIRE_KEYBOARD_CTRL_C 2
@@ -30,6 +32,27 @@ struct DisplayPresent {
     unsigned int stride;
     unsigned int reserved;
     long pixels;
+};
+
+/* A pointer image that the display controller draws over the screen without
+ * changing its pixels. The image is DISPLAY_CURSOR_SIZE pixels square, rows
+ * DISPLAY_CURSOR_SIZE * 4 bytes apart, each pixel a 0xAARRGGBB word whose
+ * alpha 0 is transparent and 255 opaque. hot_x and hot_y name the image pixel
+ * placed at the cursor position; pixels 0 hides the cursor. The position is a
+ * screen pixel, kept while the cursor is hidden. DISPLAY_SET_CURSOR returns
+ * SYS_ERROR_NOT_SUPPORTED when the display has no cursor plane, and the client
+ * then draws its pointer itself. Releasing the display hides the cursor. */
+#define DISPLAY_CURSOR_SIZE 32
+
+struct DisplayCursor {
+    unsigned int hot_x;
+    unsigned int hot_y;
+    long pixels;
+};
+
+struct DisplayCursorPosition {
+    unsigned int x;
+    unsigned int y;
 };
 
 /* Events are delivered only to the foreground display session that opts in.

@@ -46,7 +46,7 @@ TFTP 目录里放 `bin/riscv64/kernel`（改名 `KERNEL.ELF`）和 `bin/riscv64/
 
 ## 显示
 
-内核自己驱动 HDMI（固件不提供帧缓冲）：打开 PMU 的 VOUT 电源域和 SYSCRG/VOUTCRG 的显示时钟、解除复位，Innosilicon HDMI 发送器的 PHY 锁定后输出 1080p60，DC8200 从内存里的 XRGB8888 帧缓冲扫描输出；像素时钟取 PLL2（1188 MHz）÷ 8。显示控制器读内存不经过 CPU 缓存，CPU 写帧缓冲后经 L2 缓存控制器（`0x02010000` 的 Flush64）写回，写帧缓冲的代码都调用 `display::flush`。热插拔引脚没有接到发送器，内核不检测显示器是否连接，也不读 EDID，显示器须支持 1080p60。
+内核自己驱动 HDMI（固件不提供帧缓冲）：打开 PMU 的 VOUT 电源域和 SYSCRG/VOUTCRG 的显示时钟、解除复位，Innosilicon HDMI 发送器的 PHY 锁定后输出 1080p60，DC8200 从内存里的 XRGB8888 帧缓冲扫描输出；像素时钟取 PLL2（1188 MHz）÷ 8。显示控制器读内存不经过 CPU 缓存，CPU 写帧缓冲后经 L2 缓存控制器（`0x02010000` 的 Flush64）写回，写帧缓冲的代码都调用 `display::flush`。热插拔引脚没有接到发送器，内核不检测显示器是否连接，也不读 EDID，显示器须支持 1080p60。DC8200 的光标层显示 32×32 ARGB8888 指针图像，图像放在 4 GiB 以下的一页内存里，Desktop 用它显示鼠标指针（`DISPLAY_SET_CURSOR`）。
 
 ## Desktop
 
@@ -60,6 +60,7 @@ USB 蓝牙适配器由 HCI 层接管：开机或插入后复位、读出地址�
 
 ## 已知情况
 
+- TF 卡由 dw_mmc 轮询读写，不用 DMA 和中断。每个 512 字节块从发命令到取完数据都关着中断：传输中途若切换任务，卡会填满 FIFO，控制器以主机超时（中断状态里的 HTO 位）结束传输。卡出现一次 I/O 错误后整块盘下线，根文件系统随之不可用，`reboot` 也无法运行，只能重新上电。
 - 只使用前 1 GB 内存：riscv64 直接映射只覆盖 DRAM 的第一个 1 GB，其余内存不交给分配器。
 - 引导程序读 `tp` 得到 hart 号；当前固件从 hart 1 启动，PLIC S 模式上下文为 2。
 - 串口是 DesignWare APB UART：内核不改固件设好的线路参数，并处理它的 busy-detect 中断。

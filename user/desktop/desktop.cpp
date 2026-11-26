@@ -53,6 +53,9 @@ public:
         band_.reset(static_cast<unsigned int*>(malloc(PRESENT_PIXELS * sizeof(unsigned int))));
         if (!band_)
             return SYS_ERROR_FULL;
+        error = start_hardware_cursor();
+        if (error < 0)
+            return error;
         FileStat example{};
         if (sys_stat(const_cast<char*>(APPS[APP_EXAMPLE_A].program), &example) == 0 && example.type == FILE_TYPE_FILE) {
             open_at_front(APP_EXAMPLE_A);
@@ -147,6 +150,8 @@ private:
 
     int fd_;
     bool bench_;
+    // The display draws the pointer on its cursor plane.
+    bool hardware_cursor_{};
     // Rows composed for one DISPLAY_PRESENT.
     sys::unique_ptr<unsigned int, FreePixels> band_;
     // Areas to repaint once no input or client update is waiting, and when
@@ -767,8 +772,32 @@ private:
             if (error < 0)
                 return error;
         }
+        // The cursor plane moves the pointer at once, even while composing
+        // lags behind.
+        if (hardware_cursor_) {
+            DisplayCursorPosition position{static_cast<unsigned int>(pointer_.x),
+                                           static_cast<unsigned int>(pointer_.y)};
+            return sys_ioctl(fd_, DISPLAY_MOVE_CURSOR, reinterpret_cast<long>(&position));
+        }
         long error = repaint(old_cursor);
         return error < 0 ? error : repaint(compositor_.cursor_rect());
+    }
+
+    // Hands the pointer to the display's cursor plane if it has one.
+    // Returns 0 either way, or a negative error.
+    long start_hardware_cursor() {
+        sys::array<unsigned int, DISPLAY_CURSOR_SIZE * DISPLAY_CURSOR_SIZE> image{};
+        Compositor::cursor_image(image.data());
+        DisplayCursorPosition position{static_cast<unsigned int>(pointer_.x), static_cast<unsigned int>(pointer_.y)};
+        long error = sys_ioctl(fd_, DISPLAY_MOVE_CURSOR, reinterpret_cast<long>(&position));
+        DisplayCursor cursor{0, 0, reinterpret_cast<long>(image.data())};
+        if (error == 0)
+            error = sys_ioctl(fd_, DISPLAY_SET_CURSOR, reinterpret_cast<long>(&cursor));
+        if (error == SYS_ERROR_NOT_SUPPORTED)
+            return 0;
+        hardware_cursor_ = error == 0;
+        compositor_.set_hardware_cursor(hardware_cursor_);
+        return error;
     }
 
     // The smallest window a resize drag makes. Clients may clamp further.

@@ -40,6 +40,11 @@ public:
     // top-left pixel and has rows `stride` pixels apart.
     void render(const Rect& area, unsigned int* out, int stride) const;
     Rect cursor_rect() const;
+    // Draws the pointer into a DISPLAY_CURSOR_SIZE square ARGB image whose
+    // top-left pixel is the hot spot, for the display's cursor plane.
+    static void cursor_image(unsigned int* out);
+    // With a cursor plane showing the pointer, areas are composed without it.
+    void set_hardware_cursor(bool hardware) { hardware_cursor_ = hardware; }
     // The area a window paints, including its shadow.
     static Rect bounds(const Rect& window);
     // The part of `area` inside `clip`, empty when they do not meet.
@@ -59,6 +64,7 @@ private:
     Scene scene_;
     // The screen without windows or pointer, row after row.
     sys::unique_ptr<unsigned int, FreePixels> desk_;
+    bool hardware_cursor_{};
 };
 
 }  // namespace desktop

@@ -117,6 +117,22 @@ Rect Compositor::cursor_rect() const {
     return {scene_.pointer, CURSOR_WIDTH, CURSOR_HEIGHT};
 }
 
+void Compositor::cursor_image(unsigned int* out) {
+    constexpr unsigned int OPAQUE = 0xFF000000;
+    static_assert(CURSOR_WIDTH <= DISPLAY_CURSOR_SIZE && CURSOR_HEIGHT <= DISPLAY_CURSOR_SIZE);
+    for (int y = 0; y < DISPLAY_CURSOR_SIZE; ++y) {
+        for (int x = 0; x < DISPLAY_CURSOR_SIZE; ++x) {
+            char mark = x < CURSOR_WIDTH && y < CURSOR_HEIGHT ? CURSOR[y][x] : ' ';
+            unsigned int pixel = 0;
+            if (mark == 'X')
+                pixel = OPAQUE | theme::CURSOR_OUTLINE;
+            else if (mark == '.')
+                pixel = OPAQUE | theme::TEXT;
+            out[y * DISPLAY_CURSOR_SIZE + x] = pixel;
+        }
+    }
+}
+
 Rect Compositor::bounds(const Rect& window) {
     if (window.width == 0)
         return window;
@@ -168,7 +184,7 @@ void Compositor::render(const Rect& area, unsigned int* out, int stride) const {
         }
     }
 
-    part = intersect(cursor_rect(), area);
+    part = hardware_cursor_ ? Rect{} : intersect(cursor_rect(), area);
     for (int y = part.origin.y; y < part.origin.y + part.height; ++y) {
         for (int x = part.origin.x; x < part.origin.x + part.width; ++x) {
             char mark = CURSOR[y - scene_.pointer.y][x - scene_.pointer.x];

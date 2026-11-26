@@ -176,6 +176,8 @@ public:
         events_read_ = events_write_;
         events_ready_.wakeup_all();
         fd::Readiness::notify();
+        // The text console draws no pointer; one left on screen would mislead.
+        display::hide_cursor();
         fbcons::resume();
         restore_console();
     }

@@ -235,10 +235,14 @@ zcc 是独立 Git 子模块。修改该子模块时，后续提交必须先记�
 | `DISPLAY_PRESENT` (0x5704) | 用户 `DisplayPresent*`，提交一个矩形 |
 | `DISPLAY_READ_EVENT` (0x5705) | 用户可写 `DisplayEvent*`，阻塞读取一条键鼠事件，成功返回 0 |
 | `DISPLAY_READ_TIMED_EVENT` (0x5706) | 用户可写 `DisplayTimedEvent*`，阻塞读取一条带入队时间的键鼠事件，成功返回 0 |
+| `DISPLAY_SET_CURSOR` (0x5707) | 用户 `DisplayCursor*`，显示或更换硬件指针图像，pixels 为 0 时隐藏 |
+| `DISPLAY_MOVE_CURSOR` (0x5708) | 用户 `DisplayCursorPosition*`，移动硬件指针 |
 
 `DisplayPresent` 固定 32 字节：x/y/width/height/stride/reserved 各 uint32，随后 pixels 为 64 位用户地址（long，与现有 syscall 地址参数一致）。reserved 必须为 0，宽高非零且整个矩形位于当前分辨率内，源 stride 不小于 width×4，单位为字节。像素为 `DISPLAY_FORMAT_XRGB8888`，每字 0x00RRGGBB；Info.stride 是用户紧密缓冲区每行字节数 width×4，不是硬件扫描行 pitch。内核适配固件 RGB/BGR 排列，不暴露设备地址或映射接口。
 
-syscall 边界先复制描述、检查会话和完整源地址跨度，再逐行复制到内核所有的紧密快照，成功后才提交设备；非法指针、矩形、stride、保留位均拒绝，不绘制部分输入。分配失败返回 NoMem；复制和绘制检查终止请求，返回 Interrupted 时可能已绘制部分合法矩形。接口不保证垂直同步或扫描输出原子性，不提供模式/尺寸切换。
+syscall 边界先复制描述、检查会话和完整源地址跨度，再把各行从用户内存直接复制到帧缓冲，不经过内核中间缓冲；非法指针、矩形、stride、保留位在绘制前拒绝。逐行复制检查终止请求，返回 Interrupted 或复制错误时，前面已写的行仍会显示。接口不保证垂直同步或扫描输出原子性，不提供模式/尺寸切换。
+
+硬件指针由显示控制器的光标层叠加显示，不改动帧缓冲，移动它不需要重画画面。`DisplayCursor` 固定 16 字节：hot_x、hot_y 各 uint32，随后 pixels 为 64 位用户地址；图像是 `DISPLAY_CURSOR_SIZE`（32）像素见方，每行 128 字节，每字 0xAARRGGBB，alpha 0 透明、255 不透明，(hot_x, hot_y) 是落在指针位置上的图像像素，须小于 32。`DisplayCursorPosition` 为 x、y 两个 uint32，必须位于当前分辨率内；指针隐藏时只记下位置，下次显示时使用。两个请求都要求会话拥有者，与 `DISPLAY_PRESENT` 相同。没有光标层的显示（固件帧缓冲、QEMU）对显示图像返回 NotSupported，客户端应自己绘制指针；目前只有 VisionFive 2 的 DC8200 提供光标层。释放会话（包括拥有者退出、前台交接和 panic 恢复）时内核隐藏指针。
 
 只允许当前前台普通用户任务取得会话；init、内核任务和后台任务返回 Access。原始终端租约、前台命令组与显示会话互斥，冲突返回 Busy。无受支持的帧缓冲返回 NoDevice=-10；普通文件不支持该协议。查询不要求会话，提交和归还同时要求当前 PID 与取得会话的打开 File 匹配，继承 FD 不转移权限。dup 共享同一 File，最后关闭释放会话；另一次 open 不能代替拥有者释放。拥有者退出或交接前台即归还，即使子进程还保留旧 File，旧句柄也不能释放之后取得的新会话。
 

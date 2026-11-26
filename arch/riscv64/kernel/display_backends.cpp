@@ -28,4 +28,32 @@ void flush_platform(uintptr_t pa, size_t byte_count) {
     dma::writeback_invalidate(pa, byte_count);
 }
 
+// The JH7110's DC8200 has a cursor plane; QEMU's firmware framebuffer has none.
+Error show_cursor_platform(const CursorImage& image, uint32_t x, uint32_t y) {
+    if constexpr (BOARD_JH7110_DISPLAY) {
+        return jh7110_display::show_cursor(image, x, y);
+    } else {
+        static_cast<void>(image);
+        static_cast<void>(x);
+        static_cast<void>(y);
+        return Error::NotSupported;
+    }
+}
+
+Error move_cursor_platform(uint32_t x, uint32_t y) {
+    if constexpr (BOARD_JH7110_DISPLAY) {
+        jh7110_display::move_cursor(x, y);
+        return Error::None;
+    } else {
+        static_cast<void>(x);
+        static_cast<void>(y);
+        return Error::NotSupported;
+    }
+}
+
+void hide_cursor_platform() {
+    if constexpr (BOARD_JH7110_DISPLAY)
+        jh7110_display::hide_cursor();
+}
+
 }  // namespace display

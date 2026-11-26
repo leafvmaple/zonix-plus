@@ -169,9 +169,35 @@ static inline void* arch_memset(void* s, int c, size_t n) {
 }
 
 // Copies low to high; memmove may use this when destination overlaps below source.
+// Whole words move when both pointers share their alignment, which keeps every
+// access aligned for device memory and for cores that trap misaligned loads.
 static inline void* arch_memcpy(void* dst, const void* src, size_t n) {
+    using Word = uint64_t __attribute__((__may_alias__));
+    using Half = uint32_t __attribute__((__may_alias__));
     auto* d = static_cast<uint8_t*>(dst);
     const auto* s = static_cast<const uint8_t*>(src);
+    uintptr_t apart = reinterpret_cast<uintptr_t>(d) ^ reinterpret_cast<uintptr_t>(s);
+    if ((apart & (sizeof(Word) - 1)) == 0) {
+        while ((reinterpret_cast<uintptr_t>(d) & (sizeof(Word) - 1)) != 0 && n != 0) {
+            *d++ = *s++;
+            --n;
+        }
+        for (; n >= 4 * sizeof(Word); n -= 4 * sizeof(Word), d += 4 * sizeof(Word), s += 4 * sizeof(Word)) {
+            reinterpret_cast<Word*>(d)[0] = reinterpret_cast<const Word*>(s)[0];
+            reinterpret_cast<Word*>(d)[1] = reinterpret_cast<const Word*>(s)[1];
+            reinterpret_cast<Word*>(d)[2] = reinterpret_cast<const Word*>(s)[2];
+            reinterpret_cast<Word*>(d)[3] = reinterpret_cast<const Word*>(s)[3];
+        }
+        for (; n >= sizeof(Word); n -= sizeof(Word), d += sizeof(Word), s += sizeof(Word))
+            *reinterpret_cast<Word*>(d) = *reinterpret_cast<const Word*>(s);
+    } else if ((apart & (sizeof(Half) - 1)) == 0) {
+        while ((reinterpret_cast<uintptr_t>(d) & (sizeof(Half) - 1)) != 0 && n != 0) {
+            *d++ = *s++;
+            --n;
+        }
+        for (; n >= sizeof(Half); n -= sizeof(Half), d += sizeof(Half), s += sizeof(Half))
+            *reinterpret_cast<Half*>(d) = *reinterpret_cast<const Half*>(s);
+    }
     while (n-- > 0) {
         *d++ = *s++;
     }

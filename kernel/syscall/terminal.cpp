@@ -32,7 +32,7 @@ long syscall::ioctl(Task* task, long fd, long request, uintptr_t argument) {
     auto* entry = task->files().get(static_cast<int>(fd));
     if (!entry)
         return static_cast<long>(Error::Invalid);
-    if (request >= DISPLAY_GET_INFO && request <= DISPLAY_READ_TIMED_EVENT)
+    if (request >= DISPLAY_GET_INFO && request <= DISPLAY_MOVE_CURSOR)
         return display_control(task, entry->file(), static_cast<unsigned int>(request), argument);
     if (request == NET_GET_MAC) {
         uint8_t mac[NET_MAC_SIZE]{};

@@ -193,9 +193,52 @@ private:
     inline static uintptr_t pa_{};
 };
 
+// The image the cursor plane reads: one page of contiguous RAM below 4 GiB,
+// allocated when a pointer is first shown and kept for later ones.
+class CursorBuffer {
+public:
+    static constexpr size_t BYTES = dc8200::CURSOR_SIZE * dc8200::CURSOR_SIZE * sizeof(uint32_t);
+    static_assert(BYTES <= PG_SIZE);
+
+    static Error load(const uint32_t* pixels) {
+        if (!page_) {
+            Page* page = pmm::alloc_pages(1);
+            ENSURE(page, Error::NoMem);
+            if (pmm::page_to_phys(page) + PG_SIZE > 0x100000000ULL) {
+                pmm::free_pages(page, 1);
+                return Error::NoMem;
+            }
+            page_ = page;
+        }
+        memcpy(pmm::page_to_kva(page_), pixels, BYTES);
+        display::flush_platform(pmm::page_to_phys(page_), BYTES);
+        return Error::None;
+    }
+    static uint32_t pa() { return static_cast<uint32_t>(pmm::page_to_phys(page_)); }
+
+private:
+    inline static Page* page_{};
+};
+
 }  // namespace
 
 namespace jh7110_display {
+
+static_assert(DISPLAY_CURSOR_SIZE == dc8200::CURSOR_SIZE && DISPLAY_CURSOR_SIZE - 1 <= dc8200::HOT_LIMIT);
+
+Error show_cursor(const display::CursorImage& image, uint32_t x, uint32_t y) {
+    TRY(CursorBuffer::load(image.pixels));
+    dc8200::show_cursor(mapped(DC8200_PHYS), CursorBuffer::pa(), image.hot_x, image.hot_y, x, y);
+    return Error::None;
+}
+
+void move_cursor(uint32_t x, uint32_t y) {
+    dc8200::move_cursor(mapped(DC8200_PHYS), x, y);
+}
+
+void hide_cursor() {
+    dc8200::hide_cursor(mapped(DC8200_PHYS));
+}
 
 Error start(display::PlatformFramebuffer& out) {
     const uint32_t stride = MODE.hactive * sizeof(uint32_t);

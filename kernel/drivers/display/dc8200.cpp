@@ -14,6 +14,8 @@ constexpr uintptr_t DISPLAY_H_SYNC = 0x1438;
 constexpr uintptr_t DISPLAY_V = 0x1440;
 constexpr uintptr_t DISPLAY_V_SYNC = 0x1448;
 constexpr uintptr_t CURSOR_CONFIG = 0x1468;
+constexpr uintptr_t CURSOR_ADDRESS = 0x146C;
+constexpr uintptr_t CURSOR_LOCATION = 0x1470;
 constexpr uintptr_t VENDOR_14B0 = 0x14B0;  // Undocumented; the vendor boot loader writes these
 constexpr uintptr_t VENDOR_14D0 = 0x14D0;
 constexpr uintptr_t VENDOR_1800 = 0x1800;
@@ -48,9 +50,30 @@ constexpr uint32_t BLEND_OPAQUE = 0x3548;    // Source over background, no per-p
 constexpr uint32_t WATER_MARK = 0xF61;
 constexpr uint32_t START_DISPLAY0 = 1U << 0;
 constexpr uint32_t STOP_ALL_CLOCKS = 0xE07;
+// Cursor configuration: format in bits 1:0, an image-update and a commit bit
+// that latch the other cursor registers, the size code in bits 7:5 (0 for
+// 32x32) and the hot pixel's row and column in bits 12:8 and 20:16.
+constexpr uint32_t CURSOR_FORMAT_ARGB8888 = 2;
+constexpr uint32_t CURSOR_IMAGE_UPDATE = 1U << 2;
+constexpr uint32_t CURSOR_COMMIT = 1U << 3;
+constexpr uint32_t CURSOR_SIZE_32 = 0U << 5;
+constexpr uint32_t CURSOR_HOT_Y_SHIFT = 8;
+constexpr uint32_t CURSOR_HOT_X_SHIFT = 16;
+constexpr uint32_t CURSOR_HOT_MASK = 0x1F;
+// The cursor location holds the column in bits 14:0 and the row in bits 30:16.
+constexpr uint32_t CURSOR_COORDINATE_MASK = 0x7FFF;
+constexpr uint32_t CURSOR_ROW_SHIFT = 16;
 
 uint32_t point(uint32_t x, uint32_t y) {
     return x | (y << 15);
+}
+
+uint32_t cursor_location(uint32_t x, uint32_t y) {
+    return (x & CURSOR_COORDINATE_MASK) | ((y & CURSOR_COORDINATE_MASK) << CURSOR_ROW_SHIFT);
+}
+
+void commit_cursor(uintptr_t base, uint32_t bits) {
+    mmio::write32(base, reg::CURSOR_CONFIG, mmio::read32(base, reg::CURSOR_CONFIG) | bits);
 }
 
 uint32_t sync(uint16_t start, uint16_t end, bool positive) {
@@ -93,6 +116,26 @@ void start(uintptr_t base, const DisplayTiming& timing, uint32_t framebuffer_pa,
     mmio::write32(base, reg::CURSOR_CONFIG, 0);
     mmio::write32(base, reg::PANEL_CONFIG_EX, 0);
     mmio::write32(base, reg::PANEL_START, START_DISPLAY0);
+}
+
+void show_cursor(uintptr_t base, uint32_t image_pa, uint32_t hot_x, uint32_t hot_y, uint32_t x, uint32_t y) {
+    mmio::write32(base, reg::CURSOR_ADDRESS, image_pa);
+    mmio::write32(base, reg::CURSOR_LOCATION, cursor_location(x, y));
+    mmio::write32(base, reg::CURSOR_CONFIG,
+                  CURSOR_FORMAT_ARGB8888 | CURSOR_SIZE_32 | ((hot_y & CURSOR_HOT_MASK) << CURSOR_HOT_Y_SHIFT) |
+                      ((hot_x & CURSOR_HOT_MASK) << CURSOR_HOT_X_SHIFT));
+    commit_cursor(base, CURSOR_COMMIT | CURSOR_IMAGE_UPDATE);
+}
+
+void move_cursor(uintptr_t base, uint32_t x, uint32_t y) {
+    mmio::write32(base, reg::CURSOR_LOCATION, cursor_location(x, y));
+    commit_cursor(base, CURSOR_COMMIT);
+}
+
+// The plane has no enable bit; with no format it shows nothing.
+void hide_cursor(uintptr_t base) {
+    mmio::write32(base, reg::CURSOR_CONFIG, 0);
+    commit_cursor(base, CURSOR_COMMIT);
 }
 
 void stop(uintptr_t base) {
