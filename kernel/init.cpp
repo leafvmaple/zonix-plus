@@ -5,6 +5,7 @@
 #include "drivers/sd/sdhci.h"
 #include "drivers/usb/xhci.h"
 #include "drivers/virtio_net.h"
+#include "drivers/entropy.h"
 #include "drivers/virtio_rng.h"
 #include "drivers/watchdog.h"
 #include "cons/cons.h"
@@ -94,6 +95,7 @@ static const InitStep KERN_STEPS[] = {
     {"pci_reg", pci_registers, false},
     {"virtio_net", virtio_net::init, false},
     {"virtio_rng", virtio_rng::init, false},
+    {"entropy", entropy::init, false},
     {"pci_probe", probe_pci_devices, false},
     {"partitions", blk::scan_partitions, false},
 #ifdef TEST_MODE

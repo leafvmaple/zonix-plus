@@ -74,3 +74,13 @@
 #define BOARD_GMAC_AXI_CLOCK 98 /* JH7110_SYSCLK_GMAC1_AXI */
 #define BOARD_GMAC_AXI_RESET 66 /* JH7110_SYSRST_GMAC1_AXI */
 #define BOARD_GMAC_AHB_RESET 67 /* JH7110_SYSRST_GMAC1_AHB */
+
+/* The SoC's true random number generator, clocked and reset through the STG
+ * clock and reset generator behind the system bus's STG port. */
+#define BOARD_JH7110_TRNG     1
+#define BOARD_TRNG_PHYS       0x1600C000UL
+#define BOARD_STGCRG_PHYS     0x10230000UL
+#define BOARD_STG_BUS_CLOCK   96 /* JH7110_SYSCLK_NOC_BUS_STG_AXI */
+#define BOARD_TRNG_HCLK_CLOCK 15 /* JH7110_STGCLK_SEC_AHB */
+#define BOARD_TRNG_AHB_CLOCK  16 /* JH7110_STGCLK_SEC_MISC_AHB */
+#define BOARD_TRNG_RESET      3  /* JH7110_STGRST_SEC_AHB */

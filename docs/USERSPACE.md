@@ -376,7 +376,7 @@ make ARCH=x86 TEST=0 crypto MBEDTLS_DIR=../mbedtls
 
 ## 可选 SSH 登录
 
-SSH 服务使用固定版本的 TinySSH。`tcpserve` 通过 netd 接受连接，把每条连接交给独立的 `sshd` 进程，认证通过后由它创建 PTY 并启动 `/bin/sh`，最多同时四个会话。提供单个 `zonix` 登录名、一个授权 Ed25519 公钥、交互式 shell 和窗口尺寸更新。Zonix 目前是单用户系统，授权公钥持有者获得同本地 shell 一样的系统权限。三种架构都可以使用；`sshd` 依赖 VirtIO 随机源，QEMU 需要同时提供网卡和 `virtio-rng-pci`。
+SSH 服务使用固定版本的 TinySSH。`tcpserve` 通过 netd 接受连接，把每条连接交给独立的 `sshd` 进程，认证通过后由它创建 PTY 并启动 `/bin/sh`，最多同时四个会话。提供单个 `zonix` 登录名、一个授权 Ed25519 公钥、交互式 shell 和窗口尺寸更新。Zonix 目前是单用户系统，授权公钥持有者获得同本地 shell 一样的系统权限。三种架构都可以使用；`sshd` 依赖系统随机源，QEMU 需要同时提供网卡和 `virtio-rng-pci`，VisionFive 2 用芯片自带的随机数发生器。
 
 准备好 `../lwip`、`../mbedtls` 和下列 TinySSH checkout。使用已有的 Ed25519 登录公钥文件，并在仓库外生成 SSH 主机密钥。
 

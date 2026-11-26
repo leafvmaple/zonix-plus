@@ -1,5 +1,5 @@
 #include "syscall.h"
-#include "drivers/virtio_rng.h"
+#include "drivers/entropy.h"
 #include "mm/vmm.h"
 #include "sched/sched.h"
 
@@ -9,13 +9,13 @@ long syscall::getrandom(Task* task, uintptr_t output, long size, uintptr_t flags
     if (size == 0)
         return 0;
     size_t count = static_cast<size_t>(size);
-    if (count > virtio_rng::MAX_READ)
-        count = virtio_rng::MAX_READ;
+    if (count > entropy::MAX_READ)
+        count = entropy::MAX_READ;
     if (!vmm::user_range_valid(task->memory(), output, count, true))
         return static_cast<long>(Error::Invalid);
 
-    uint8_t bytes[virtio_rng::MAX_READ];
-    auto received = virtio_rng::read(bytes, count);
+    uint8_t bytes[entropy::MAX_READ];
+    auto received = entropy::read(bytes, count);
     if (!received.ok())
         return static_cast<long>(received.error());
     count = received.value();
