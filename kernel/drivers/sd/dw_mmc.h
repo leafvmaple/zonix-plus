@@ -33,6 +33,7 @@ private:
     Error set_clock(uint32_t rate_hz);
     Error wait_idle();
     Error wait_status(uint32_t mask, const char* what);
+    Error issue(SdCommand& command, uint32_t flags);
     Error move_data(SdCommand& command);
 
     volatile uint8_t* base_{};

@@ -1,5 +1,6 @@
 #include "drivers/sd/dw_mmc.h"
 #include <kernel/log.h>
+#include "drivers/intr.h"
 #include "drivers/mmio.h"
 #include "lib/string.h"
 #include "mm/vmm.h"
@@ -211,8 +212,7 @@ Error DwMmcHost::move_data(SdCommand& command) {
         }
         if (moved == BLOCK_WORDS && (pending & INT_DATA_OVER) != 0) {
             mmio::write32(base_, reg::RINTSTS, INT_ALL);
-            // A write is complete once the card leaves its programming busy state.
-            return command.write ? wait_idle() : Error::None;
+            return Error::None;
         }
     }
     klog::error("dw_mmc: CMD%u data timeout after %lu words\n", command.index, moved);
@@ -244,6 +244,25 @@ Error DwMmcHost::execute(SdCommand& command) {
         mmio::write32(base_, reg::BYTCNT, SdCommand::BLOCK_BYTES);
         flags |= CMD_DAT_EXPECTED | CMD_PRV_DAT_WAIT | (command.write ? CMD_DAT_WRITE : 0);
     }
+    if (!command.data) {
+        TRY(issue(command, flags));
+        return command.response == SdResponseType::R1b ? wait_idle() : Error::None;
+    }
+    {
+        // The block moves through the FIFO by polling. If the task were
+        // switched out meanwhile, the card would fill the FIFO and the
+        // controller would end the transfer with a host timeout, so nothing
+        // may interrupt it until the block has been moved.
+        intr::Guard guard;
+        TRY(issue(command, flags));
+        TRY(move_data(command));
+    }
+    // A write is complete once the card leaves its programming busy state.
+    return command.write ? wait_idle() : Error::None;
+}
+
+// Sends a command and reads its response.
+Error DwMmcHost::issue(SdCommand& command, uint32_t flags) {
     mmio::write32(base_, reg::CMDARG, command.argument);
     mmio::write32(base_, reg::CMD, flags);
 
@@ -274,11 +293,6 @@ Error DwMmcHost::execute(SdCommand& command) {
     } else if (command.response != SdResponseType::None) {
         command.reply[0] = mmio::read32(base_, reg::RESP0);
     }
-
-    if (command.data)
-        return move_data(command);
-    if (command.response == SdResponseType::R1b)
-        return wait_idle();
     return Error::None;
 }
 
