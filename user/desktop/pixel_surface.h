@@ -21,6 +21,7 @@ public:
     PixelRect damage() const { return damage_; }
     const char* edit_path() const { return edit_path_.data(); }
     unsigned int pixel(unsigned int x, unsigned int y) const { return surface_.get()[y * width_ + x]; }
+    const unsigned int* row(unsigned int y) const { return surface_.get() + static_cast<sys::size_t>(y) * width_; }
 
 private:
     Result receive_edit_path(int fd);

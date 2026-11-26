@@ -5,9 +5,10 @@
 
 namespace desktop {
 
-// Produces the colour of any screen pixel from the window stack: background,
-// shadows, borders with rounded corners, title bars, client content and the
-// pointer. It draws nothing itself; Desktop presents the pixels it asks for.
+// Composes areas of the screen from the window stack: background, shadows,
+// borders with rounded corners, title bars, client content and the pointer.
+// What lies behind every window is kept as a desk layer, so an area is the
+// desk copied row by row with the windows painted over it from back to front.
 class Compositor {
 public:
     // State borrowed from the window manager, which outlives the compositor.
@@ -30,18 +31,34 @@ public:
 
     explicit Compositor(const Scene& scene) : scene_(scene) {}
 
-    unsigned int color(Point point) const;
+    // Allocates the desk layer. Returns 0 or a negative error.
+    long init();
+    // Redraws the desk layer in an area whose background, menu bar, icons or
+    // Dock changed.
+    void refresh_desk(const Rect& area);
+    // Composes an area inside the screen into `out`, which holds the area's
+    // top-left pixel and has rows `stride` pixels apart.
+    void render(const Rect& area, unsigned int* out, int stride) const;
     Rect cursor_rect() const;
     // The area a window paints, including its shadow.
     static Rect bounds(const Rect& window);
+    // The part of `area` inside `clip`, empty when they do not meet.
+    static Rect intersect(const Rect& area, const Rect& clip);
 
 private:
-    unsigned int compose(Point point, int slot, int top) const;
+    struct FreePixels {
+        void operator()(unsigned int* pixels) const noexcept;
+    };
+
+    void paint_shadow(const Rect& window, bool focused, const Rect& area, unsigned int* out, int stride) const;
+    void paint_window(int index, bool focused, const Rect& area, unsigned int* out, int stride) const;
+    unsigned int window_pixel(int index, bool focused, Point point, unsigned int below) const;
     unsigned int interior(int index, Point point, bool focused) const;
-    unsigned int desk(Point point) const;
-    unsigned int background(Point point) const;
+    unsigned int desk(Point point, unsigned int wallpaper) const;
 
     Scene scene_;
+    // The screen without windows or pointer, row after row.
+    sys::unique_ptr<unsigned int, FreePixels> desk_;
 };
 
 }  // namespace desktop

@@ -14,15 +14,17 @@ StarFive VisionFive 2（JH7110，8 GB 版本，PCB v1.3B）上运行 Zonix 的�
 
 ## TF 卡布局
 
-GPT，两个 FAT32 分区，类型都是普通数据（basic data）：
+GPT，三个 FAT32 分区，类型都是普通数据（basic data）：
 
 | 分区 | 大小 | 卷标 | 内容 |
 |---|---|---|---|
 | 1 | 256 MB | ZBOOT | `ZONIX.EFI`、`KERNEL.ELF`、`dtbs/jh7110-starfive-visionfive-2-v1.3b.dtb` |
 | 2 | 8 GB | ZONIX | 基础 rootfs（`bin/riscv64/rootfs.img` 里的全部文件） |
+| 3 | 1 GB | ZAPPS | 可选应用盘（`bin/riscv64/desktop.img` 里的全部文件），挂载到 `/opt` |
 
-内核把 GPT 普通数据分区注册为 `mmc0p1`、`mmc0p2`，根文件系统挂载程序在其中找到带
-`/sbin/init` 的分区。
+内核把 GPT 普通数据分区注册为 `mmc0p1` 到 `mmc0p3`，根文件系统挂载程序在其中找到带
+`/sbin/init` 的分区，其余带 `/bin` 的 FAT 分区作为应用盘挂到 `/opt`。没有第 3 分区时
+照常进入命令行。
 
 ## 网络加载内核
 
@@ -45,6 +47,10 @@ TFTP 目录里放 `bin/riscv64/kernel`（改名 `KERNEL.ELF`）和 `bin/riscv64/
 ## 显示
 
 内核自己驱动 HDMI（固件不提供帧缓冲）：打开 PMU 的 VOUT 电源域和 SYSCRG/VOUTCRG 的显示时钟、解除复位，Innosilicon HDMI 发送器的 PHY 锁定后输出 1080p60，DC8200 从内存里的 XRGB8888 帧缓冲扫描输出；像素时钟取 PLL2（1188 MHz）÷ 8。显示控制器读内存不经过 CPU 缓存，CPU 写帧缓冲后经 L2 缓存控制器（`0x02010000` 的 Flush64）写回，写帧缓冲的代码都调用 `display::flush`。热插拔引脚没有接到发送器，内核不检测显示器是否连接，也不读 EDID，显示器须支持 1080p60。
+
+## Desktop
+
+在 shell 里执行 `desktop` 启动，用蓝牙或 USB 键鼠操作，F12 退出。更新单个程序不必拔卡：在 U-Boot 里 `run zonix_net` 后 `tftpboot 0x50000000 <文件>`，再 `fatwrite mmc 1:3 0x50000000 bin/desktop ${filesize}`。`desktop --bench` 不读输入，自己打开 Terminal 和 Files、拖动窗口、移动指针各 120 步后退出，结果写进内核日志（`dmesg` 中的 `desktop bench:` 行，依次是项目、次数、总毫秒数、最慢一次的毫秒数），可以经串口完成整轮测量。1080p 下的一次结果：整屏重画 110 ms；打开 Terminal 480 ms、Files 570 ms 后画面稳定，期间最慢的一次重画 40 ms；拖动窗口每步约 21 ms。
 
 ## USB
 

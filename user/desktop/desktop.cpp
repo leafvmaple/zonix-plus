@@ -4,6 +4,7 @@
 #include "../net/zonix_net.h"
 #include <sys/algorithm.hpp>
 #include <sys/array.hpp>
+#include <sys/cstdlib.hpp>
 
 namespace {
 
@@ -15,8 +16,11 @@ using desktop_chrome::CLOSE_SIZE;
 // parts of the screen to repaint. The Compositor supplies the pixels.
 class Desktop {
 public:
-    Desktop(int fd, int width, int height)
+    // With `bench` Desktop drives itself through a fixed session instead of
+    // reading input, logs how long it took and returns.
+    Desktop(int fd, int width, int height, bool bench)
         : fd_(fd),
+          bench_(bench),
           screen_{{0, 0}, width, height},
           pointer_{width / 2, height / 2},
           dock_(desktop_dock::bounds(width, height)),
@@ -24,7 +28,8 @@ public:
           menu_height_(dock_.width != 0 ? desktop_chrome::MENU_HEIGHT : 0),
           // So does the column of desktop icons, between the two.
           icons_(menu_height_ != 0 ? desktop_icons::bounds(width, menu_height_, dock_.origin.y) : Rect{}),
-          compositor_({windows_, order_, surfaces_, chrome_, pointer_, screen_, dock_, icons_, menu_height_, resize_outline_}) {
+          compositor_(
+              {windows_, order_, surfaces_, chrome_, pointer_, screen_, dock_, icons_, menu_height_, resize_outline_}) {
         terminal_fits_ = width >= TERMINAL_OUTER_WIDTH && height >= TERMINAL_OUTER_HEIGHT;
         timezone_minutes_ = zonix_gui::Settings::load().timezone_minutes;
         for (int slot = 0; slot < MAX_WINDOWS; ++slot)
@@ -42,13 +47,20 @@ public:
         long error = chrome_.init(sys::min(screen_.width, sys::max(widest, TERMINAL_OUTER_WIDTH)));
         if (error < 0)
             return error;
+        error = compositor_.init();
+        if (error < 0)
+            return error;
+        band_.reset(static_cast<unsigned int*>(malloc(PRESENT_PIXELS * sizeof(unsigned int))));
+        if (!band_)
+            return SYS_ERROR_FULL;
         FileStat example{};
-        if (sys_stat(const_cast<char*>(APPS[APP_EXAMPLE_A].program), &example) == 0 &&
-            example.type == FILE_TYPE_FILE) {
+        if (sys_stat(const_cast<char*>(APPS[APP_EXAMPLE_A].program), &example) == 0 && example.type == FILE_TYPE_FILE) {
             open_at_front(APP_EXAMPLE_A);
             open_at_front(APP_EXAMPLE_B);
         }
         error = repaint(screen_);
+        if (error == 0 && bench_)
+            return bench();
         const unsigned int display_mask = 1U << fd_;
         while (error == 0 && !quit_) {
             unsigned int mask = display_mask;
@@ -58,19 +70,23 @@ public:
             error = update_menu(clock_wait_ms);
             if (error < 0)
                 break;
-            // With a menu bar, wake when its clock moves to the next minute.
-            long ready = menu_height_ != 0 ? sys_wait_readable_for(mask, clock_wait_ms) : sys_wait_readable(mask);
+            // Damage collects while input and client updates are waiting, so a
+            // burst of pointer motion costs one repaint. A client that never
+            // stops sending still sees its updates about once a frame.
+            long ready = sys_wait_readable_for(mask, 0);
             if (ready < 0)
                 return ready;
-            for (int index = 0; index < MAX_WINDOWS && error == 0; ++index) {
-                auto& window = windows_[index];
-                if ((static_cast<unsigned long>(ready) & window.client.mask()) == 0)
-                    continue;
-                if (has_pixels(index))
-                    error = receive_pixels(index);
-                else
-                    error = window.client.receive_frame() ? repaint(window.rect) : close_window(index);
+            if (ready == 0 || (damage_count_ != 0 && sys_uptime_ms() - damage_since_ms_ >= FRAME_MS)) {
+                error = flush();
+                if (error < 0)
+                    break;
             }
+            // With a menu bar, wake when its clock moves to the next minute.
+            if (ready == 0)
+                ready = menu_height_ != 0 ? sys_wait_readable_for(mask, clock_wait_ms) : sys_wait_readable(mask);
+            if (ready < 0)
+                return ready;
+            error = receive_clients(static_cast<unsigned long>(ready));
             if (error < 0 || (static_cast<unsigned long>(ready) & display_mask) == 0)
                 continue;
             DisplayTimedEvent input{};
@@ -96,7 +112,12 @@ private:
     static constexpr unsigned int KEY_F12 = 88;
     static constexpr unsigned long DOUBLE_CLICK_MS = 400;
     static constexpr int CLICK_DISTANCE = 5;
-    static constexpr int TILE_SIZE = 64;
+    // The most pixels one DISPLAY_PRESENT carries, which bounds the kernel's copy.
+    static constexpr int PRESENT_PIXELS = 65536;
+    static constexpr int MAX_DAMAGE = 6;
+    // Two damaged areas are repainted as one when that adds at most this many pixels.
+    static constexpr long MERGE_SLACK = 8192;
+    static constexpr long FRAME_MS = 16;
     static constexpr long MINUTE_MS = 60000;
     static constexpr long NETWORK_POLL_MS = 5000;
     // Margins for a window placed at the right edge or in the top-left corner.
@@ -108,7 +129,6 @@ private:
     static constexpr int CASCADE_STEPS = 6;
     static constexpr int TERMINAL_OUTER_WIDTH = outer_width(TERMINAL_WIDTH);
     static constexpr int TERMINAL_OUTER_HEIGHT = outer_height(TERMINAL_HEIGHT);
-    inline static sys::array<unsigned int, TILE_SIZE * TILE_SIZE> pixels_{};
     // The window pool is too large for the stack.
     inline static Windows windows_{};
     inline static Surfaces surfaces_{};
@@ -121,7 +141,19 @@ private:
         return index != NO_WINDOW && windows_[index].protocol() != Protocol::Frame;
     }
 
+    struct FreePixels {
+        void operator()(unsigned int* pixels) const noexcept { free(pixels); }
+    };
+
     int fd_;
+    bool bench_;
+    // Rows composed for one DISPLAY_PRESENT.
+    sys::unique_ptr<unsigned int, FreePixels> band_;
+    // Areas to repaint once no input or client update is waiting, and when
+    // the first of them was added.
+    sys::array<Rect, MAX_DAMAGE> damage_{};
+    int damage_count_{};
+    long damage_since_ms_{};
     desktop_chrome::Chrome chrome_;
     Rect screen_;
     Point pointer_;
@@ -181,10 +213,9 @@ private:
     }
 
     static Rect close_rect(const Rect& window) {
-        return {
-            {window.origin.x + desktop_chrome::CLOSE_LEFT, window.origin.y + desktop_chrome::CLOSE_TOP},
-            CLOSE_SIZE,
-            CLOSE_SIZE};
+        return {{window.origin.x + desktop_chrome::CLOSE_LEFT, window.origin.y + desktop_chrome::CLOSE_TOP},
+                CLOSE_SIZE,
+                CLOSE_SIZE};
     }
 
     int top_window() const { return desktop::top_window(windows_, order_); }
@@ -260,7 +291,7 @@ private:
         window.app = app;
         window.step = siblings;
         // The Dock marks programs that have a window.
-        if (repaint(dock_) < 0) {
+        if (repaint_desk(dock_) < 0) {
             window.client.stop();
             return SYS_ERROR_IO;
         }
@@ -306,8 +337,7 @@ private:
     long edit_text(const char* path) {
         for (int index = 0; index < MAX_WINDOWS; ++index) {
             auto& window = windows_[index];
-            if (window.open() && window.app == APP_EDITOR &&
-                strcmp(window.path.data(), const_cast<char*>(path)) == 0)
+            if (window.open() && window.app == APP_EDITOR && strcmp(window.path.data(), const_cast<char*>(path)) == 0)
                 return index;
         }
         FileStat st{};
@@ -407,7 +437,7 @@ private:
         }
         long error = repaint(bounds(old));
         if (error == 0)
-            error = repaint(dock_);
+            error = repaint_desk(dock_);
         // Settings may have changed what Desktop itself shows.
         if (error == 0 && window.app == APP_SETTINGS)
             error = apply_settings();
@@ -418,7 +448,7 @@ private:
         auto settings = zonix_gui::Settings::load();
         timezone_minutes_ = settings.timezone_minutes;
         long changed = chrome_.set_text_size(settings.text_size);
-        return changed > 0 ? repaint(screen_) : changed;
+        return changed > 0 ? repaint_desk(screen_) : changed;
     }
 
     // Hides a window until its program is shown again. The window below it
@@ -560,7 +590,7 @@ private:
         wait_ms = sys::min(wait_ms, network_wait_ms);
         int top = top_window();
         long changed = chrome_.set_menu(top == NO_WINDOW ? NO_APP : windows_[top].app, clock);
-        return changed > 0 ? repaint({{0, 0}, screen_.width, menu_height_}) : changed;
+        return changed > 0 ? repaint_desk({{0, 0}, screen_.width, menu_height_}) : changed;
     }
 
     // Windows stay below the menu bar.
@@ -584,10 +614,9 @@ private:
         bool again = item != desktop_icons::NO_ITEM && last_icon_press_.window == item &&
                      near(last_icon_press_.position, pointer_) &&
                      timestamp_ms - last_icon_press_.timestamp_ms <= DOUBLE_CLICK_MS;
-        last_icon_press_ =
-            item != desktop_icons::NO_ITEM && !again ? Click{item, pointer_, timestamp_ms} : Click{};
+        last_icon_press_ = item != desktop_icons::NO_ITEM && !again ? Click{item, pointer_, timestamp_ms} : Click{};
         long changed = chrome_.select_icon(item);
-        long error = changed > 0 ? repaint(icons_) : changed;
+        long error = changed > 0 ? repaint_desk(icons_) : changed;
         if (error < 0 || !again)
             return error;
         const char* path = desktop_icons::ITEMS[item].path;
@@ -822,8 +851,8 @@ private:
     long receive_pixels(int index) {
         auto& window = windows_[index];
         auto& pixels = surface(index);
-        switch (window.client.receive_pixels(pixels, screen_.width - 2 * FRAME,
-                                             screen_.height - TITLE_HEIGHT - FRAME)) {
+        switch (
+            window.client.receive_pixels(pixels, screen_.width - 2 * FRAME, screen_.height - TITLE_HEIGHT - FRAME)) {
             case PixelSurface::Result::Pending: return 0;
             case PixelSurface::Result::Configured: {
                 int width = outer_width(static_cast<int>(pixels.width()));
@@ -864,26 +893,188 @@ private:
         return 0;
     }
 
+    // Reads what the clients whose descriptors are set in `ready` sent.
+    long receive_clients(unsigned long ready) {
+        long error = 0;
+        for (int index = 0; index < MAX_WINDOWS && error == 0; ++index) {
+            auto& window = windows_[index];
+            if ((ready & window.client.mask()) == 0)
+                continue;
+            if (has_pixels(index))
+                error = receive_pixels(index);
+            else
+                error = window.client.receive_frame() ? repaint(window.rect) : close_window(index);
+        }
+        return error;
+    }
+
+    // The benchmark opens Terminal and Files, drags the front window and then
+    // moves the pointer alone, presenting every step, and logs each result as
+    // "desktop bench: <what> <count> <total ms> <slowest ms>".
+    static constexpr int BENCH_STEPS = 120;
+    // An opened program counts as ready once it has sent nothing for this long.
+    static constexpr long BENCH_QUIET_MS = 500;
+    static constexpr long BENCH_OPEN_LIMIT_MS = 8000;
+
+    // Waits up to `wait_ms` for any client and reads what arrived. Returns 1
+    // if something did, 0 if not, or a negative error.
+    long serve_clients(long wait_ms) {
+        unsigned int mask = 0;
+        for (const auto& window : windows_)
+            mask |= window.client.mask();
+        long ready = mask != 0 ? sys_wait_readable_for(mask, wait_ms) : 0;
+        if (ready <= 0)
+            return ready;
+        long error = receive_clients(static_cast<unsigned long>(ready));
+        return error < 0 ? error : 1;
+    }
+
+    static void bench_report(const char* what, long count, long total_ms, long slowest_ms) {
+        char line[96];
+        char* out = put_text(put_text(line, "desktop bench: "), what);
+        *out++ = ' ';
+        out = put_number(out, count, 1);
+        *out++ = ' ';
+        out = put_number(out, total_ms, 1);
+        *out++ = ' ';
+        out = put_number(out, slowest_ms, 1);
+        *out++ = '\n';
+        *out = 0;
+        command_log(6, line);
+    }
+
+    // Serves the clients until they stay quiet. Reports the time to their
+    // last update, how many repaints that took and the slowest of them.
+    long bench_open(int app, const char* what) {
+        long error = show(app, 0);
+        long start = sys_uptime_ms();
+        long last = start;
+        long repaints = 0;
+        long slowest = 0;
+        while (error == 0 && sys_uptime_ms() - last < BENCH_QUIET_MS && sys_uptime_ms() - start < BENCH_OPEN_LIMIT_MS) {
+            long served = serve_clients(20);
+            if (served < 0)
+                return served;
+            if (served > 0)
+                last = sys_uptime_ms();
+            if (error == 0 && damage_count_ != 0) {
+                long before = sys_uptime_ms();
+                error = flush();
+                slowest = sys::max(slowest, sys_uptime_ms() - before);
+                ++repaints;
+            }
+        }
+        if (error == 0)
+            bench_report(what, repaints, last - start, slowest);
+        return error;
+    }
+
+    // Moves the pointer back and forth, presenting every step.
+    long bench_motion(const char* what) {
+        long start = sys_uptime_ms();
+        long slowest = 0;
+        for (int step = 0; step < BENCH_STEPS; ++step) {
+            long before = sys_uptime_ms();
+            int dx = step / 30 % 2 == 0 ? 6 : -6;
+            int dy = step / 15 % 2 == 0 ? 3 : -3;
+            long error = move({DISPLAY_EVENT_REL, DISPLAY_REL_X, dx, 0});
+            if (error == 0)
+                error = move({DISPLAY_EVENT_REL, DISPLAY_REL_Y, dy, 0});
+            if (error == 0)
+                error = flush();
+            // A client that follows the pointer answers with its own updates.
+            if (error == 0)
+                error = sys::min(serve_clients(0), 0L);
+            if (error < 0)
+                return error;
+            slowest = sys::max(slowest, sys_uptime_ms() - before);
+        }
+        bench_report(what, BENCH_STEPS, sys_uptime_ms() - start, slowest);
+        return 0;
+    }
+
+    long bench() {
+        long start = sys_uptime_ms();
+        long error = flush();
+        if (error == 0)
+            bench_report("screen", 1, sys_uptime_ms() - start, sys_uptime_ms() - start);
+        if (error == 0)
+            error = bench_open(APP_TERMINAL, "open-terminal");
+        if (error == 0)
+            error = bench_open(APP_FILES, "open-files");
+        int top = top_window();
+        if (error == 0 && top != NO_WINDOW) {
+            drag_ = top;
+            drag_offset_ = {pointer_.x - windows_[top].rect.origin.x, pointer_.y - windows_[top].rect.origin.y};
+            error = bench_motion("drag");
+            drag_ = NO_WINDOW;
+        }
+        if (error == 0)
+            error = bench_motion("pointer");
+        return error;
+    }
+
+    static long area_of(const Rect& rect) { return static_cast<long>(rect.width) * rect.height; }
+
+    static Rect unite(const Rect& a, const Rect& b) {
+        int left = sys::min(a.origin.x, b.origin.x);
+        int top = sys::min(a.origin.y, b.origin.y);
+        int right = sys::max(a.origin.x + a.width, b.origin.x + b.width);
+        int bottom = sys::max(a.origin.y + a.height, b.origin.y + b.height);
+        return {{left, top}, right - left, bottom - top};
+    }
+
+    // Marks an area to be repainted from the current state once no input or
+    // client update is waiting. An area close to one already marked joins it.
     long repaint(const Rect& damage) {
-        int right = clamp(static_cast<long>(damage.origin.x) + damage.width, screen_.width);
-        int bottom = clamp(static_cast<long>(damage.origin.y) + damage.height, screen_.height);
-        for (int y = clamp(damage.origin.y, screen_.height); y < bottom;) {
-            int height = clamp(bottom - y, TILE_SIZE);
-            for (int x = clamp(damage.origin.x, screen_.width); x < right;) {
-                int width = clamp(right - x, TILE_SIZE);
-                for (int row = 0; row < height; ++row)
-                    for (int col = 0; col < width; ++col)
-                        pixels_[row * width + col] = compositor_.color({x + col, y + row});
-                DisplayPresent area{static_cast<unsigned int>(x),          static_cast<unsigned int>(y),
-                                    static_cast<unsigned int>(width),      static_cast<unsigned int>(height),
-                                    static_cast<unsigned int>(width * 4),  0,
-                                    reinterpret_cast<long>(pixels_.data())};
-                long error = sys_ioctl(fd_, DISPLAY_PRESENT, reinterpret_cast<long>(&area));
+        Rect area = Compositor::intersect(damage, screen_);
+        if (area.width == 0)
+            return 0;
+        if (damage_count_ == 0)
+            damage_since_ms_ = sys_uptime_ms();
+        // The marked area that grows least by taking this one. Overlapping
+        // areas grow by less than nothing.
+        int best = -1;
+        long best_growth = 0;
+        for (int index = 0; index < damage_count_; ++index) {
+            long growth = area_of(unite(damage_[index], area)) - area_of(damage_[index]) - area_of(area);
+            if (best < 0 || growth < best_growth) {
+                best = index;
+                best_growth = growth;
+            }
+        }
+        if (best >= 0 && (best_growth <= MERGE_SLACK || damage_count_ == MAX_DAMAGE))
+            damage_[best] = unite(damage_[best], area);
+        else
+            damage_[damage_count_++] = area;
+        return 0;
+    }
+
+    // Marks an area whose desk layer changed: background, menu bar, icons or Dock.
+    long repaint_desk(const Rect& damage) {
+        compositor_.refresh_desk(damage);
+        return repaint(damage);
+    }
+
+    // Composes every marked area in bands of rows and presents each band.
+    long flush() {
+        int count = damage_count_;
+        damage_count_ = 0;
+        for (int index = 0; index < count; ++index) {
+            const Rect& area = damage_[index];
+            int rows = sys::max(1, PRESENT_PIXELS / area.width);
+            for (int y = area.origin.y; y < area.origin.y + area.height; y += rows) {
+                Rect band{{area.origin.x, y}, area.width, sys::min(rows, area.origin.y + area.height - y)};
+                compositor_.render(band, band_.get(), band.width);
+                DisplayPresent present{
+                    static_cast<unsigned int>(band.origin.x),  static_cast<unsigned int>(band.origin.y),
+                    static_cast<unsigned int>(band.width),     static_cast<unsigned int>(band.height),
+                    static_cast<unsigned int>(band.width * 4), 0,
+                    reinterpret_cast<long>(band_.get())};
+                long error = sys_ioctl(fd_, DISPLAY_PRESENT, reinterpret_cast<long>(&present));
                 if (error < 0)
                     return error;
-                x += width;
             }
-            y += height;
         }
         return 0;
     }
@@ -891,9 +1082,10 @@ private:
 
 }  // namespace
 
-extern "C" int main(int argc, char**) {
-    if (argc != 1)
-        return command_usage("Usage: desktop\n");
+extern "C" int main(int argc, char** argv) {
+    bool bench = argc == 2 && strcmp(argv[1], const_cast<char*>("--bench")) == 0;
+    if (argc != 1 && !bench)
+        return command_usage("Usage: desktop [--bench]\n");
     int fd = sys_open((char*)"/dev/display", O_RDWR | O_CLOEXEC);
     if (fd < 0)
         return command_error("desktop", "/dev/display", fd);
@@ -904,7 +1096,8 @@ extern "C" int main(int argc, char**) {
         error = SYS_ERROR_NOT_SUPPORTED;
     if (error == 0)
         error = command_text(
-            STDOUT_FD, "Desktop: click the Dock or press F2 Terminal, F4 Files, F12 exit. Shift opens another window.\n");
+            STDOUT_FD,
+            "Desktop: click the Dock or press F2 Terminal, F4 Files, F12 exit. Shift opens another window.\n");
     if (error == 0)
         error = sys_ioctl(fd, DISPLAY_ACQUIRE, DISPLAY_ACQUIRE_EVENTS | DISPLAY_ACQUIRE_KEYBOARD_CTRL_C);
     // Ahead of its applications, the compositor answers input as soon as it
@@ -913,7 +1106,7 @@ extern "C" int main(int argc, char**) {
     if (error == 0)
         error = sys_set_priority(0, PROCESS_PRIORITY_HIGHEST);
     if (error == 0) {
-        Desktop desktop(fd, static_cast<int>(mode.width), static_cast<int>(mode.height));
+        Desktop desktop(fd, static_cast<int>(mode.width), static_cast<int>(mode.height), bench);
         error = desktop.run();
         long release = sys_ioctl(fd, DISPLAY_RELEASE, 0);
         if (error == 0)
