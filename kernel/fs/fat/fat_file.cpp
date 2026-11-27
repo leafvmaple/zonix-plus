@@ -141,7 +141,31 @@ Result<int> FatInfo::write_file(const EntryLocation& location, const uint8_t* bu
     return static_cast<int>(state->done);
 }
 
+// The directory entry is written once, after the data: every sector write is
+// one device write, and the entry costs another whenever the size grows.
 Error FatInfo::transfer_file(WriteState& state) {
+    const uint32_t old_size = state.entry.file_size;
+    Error error = transfer_data(state);
+    if (!state.written) {
+        return error;
+    }
+    FatDirEntry updated = state.entry;
+    updated.file_size = sys::max(old_size, state.position);
+    updated.attr |= FAT_ATTR_ARCHIVE;
+    if (updated.file_size == state.entry.file_size && updated.attr == state.entry.attr) {
+        return error;
+    }
+    Error published = write_file_entry(state.location, updated);
+    if (published != Error::None) {
+        // Bytes past the old end are not part of the file without its new size.
+        state.done = state.offset >= old_size ? 0 : sys::min(state.done, old_size - state.offset);
+        return error != Error::None ? error : published;
+    }
+    state.entry = updated;
+    return error;
+}
+
+Error FatInfo::transfer_data(WriteState& state) {
     state.position = sys::min(state.offset, state.entry.file_size);
     state.cluster = state.entry.cluster();
     uint32_t skip = state.position / bytes_per_cluster_;
@@ -167,30 +191,21 @@ Error FatInfo::transfer_file(WriteState& state) {
                 TRY(write_file_entry(state.location, state.entry));
             }
         }
-        uint32_t sector_offset = state.cluster_offset % bytes_per_sector_;
-        uint32_t count = sys::min(bytes_per_sector_ - sector_offset, state.end - state.position);
         const bool gap = state.position < state.offset;
-        if (gap) {
-            count = sys::min(count, state.offset - state.position);
-        }
-        uint32_t lba =
+        const uint32_t lba =
             partition_start_lba_ + cluster_to_sector(state.cluster) + state.cluster_offset / bytes_per_sector_;
-        if (sector_offset != 0 || count != bytes_per_sector_) {
-            TRY(dev_->read(lba, state.sector.data(), 1));
-        }
-        if (gap) {
-            memset(state.sector.data() + sector_offset, 0, count);
+        uint32_t count = 0;
+        // Whole sectors of caller data within this cluster go out as one
+        // write straight from the caller's buffer.
+        const uint32_t whole =
+            sys::min(bytes_per_cluster_ - state.cluster_offset, state.end - state.position) / bytes_per_sector_;
+        if (!gap && state.cluster_offset % bytes_per_sector_ == 0 && whole != 0) {
+            count = whole * bytes_per_sector_;
+            TRY(write_sectors(lba, state.bytes + state.done, whole));
         } else {
-            memcpy(state.sector.data() + sector_offset, state.bytes + state.done, count);
+            TRY(write_sector_step(state, lba, count));
         }
-        TRY(write_sectors(lba, state.sector.data(), 1));
-        FatDirEntry updated = state.entry;
-        updated.file_size = sys::max(state.entry.file_size, state.position + count);
-        updated.attr |= FAT_ATTR_ARCHIVE;
-        if (updated.file_size != state.entry.file_size || updated.attr != state.entry.attr) {
-            TRY(write_file_entry(state.location, updated));
-            state.entry = updated;
-        }
+        state.written = true;
         state.position += count;
         state.cluster_offset += count;
         if (!gap) {
@@ -203,6 +218,26 @@ Error FatInfo::transfer_file(WriteState& state) {
         }
     }
     return Error::None;
+}
+
+// Writes part of one sector, or zeros for a gap before the write's offset,
+// keeping the rest of the sector; reports the bytes covered in `count`.
+Error FatInfo::write_sector_step(WriteState& state, uint32_t lba, uint32_t& count) {
+    const uint32_t sector_offset = state.cluster_offset % bytes_per_sector_;
+    const bool gap = state.position < state.offset;
+    count = sys::min(bytes_per_sector_ - sector_offset, state.end - state.position);
+    if (gap) {
+        count = sys::min(count, state.offset - state.position);
+    }
+    if (sector_offset != 0 || count != bytes_per_sector_) {
+        TRY(dev_->read(lba, state.sector.data(), 1));
+    }
+    if (gap) {
+        memset(state.sector.data() + sector_offset, 0, count);
+    } else {
+        memcpy(state.sector.data() + sector_offset, state.bytes + state.done, count);
+    }
+    return write_sectors(lba, state.sector.data(), 1);
 }
 
 Error FatInfo::truncate_file(const EntryLocation& location) {

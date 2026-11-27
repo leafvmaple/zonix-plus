@@ -88,6 +88,51 @@ void test_large_cluster_io() {
     TEST_END();
 }
 
+// Every device write of a removable card waits for the card to program it,
+// so a write sends each run of whole sectors in a cluster at once and
+// publishes the grown size once at the end.
+void test_write_batching() {
+    TEST_START("FAT writes whole sectors together and the directory entry once");
+    FatImage image;
+    FatInfo fs;
+    auto* bytes = static_cast<uint8_t*>(kmalloc(image.cluster_bytes()));
+    if (!image.ready() || !bytes) {
+        TEST_ASSERT(false, "Allocated image and buffer");
+        kfree(bytes);
+        TEST_END();
+        return;
+    }
+    reinterpret_cast<FatDirEntry*>(image.cluster_data(2))->file_size = BlockDevice::BLOCK_SIZE_BYTES;
+    TEST_ASSERT(fs.mount(&image) == Error::None, "Mounted single-cluster fixture");
+    FatDirEntry file{};
+    FatInfo::EntryLocation location{};
+    TEST_ASSERT(fs.find_file("FILE.TXT", &file, &location) == Error::None, "Found file");
+    for (size_t i = 0; i < image.cluster_bytes(); ++i) {
+        bytes[i] = static_cast<uint8_t>(i * 7);
+    }
+    const size_t before = image.write_calls();
+    image.watch_writes(image.cluster_lba(2));
+    auto written = fs.write_file(location, bytes, 0, image.cluster_bytes());
+    TEST_ASSERT(written.ok() && written.value() == static_cast<int>(image.cluster_bytes()) &&
+                    memcmp(image.cluster_data(3), bytes, image.cluster_bytes()) == 0,
+                "Growing a file across its whole cluster stores every byte");
+    TEST_ASSERT(image.write_calls() - before == 2 && image.watched_writes() == 1,
+                "One write carries the cluster's sectors and one publishes the new size");
+    TEST_ASSERT(fs.find_file("FILE.TXT", &file, &location) == Error::None && file.file_size == image.cluster_bytes(),
+                "Directory entry records the grown size");
+    // Partial sectors around a whole one keep their neighbours.
+    auto patch = fs.write_file(location, bytes + 1, 100, 1000);
+    bool intact = patch.ok() && patch.value() == 1000;
+    for (size_t i = 0; i < image.cluster_bytes(); ++i) {
+        const uint8_t expected = i >= 100 && i < 1100 ? bytes[i - 99] : bytes[i];
+        intact = intact && image.cluster_data(3)[i] == expected;
+    }
+    TEST_ASSERT(intact, "Unaligned write changes exactly its range");
+    kfree(bytes);
+    assert(fs.unmount() == Error::None);
+    TEST_END();
+}
+
 void test_offset_reads_skip_clusters() {
     TEST_START("FAT reads at an offset read only the clusters they return");
     FatImage image(1, 4);
@@ -373,6 +418,7 @@ void test() {
     intr::Guard guard;
     test_geometry();
     test_large_cluster_io();
+    test_write_batching();
     test_offset_reads_skip_clusters();
     test_directory_chains();
     test_cyclic_file_removal();

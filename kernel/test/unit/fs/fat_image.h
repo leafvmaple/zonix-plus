@@ -90,6 +90,13 @@ public:
         write_error_ = error;
     }
     void set_write_hook(void (*hook)()) { write_hook_ = hook; }
+    // Device write calls, in total and those starting at one watched block.
+    size_t write_calls() const { return write_calls_; }
+    void watch_writes(uint32_t block) {
+        watched_block_ = block;
+        watched_writes_ = 0;
+    }
+    size_t watched_writes() const { return watched_writes_; }
     // Sectors read from the data region, where clusters live.
     size_t data_sectors_read() const { return data_sectors_read_; }
     Error flush_cache() override { return Error::None; }
@@ -128,6 +135,10 @@ public:
             }
         }
         memcpy(data_ + block * BLOCK_SIZE_BYTES, buffer, count * BLOCK_SIZE_BYTES);
+        ++write_calls_;
+        if (block == watched_block_) {
+            ++watched_writes_;
+        }
         if (write_hook_) {
             write_hook_();
         }
@@ -143,6 +154,9 @@ private:
     };
     WriteFailure write_failures_[2]{};
     size_t data_sectors_read_{};
+    size_t write_calls_{};
+    uint32_t watched_block_{};
+    size_t watched_writes_{};
     uint32_t read_block_{};
     uint32_t write_block_{};
     Error read_error_{Error::None};

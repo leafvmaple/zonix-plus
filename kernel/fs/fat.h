@@ -130,9 +130,13 @@ private:
         uint32_t tail{};
         uint32_t cluster_offset{};
         uint32_t done{};
+        // Set once a data sector reached the device.
+        bool written{};
         sys::array<uint8_t, BlockDevice::BLOCK_SIZE_BYTES> sector{};
     };
     Error transfer_file(WriteState& state);
+    Error transfer_data(WriteState& state);
+    Error write_sector_step(WriteState& state, uint32_t lba, uint32_t& count);
     Error validate_file_chain(const FatDirEntry& entry);
     Error link_file_cluster(uint32_t tail, uint32_t old_link, uint32_t cluster);
     Error resolve_parent(const char* relpath, uint32_t* parent_cluster, char* child_name, size_t name_size);
