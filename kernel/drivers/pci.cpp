@@ -237,6 +237,13 @@ Result<int> attach_irq(const DeviceInfo& device, IrqHandler handler, void* conte
     return irq;
 }
 
+Error attach_line(int irq, IrqHandler handler, void* context) {
+    ENSURE(handler && irq > 0, Error::Invalid);
+    TRY(IrqTable::add(irq, handler, context));
+    arch_irq_enable_line(irq);
+    return Error::None;
+}
+
 void detach_irq(void* context) {
     IrqTable::remove(context);
 }

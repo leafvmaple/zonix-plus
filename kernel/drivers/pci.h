@@ -93,6 +93,10 @@ using IrqHandler = void (*)(void* context);
 // Routes the device's INTx pin to a platform IRQ, records the handler, unmasks
 // the line and enables INTx in the device's command register.
 Result<int> attach_irq(const DeviceInfo& device, IrqHandler handler, void* context);
+// Records a handler for a platform IRQ line wired to a device outside PCI,
+// such as an SoC controller, and unmasks the line. The handler shares the
+// table, and the dispatch, with PCI devices' handlers.
+Error attach_line(int irq, IrqHandler handler, void* context);
 // Removes every handler recorded with this context. The line stays unmasked
 // for other devices that may share it.
 void detach_irq(void* context);

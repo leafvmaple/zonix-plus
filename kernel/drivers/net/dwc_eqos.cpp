@@ -1,6 +1,7 @@
 #include "drivers/net/dwc_eqos.h"
 #include "drivers/intr.h"
 #include "drivers/mmio.h"
+#include "drivers/pci.h"
 #include "fs/readiness.h"
 #include "fs/vfs_fs.h"
 #include "lib/string.h"
@@ -19,11 +20,15 @@ namespace reg {
 constexpr uintptr_t MAC_CONFIGURATION = 0x0000;
 constexpr uintptr_t MAC_PACKET_FILTER = 0x0008;
 constexpr uintptr_t MAC_RXQ_CTRL0 = 0x00A0;
+constexpr uintptr_t MAC_INTERRUPT_ENABLE = 0x00B4;
 constexpr uintptr_t MAC_VERSION = 0x0110;
 constexpr uintptr_t MAC_MDIO_ADDRESS = 0x0200;
 constexpr uintptr_t MAC_MDIO_DATA = 0x0204;
 constexpr uintptr_t MAC_ADDRESS0_HIGH = 0x0300;
 constexpr uintptr_t MAC_ADDRESS0_LOW = 0x0304;
+constexpr uintptr_t MMC_RX_INTERRUPT_MASK = 0x070C;
+constexpr uintptr_t MMC_TX_INTERRUPT_MASK = 0x0710;
+constexpr uintptr_t MMC_IPC_RX_INTERRUPT_MASK = 0x0800;
 constexpr uintptr_t MTL_TXQ0_OPERATION_MODE = 0x0D00;
 constexpr uintptr_t MTL_RXQ0_OPERATION_MODE = 0x0D30;
 constexpr uintptr_t DMA_MODE = 0x1000;
@@ -38,6 +43,7 @@ constexpr uintptr_t DMA_CH0_TX_TAIL = 0x1120;
 constexpr uintptr_t DMA_CH0_RX_TAIL = 0x1128;
 constexpr uintptr_t DMA_CH0_TX_RING_LENGTH = 0x112C;
 constexpr uintptr_t DMA_CH0_RX_RING_LENGTH = 0x1130;
+constexpr uintptr_t DMA_CH0_INTERRUPT_ENABLE = 0x1134;
 constexpr uintptr_t DMA_CH0_STATUS = 0x1160;
 }  // namespace reg
 
@@ -99,12 +105,31 @@ constexpr uint32_t RX_BUFFER_SIZE_SHIFT = 1;
 constexpr uint32_t DESC_OWN = 1U << 31;
 constexpr uint32_t RDES3_INTERRUPT = 1U << 30;  // As handed to the controller
 constexpr uint32_t RDES3_CONTEXT = 1U << 30;    // As written back
+constexpr uint32_t TDES2_INTERRUPT = 1U << 31;
 constexpr uint32_t DESC_FIRST = 1U << 29;
 constexpr uint32_t DESC_LAST = 1U << 28;
 constexpr uint32_t RDES3_BUFFER1_VALID = 1U << 24;
 constexpr uint32_t RDES3_ERROR = 1U << 15;
 constexpr uint32_t RDES3_LENGTH_MASK = 0x7FFF;
 constexpr uint32_t FCS_BYTES = 4;
+
+// DMA channel interrupts, enabled and reported at the same bit positions:
+// frame transmitted, frame received, no receive buffer left, fatal bus
+// error, and the abnormal and normal summaries. Status bits are cleared by
+// writing them back. Statistics counters can interrupt too and are masked.
+constexpr uint32_t DMA_INT_TRANSMIT = 1U << 0;
+constexpr uint32_t DMA_INT_RECEIVE = 1U << 6;
+constexpr uint32_t DMA_INT_RECEIVE_UNAVAILABLE = 1U << 7;
+constexpr uint32_t DMA_INT_FATAL_BUS_ERROR = 1U << 12;
+constexpr uint32_t DMA_INT_ABNORMAL = 1U << 14;
+constexpr uint32_t DMA_INT_NORMAL = 1U << 15;
+constexpr uint32_t DMA_INTERRUPTS = DMA_INT_TRANSMIT | DMA_INT_RECEIVE | DMA_INT_RECEIVE_UNAVAILABLE |
+                                    DMA_INT_FATAL_BUS_ERROR | DMA_INT_ABNORMAL | DMA_INT_NORMAL;
+constexpr uint32_t MMC_MASK_ALL = 0xFFFFFFFF;
+// An interrupt line that keeps firing with nothing for the channel to report
+// is one this driver cannot clear; after this many in a row it goes back to
+// polling on the timer tick.
+constexpr uint32_t EMPTY_INTERRUPT_LIMIT = 1000;
 
 // Standard PHY registers and the bits that tell the negotiated link.
 namespace phy {
@@ -149,7 +174,7 @@ constexpr uint64_t LINK_POLL_MS = 1000;
 
 class Device {
 public:
-    Error start(uintptr_t base, const sys::array<uint8_t, dwc_eqos::MAC_BYTES>* board_mac) {
+    Error start(uintptr_t base, const sys::array<uint8_t, dwc_eqos::MAC_BYTES>* board_mac, int irq) {
         ENSURE(base_ == 0, Error::Busy);
         base_ = base;
         const uint32_t version = mmio::read32(base_, reg::MAC_VERSION);
@@ -178,6 +203,7 @@ public:
             klog::warn("dwc_eqos: no PHY answers on MDIO\n");
         update_link();
         state_ = State::Ready;
+        enable_interrupts(irq);
         klog::info("dwc_eqos: version 0x%x, MAC %02x:%02x:%02x:%02x:%02x:%02x\n", version & VERSION_SNPS_MASK, mac_[0],
                    mac_[1], mac_[2], mac_[3], mac_[4], mac_[5]);
         return Error::None;
@@ -259,7 +285,7 @@ public:
         Descriptor& descriptor = tx_descriptor(index);
         descriptor.word[0] = static_cast<uint32_t>(buffer);
         descriptor.word[1] = static_cast<uint32_t>(buffer >> 32);
-        descriptor.word[2] = static_cast<uint32_t>(size);
+        descriptor.word[2] = TDES2_INTERRUPT | static_cast<uint32_t>(size);
         descriptor.word[3] = DESC_OWN | DESC_FIRST | DESC_LAST | static_cast<uint32_t>(size);
         tx_ring_.sync_for_device(0, TX_COUNT * sizeof(Descriptor));
         tx_next_ = (index + 1) % TX_COUNT;
@@ -268,18 +294,18 @@ public:
         return static_cast<int>(size);
     }
 
+    // The timer tick polls when the controller has no usable interrupt and
+    // catches anything an interrupt missed.
     void tick() {
         if (state_ != State::Ready)
             return;
-        // Status bits are cleared by writing them back; nothing is enabled to
-        // interrupt, but a stalled channel records why.
-        mmio::write32(base_, reg::DMA_CH0_STATUS, mmio::read32(base_, reg::DMA_CH0_STATUS));
-        if (!progress_.empty())
-            progress_.wakeup_all();
-        if (opened_ && !rx_announced_ && received()) {
-            rx_announced_ = true;
-            fd::Readiness::notify();
+        if (interrupts_stopped_ && !storm_reported_) {
+            storm_reported_ = true;
+            klog::warn("dwc_eqos: interrupt line keeps firing, polling on the timer instead\n");
         }
+        // A stalled channel records why in its status.
+        mmio::write32(base_, reg::DMA_CH0_STATUS, mmio::read32(base_, reg::DMA_CH0_STATUS));
+        wake();
         const uint64_t now = trap::uptime_ms();
         if (now >= link_poll_ms_) {
             link_poll_ms_ = now + LINK_POLL_MS;
@@ -289,6 +315,46 @@ public:
 
 private:
     enum class State { Idle, Ready };
+
+    void wake() {
+        if (!progress_.empty())
+            progress_.wakeup_all();
+        if (opened_ && !rx_announced_ && received()) {
+            rx_announced_ = true;
+            fd::Readiness::notify();
+        }
+    }
+
+    void enable_interrupts(int irq) {
+        mmio::write32(base_, reg::MMC_RX_INTERRUPT_MASK, MMC_MASK_ALL);
+        mmio::write32(base_, reg::MMC_TX_INTERRUPT_MASK, MMC_MASK_ALL);
+        mmio::write32(base_, reg::MMC_IPC_RX_INTERRUPT_MASK, MMC_MASK_ALL);
+        mmio::write32(base_, reg::MAC_INTERRUPT_ENABLE, 0);
+        if (irq <= 0)
+            return;
+        Error error = pci::attach_line(irq, interrupt, this);
+        if (error != Error::None) {
+            klog::warn("dwc_eqos: IRQ %d not attached (%s), polling on the timer\n", irq, error_str(error));
+            return;
+        }
+        mmio::write32(base_, reg::DMA_CH0_INTERRUPT_ENABLE, DMA_INTERRUPTS);
+        klog::debug("dwc_eqos: IRQ %d\n", irq);
+    }
+
+    static void interrupt(void* context) {
+        auto* device = static_cast<Device*>(context);
+        const uint32_t status = mmio::read32(device->base_, reg::DMA_CH0_STATUS) & DMA_INTERRUPTS;
+        if (status == 0) {
+            if (++device->empty_interrupts_ >= EMPTY_INTERRUPT_LIMIT && !device->interrupts_stopped_) {
+                device->interrupts_stopped_ = true;
+                mmio::write32(device->base_, reg::DMA_CH0_INTERRUPT_ENABLE, 0);
+            }
+            return;
+        }
+        device->empty_interrupts_ = 0;
+        mmio::write32(device->base_, reg::DMA_CH0_STATUS, status);
+        device->wake();
+    }
 
     Descriptor& rx_descriptor(size_t index) { return static_cast<Descriptor*>(rx_ring_.data())[index]; }
     Descriptor& tx_descriptor(size_t index) { return static_cast<Descriptor*>(tx_ring_.data())[index]; }
@@ -508,6 +574,9 @@ private:
     bool link_up_{};
     bool opened_{};
     bool rx_announced_{};
+    bool interrupts_stopped_{};
+    bool storm_reported_{};
+    uint32_t empty_interrupts_{};
 };
 
 class NetFile : public vfs::File {
@@ -533,10 +602,11 @@ private:
 
 class Manager {
 public:
-    static Error attach(uintptr_t base, const uint8_t* mac) {
+    static Error attach(uintptr_t base, const uint8_t* mac, int irq) {
         ENSURE(base_ == 0, Error::Busy);
         TRY(vfs::register_char_dev("net0", open));
         base_ = base;
+        irq_ = irq;
         board_mac_known_ = mac != nullptr;
         if (mac)
             memcpy(board_mac_.data(), mac, board_mac_.size());
@@ -551,7 +621,7 @@ private:
     // fault in it cannot stop the system from booting.
     static Result<vfs::FileHandle> open() {
         if (!device_.started())
-            TRY(device_.start(base_, board_mac_known_ ? &board_mac_ : nullptr));
+            TRY(device_.start(base_, board_mac_known_ ? &board_mac_ : nullptr, irq_));
         TRY(device_.acquire());
         vfs::FileHandle file(new (sys::nothrow) NetFile(device_));
         if (!file) {
@@ -565,14 +635,15 @@ private:
     inline static uintptr_t base_{};
     inline static sys::array<uint8_t, dwc_eqos::MAC_BYTES> board_mac_{};
     inline static bool board_mac_known_{};
+    inline static int irq_{};
 };
 
 }  // namespace
 
 namespace dwc_eqos {
 
-Error attach(uintptr_t base, const uint8_t* mac) {
-    return Manager::attach(base, mac);
+Error attach(uintptr_t base, const uint8_t* mac, int irq) {
+    return Manager::attach(base, mac, irq);
 }
 
 void tick() {

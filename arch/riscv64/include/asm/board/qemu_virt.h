@@ -64,6 +64,7 @@
 #define BOARD_JH7110_GMAC    0
 #define BOARD_GMAC_PHYS      0UL
 #define BOARD_GMAC_DT_NODE   ""
+#define BOARD_GMAC_IRQ       0
 #define BOARD_GMAC_AHB_CLOCK 0
 #define BOARD_GMAC_AXI_CLOCK 0
 #define BOARD_GMAC_AXI_RESET 0

@@ -59,7 +59,7 @@ namespace jh7110_gmac {
 int init() {
     if constexpr (BOARD_JH7110_GMAC) {
         enable_bus();
-        Error error = dwc_eqos::attach(BOARD_GMAC_PHYS + KERNEL_BASE, board_address());
+        Error error = dwc_eqos::attach(BOARD_GMAC_PHYS + KERNEL_BASE, board_address(), BOARD_GMAC_IRQ);
         if (error != Error::None)
             klog::warn("net: GMAC1 not attached (%s)\n", error_str(error));
         return static_cast<int>(error);
