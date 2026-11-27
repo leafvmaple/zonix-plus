@@ -205,7 +205,7 @@ static int run(struct Command* command, int previous, int* quit, int* interrupte
     }
     if (!strcmp(args[0], "help")) {
         if (printf("help pwd cd [directory] echo [args] status exit [code] shutdown reboot\n") < 0 ||
-            printf("Base commands: ls cat cp mkdir rm sync ps kill vi\n") < 0 ||
+            printf("Base commands: ls cat cp mkdir mv rm sync ps kill vi\n") < 0 ||
             printf("Programs: name (search /bin, /opt/bin), ./name or /absolute/path\n") < 0 ||
             printf("Quotes and backslash escape arguments. Foreground execution only.\n") < 0 ||
             printf("Edit: Left/Right, Home/End, Delete/Backspace; Up/Down history (16 lines).\n") < 0 ||

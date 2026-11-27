@@ -410,6 +410,50 @@ void test_nt_lowercase_names() {
     TEST_END();
 }
 
+// Directories an older Zonix created as "VAR" are fixed by renaming them to
+// "var". Lookups ignore case, so the rename must still rewrite the case flag.
+void test_case_only_rename() {
+    TEST_START("FAT renames a name to the same letters in another case");
+    class Shown : public FatInfo::DirVisitor {
+    public:
+        int visit(const FatInfo::DirectoryRecord& record) override {
+            char name[13]{};
+            record.entry.get_display_name(name, sizeof(name));
+            bool var = strcmp(name, "var") == 0 || strcmp(name, "VAR") == 0;
+            if (var && !record.long_name && record.entry.is_directory()) {
+                memcpy(shown, name, sizeof(name));
+                ++count;
+            }
+            return 0;
+        }
+        char shown[13]{};
+        int count{};
+    };
+    FatImage image;
+    FatInfo fs;
+    if (image.ready())
+        image.set_link(4, fat::FAT32_FREE);  // Room for the directory.
+    if (image.ready() && fs.mount(&image) == Error::None) {
+        bool made = fs.mkdir("VAR") == Error::None && fs.create_file("VAR/kernel.log") == Error::None;
+        bool lowered = fs.rename("VAR", "var", false) == Error::None;
+        Shown lower;
+        bool listed = fs.read_dir("", lower).ok();
+        FatDirEntry inside{};
+        bool kept = fs.find_file("var/kernel.log", &inside, nullptr) == Error::None;
+        bool raised = fs.rename("var", "VAR", false) == Error::None;
+        Shown upper;
+        listed = listed && fs.read_dir("", upper).ok();
+        TEST_ASSERT(made && lowered && raised && listed, "Created, renamed and listed the directory");
+        TEST_ASSERT(lower.count == 1 && strcmp(lower.shown, "var") == 0 && kept,
+                    "Renaming VAR to var shows it lowercase in one entry that keeps its contents");
+        TEST_ASSERT(upper.count == 1 && strcmp(upper.shown, "VAR") == 0, "Renaming it back shows it uppercase");
+        assert(fs.unmount() == Error::None);
+    } else {
+        TEST_ASSERT(false, "Mounted case-rename fixture");
+    }
+    TEST_END();
+}
+
 }  // namespace
 
 namespace fat_validation_test {
@@ -426,6 +470,7 @@ void test() {
     test_mkdir_rollback();
     test_directory_extension_rollback();
     test_nt_lowercase_names();
+    test_case_only_rename();
     TEST_SUMMARY("FAT validation");
 }
 }  // namespace fat_validation_test

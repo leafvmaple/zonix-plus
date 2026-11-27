@@ -104,7 +104,10 @@ class Console:
 
     def type(self, text):
         for character in text:
-            self.press(KEYS.get(character, character))
+            if "A" <= character <= "Z":
+                self.press("shift-" + character.lower())
+            else:
+                self.press(KEYS.get(character, character))
 
     def text(self):
         """The console output so far, without escape sequences or carriage returns."""
@@ -228,6 +231,16 @@ def run(arch):
             console.prompt("a prompt after cat")
             check(not console.running("/bin/vi"),
                   "Raw mode passes Ctrl-C to the application, which keeps running until it exits")
+
+            # mv renames inside a directory, including a change of case only.
+            console.type("mkdir /CASE\n")
+            console.prompt("a prompt after mkdir")
+            console.type("mv /CASE case\n")
+            console.prompt("a prompt after mv")
+            console.type("ls /\n")
+            console.expect("ls /\n", "the echoed ls command")
+            listing = console.prompt("a prompt after ls")
+            check("case/" in listing and "CASE/" not in listing, "mv changes the case of a directory name")
 
             # With -no-reboot, QEMU exits when the guest resets the machine.
             console.type("reboot\n")

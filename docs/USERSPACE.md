@@ -45,7 +45,7 @@ QEMU 默认只接引导盘和基础 rootfs，只有指定 `USER_DISK` 才接入�
 
 | 对象 | 构建方式 |
 | --- | --- |
-| init、shell、ls/cat/cp/mkdir/rm/sync/shutdown/reboot/ps/kill/vi/dmesg 等基础组件 | Clang 交叉编译，`USER_CC` 不改变基础组件的编译器 |
+| init、shell、ls/cat/cp/mkdir/mv/rm/sync/shutdown/reboot/ps/kill/vi/dmesg 等基础组件 | Clang 交叉编译，`USER_CC` 不改变基础组件的编译器 |
 | 普通应用 | `USER_CC=zcc`（保留默认路径）、`USER_CC=clang`，或显式指定兼容的交叉 C 编译器命令 |
 | zcc 示例 | 显式 `zcc-examples` 目标，始终通过 zcc 前端 |
 
@@ -151,6 +151,7 @@ Ctrl-C 取消整个前台命令组，包括已继承成员身份的后代，唤�
 | `cat [file...]` | 有文件操作数时依次原样输出；无参数时读 stdin。普通文件输入保持二进制字节，流式处理，不限制为 64 KiB |
 | `cp source destination` | 复制普通文件，支持覆盖和目标为目录；识别同文件并在截断前拒绝 |
 | `mkdir directory...` | 创建目录；父目录必须存在，不提供 `-p` |
+| `mv source name` | 在同一目录内给文件或目录改名，目标可以是新名字或同一目录下的路径；不能移到别的目录。只改大小写也可以，例如 `mv /VAR var` 把旧系统建成大写的 FAT 短名改回小写 |
 | `rm [-d] path...` | 默认删除文件；`-d` 也可删除空目录，不提供递归删除 |
 | `sync` | 同步已挂载文件系统及其设备缓存，失败返回非零状态 |
 | `shutdown` | 排空 I/O、同步文件与设备，再请求平台关机；失败恢复存储访问并返回 shell。已经下线的设备无法同步，不阻止关机 |

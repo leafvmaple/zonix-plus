@@ -802,8 +802,9 @@ Error FatInfo::rename(const char* relpath, const char* new_name, bool preserve_l
     FatDirEntry updated = entry;
     bool use_long_name{};
     TRY(prepare_name(parent_cluster, new_name, updated, use_long_name, short_slot));
-    if (!use_long_name && short_name_matches(entry, new_name) && source.locations.size() == 1 &&
-        !source.unsupported_long_name)
+    // Lookups ignore case, so "VAR" matches "var": only an unchanged case flag makes this a no-op.
+    if (!use_long_name && short_name_matches(entry, new_name) && updated.nt_reserved == entry.nt_reserved &&
+        source.locations.size() == 1 && !source.unsupported_long_name)
         return Error::None;
 
     ENSURE(!source.unsupported_long_name, Error::NotSupported);
