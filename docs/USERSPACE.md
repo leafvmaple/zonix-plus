@@ -331,7 +331,7 @@ make ARCH=x86 TEST=0 USER_CC=clang network-image LWIP_DIR=../lwip
 make ARCH=x86 TEST=0 qemu USER_DISK=bin/x86/network.img   QEMU_FLAGS='-netdev user,id=net0,ipv6=off,hostfwd=tcp:127.0.0.1:2323-:2323 -device virtio-net-pci,disable-legacy=on,netdev=net0'
 ```
 
-`network.img` 带有 netd、`ping`、`nc`、`netinfo`、`tcpserve`、`tcpecho` 和 `/opt/etc/services`，init 开机时在后台启动 netd。netd 用 DHCP 取得地址、网关和 DNS 服务器，取得后在控制台打印 `netd: address 10.0.2.15, DNS 10.0.2.3`；`netd -a 192.168.1.20/24 -g 192.168.1.1 -d 192.168.1.1` 使用固定配置。netd 同时最多服务 16 个 socket，另外最多 16 条连接等待接受。
+`network.img` 带有 netd、`ping`、`nc`、`netinfo`、`tcpserve`、`tcpecho` 和 `/opt/etc/services`，init 开机时在后台启动 netd。netd 用 DHCP 取得地址、网关和 DNS 服务器，取得后把 `netd: address 10.0.2.15, DNS 10.0.2.3` 写进内核日志（`dmesg netd` 查看）和服务日志；`netd -a 192.168.1.20/24 -g 192.168.1.1 -d 192.168.1.1` 使用固定配置。netd 同时最多服务 16 个 socket，另外最多 16 条连接等待接受。
 
 - `netinfo` 显示地址、掩码、网关和 DNS；`netinfo HOST` 解析一个主机名。
 - `fetch [-o FILE|-] http://HOST[:PORT]/PATH` 用 HTTP/1.1 下载文件：默认存为路径的最后一段（没有时为 `index.html`），`-o -` 输出到终端。支持 Content-Length、chunked 编码和最多 5 次重定向，30 秒收不到数据时放弃；状态不是 200 时报告服务器的回答，不写文件。暂不支持 HTTPS。
@@ -405,7 +405,7 @@ OpenSSH 9.5 起默认按 20 ms 的节拍发送按键来掩盖输入节奏，`Obs
 
 ### 开机服务
 
-init 启动 shell 之前读取应用盘上的 `/opt/etc/services`（不存在时什么也不做）。每行是一条以绝对路径开头的命令，最多 8 个参数，以 `#` 开头的行是注释，最多启动 8 个服务。服务在后台运行，继承控制台作为标准输入输出，不占用前台；退出时 init 打印 `init: service PID exited (STATUS)`，不重新启动。基础 rootfs 不提供这个文件，没有应用盘时系统照常进入 shell。
+init 启动 shell 之前读取应用盘上的 `/opt/etc/services`（不存在时什么也不做）。每行是一条以绝对路径开头的命令，最多 8 个参数，以 `#` 开头的行是注释，最多启动 8 个服务。服务在后台运行，不占用前台：标准输入继承控制台，标准输出和标准错误追加到 `/var/log/services.log`（每次开机先写一行 `---- boot ----`，开机时超过 1 MiB 则改名为 `services.old`），所以服务的提示和 sshd 的登录记录不会插进 shell 的输入行；打不开这个文件时服务仍输出到控制台。退出时 init 在控制台打印 `init: service PID exited (STATUS), see /var/log/services.log`，不重新启动。基础 rootfs 不提供这个文件，没有应用盘时系统照常进入 shell。
 
 `scripts/test_ssh_qemu.py <arch> --host-key <SSH_HOSTKEY_DIR>/ed25519.pk` 用 OpenSSH 从宿主机登录 `make ssh-image` 生成的系统，检查开机服务、DHCP 地址、两个并发会话、关闭其中一个后另一个继续工作和再次登录，并打印按键回显延迟和两个方向的传输速度。它需要 `TEST=0` 内核、`ssh-image` 和对应的登录私钥（默认 `~/.ssh/id_ed25519`）。
 

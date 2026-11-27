@@ -4,7 +4,8 @@
 Boots the installed system with the SSH application disk built by `make ssh-image`,
 then connects with OpenSSH through QEMU's user network. Checks a login, two
 concurrent sessions, closing one while the other keeps working, and logging in
-again; prints round-trip and transfer timings. Run after `make ARCH=<arch> TEST=0`
+again, and that sshd's records reach the service log rather than the console;
+prints round-trip and transfer timings. Run after `make ARCH=<arch> TEST=0`
 and `make ARCH=<arch> TEST=0 ssh-image`, passing the same key files.
 Disks are opened as snapshots. The console log stays under obj/<arch>/ssh/.
 """
@@ -24,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_console_qemu import BOOT_TIMEOUT, ROOT, Console, check  # noqa: E402
 
 GUEST_PORT = 22
+SERVICE_LOG = "/var/log/services.log"
 LOGIN_TIMEOUT = 60
 STEP_TIMEOUT = 30
 ROUND_TRIPS = 20
@@ -170,14 +172,6 @@ def measure(session):
           "an upload through the terminal reaches the file")
 
 
-def wait_for_text(console, wanted, what):
-    deadline = time.monotonic() + LOGIN_TIMEOUT
-    while wanted not in console.text():
-        if console.process.poll() is not None or time.monotonic() > deadline:
-            raise RuntimeError(f"Did not see {what} ({wanted!r}). Console ends with:\n{console.text()[-1500:]}")
-        time.sleep(0.2)
-
-
 def run(arch, image, identity, host_key):
     logs = ROOT / "obj" / arch / "ssh"
     logs.mkdir(parents=True, exist_ok=True)
@@ -191,9 +185,12 @@ def run(arch, image, identity, host_key):
             console.expect("init: started /opt/bin/tcpserve", "init starting the SSH service", BOOT_TIMEOUT)
             console.expect("Zonix shell", "the shell to start", BOOT_TIMEOUT)
             console.prompt("the first prompt")
-            # QEMU's user network hands out 10.0.2.15 over DHCP.
-            wait_for_text(console, "netd: address 10.0.2.15", "the DHCP address")
-            wait_for_text(console, f"tcpserve: listening on port {GUEST_PORT}", "the SSH listener")
+            # QEMU's user network hands out 10.0.2.15 over DHCP. Services print
+            # into their log file, not over the shell on the console.
+            console.poll_command("dmesg netd", "netd: address 10.0.2.15", "the DHCP address", LOGIN_TIMEOUT)
+            console.poll_command(f"cat {SERVICE_LOG}", f"tcpserve: listening on port {GUEST_PORT}",
+                                 "the SSH listener", LOGIN_TIMEOUT)
+            shell_started = len(console.text())
             first, elapsed = login(port, identity, known_hosts)
             sessions.append(first)
             print(f"INFO first login took {elapsed:.2f} s", flush=True)
@@ -217,6 +214,10 @@ def run(arch, image, identity, host_key):
             again, _ = login(port, identity, known_hosts)
             sessions.append(again)
             check(b"five" in again.run("echo five"), "logging in again works")
+            check("sshd:" not in console.text()[shell_started:], "sshd's log stays off the console")
+            console.poll_command(f"cat {SERVICE_LOG}", "sshd: info: auth: zonix", "sshd's login record",
+                                 STEP_TIMEOUT)
+            check(True, "sshd's log goes to the service log")
         finally:
             for session in sessions:
                 if session.process.poll() is None:

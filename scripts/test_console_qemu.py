@@ -130,6 +130,18 @@ class Console:
     def prompt(self, what):
         return self.expect(" $ ", what)
 
+    def poll_command(self, line, wanted, what, timeout):
+        """Runs `line` at the prompt until its output contains `wanted`. Leaves the console at a fresh prompt."""
+        deadline = time.monotonic() + timeout
+        while True:
+            self.type(line + "\n")
+            self.expect(line + "\n", f"the echoed command {line!r}")
+            if wanted in self.prompt(f"a prompt after {line!r}"):
+                return
+            if time.monotonic() > deadline:
+                raise RuntimeError(f"Did not see {what} ({wanted!r}) in the output of {line!r}")
+            time.sleep(1)
+
     def running(self, program):
         """Whether `ps` lists the program. Leaves the console at a fresh prompt."""
         self.type("ps\n")

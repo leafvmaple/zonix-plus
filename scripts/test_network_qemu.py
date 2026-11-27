@@ -140,7 +140,8 @@ def run(arch, image):
             console.expect("init: started /opt/bin/netd", "init starting netd", BOOT_TIMEOUT)
             console.expect("Zonix shell", "the shell to start", BOOT_TIMEOUT)
             console.prompt("the first prompt")
-            wait_for_text(console, "netd: address 10.0.2.15, DNS 10.0.2.3", "the DHCP lease")
+            console.poll_command("dmesg netd", "netd: address 10.0.2.15, DNS 10.0.2.3", "the DHCP lease",
+                                 STEP_TIMEOUT)
 
             console.type("netinfo\n")
             console.expect("address 10.0.2.15", "the interface address")
