@@ -137,7 +137,7 @@ static const TestSuite SUITES[] = {
     {"Kernel log", log_test::test},
     {"HID reports", hid_report_test::test},
     {"Bluetooth bonds", bond_store_test::test},
-    {"Display cursor", display_cursor_test::test},
+    {"Display", display_cursor_test::test},
     {"Device tree", device_tree_test::test},
     {"Shell", shell_test::test},
     {"Exec (E2E)", exec_test::test},

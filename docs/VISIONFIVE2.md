@@ -52,6 +52,8 @@ TFTP 目录里放 `bin/riscv64/kernel`（改名 `KERNEL.ELF`）和 `bin/riscv64/
 
 在 shell 里执行 `desktop` 启动，用蓝牙或 USB 键鼠操作，F12 退出。更新单个程序不必拔卡：在 U-Boot 里 `run zonix_net` 后 `tftpboot 0x50000000 <文件>`，再 `fatwrite mmc 1:3 0x50000000 bin/desktop ${filesize}`。`desktop --bench` 不读输入，自己打开 Terminal 和 Files、拖动窗口、移动指针各 120 步后退出，结果写进内核日志（`dmesg` 中的 `desktop bench:` 行，依次是项目、次数、总毫秒数、最慢一次的毫秒数），可以经串口完成整轮测量。1080p 下的一次结果：整屏重画 30 ms；打开 Terminal 440 ms、Files 590 ms 后画面稳定，期间最慢的一次重画 10 ms；拖动窗口每步约 8 ms，最慢 20 ms；指针由光标层显示，移动不重画画面。
 
+不在板子前也能看画面：经 SSH 执行 `nc -l 9000 < /dev/display`，在另一台机器上连接 9000 端口，收到 1920×1080×4 字节的 XRGB8888 像素（光标层的指针不在其中），转成图片即可。2026-11-27 用这种方式核对了三种运行模式：不启动 Desktop 时是文字控制台和 shell；`desktop` 显示菜单栏、桌面图标和 Dock，`desktop --bench` 期间 Terminal 和 Files 窗口正常绘制；经串口 Ctrl-C 终止 Desktop 后，以及 `desktop --bench` 正常退出后，控制台清屏并回到可用的 shell，没有遗留的客户端进程，之后可以再次启动 Desktop。键鼠操作（焦点切换、拖动、关闭）需要有人在板子前，这次没有核对。
+
 ## 以太网
 
 内核把 U-Boot 用来 TFTP 的那个网口（GMAC1，`0x16040000`，Synopsys DesignWare Ethernet QoS 5.20）作为 `/dev/net0` 交给 netd，用法与 QEMU 的 VirtIO 网卡相同。U-Boot 已经按板子配好了 RGMII、PHY 的时钟延迟和由 PHY 提供的发送时钟，内核只确认 GMAC1 的总线时钟和复位打开，其余沿用固件的设置；没有经过 U-Boot 网络启动时这些设置可能缺失，驱动在软件复位处超时并报告。启动时只登记设备，第一次打开 `/dev/net0`（例如启动 netd）时才复位并配置控制器，所以驱动出问题不会影响开机。

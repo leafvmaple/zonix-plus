@@ -27,6 +27,7 @@ ECHO_BYTES = 64 * 1024
 HTTP_BYTES = 256 * 1024
 # Shell redirection needs "<", which the console test does not type.
 KEYS.setdefault("<", "shift-comma")
+KEYS.setdefault(">", "shift-dot")
 STEP_TIMEOUT = 60
 
 
@@ -206,6 +207,41 @@ def run(arch, image):
                             uploaded += chunk
                     console.prompt("a prompt after sending the file back")
             check(bytes(uploaded) == http.data, "fetch saves a file byte for byte, after a redirect and a chunked page")
+
+            # nc -l saves what a host sends into a file. Its own messages go to
+            # the console, so the file holds the peer's bytes and nothing else.
+            console.type(f"nc -l {GUEST_SERVER_PORT} > /tmp/received.bin\n")
+            payload = os.urandom(ECHO_BYTES)
+            deadline = time.monotonic() + STEP_TIMEOUT
+            while True:
+                # A connection made before nc listens is refused by the guest; try again.
+                stream = socket.create_connection(("127.0.0.1", forwarded), timeout=STEP_TIMEOUT)
+                try:
+                    wait_for_text(console, "nc: connection from", "nc accepting the host", timeout=1)
+                    break
+                except RuntimeError:
+                    stream.close()
+                    if time.monotonic() > deadline:
+                        raise
+            with stream:
+                stream.sendall(payload)
+                stream.shutdown(socket.SHUT_WR)
+                while stream.recv(65536):
+                    pass
+            console.prompt("a prompt after nc received a file")
+            with socket.socket() as listener:
+                listener.bind(("127.0.0.1", 0))
+                listener.listen(1)
+                listener.settimeout(STEP_TIMEOUT)
+                console.type(f"nc 10.0.2.2 {listener.getsockname()[1]} < /tmp/received.bin\n")
+                peer, _ = listener.accept()
+                with peer:
+                    peer.settimeout(STEP_TIMEOUT)
+                    saved = bytearray()
+                    while chunk := peer.recv(65536):
+                        saved += chunk
+                console.prompt("a prompt after sending the received file back")
+            check(bytes(saved) == payload, "nc -l saves exactly the bytes it received")
 
             # TCP server: tcpserve runs tcpecho for two connections at once.
             console.type(f"tcpserve {GUEST_SERVER_PORT} /opt/bin/tcpecho\n")

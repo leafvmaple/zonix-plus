@@ -3,11 +3,13 @@
 #include "cons/cons.h"
 #include "fs/vfs.h"
 #include "fs/vfs_fs.h"
+#include "lib/string.h"
 #include "mm/mmio.h"
 #include "mm/vmm.h"
 #include "sched/sched.h"
 #include <kernel/address.h>
 #include <kernel/log.h>
+#include <sys/algorithm.hpp>
 
 extern BootInfo __kernel_boot_info;
 
@@ -117,7 +119,7 @@ public:
             cons::release_display(this);
     }
     Result<bool> read_ready() override { return cons::display_event_ready(this); }
-    Result<int> read(void*, size_t, size_t) override { return Error::NotSupported; }
+    Result<int> read(void* buffer, size_t size, size_t offset) override { return capture(buffer, size, offset); }
     Result<int> write(const void*, size_t, size_t) override { return Error::NotSupported; }
     Error stat(vfs::Stat* st) override {
         st->set(vfs::NodeType::CharDevice, 0, 0);
@@ -239,5 +241,31 @@ Error present(const Blit& blit) {
     if (row != 0)
         flush(blit.x, blit.y, blit.width, row);
     return error;
+}
+
+Result<int> capture(void* out, size_t size, size_t offset) {
+    auto fb = surface();
+    ENSURE(fb.pixels, Error::NoDevice);
+    ENSURE(out || size == 0, Error::Invalid);
+    const size_t row_bytes = static_cast<size_t>(fb.width) * sizeof(uint32_t);
+    const size_t total = row_bytes * fb.height;
+    if (offset >= total)
+        return 0;
+    size = sys::min(size, sys::min(total - offset, static_cast<size_t>(0x7FFFFFFF)));
+    auto* bytes = static_cast<uint8_t*>(out);
+    for (size_t done = 0; done < size;) {
+        const size_t at = offset + done;
+        const auto* line = reinterpret_cast<const uint32_t*>(reinterpret_cast<const uint8_t*>(fb.pixels) +
+                                                             (at / row_bytes) * fb.stride);
+        uint32_t pixel = line[(at % row_bytes) / sizeof(uint32_t)];
+        if (fb.format != FramebufferFormat::Xrgb8888)
+            pixel = ((pixel & 0xFF) << 16) | (pixel & 0xFF00) | ((pixel >> 16) & 0xFF);
+        // A read may start or end inside a pixel.
+        const size_t skip = at % sizeof(uint32_t);
+        const size_t count = sys::min(sizeof(uint32_t) - skip, size - done);
+        memcpy(bytes + done, reinterpret_cast<const uint8_t*>(&pixel) + skip, count);
+        done += count;
+    }
+    return static_cast<int>(size);
 }
 }  // namespace display

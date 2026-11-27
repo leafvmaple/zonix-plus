@@ -38,6 +38,11 @@ int init();
 Surface surface();
 Error info(DisplayInfo& out);
 Error present(const Blit& blit);
+// Reading the display device returns the screen as a file of XRGB8888 rows,
+// width * 4 bytes each, top row first; `offset` is a byte position in it.
+// Any reader may capture the screen, owner or not. A hardware cursor is not
+// part of the framebuffer and does not appear.
+Result<int> capture(void* out, size_t size, size_t offset);
 // Makes CPU writes to a rectangle of the surface visible to the display
 // controller. Every writer calls it; it costs nothing on coherent scanout.
 void flush(uint32_t x, uint32_t y, uint32_t width, uint32_t height);

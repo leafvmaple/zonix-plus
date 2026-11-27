@@ -2,10 +2,16 @@
 #include "netproto.h"
 #include "zonix_net.h"
 
-/* Connects standard input and output to a TCP connection or UDP socket. */
+/* Connects standard input and output to a TCP connection or UDP socket.
+ * Standard output carries only the peer's data, so that it can be redirected
+ * to a file; messages go to standard error. */
 
 static int fail(const char* what, int error) {
-    printf("nc: %s: %s\n", what, net_error_text(error));
+    command_text(STDERR_FD, "nc: ");
+    command_text(STDERR_FD, what);
+    command_text(STDERR_FD, ": ");
+    command_text(STDERR_FD, net_error_text(error));
+    command_text(STDERR_FD, "\n");
     return 1;
 }
 
@@ -150,7 +156,18 @@ int main(int argc, char** argv) {
             return fail("accept", stream);
         char text[16];
         net_format_ipv4(peer, text);
-        printf("nc: connection from %s:%d\n", text, peer_port);
+        char port[6];
+        int length = 0;
+        for (int rest = peer_port; length == 0 || rest > 0; rest /= 10)
+            ++length;
+        port[length] = 0;
+        for (int rest = peer_port, at = length; at > 0; rest /= 10)
+            port[--at] = (char)('0' + rest % 10);
+        command_text(STDERR_FD, "nc: connection from ");
+        command_text(STDERR_FD, text);
+        command_text(STDERR_FD, ":");
+        command_text(STDERR_FD, port);
+        command_text(STDERR_FD, "\n");
         return bridge_stream(stream);
     }
 
