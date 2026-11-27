@@ -46,6 +46,7 @@ constexpr uint32_t CMD_START = 1U << 31;
 constexpr uint32_t CMD_USE_HOLD_REG = 1U << 29;
 constexpr uint32_t CMD_UPDATE_CLOCK = 1U << 21;
 constexpr uint32_t CMD_INIT = 1U << 15;
+constexpr uint32_t CMD_STOP_ABORT = 1U << 14;
 constexpr uint32_t CMD_PRV_DAT_WAIT = 1U << 13;
 constexpr uint32_t CMD_DAT_WRITE = 1U << 10;
 constexpr uint32_t CMD_DAT_EXPECTED = 1U << 9;
@@ -83,6 +84,7 @@ constexpr uint32_t FIFO_NEW = 0x200;
 constexpr uint32_t IDENTIFY_CLOCK_HZ = 400000;
 constexpr int POLL_LIMIT = 1000000;  // Poll budget; not a wall-clock duration
 constexpr size_t BLOCK_WORDS = SdCommand::BLOCK_BYTES / sizeof(uint32_t);
+constexpr uint8_t STOP_TRANSMISSION = 12;  // CMD12, which ends a multi-block transfer
 
 }  // namespace
 
@@ -186,6 +188,7 @@ Error DwMmcHost::wait_idle() {
 
 Error DwMmcHost::move_data(SdCommand& command) {
     auto* bytes = static_cast<uint8_t*>(command.data);
+    const size_t words = command.blocks * BLOCK_WORDS;
     size_t moved = 0;
     for (int polls = 0; polls < POLL_LIMIT; polls++) {
         uint32_t pending = mmio::read32(base_, reg::RINTSTS);
@@ -196,7 +199,7 @@ Error DwMmcHost::move_data(SdCommand& command) {
         }
         uint32_t status = mmio::read32(base_, reg::STATUS);
         if (command.write) {
-            while (moved < BLOCK_WORDS && (status & STATUS_FIFO_FULL) == 0) {
+            while (moved < words && (status & STATUS_FIFO_FULL) == 0) {
                 uint32_t word{};
                 memcpy(&word, bytes + moved * sizeof(word), sizeof(word));
                 mmio::write32(base_, data_offset_, word);
@@ -205,12 +208,12 @@ Error DwMmcHost::move_data(SdCommand& command) {
             }
         } else {
             size_t available = (status >> STATUS_FIFO_COUNT_SHIFT) & STATUS_FIFO_COUNT_MASK;
-            for (; available > 0 && moved < BLOCK_WORDS; --available, ++moved) {
+            for (; available > 0 && moved < words; --available, ++moved) {
                 uint32_t word = mmio::read32(base_, data_offset_);
                 memcpy(bytes + moved * sizeof(word), &word, sizeof(word));
             }
         }
-        if (moved == BLOCK_WORDS && (pending & INT_DATA_OVER) != 0) {
+        if (moved == words && (pending & INT_DATA_OVER) != 0) {
             mmio::write32(base_, reg::RINTSTS, INT_ALL);
             return Error::None;
         }
@@ -232,6 +235,8 @@ Error DwMmcHost::execute(SdCommand& command) {
     }
     if (command.index == 0)
         flags |= CMD_INIT;  // Send the 80 initialization clocks first.
+    if (command.index == STOP_TRANSMISSION)
+        flags |= CMD_STOP_ABORT;  // Returns the data state machine to idle.
 
     TRY(wait_idle());
     mmio::write32(base_, reg::RINTSTS, INT_ALL);
@@ -240,8 +245,9 @@ Error DwMmcHost::execute(SdCommand& command) {
         mmio::write32(base_, reg::CTRL, ctrl | CTRL_FIFO_RESET);
         for (int i = 0; (mmio::read32(base_, reg::CTRL) & CTRL_FIFO_RESET) != 0; i++)
             ENSURE(i < POLL_LIMIT, Error::Timeout);
+        ENSURE(command.blocks != 0, Error::Invalid);
         mmio::write32(base_, reg::BLKSIZ, SdCommand::BLOCK_BYTES);
-        mmio::write32(base_, reg::BYTCNT, SdCommand::BLOCK_BYTES);
+        mmio::write32(base_, reg::BYTCNT, command.blocks * SdCommand::BLOCK_BYTES);
         flags |= CMD_DAT_EXPECTED | CMD_PRV_DAT_WAIT | (command.write ? CMD_DAT_WRITE : 0);
     }
     if (!command.data) {
@@ -249,10 +255,10 @@ Error DwMmcHost::execute(SdCommand& command) {
         return command.response == SdResponseType::R1b ? wait_idle() : Error::None;
     }
     {
-        // The block moves through the FIFO by polling. If the task were
+        // The blocks move through the FIFO by polling. If the task were
         // switched out meanwhile, the card would fill the FIFO and the
         // controller would end the transfer with a host timeout, so nothing
-        // may interrupt it until the block has been moved.
+        // may interrupt it until the blocks have been moved.
         intr::Guard guard;
         TRY(issue(command, flags));
         TRY(move_data(command));

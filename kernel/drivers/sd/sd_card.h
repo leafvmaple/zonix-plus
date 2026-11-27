@@ -41,6 +41,7 @@ private:
     Error read_csd();
     Error configure_bus();
     Error transfer_blocks(uint32_t start_lba, void* buf, size_t count, bool write);
+    Error transfer_run(uint32_t lba, uint8_t* data, size_t blocks, bool write);
 
     SdHost& host_;
     Mutex io_mutex_{};

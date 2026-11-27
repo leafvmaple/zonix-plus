@@ -1,4 +1,5 @@
 #include "drivers/sd/sd_card.h"
+#include <sys/algorithm.hpp>
 #include <sys/iterator.hpp>
 #include <kernel/log.h>
 #include "lib/stdio.h"
@@ -13,10 +14,12 @@ constexpr uint8_t ACMD6_SET_BUS_WIDTH = 6;
 constexpr uint8_t CMD7_SELECT = 7;
 constexpr uint8_t CMD8_SEND_IF_COND = 8;
 constexpr uint8_t CMD9_SEND_CSD = 9;
+constexpr uint8_t CMD12_STOP_TRANSMISSION = 12;
 constexpr uint8_t CMD13_SEND_STATUS = 13;
 constexpr uint8_t CMD16_SET_BLOCKLEN = 16;
 constexpr uint8_t CMD17_READ_SINGLE = 17;
 constexpr uint8_t CMD24_WRITE_SINGLE = 24;
+constexpr uint8_t CMD25_WRITE_MULTIPLE = 25;
 constexpr uint8_t ACMD41_SEND_OP_COND = 41;
 constexpr uint8_t CMD55_APP = 55;
 
@@ -35,6 +38,9 @@ constexpr uint32_t CARD_STATE_TRANSFER = 4U << 9;
 constexpr uint32_t TRANSFER_CLOCK_HZ = 25000000;  // Default-speed limit
 constexpr int OP_COND_RETRIES = 1000;
 constexpr int STATUS_POLL_LIMIT = 1000000;  // Poll budget; not a wall-clock duration
+// Blocks one multi-block write carries. A polling host holds interrupts off
+// while it moves them, so the run stays short.
+constexpr size_t MULTI_BLOCK_LIMIT = 32;
 // Card resets one request may spend on failed blocks before the card goes offline.
 constexpr int RECOVERY_ATTEMPTS = 1;
 
@@ -222,6 +228,24 @@ Error SdCard::flush_cache() {
     return Error::Timeout;
 }
 
+// A card that has to program every block before it accepts the next spends
+// most of a single-block write busy. Consecutive blocks therefore go out as
+// one multi-block write, which lets the card take them as a run.
+Error SdCard::transfer_run(uint32_t lba, uint8_t* data, size_t blocks, bool write) {
+    SdCommand cmd{};
+    cmd.index = !write ? CMD17_READ_SINGLE : blocks == 1 ? CMD24_WRITE_SINGLE : CMD25_WRITE_MULTIPLE;
+    cmd.argument = sdhc_ ? lba : lba * SdCommand::BLOCK_BYTES;
+    cmd.response = SdResponseType::R1;
+    cmd.data = data;
+    cmd.blocks = static_cast<uint32_t>(blocks);
+    cmd.write = write;
+    TRY(host_.execute(cmd));
+    if (blocks == 1)
+        return Error::None;
+    // The card keeps receiving until told to stop, then programs the last block.
+    return command(CMD12_STOP_TRANSMISSION, 0, SdResponseType::R1b);
+}
+
 Error SdCard::transfer_blocks(uint32_t start_lba, void* buf, size_t count, bool write) {
     sys::lock_guard<Mutex> guard(io_mutex_);
     ENSURE(state_ == blk::DeviceState::Ready, Error::NoDevice);
@@ -230,28 +254,19 @@ Error SdCard::transfer_blocks(uint32_t start_lba, void* buf, size_t count, bool 
     ENSURE(sdhc_ || (start_lba <= (1U << 23) && count <= (1U << 23) - start_lba), Error::Invalid);
     auto* data = static_cast<uint8_t*>(buf);
     int recoveries = RECOVERY_ATTEMPTS;
-    for (size_t i = 0; i < count; ++i) {
-        uint32_t lba = start_lba + static_cast<uint32_t>(i);
-        SdCommand cmd{};
-        cmd.index = write ? CMD24_WRITE_SINGLE : CMD17_READ_SINGLE;
-        cmd.argument = sdhc_ ? lba : lba * SdCommand::BLOCK_BYTES;
-        cmd.response = SdResponseType::R1;
-        cmd.data = data + i * SdCommand::BLOCK_BYTES;
-        cmd.write = write;
-        Error error = host_.execute(cmd);
+    for (size_t i = 0; i < count;) {
+        const size_t blocks = write ? sys::min(count - i, MULTI_BLOCK_LIMIT) : 1;
+        const uint32_t lba = start_lba + static_cast<uint32_t>(i);
+        uint8_t* run = data + i * SdCommand::BLOCK_BYTES;
+        Error error = transfer_run(lba, run, blocks, write);
         if (error != Error::None && recoveries > 0) {
             --recoveries;
             klog::warn("sd: %s: block %u %s failed (%d), resetting the card\n", name, lba, write ? "write" : "read",
                        static_cast<int>(error));
+            // The whole run is sent again: the card may have taken part of it.
             Error recovered = recover_locked();
             if (recovered == Error::None) {
-                SdCommand retry{};
-                retry.index = cmd.index;
-                retry.argument = cmd.argument;
-                retry.response = cmd.response;
-                retry.data = cmd.data;
-                retry.write = write;
-                error = host_.execute(retry);
+                error = transfer_run(lba, run, blocks, write);
             } else {
                 klog::error("sd: %s: reset failed (%d)\n", name, static_cast<int>(recovered));
             }
@@ -263,6 +278,7 @@ Error SdCard::transfer_blocks(uint32_t start_lba, void* buf, size_t count, bool 
             shutdown_locked();
             return error;
         }
+        i += blocks;
     }
     return Error::None;
 }

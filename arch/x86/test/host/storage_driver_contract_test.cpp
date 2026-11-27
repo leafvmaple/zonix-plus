@@ -47,6 +47,8 @@ public:
         int sd_command[2]{};
         uint32_t sd_data_faults{};  // Bit 0 set: the next data command fails
         bool sd_failing[2]{};       // The current command on this controller fails
+        int sd_write_commands{};    // CMD24 and CMD25 issued
+        size_t sd_words[2]{};       // Data words written since the current command
         uint32_t sd_csd{1U << 22};  // CSD bits [127:96] as the controller stores them
         uint16_t command{1};
         uint32_t bar{0x100008};
@@ -310,8 +312,14 @@ void write32(uintptr_t address, uint32_t value) {
     Fixture::touch_hardware();
     uintptr_t offset = address - KERNEL_DEVIO_BASE;
     if (Fixture::state().backend == Fixture::Backend::Sd && offset % PG_SIZE == 0x20 && StorageConcurrency::active()) {
+        // A write moves the request forward block by block as its data
+        // arrives, so a multi-block write can fail part way through.
         size_t controller = offset / PG_SIZE;
-        uint32_t lba = Fixture::state().registers[(controller * PG_SIZE + 0x08) / 4];
+        size_t word = Fixture::state().sd_words[controller]++;
+        uint32_t lba = Fixture::state().registers[(controller * PG_SIZE + 0x08) / 4] + word / 128;
+        if (word % 128 == 0) {
+            StorageConcurrency::command(controller, lba, 1);
+        }
         assert(value == StorageConcurrency::pattern(lba) * 0x01010101U);
         return;
     }
@@ -408,16 +416,21 @@ void write16(uintptr_t address, uint16_t value) {
         (address - KERNEL_DEVIO_BASE) % PG_SIZE == 0x0E) {
         size_t controller = (address - KERNEL_DEVIO_BASE) / PG_SIZE;
         int index = value >> 8;
-        bool data = index == 17 || index == 24;
+        bool write = index == 24 || index == 25;
+        bool data = index == 17 || write;
         auto& faults = HardwareFixture::state().sd_data_faults;
         HardwareFixture::state().sd_command[controller] = index;
         HardwareFixture::state().sd_failing[controller] = data && (faults & 1U) != 0;
+        HardwareFixture::state().sd_words[controller] = 0;
         if (data) {
             faults >>= 1;
         }
+        if (write) {
+            ++HardwareFixture::state().sd_write_commands;
+        }
         // A failed transfer resets and identifies the card again before the
         // request ends; only data commands move the request forward.
-        if (StorageConcurrency::active() && data) {
+        if (StorageConcurrency::active() && data && !write) {
             uint32_t lba = HardwareFixture::state().registers[(controller * PG_SIZE + 0x08) / 4];
             StorageConcurrency::command(controller, lba, 1);
         }
@@ -916,6 +929,18 @@ static void test_sd(const char* test) {
     assert(device->read(0, buffer, 1) == Error::NoDevice);
     assert(device->init(reinterpret_cast<volatile uint8_t*>(KERNEL_DEVIO_BASE), 0) == Error::None);
     assert(device->read(0, buffer, 1) == Error::None);  // Explicit reset can restore this stable object.
+
+    // Consecutive blocks are written as one multi-block command with the
+    // controller's block count set, closed by CMD12. A failed run is sent
+    // again whole after the reset.
+    uint8_t run[3 * 512]{};
+    Fixture::state().sd_write_commands = 0;
+    assert(device->write(0, run, 3) == Error::None);
+    assert(Fixture::state().sd_write_commands == 1 && Fixture::state().sd_command[0] == 12);
+    assert(Fixture::state().registers[0x04 / 4] >> 16 == 3);
+    Fixture::state().sd_data_faults = 0b1;
+    assert(device->write(0, run, 3) == Error::None && device->state() == blk::DeviceState::Ready);
+    assert(Fixture::state().sd_write_commands == 3);
 
     // A failed block resets the card, which identifies as the same card, and
     // the block is transferred again. Every request may reset the card once.

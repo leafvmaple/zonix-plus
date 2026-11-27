@@ -58,7 +58,9 @@ constexpr uint16_t CMD_CRC_EN = 0x08;
 constexpr uint16_t CMD_IDX_EN = 0x10;
 constexpr uint16_t CMD_DATA = 0x20;
 
+constexpr uint16_t XFER_BLOCK_COUNT = (1U << 1);
 constexpr uint16_t XFER_READ = (1U << 4);
+constexpr uint16_t XFER_MULTI_BLOCK = (1U << 5);
 
 constexpr int COMMAND_POLL_LIMIT = 1000000;  // Poll budget; not a wall-clock duration
 
@@ -239,9 +241,14 @@ Error SdhciHost::execute(SdCommand& command) {
         case SdResponseType::R3: flags = CMD_RESP_48; break;
     }
     if (command.data) {
+        ENSURE(command.blocks != 0 && command.blocks <= 0xFFFF, Error::Invalid);
+        uint16_t mode = command.write ? 0 : XFER_READ;
+        // The block count ends the data phase; the stop command is SdCard's.
+        if (command.blocks > 1)
+            mode |= XFER_MULTI_BLOCK | XFER_BLOCK_COUNT;
         mmio::write16(base_, reg::BLOCK_SIZE, SdCommand::BLOCK_BYTES);
-        mmio::write16(base_, reg::BLOCK_COUNT, 1);
-        mmio::write16(base_, reg::XFER_MODE, command.write ? 0 : XFER_READ);
+        mmio::write16(base_, reg::BLOCK_COUNT, static_cast<uint16_t>(command.blocks));
+        mmio::write16(base_, reg::XFER_MODE, mode);
         flags |= CMD_DATA;
     }
     TRY(send_cmd(command.index, command.argument, flags));
@@ -261,19 +268,22 @@ Error SdhciHost::execute(SdCommand& command) {
         command.reply[0] = read_response(0);
     }
     if (!command.data) {
-        return Error::None;
+        // Transfer complete reports the end of an R1b command's busy signal.
+        return command.response == SdResponseType::R1b ? wait_xfer_done() : Error::None;
     }
 
-    TRY(wait_buffer(command.write ? INT_BUF_WR_READY : INT_BUF_RD_READY));
     auto* bytes = static_cast<uint8_t*>(command.data);
-    for (size_t i = 0; i < SdCommand::BLOCK_BYTES / sizeof(uint32_t); i++) {
-        uint32_t word{};
-        if (command.write) {
-            memcpy(&word, bytes + i * sizeof(word), sizeof(word));
-            mmio::write32(base_, reg::BUF_DATA, word);
-        } else {
-            word = mmio::read32(base_, reg::BUF_DATA);
-            memcpy(bytes + i * sizeof(word), &word, sizeof(word));
+    for (uint32_t block = 0; block < command.blocks; ++block, bytes += SdCommand::BLOCK_BYTES) {
+        TRY(wait_buffer(command.write ? INT_BUF_WR_READY : INT_BUF_RD_READY));
+        for (size_t i = 0; i < SdCommand::BLOCK_BYTES / sizeof(uint32_t); i++) {
+            uint32_t word{};
+            if (command.write) {
+                memcpy(&word, bytes + i * sizeof(word), sizeof(word));
+                mmio::write32(base_, reg::BUF_DATA, word);
+            } else {
+                word = mmio::read32(base_, reg::BUF_DATA);
+                memcpy(bytes + i * sizeof(word), &word, sizeof(word));
+            }
         }
     }
     return wait_xfer_done();
